@@ -1,0 +1,21 @@
+# Weekly dependency updates (house pattern from ContentKit/SlideKit).
+#
+# package-ecosystem is `bun`, NOT `npm`: this repo only has bun.lock. The npm
+# ecosystem would bump package.json without regenerating bun.lock, so every
+# Dependabot PR would fail CI's `bun install --frozen-lockfile`. Minor/patch
+# bumps are grouped into one PR to keep review noise proportional to risk;
+# majors stay individual because they can break the bun --compile binary
+# (plan risk #5) and deserve a lone revert target.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

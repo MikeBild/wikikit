@@ -1,0 +1,8 @@
+# Byte-exact test material — fixture bodies are content-hashed (their sha256
+# is load-bearing: sources/<hash>.md stems must equal sha256(body)) and
+# foreign-bundle fixtures mirror external tooling output. Reformatting them
+# silently breaks round-trip and conformance tests.
+test/fixtures/
+
+# Vendored upstream specification — verbatim by contract, never reformatted.
+docs/okf-v0.1.md

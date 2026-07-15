@@ -1,0 +1,91 @@
+# Contributing to WikiKit
+
+Thanks for taking the time to contribute! WikiKit is a small, focused
+project — contributions of every size are welcome, from typo fixes to new
+features.
+
+## Development setup
+
+Requirements: [Bun](https://bun.sh) 1.1+ and Docker Desktop (for local
+PostgreSQL).
+
+```bash
+bun install
+bun run dev
+```
+
+`bun run dev` boots a zero-config local stack: PostgreSQL 16 in Docker
+(container `wikikit-local-postgres`, port `55442`), self-applied migrations,
+a `default` space and a one-time-printed bootstrap API key, with the API on
+`http://127.0.0.1:4060`. No `.env` file is needed — development defaults come
+from the committed `.env.defaults`. Reset all local data with
+`bun scripts/reset-local.ts`.
+
+## Running checks
+
+```bash
+bun run lint              # ESLint + Prettier
+bun run typecheck         # tsc --noEmit (strict)
+bun test                  # unit + contract tests (no external services)
+bun run test:integration  # real PostgreSQL via Docker
+bun run build:binary      # compile + self-verify dist/wikikit
+```
+
+Unit and contract tests are fully self-contained. CI runs all tiers on every
+pull request, so a green local `bun run lint && bun run typecheck && bun test`
+is enough to get started. Format your changes with `bun run format` before
+committing.
+
+## Conventions
+
+- TypeScript strict ESM on Bun — no build step in dev; Bun runs the TS
+  directly.
+- Factory-function dependency injection: `createX(config, deps)` — no classes
+  with singletons.
+- zod v4 validation at every boundary (HTTP, MCP tool input, LLM structured
+  output).
+- Explain **why** in comments, not what — design rationale belongs next to
+  the code it justifies.
+- Tables are prefixed `wk_`, API keys `wk_`, environment variables
+  `WIKIKIT_*`.
+- WikiKit is headless: no CLI commands (only the `--migrate`/`--version` ops
+  flags) and no web UI. New capabilities land as REST routes and/or MCP
+  tools over the same domain functions.
+
+## Making changes
+
+- Open an issue first for anything larger than a small fix, so we can agree
+  on the approach before you invest time.
+- Follow [Conventional Commits](https://www.conventionalcommits.org/)
+  (`feat: …`, `fix: …`, `docs: …`, `chore: …`).
+- Add or update tests for behavior changes. Route/domain behavior belongs in
+  `test/unit/`; anything touching real SQL belongs in `test/integration/`;
+  shapes external systems rely on (OpenAPI, MCP manifest, webhook payloads,
+  OKF bundles) are snapshot-tested in `test/contract/` — changing them
+  requires a deliberate snapshot commit.
+- **Interface changes start in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)** —
+  the binding contract document wins over code on interface details; change
+  it first, then the implementation.
+- If you change the HTTP API, update the `ROUTES` registry, run
+  `bun scripts/gen-openapi-doc.ts` and commit the regenerated
+  `docs/openapi.json`; keep the endpoint lists in `docs/llms.txt` and
+  `docs/llms-full.txt` in sync — the drift tests enforce all of this.
+- If you add or change a `WIKIKIT_*` environment variable, document it in
+  `docs/CONFIGURATION.md` **and** `docs/llms-full.txt` (drift-tested), and
+  update `.env.example`/`.env.defaults`.
+- If you add a migration, add ordered `.sql` files plus a journal entry under
+  `src/db/migrations/` and run `bun run gen:migrations` to regenerate the
+  embedded bundle.
+- If you change a prompt, add a **new** version constant and prompt file
+  (`synthesize.v2`, …) — prompt regression is product regression, and the
+  version is part of every row's audit trail.
+
+## Pull requests
+
+Keep pull requests focused on one change. Describe what changed and why; link
+the related issue. CI must pass before review.
+
+## Reporting bugs and requesting features
+
+Use the issue templates. For security vulnerabilities, do **not** open a
+public issue — see [SECURITY.md](SECURITY.md).

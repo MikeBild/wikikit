@@ -1,0 +1,576 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`webhook payload schema snapshots event type list is frozen 1`] = `
+[
+  "wikikit.proposal.created",
+  "wikikit.proposal.approved",
+  "wikikit.proposal.rejected",
+  "wikikit.concept.updated",
+  "wikikit.ingest.failed",
+]
+`;
+
+exports[`webhook payload schema snapshots envelope schema 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "claims_count": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            "concepts": {
+              "items": {
+                "type": "string",
+              },
+              "type": "array",
+            },
+            "contradictions_count": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            "proposal_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "source_ids": {
+              "items": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string",
+              },
+              "type": "array",
+            },
+            "space": {
+              "type": "string",
+            },
+            "title": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "proposal_id",
+            "space",
+            "title",
+            "source_ids",
+            "concepts",
+            "claims_count",
+            "contradictions_count",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.proposal.created",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "concepts": {
+              "items": {
+                "type": "string",
+              },
+              "type": "array",
+            },
+            "note": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "proposal_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "reviewer": {
+              "type": "string",
+            },
+            "space": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "proposal_id",
+            "space",
+            "reviewer",
+            "note",
+            "concepts",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.proposal.approved",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "note": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "proposal_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "reviewer": {
+              "type": "string",
+            },
+            "space": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "proposal_id",
+            "space",
+            "reviewer",
+            "note",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.proposal.rejected",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "proposal_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "rev": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            "slug": {
+              "type": "string",
+            },
+            "space": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "space",
+            "slug",
+            "rev",
+            "proposal_id",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.concept.updated",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string",
+                },
+                "message": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "code",
+                "message",
+              ],
+              "type": "object",
+            },
+            "ingest_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "space": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "ingest_id",
+            "space",
+            "error",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.ingest.failed",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
+  ],
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.proposal.created 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "claims_count": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer",
+    },
+    "concepts": {
+      "items": {
+        "type": "string",
+      },
+      "type": "array",
+    },
+    "contradictions_count": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer",
+    },
+    "proposal_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "source_ids": {
+      "items": {
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+        "type": "string",
+      },
+      "type": "array",
+    },
+    "space": {
+      "type": "string",
+    },
+    "title": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "proposal_id",
+    "space",
+    "title",
+    "source_ids",
+    "concepts",
+    "claims_count",
+    "contradictions_count",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.proposal.approved 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "concepts": {
+      "items": {
+        "type": "string",
+      },
+      "type": "array",
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "proposal_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "reviewer": {
+      "type": "string",
+    },
+    "space": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "proposal_id",
+    "space",
+    "reviewer",
+    "note",
+    "concepts",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.proposal.rejected 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "note": {
+      "anyOf": [
+        {
+          "type": "string",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "proposal_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "reviewer": {
+      "type": "string",
+    },
+    "space": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "proposal_id",
+    "space",
+    "reviewer",
+    "note",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.concept.updated 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "proposal_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "rev": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer",
+    },
+    "slug": {
+      "type": "string",
+    },
+    "space": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "space",
+    "slug",
+    "rev",
+    "proposal_id",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.ingest.failed 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+        },
+        "message": {
+          "type": "string",
+        },
+      },
+      "required": [
+        "code",
+        "message",
+      ],
+      "type": "object",
+    },
+    "ingest_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "space": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "ingest_id",
+    "space",
+    "error",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`signature contract v1,<base64(hmacSHA256(secret, id.timestamp.body))> known-answer vector 1`] = `"v1,YGC4C7TLYTyeP3u4S4mHJlj9iicjS7tFWCPJajVBVsQ="`;
+
+exports[`delivery wire contract worker POST: headers, envelope, signature 1`] = `
+[
+  "content-type",
+  "webhook-id",
+  "webhook-signature",
+  "webhook-timestamp",
+]
+`;

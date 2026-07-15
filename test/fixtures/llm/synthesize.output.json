@@ -1,0 +1,22 @@
+{
+  "title": "Open Knowledge Format",
+  "summary": "OKF is an open bundle format for portable, agent-ready knowledge.",
+  "markdown": "# Open Knowledge Format\n\nOKF (Open Knowledge Format) is a bundle format for portable knowledge published by Google in June 2026. The specification is currently a draft at version 0.1 and is not yet production-ready. See also [[knowledge-catalog]].\n",
+  "claims": [
+    {
+      "subject": "open-knowledge-format",
+      "predicate": "has_status",
+      "object": "draft-v0.1",
+      "quote": "The specification is published as draft v0.1.",
+      "confidence": 0.95
+    },
+    {
+      "subject": "open-knowledge-format",
+      "predicate": "published_by",
+      "object": "google",
+      "quote": "Google released the Open Knowledge Format",
+      "confidence": 0.9
+    }
+  ],
+  "relations": [{ "to_slug": "knowledge-catalog", "kind": "related" }]
+}

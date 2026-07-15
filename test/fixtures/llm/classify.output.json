@@ -1,0 +1,4 @@
+{
+  "affected": ["open-knowledge-format"],
+  "new": [{ "slug": "knowledge-catalog", "title": "Knowledge Catalog" }]
+}

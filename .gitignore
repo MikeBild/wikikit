@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output (single-binary compile target)
+dist/
+
+# Local environment overrides — secrets never enter the repo.
+# .env.defaults and .env.example ARE committed (dev defaults / documentation).
+.env
+*.local
+
+# Local dev stack state (Docker postgres data dir, bootstrap key cache)
+.wikikit-local/
+
+# Editor/OS noise
+.DS_Store
+
+# NOTE: src/db/migrations/embedded.ts (generated) is deliberately NOT ignored —
+# it is committed and guarded by the embedded-drift test, like ContentKit's
+# check:embedded-drift. Regenerate with `bun run gen:migrations`.

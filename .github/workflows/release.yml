@@ -1,0 +1,97 @@
+# Release pipeline (plan §11, SlideKit pattern). Cut a release by pushing a
+# version tag:
+#
+#   bun -e "..." / npm version 1.2.3   # bump package.json + create tag v1.2.3
+#   git push --follow-tags
+#
+# subkit-deploy's pull-based deploy polls GitHub releases whose tag matches
+# ^v?[0-9]+\.[0-9]+\.[0-9]+$ and downloads the wikikit-linux-x64 asset, then
+# health-gates on /ready reporting exactly that version. Everything below
+# exists to make that contract unbreakable: tag == package.json version ==
+# version compiled into the binary.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  # Fail fast on tags the deployer would misread. A pre-release tag like
+  # v1.2.3-rc1 matches the v* trigger but must never become a deployable
+  # release; a tag that disagrees with package.json would ship a binary whose
+  # /ready version can never satisfy the deploy health gate (auto-rollback
+  # loop). Rejecting here costs seconds; rejecting at deploy costs a rollback.
+  verify-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag is plain semver and matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '${TAG}' is not a release version (expected ^v?[0-9]+\\.[0-9]+\\.[0-9]+\$)"
+            exit 1
+          fi
+          PKG_VERSION="$(jq -r .version package.json)"
+          if [ "${TAG#v}" != "$PKG_VERSION" ]; then
+            echo "::error::tag '${TAG}' does not match package.json version '${PKG_VERSION}'"
+            exit 1
+          fi
+
+  # bun --compile embeds a platform-specific Bun runtime, so every target
+  # builds natively on its own runner — no cross-compilation. Asset names are
+  # part of the deploy contract (deploy.sh downloads by exact -p pattern).
+  build:
+    needs: verify-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: wikikit-linux-x64
+          - os: macos-14
+            asset: wikikit-macos-arm64
+          - os: ubuntu-24.04-arm
+            asset: wikikit-linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Last-line gate on the actual release runner: never publish a binary
+      # from a commit whose fast suites fail (integration ran on main's CI).
+      - run: bun test test/unit test/contract
+      # build-binary.sh honors OUTFILE for release naming and verifies the
+      # produced binary self-reports the package.json version — combined with
+      # verify-tag this closes the tag→binary version chain.
+      - run: bash build-binary.sh
+        env:
+          OUTFILE: dist/${{ matrix.asset }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      # SHA256SUMS covers every published binary so operators (and
+      # subkit-deploy, if it chooses) can verify downloads offline.
+      - name: Checksums
+        run: cd dist && sha256sum wikikit-* > SHA256SUMS
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+          generate_release_notes: true
+          # A missing asset must fail the release, not silently publish a
+          # partial one — the deployer downloads by exact asset name.
+          fail_on_unmatched_files: true

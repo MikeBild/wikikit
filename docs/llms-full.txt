@@ -1,0 +1,495 @@
+# WikiKit — Full Documentation for LLMs
+
+This single file contains the complete WikiKit documentation, inlined for LLM
+consumption. A concise index is in `docs/llms.txt`.
+
+WikiKit is a **headless, AI-native knowledge system for humans and agents**:
+Markdown-first knowledge in, structured and agent-ready knowledge out. Sources
+are archived verbatim, an LLM synthesizes maintained concept pages with
+verifiable claims and citations, every change passes a human review gate as a
+ChangeProposal, and the knowledge is reachable over HTTP/REST and MCP and
+exportable as Markdown or OKF (Open Knowledge Format) bundles.
+
+The guiding idea is curation over collection: WikiKit is not a dump of
+everything you ever saw, it is a maintained set of concept pages an agent can
+trust — every statement is a claim with a citation, a status and a lifecycle,
+and nothing becomes visible without review. It is the knowledge foundation
+that agents, dashboards and apps (e.g. SubKit workflows) build on top of —
+WikiKit itself ships no CLI and no web UI.
+
+- Source: https://github.com/MikeBild/wikikit
+- License: MIT
+
+---
+
+## 1. Core concept — the LLM-wiki loop
+
+```
+source (markdown | text | url)
+  ──POST /v1/spaces/{space}/ingest──▶ archive verbatim (sha256 dedup)
+  ──▶ classify (which concepts does this affect?)          [LLM, haiku]
+  ──▶ synthesize new revision + claims + citations         [LLM, sonnet]
+  ──▶ detect contradictions (same subject+predicate, different object)
+  ──▶ ONE pending ChangeProposal (staged rows, invisible to readers)
+  ──▶ human reviews the structured diff and approves/rejects over REST
+  ──▶ atomic apply: revision → current, claims → verified/disputed,
+      space epoch bump, signed webhooks
+```
+
+Key invariants:
+
+- **Sources are never mutated.** The archived `raw_content` is the provenance
+  anchor; `sha256(content)` makes re-ingesting the same document idempotent
+  (`409 already_ingested`).
+- **Proposed content is invisible by construction.** Search, concept reads and
+  exports join through `current_revision_id` and visible claim statuses —
+  staged rows cannot leak.
+- **Every LLM call is audited.** Model, prompt version, input hash and token
+  usage land in an agent-run ledger and in the `agent_meta` of every generated
+  row — revision history answers "which model wrote this, from which source?".
+- **Classification is a revisable claim, not a schema.** Relations and
+  categorizations are claims with a source, a status and a lifecycle — they
+  can be disputed and deprecated like any other statement.
+- **Approval is deliberately outside the agent palette.** Agents write into
+  the staging area (ingest/propose); promotion is a human act over REST with a
+  `knowledge:approve` key. There is no MCP approve tool.
+
+---
+
+## 2. HTTP API
+
+Base URL (self-host): `http://127.0.0.1:4060`. The live OpenAPI 3.1 document
+is generated from the route registry and served at `/openapi.json` (committed
+snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
+
+### Endpoints
+
+| Method | Path                                          | Scope             | Purpose |
+|--------|-----------------------------------------------|-------------------|---------|
+| POST   | `/v1/spaces`                                  | admin             | Create a space (workspace scope for all knowledge) |
+| GET    | `/v1/spaces/{space}`                          | knowledge:read    | Read a space (settings, epoch) |
+| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
+| GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status (queued\|running\|done\|failed) + proposal_id when done |
+| GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
+| GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
+| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
+| GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read    | Read a concept: markdown + claims + citations + relations |
+| GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines |
+| POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key) |
+| GET    | `/v1/spaces/{space}/proposals`                | knowledge:read    | List change proposals (`?status=pending`) |
+| POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal (same review gate) |
+| GET    | `/v1/proposals/{id}`                          | knowledge:read    | Structured proposal diff; `text/markdown` via Accept header |
+| POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve | Approve a pending proposal (atomic apply) |
+| POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve | Reject a pending proposal (staged rows kept for audit) |
+| GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly |
+| GET    | `/v1/spaces/{space}/export`                   | knowledge:read    | Export the space as a zip bundle (`?format=md\|okf`) |
+| POST   | `/v1/spaces/{space}/import`                   | knowledge:propose | Import a bundle (zip): sources archived, knowledge staged as ONE proposal |
+| GET    | `/v1/spaces/{space}/webhooks`                 | admin             | List webhook endpoints |
+| POST   | `/v1/spaces/{space}/webhooks`                 | admin             | Register a webhook endpoint (Standard Webhooks; secret shown once) |
+| GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin             | Delivery attempts for one endpoint (status, attempts, backoff) |
+| POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
+| GET    | `/health`                                     | public            | Liveness — `200 "ok"` while the process is up |
+| GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
+| GET    | `/metrics`                                    | public            | Prometheus metrics |
+| GET    | `/openapi.json`                               | public            | Generated OpenAPI 3.1 spec |
+| GET    | `/llms.txt`                                   | public            | Documentation index (llmstxt.org format) |
+| GET    | `/llms-full.txt`                              | public            | This file |
+
+MCP (Streamable HTTP) is mounted at POST /mcp — intentionally outside the
+REST/OpenAPI surface, behind the same auth (§7).
+
+### Conventions
+
+- **Request IDs:** every response carries a 12-hex `x-request-id` header; the
+  same id appears in error envelopes and logs.
+- **Pagination is keyset:** `?limit=&after=` (opaque cursor); responses carry
+  `next_after: string | null` (sources paginate backwards with `?before=` and
+  `next_before`).
+- **Caching:** concept lists carry `ETag: "<space-epoch>"`; the epoch bumps on
+  every approved proposal, so `If-None-Match` gives cheap 304s on any read of
+  approved knowledge.
+- **Async ingest:** `POST .../ingest` answers `202` with
+  `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
+  `done` (carries `proposal_id`) or `failed` (carries `error.code/message`).
+
+### Examples
+
+Ingest a note and poll:
+
+```bash
+curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/ingest" \
+  -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" \
+  -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note"}'
+# → 202 {"ingest_id":"...","status":"queued"}  + Location: /v1/ingests/{id}
+
+curl -s "$WIKIKIT_URL/v1/ingests/<id>" -H "Authorization: Bearer wk_..."
+# → {"ingest_id":"...","status":"done","proposal_id":"...","source_id":"...","error":null}
+```
+
+Review the diff (human-readable) and approve:
+
+```bash
+curl -s "$WIKIKIT_URL/v1/proposals/<id>" -H "Accept: text/markdown" \
+  -H "Authorization: Bearer wk_..."          # chat-readable structured diff
+
+curl -s -X POST "$WIKIKIT_URL/v1/proposals/<id>/approve" \
+  -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" \
+  -d '{"note":"source is current"}'
+```
+
+Search (LLM-free) vs. query (LLM synthesis with citations):
+
+```bash
+curl -s "$WIKIKIT_URL/v1/spaces/default/search?q=okf" -H "Authorization: Bearer wk_..."
+curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/query" \
+  -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" \
+  -d '{"question":"Is OKF production ready?"}'
+```
+
+Lint as a CI gate:
+
+```bash
+curl -s "$WIKIKIT_URL/v1/spaces/default/lint" -H "Authorization: Bearer wk_..." \
+  | jq -e '[.findings[] | select(.severity=="error")] | length == 0'
+```
+
+---
+
+## 3. Authentication & scopes
+
+API keys look like `wk_<43 chars base64url>`; the plaintext is returned exactly
+once by `POST /v1/api-keys` and stored only as an HMAC-SHA256 hash keyed with
+`WIKIKIT_KEY_PEPPER`. Send a key as `Authorization: Bearer wk_...` or
+`X-API-Key: wk_...`.
+
+Scopes:
+
+| Scope               | Grants |
+|---------------------|--------|
+| `knowledge:read`    | spaces, sources, concepts, history, search, query, proposals (read), lint, export |
+| `knowledge:propose` | ingest + ingest status, manual proposals, import |
+| `knowledge:approve` | approve/reject proposals — the review gate |
+| `admin`             | spaces (create), webhooks, api-keys; implies all knowledge scopes |
+| `*`                 | bootstrap key — everything |
+
+Keys can be **space-scoped**: a key bound to one space gets
+`403 insufficient_scope` on any other space. Two distinct failure modes:
+`401 unauthorized` = the key was not recognized (missing/revoked/wrong pepper);
+`403 insufficient_scope` = recognized key, missing scope or wrong space.
+
+In dev, when no admin key exists at boot, a bootstrap key with scope `*` is
+generated and printed **once** to stdout (pin it via
+`WIKIKIT_BOOTSTRAP_API_KEY`). Recommended production key split: a read key for
+consumers, a propose key for agents, an approve key for reviewers — never hand
+the approve scope to an autonomous agent.
+
+---
+
+## 4. Domain model
+
+| Entity | What it is |
+|--------|------------|
+| Space | Workspace scope; carries `settings` (incl. the controlled predicate vocabulary) and an `epoch` that bumps on every approved proposal |
+| Source | An archived original document (`markdown\|text\|url\|import`), verbatim + normalized markdown, `sha256` content hash = idempotency anchor |
+| Concept | A wiki page identity (slug) whose content lives in immutable revisions; `current_revision_id` points at the approved one |
+| Revision | Immutable page version: `proposed → current → superseded` (or `rejected`); carries `agent_meta` `{model, prompt_version, input_hash, usage, source_ids}` |
+| Claim | A verifiable statement `subject / predicate / object` with `confidence`, citations, and status `proposed → verified → disputed → deprecated` |
+| Citation | Claim provenance: source + verbatim quote + locator |
+| Relation | Concept link: `related \| part_of \| depends_on \| contradicts \| supersedes` |
+| Decision | A first-class recorded decision: context, decision, rationale, alternatives (the decision-log pattern; meeting sources are mined for these) |
+| ChangeProposal | The review gate: staged rows in the target tables (never a JSON diff blob) that flip atomically on approve |
+| Ingest job | Async pipeline run: `queued → running → done\|failed` |
+| Agent run | LLM audit ledger entry: kind, model, prompt_version, input_hash, usage, duration |
+
+Contradiction handling is deterministic: two claims with the same
+`(subject, predicate)` but a different `object` are flagged in the proposal;
+on approval both sides flip to `disputed` and a `contradicts` relation is
+ensured. Disputed knowledge stays visible and is reported as disputed —
+WikiKit records disagreement instead of silently overwriting it.
+
+Stale-base protection: every proposed revision remembers the revision it was
+synthesized against; approving a proposal whose base is no longer current
+fails with `409 stale_base` instead of clobbering newer knowledge.
+
+---
+
+## 5. Ingest pipeline & LLM usage
+
+```
+acquire → archive → dedup-gate → classify → synthesize (per concept)
+        → contradiction-detect → propose (one transaction) → webhook
+```
+
+- **Acquire:** markdown/text in the request body, or `{url}` (HTML is
+  normalized to Markdown; raw archived verbatim).
+- **Classify** (`WIKIKIT_MODEL_CLASSIFY`, default `claude-haiku-4-5`): one call
+  with the source + a compact concept index → which existing concepts are
+  affected, which new concepts are warranted.
+- **Synthesize** (`WIKIKIT_MODEL_SYNTHESIS`, default `claude-sonnet-5`): one
+  call per affected concept — current revision + source → new markdown,
+  summary, claims with quotes and confidences, relations. Prompts are
+  versioned (`synthesize.v1`); any prompt text change requires a new version.
+- **Answer** (`WIKIKIT_MODEL_ANSWER`, default `claude-sonnet-5`): grounded Q&A
+  for `POST .../query` — answers only from retrieved evidence, cites inline,
+  flags disputed claims, and says "not in the knowledge base" on empty
+  retrieval instead of hallucinating.
+
+`ANTHROPIC_API_KEY` is the only setting without a default. Without it, every
+LLM-free feature (search, read, history, lint, export, import, review) keeps
+working; ingest and query answer `503 llm_not_configured` with actionable
+hints. `ANTHROPIC_BASE_URL` is honored natively by the SDK (test stubs).
+
+---
+
+## 6. Error envelope
+
+Every non-2xx JSON response (and every MCP tool error) is a terminal,
+actionable envelope — never a bare string:
+
+```json
+{
+  "error": "human-readable message",
+  "code": "machine_code",
+  "request_id": "a1b2c3d4e5f6",
+  "next_best_actions": ["optional short imperative hints"]
+}
+```
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `bad_request` | 400 | request failed schema validation (zod details in `error`) |
+| `unauthorized` | 401 | missing, unknown or revoked API key |
+| `insufficient_scope` | 403 | known key, missing scope or wrong space |
+| `not_found` | 404 | resource does not exist |
+| `already_ingested` | 409 | content-hash hit; envelope carries `source_id` |
+| `proposal_not_pending` | 409 | proposal already reviewed |
+| `stale_base` | 409 | concept changed since the proposal was synthesized |
+| `body_too_large` | 413 | body exceeds `WIKIKIT_MAX_BODY_BYTES` |
+| `rate_limited` | 429 | slow down |
+| `internal_error` | 500 | unexpected failure (message never leaks internals) |
+| `llm_not_configured` | 503 | set `ANTHROPIC_API_KEY` to enable ingest/query |
+| `draining` | 503 | graceful shutdown in progress |
+
+---
+
+## 7. MCP server
+
+Streamable HTTP at `POST /mcp` (plus GET/DELETE for SSE/session close), built
+on `@modelcontextprotocol/sdk`, behind the same `wk_` key auth as REST.
+Sessions are leases: idle TTL sweep (`WIKIKIT_MCP_SESSION_TTL_MS`), hard cap
+(`WIKIKIT_MCP_MAX_SESSIONS`) with oldest-idle eviction; a different key on a
+known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC
+`-32001` so clients re-initialize cleanly. Origin headers are validated
+(DNS-rebinding guard) and `mcp-protocol-version` is checked against the SDK's
+supported versions.
+
+**Scope-gating = tool visibility**: `tools/list` returns only tools whose
+scope the key holds — a `knowledge:read` key sees only the read tools. There
+is deliberately **no approve tool**: agents stage, humans promote over REST.
+
+### Tools
+
+| Tool | Scope | Behavior | readOnly | destructive | idempotent | openWorld |
+|------|-------|----------|----------|-------------|------------|-----------|
+| `wikikit_search` | knowledge:read | Ranked FTS hits (raw evidence, no synthesis) | true | false | true | false |
+| `wikikit_read` | knowledge:read | Full concept: markdown + claims + citations + relations + rev | true | false | true | false |
+| `wikikit_sources` | knowledge:read | Provenance chain down to original sources (by concept slug or source_id) | true | false | true | false |
+| `wikikit_history` | knowledge:read | Revisions incl. agent_meta (model, prompt version) | true | false | true | false |
+| `wikikit_lint` | knowledge:read | Knowledge health findings | true | false | true | false |
+| `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | true |
+| `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
+| `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
+
+Annotation rationale (fixed): writes are `destructiveHint: true` even though
+they only stage content — an honest write is a write. `idempotentHint: true`
+on the writes because content-hash dedup (ingest) and the pending input-hash
+unique index (propose) make identical retries converge. `openWorldHint: true`
+only on `wikikit_ingest` (a `url` input fetches an external host).
+
+Connect from Claude Code / claude.ai: Streamable HTTP
+`https://<host>/mcp` + Bearer `wk_` key with scopes
+`knowledge:read,knowledge:propose`.
+
+---
+
+## 8. Webhooks (Standard Webhooks)
+
+State changes write a transactional outbox row; a delivery worker fans out to
+matching endpoints with exponential backoff (up to
+`WIKIKIT_WEBHOOK_MAX_ATTEMPTS`) and a circuit breaker
+(`WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD` consecutive failures → endpoint paused
+15 min). Endpoint secrets are `whsec_`-style, shown once at registration.
+
+Events:
+
+```
+wikikit.proposal.created    {proposal_id, space, title, source_ids, concepts, claims_count, contradictions_count}
+wikikit.proposal.approved   {proposal_id, space, reviewer, note, concepts}
+wikikit.proposal.rejected   {proposal_id, space, reviewer, note}
+wikikit.concept.updated     {space, slug, rev, proposal_id}
+wikikit.ingest.failed       {ingest_id, space, error: {code, message}}
+```
+
+Envelope: HTTP POST `application/json` with Standard Webhooks headers —
+`webhook-id` (`evt_<n>`), `webhook-timestamp` (unix seconds),
+`webhook-signature` (`v1,<base64(hmacSHA256(secret, "{id}.{timestamp}.{body}"))>`).
+Body: `{"type": "...", "timestamp": "<ISO 8601>", "data": {...}}`. Always
+verify the signature (constant-time; the header may carry several
+space-separated signatures during secret rotation). This is the standard seam
+SubKit (or n8n, or anything) reacts through — no code dependency.
+
+---
+
+## 9. Export / import (Markdown & OKF)
+
+`GET /v1/spaces/{space}/export?format=md|okf` streams a zip; identical
+knowledge always zips to identical bytes (deterministic snapshot + fixed file
+order).
+
+**Markdown tree** (`format=md`, Obsidian-friendly):
+
+```
+index.md               TOC with [[slug]] wiki links (derived, regenerated)
+log.md                 audit narrative: proposal, reviewer, model (derived)
+concepts/<slug>.md     claims + relations in YAML frontmatter, body = markdown
+decisions/<slug>.md    context/decision/rationale/alternatives in frontmatter
+sources/<hash>.md      kind/url/title in frontmatter, body = raw verbatim
+```
+
+Claims round-trip losslessly through frontmatter (see
+`examples/concept-frontmatter-reference.md`). Citations reference sources by
+content hash — ids never travel across systems.
+
+**OKF bundle** (`format=okf`): conforms to the vendored Open Knowledge Format
+v0.1 spec (`docs/okf-v0.1.md`); every manifest carries `okf_version: "0.1"`
+plus a generator stamp. WikiKit-specific structure (claims, relations) rides
+an extension block, so foreign OKF consumers still read the documents.
+
+**Import** (`POST /v1/spaces/{space}/import?format=md|okf`, body = zip):
+sources are archived directly; concepts/claims/decisions are staged as **one
+ChangeProposal** — foreign knowledge passes the same review gate as LLM
+output. Claim/decision status is re-derived by the gate on approve; review
+history does not travel.
+
+---
+
+## 10. Knowledge lint
+
+`GET /v1/spaces/{space}/lint` — LLM-free SQL checks, CI-consumable
+(`{findings: [{rule, severity, message, concept_slug?, claim_id?, details?}], counts}`):
+
+| Rule | Severity |
+|------|----------|
+| `contradictions` | error |
+| `missing-citations` | error |
+| `broken-relations` | error |
+| `stale-claims` | warn |
+| `orphan-concepts` | warn |
+| `empty-concepts` | info |
+| `unreviewed-proposals` | info |
+| `dangling-sources` | info |
+
+---
+
+## 11. Configuration (environment variables)
+
+All config is via env vars (`WIKIKIT_*` prefix; optional `.env`; committed
+`.env.defaults` supplies dev values and is **never** read when
+`NODE_ENV=production`). Precedence: process env > `.env` > `.env.defaults`.
+Invalid values fail the boot, not the request.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `HOST` | bind address | `127.0.0.1` |
+| `PORT` | HTTP listen port | `4060` |
+| `WIKIKIT_PUBLIC_URL` | public base URL (Location headers, MCP origin allowlist) | `http://127.0.0.1:4060` |
+| `DATABASE_URL` | Postgres connection string; **required in production** | dev: local Docker Postgres |
+| `WIKIKIT_KEY_PEPPER` | HMAC pepper for API-key hashes; **required in production** | dev: committed dev pepper |
+| `WIKIKIT_BOOTSTRAP_API_KEY` | pin the bootstrap admin key | (dev: generated + printed once) |
+| `ANTHROPIC_API_KEY` | enables ingest/query; the only variable with no default anywhere | (unset → 503 `llm_not_configured`) |
+| `ANTHROPIC_BASE_URL` | Anthropic API base (test stubs); honored by the SDK | (empty) |
+| `WIKIKIT_MODEL_SYNTHESIS` | synthesis model | `claude-sonnet-5` |
+| `WIKIKIT_MODEL_CLASSIFY` | classification model | `claude-haiku-4-5` |
+| `WIKIKIT_MODEL_ANSWER` | grounded-answer model | `claude-sonnet-5` |
+| `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
+| `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
+| `WIKIKIT_INGEST_CONCURRENCY` | parallel ingest workers (1–16) | `2` |
+| `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS` | per-delivery HTTP timeout | `10000` |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS` | retries before a delivery is dead | `10` |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD` | consecutive failures → endpoint paused 15 min | `5` |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` | allow private/loopback webhook targets (SSRF guard) | `true` outside production |
+| `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
+| `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
+| `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
+| `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
+| `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
+
+Zero-config principle: `./wikikit` with nothing configured boots a complete
+local stack — Docker Postgres is provisioned automatically, migrations run
+under an advisory lock, a default space is created, and a bootstrap key is
+printed once. Only `ANTHROPIC_API_KEY` has no default; without it every
+LLM-free feature still works. In production the behavior flips: no
+auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
+
+---
+
+## 12. Running & deploying
+
+- **Dev:** `bun run dev` (Bun runs TypeScript natively; no build step).
+- **Single binary:** `bun run build:binary` → `dist/wikikit` (a true
+  `bun build --compile` executable; no unpack step, no Node on the host).
+  Ops flags only — this is not a CLI product: no args starts the server,
+  `--migrate` migrates and exits, `--version` prints the version.
+- **Self-migrating boot:** every start (and `--migrate`) applies the embedded
+  SQL migrations under a Postgres advisory lock before HTTP opens; a migration
+  failure keeps `/ready` down so the deploy health gate rolls back.
+
+Lifecycle: `/health` (liveness), `/ready` (readiness — `{status, version}`;
+deploy gates match **both** fields; 503 while draining). On SIGTERM/SIGINT the
+service fails `/ready`, stops the workers, drains in-flight requests, then
+exits 0. Logs are structured JSON on stdout with request ids; API keys are
+never logged.
+
+---
+
+## 13. Product family (standards-only integration)
+
+WikiKit is one of four independent products; they communicate **only over
+standards** (OpenAPI/REST, MCP, Standard Webhooks, OKF, llms.txt) — no shared
+code, no direct dependencies:
+
+| Product | Job |
+|---------|-----|
+| ContentKit | Markdown in, multilingual static website out (publishing) |
+| SlideKit | Markdown in, one self-contained Slidev HTML deck out (rendering) |
+| SubKit | Governed, audited workflow execution for business processes |
+| WikiKit | Markdown-first knowledge in, structured and agent-ready knowledge out |
+
+Examples: SubKit imports WikiKit as a connector from `/openapi.json` or
+federates the MCP server, and reacts to `wikikit.proposal.created` webhooks
+with an approval workflow; a workflow reads an approved concept and posts a
+curated projection to ContentKit's content API; the published article is
+re-ingested by URL and becomes a citable source.
+
+---
+
+## 14. Troubleshooting
+
+- **401 unauthorized** — key missing/revoked or the server's
+  `WIKIKIT_KEY_PEPPER` changed (hashes no longer match).
+- **403 insufficient_scope** — key lacks the scope, or a space-scoped key
+  touched a foreign space.
+- **409 already_ingested** — the exact content was ingested before; the
+  envelope carries the existing `source_id`. Not an error for retries — the
+  pipeline is idempotent by design.
+- **409 stale_base on approve** — the concept changed since the proposal was
+  created; re-ingest or re-propose against the current revision.
+- **503 llm_not_configured** — set `ANTHROPIC_API_KEY`; all LLM-free routes
+  keep working meanwhile.
+- **Webhook endpoint stopped receiving** — check
+  `GET .../webhooks/{id}/deliveries`; after repeated failures the circuit
+  breaker pauses the endpoint for 15 minutes.
+- **MCP client loops on session errors** — re-initialize on JSON-RPC `-32001`;
+  sessions expire after `WIKIKIT_MCP_SESSION_TTL_MS` idle.
