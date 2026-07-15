@@ -43,6 +43,7 @@ import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
 import { readFileSync } from 'node:fs'
+import { EMBEDDED_DOCS } from './docs-embedded.ts'
 import { join } from 'node:path'
 
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
@@ -500,8 +501,11 @@ function requireSpaceAccess(deps: HttpDeps, input: HandlerInput, scope: Scope, s
   deps.auth.requireScope(input.principal!, scope, spaceId)
 }
 
-// Docs served from the repo/binary working directory. Cached after first
-// read — the files are release artifacts, not hot-reload content.
+// Docs are compile-time EMBEDDED (EMBEDDED_DOCS) so the single binary is fully
+// self-contained — no docs/ directory ships beside it. Dev prefers the on-disk
+// copy for live edits; the filesystem read fails in the compiled binary and the
+// embedded value (identical to docs/ at build time) is always used. Cached
+// after first read — release artifacts, not hot-reload content.
 const docsCache = new Map<string, string | null>()
 function readDocsFile(config: Config, name: string): string | null {
   if (!docsCache.has(name)) {
@@ -514,6 +518,8 @@ function readDocsFile(config: Config, name: string): string | null {
         // try next location
       }
     }
+    // Fallback to the embedded copy — the path the compiled binary always hits.
+    content ??= EMBEDDED_DOCS[name] ?? null
     docsCache.set(name, content)
   }
   return docsCache.get(name) ?? null
