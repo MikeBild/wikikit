@@ -607,6 +607,219 @@
         "x-required-scope": "knowledge:read"
       }
     },
+    "/v1/spaces/{space}/decisions": {
+      "get": {
+        "summary": "List decisions (active/superseded), newest first — the decision log",
+        "operationId": "listDecisions",
+        "responses": {
+          "200": {
+            "description": "Decisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zDecisionListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/decisions/{slug}": {
+      "get": {
+        "summary": "Read one decision: context, decision, rationale, rejected alternatives",
+        "operationId": "getDecision",
+        "responses": {
+          "200": {
+            "description": "Decision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "knowledge:read"
+      }
+    },
     "/v1/spaces/{space}/concepts": {
       "get": {
         "summary": "List concepts (keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match)",
@@ -2728,6 +2941,86 @@
           }
         },
         "required": ["id", "kind", "url", "title", "content_hash", "created_at", "raw_content", "markdown", "metadata"],
+        "additionalProperties": false
+      },
+      "zDecisionListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "superseded"]
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": ["slug", "title", "status", "created_at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "zDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "superseded"]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {}
+          },
+          "agent_meta": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "slug",
+          "title",
+          "status",
+          "created_at",
+          "context",
+          "decision",
+          "rationale",
+          "alternatives",
+          "agent_meta"
+        ],
         "additionalProperties": false
       },
       "zConceptListResponse": {

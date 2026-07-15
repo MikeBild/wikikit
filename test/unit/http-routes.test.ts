@@ -19,6 +19,8 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/ingests/{id}', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/sources', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources/{id}', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/decisions', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/decisions/{slug}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}/history', 'knowledge:read'],

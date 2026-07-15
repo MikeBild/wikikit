@@ -290,6 +290,47 @@ describe('http surface (integration)', () => {
     expect(source.raw_content).toBe(NOTE_MD)
   })
 
+  it('decisions: a meeting ingest stages a decision, invisible until approved, then readable', async () => {
+    const meetingMd = '# Sync\n\nWe decided to communicate between products over standard webhooks only.'
+    const ingest = await fetch(`${base}/v1/spaces/demo/ingest`, {
+      method: 'POST',
+      headers: json(writerKey),
+      body: JSON.stringify({ markdown: meetingMd, title: 'Architecture sync', source_kind: 'meeting' }),
+    })
+    expect(ingest.status).toBe(202)
+    const { ingest_id } = (await ingest.json()) as { ingest_id: string }
+    expect(await app.ingest.runOnce()).toBe(true)
+    const done = (await (await fetch(`${base}/v1/ingests/${ingest_id}`, { headers: bearer(writerKey) })).json()) as {
+      status: string
+      proposal_id: string
+    }
+    expect(done.status).toBe('done')
+
+    // Before approval the decision is staged (proposed) → not readable.
+    const beforeList = await fetch(`${base}/v1/spaces/demo/decisions`, { headers: bearer(readerKey) })
+    const before = (await beforeList.json()) as { items: { slug: string }[] }
+    expect(before.items.length).toBe(0)
+
+    await fetch(`${base}/v1/proposals/${done.proposal_id}/approve`, { method: 'POST', headers: json(approverKey) })
+
+    // After approval the decision log lists it and the detail carries the full record.
+    const list = await fetch(`${base}/v1/spaces/demo/decisions`, { headers: bearer(readerKey) })
+    const listed = (await list.json()) as { items: { slug: string; status: string }[] }
+    expect(listed.items.length).toBe(1)
+    const slug = listed.items[0]!.slug
+    expect(listed.items[0]!.status).toBe('active')
+
+    const detailRes = await fetch(`${base}/v1/spaces/demo/decisions/${slug}`, { headers: bearer(readerKey) })
+    expect(detailRes.status).toBe(200)
+    const detail = (await detailRes.json()) as { decision: string; context: string; agent_meta: { model?: string } }
+    expect(detail.decision.length).toBeGreaterThan(0)
+    expect(detail.agent_meta.model).toBe('fake') // provenance carried
+
+    // A missing slug is a clean 404.
+    const missing = await fetch(`${base}/v1/spaces/demo/decisions/does-not-exist`, { headers: bearer(readerKey) })
+    expect(missing.status).toBe(404)
+  })
+
   it('lint reports a healthy space (counts shape, CI-consumable)', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/lint`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)

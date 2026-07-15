@@ -19,7 +19,14 @@ import {
   type ToolDeps,
 } from '../../src/mcp/tools.ts'
 
-const READ_TOOLS = ['wikikit_search', 'wikikit_read', 'wikikit_sources', 'wikikit_history', 'wikikit_lint']
+const READ_TOOLS = [
+  'wikikit_search',
+  'wikikit_read',
+  'wikikit_sources',
+  'wikikit_decisions',
+  'wikikit_history',
+  'wikikit_lint',
+]
 const PROPOSE_TOOLS = ['wikikit_ingest', 'wikikit_ingest_status', 'wikikit_propose']
 
 function principal(overrides: Partial<Principal> = {}): Principal {
@@ -66,7 +73,7 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
 }
 
 describe('tool palette shape (binding contract §7.1)', () => {
-  test('exactly the eight contracted tools — and NO approve tool', () => {
+  test('exactly the nine contracted tools — and NO approve tool', () => {
     expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...READ_TOOLS, ...PROPOSE_TOOLS].sort())
     expect(TOOLS.some((tool) => tool.name.includes('approve') || tool.name.includes('reject'))).toBe(false)
   })
@@ -118,9 +125,9 @@ describe('scope-gated visibility', () => {
   })
 
   test('read+propose, admin and * each see the full palette; approve alone sees nothing', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(8)
-    expect(visibleTools(['admin'])).toHaveLength(8) // admin implies knowledge scopes (§5.2)
-    expect(visibleTools(['*'])).toHaveLength(8)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(9)
+    expect(visibleTools(['admin'])).toHaveLength(9) // admin implies knowledge scopes (§5.2)
+    expect(visibleTools(['*'])).toHaveLength(9)
     expect(visibleTools(['knowledge:approve'])).toHaveLength(0) // approval is REST-only
     expect(visibleTools([])).toHaveLength(0)
   })

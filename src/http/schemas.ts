@@ -148,6 +148,30 @@ export const zSourceResponse = zSourceSummary.extend({
 })
 
 // ---------------------------------------------------------------------------
+// Decisions (read-only; staged through proposals, activated by wk_apply_proposal)
+// ---------------------------------------------------------------------------
+
+export const zDecisionParams = zSpaceParams.extend({ slug: z.string().regex(CONCEPT_SLUG) })
+
+const zDecisionSummary = z.object({
+  slug: z.string(),
+  title: z.string(),
+  // Readers only ever see active/superseded — proposed decisions are invisible.
+  status: z.enum(['active', 'superseded']),
+  created_at: z.string(),
+})
+
+export const zDecisionListResponse = z.object({ items: z.array(zDecisionSummary) })
+
+export const zDecisionResponse = zDecisionSummary.extend({
+  context: z.string(),
+  decision: z.string(),
+  rationale: z.string(),
+  alternatives: z.array(z.unknown()),
+  agent_meta: z.record(z.string(), z.unknown()),
+})
+
+// ---------------------------------------------------------------------------
 // Concepts
 // ---------------------------------------------------------------------------
 
@@ -413,6 +437,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIdParams,
   zSpaceIdParams,
   zConceptParams,
+  zDecisionParams,
   zListQuery,
   zSearchQuery,
   zProposalListQuery,
@@ -424,6 +449,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestStatusResponse,
   zSourceListResponse,
   zSourceResponse,
+  zDecisionListResponse,
+  zDecisionResponse,
   zConceptListResponse,
   zConceptResponse,
   zConceptHistoryResponse,

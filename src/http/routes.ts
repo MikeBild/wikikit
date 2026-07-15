@@ -29,6 +29,7 @@ import {
   renderProposalMarkdown,
   type ProposalDetail,
 } from '../domain/proposals.ts'
+import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { getSource, isoString, listSources } from '../domain/sources.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
 import type { IngestPipeline } from '../ingest/pipeline.ts'
@@ -134,6 +135,24 @@ export const ROUTES: RouteDef[] = [
     handler: 'getSourceHandler',
     request: { params: 'zSpaceIdParams' },
     responses: { 200: { schema: 'zSourceResponse', type: 'application/json', desc: 'Source' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/decisions',
+    scope: 'knowledge:read',
+    summary: 'List decisions (active/superseded), newest first — the decision log',
+    handler: 'listDecisionsHandler',
+    request: { params: 'zSpaceParams', query: 'zListQuery' },
+    responses: { 200: { schema: 'zDecisionListResponse', type: 'application/json', desc: 'Decisions' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/decisions/{slug}',
+    scope: 'knowledge:read',
+    summary: 'Read one decision: context, decision, rationale, rejected alternatives',
+    handler: 'getDecisionHandler',
+    request: { params: 'zDecisionParams' },
+    responses: { 200: { schema: 'zDecisionResponse', type: 'application/json', desc: 'Decision' } },
   },
   {
     method: 'get',
@@ -559,6 +578,19 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const source = await getSource(deps.db, space.id, { id: input.params.id! })
     return { status: 200, body: source }
+  },
+
+  async listDecisionsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { limit?: number }
+    const items = await listDecisions(deps.db, space.id, { limit: query.limit })
+    return { status: 200, body: { items } }
+  },
+
+  async getDecisionHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const decision = await getDecision(deps.db, space.id, { slug: input.params.slug! })
+    return { status: 200, body: decision }
   },
 
   async listConceptsHandler(deps, input) {

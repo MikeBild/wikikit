@@ -292,6 +292,23 @@ function stubDb(): Db {
                 error: null,
               },
             ]
+          case 'wk_decisions':
+            // A missing slug (getDecision) still returns the row here — the
+            // representative case only reads the happy path; visibility rules
+            // are covered by the integration suite.
+            return [
+              {
+                slug: 'no-direct-mqtt',
+                title: 'No direct MQTT integration',
+                status: 'active',
+                context: 'Evaluated broker coupling',
+                decision: 'Communicate over standard webhooks only',
+                rationale: 'Loose coupling wins',
+                alternatives: [{ option: 'direct MQTT', reason_rejected: 'tight coupling' }],
+                agent_meta: AGENT_META,
+                created_at: NOW,
+              },
+            ]
           case 'wk_webhook_endpoints':
             return [
               {
@@ -447,6 +464,13 @@ const CASES: RouteCase[] = [
     template: '/v1/spaces/{space}/sources/{id}',
     method: 'get',
     url: `/v1/spaces/demo/sources/${SOURCE_ID}`,
+    status: 200,
+  },
+  { template: '/v1/spaces/{space}/decisions', method: 'get', url: '/v1/spaces/demo/decisions', status: 200 },
+  {
+    template: '/v1/spaces/{space}/decisions/{slug}',
+    method: 'get',
+    url: '/v1/spaces/demo/decisions/no-direct-mqtt',
     status: 200,
   },
   { template: '/v1/spaces/{space}/concepts', method: 'get', url: '/v1/spaces/demo/concepts', status: 200 },
