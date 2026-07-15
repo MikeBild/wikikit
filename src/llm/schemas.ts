@@ -24,12 +24,18 @@ export interface ClassifyInput {
   conceptIndex: ConceptIndexEntry[]
 }
 
+/** What a source IS (not its transport). Steers synthesis: 'meeting' sources
+ * are actively mined for explicit decision statements. Absent = unknown. */
+export type SourceKind = 'meeting' | 'article' | 'note'
+
 export interface SynthesizeInput {
   /** currentMarkdown === null means the concept is new (no current revision). */
   concept: { slug: string; title: string; currentMarkdown: string | null }
   source: { id: string; title: string | null; markdown: string }
   /** The space's controlled predicate vocabulary (wk_spaces.settings.predicates). */
   predicates: string[]
+  /** Optional source classification; when 'meeting', decision mining is on. */
+  sourceKind?: SourceKind
 }
 
 export interface AnswerEvidence {
@@ -85,6 +91,23 @@ export const zSynthesizeOutput = z.object({
     }),
   ),
   relations: z.array(z.object({ to_slug: zSlug, kind: zRelationKind })),
+  // Decisions the source explicitly records (decision-log pattern). Empty for
+  // most sources; a 'meeting' source is where these actually appear. Each maps
+  // 1:1 to a proposed wk_decisions row (zCreateProposalArgs.decisions shape),
+  // so a human reviews it before it becomes an active decision — an agent
+  // never writes the decision log unattended.
+  decisions: z
+    .array(
+      z.object({
+        slug: zSlug,
+        title: z.string().min(1).max(500),
+        context: z.string().min(1),
+        decision: z.string().min(1),
+        rationale: z.string(),
+        alternatives: z.array(z.string()),
+      }),
+    )
+    .default([]),
 })
 export type SynthesizeOutput = z.infer<typeof zSynthesizeOutput>
 

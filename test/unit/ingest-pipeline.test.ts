@@ -117,6 +117,7 @@ function workerRoutes(
     },
     { match: /COALESCE\(MAX\(rev\), 0\)/, rows: [{ next: 1 }] },
     { match: /INSERT INTO "public"\."wk_claims"/, rows: [{ id: 'claim-1' }] },
+    { match: /INSERT INTO wk_decisions/, rows: [{ id: 'dec-1' }] }, // meeting-source decision mining
     // Terminal flips are guarded on status='running' and RETURN the flipped
     // row — an empty result means "already terminal, keep it".
     { match: /UPDATE "public"\."wk_ingest_jobs"/, rows: [{ id: 'job-1' }] },
@@ -281,6 +282,31 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     expect(revisionInsert.values).not.toContain(CURRENT_REV_ID)
   })
 
+  test('a meeting source stages proposed decisions (decision-log path)', async () => {
+    const { db, calls } = fakeDb(workerRoutes({ jobInput: { markdown: RAW, source_kind: 'meeting' } }))
+    const llm = createFakeProvider() // default emits one decision for meeting sources
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+
+    // source_kind reaches synthesis…
+    const synthInput = llm.calls.find((call) => call.method === 'synthesize')!.input as { sourceKind?: string }
+    expect(synthInput.sourceKind).toBe('meeting')
+    // …and it is persisted on the source metadata, not guessed.
+    const sourceInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_sources"'))!
+    expect(sourceInsert.values.some((v) => String(v).includes('"source_kind":"meeting"'))).toBe(true)
+    // …and a proposed wk_decisions row is staged for review.
+    expect(calls.some((call) => call.sql.includes('INSERT INTO wk_decisions'))).toBe(true)
+  })
+
+  test('a non-meeting source stages no decisions', async () => {
+    const { db, calls } = fakeDb(workerRoutes({ jobInput: { markdown: RAW, source_kind: 'note' } }))
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.runOnce()
+    expect(calls.some((call) => call.sql.includes('INSERT INTO wk_decisions'))).toBe(false)
+    // The proposal still stages (the revision has value) — decisions are additive.
+    expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))).toBe(true)
+  })
+
   test('hallucinated affected slugs (not in the index) are dropped, not synthesized', async () => {
     const { db, calls } = fakeDb(workerRoutes())
     const llm = createFakeProvider({ classify: () => ({ affected: ['ghost'], new: [] }) })
@@ -301,6 +327,7 @@ describe('worker — happy path (new concept from a markdown source)', () => {
         markdown: '# body',
         claims: [{ subject: 'okf', predicate: 'is', object: 'unquotable', quote: '   ', confidence: 0.9 }],
         relations: [],
+        decisions: [],
       }),
     })
     const pipeline = createIngestPipeline(config, db, llm, logger)

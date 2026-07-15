@@ -1,12 +1,11 @@
 // Prompt golden tests — prompt regression = product regression.
 //
 // The snapshots pin the EXACT bytes of every system prompt and every rendered
-// user turn. A diff here means either (a) an accidental in-place edit of a
-// versioned prompt (forbidden — add a .v2 file and bump PROMPT_VERSIONS), or
-// (b) a deliberate new version, in which case the snapshot update is the
-// visible, reviewable artifact of that change. input_hash values in
-// wk_agent_runs derive from these bytes, so silent drift would also corrupt
-// dedup/audit semantics.
+// user turn, so any change to a prompt is a visible, reviewed diff here.
+// input_hash values in wk_agent_runs derive from these bytes, so silent drift
+// would also corrupt dedup/audit semantics. Once the product ships, a
+// meaningful prompt change is a new versioned file (v2) rather than an edit —
+// pre-release the prompt is edited in place and this snapshot regenerated.
 import { describe, expect, test } from 'bun:test'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
 import * as classifyV1 from '../../src/llm/prompts/classify.v1.ts'
@@ -52,6 +51,18 @@ const synthesizeInputNewConcept: SynthesizeInput = {
     markdown: 'The knowledge catalog hosts OKF bundles.',
   },
   predicates: ['is'],
+}
+// Meeting source: exercises the decision-mining branch (the render appends a
+// mining instruction only when sourceKind === 'meeting').
+const synthesizeInputMeeting: SynthesizeInput = {
+  concept: { slug: 'okf-adoption', title: 'OKF Adoption', currentMarkdown: null },
+  source: {
+    id: '3d1f8a52-0000-4000-8000-000000000003',
+    title: 'Architecture sync 2026-07-10',
+    markdown: 'We decided to adopt OKF v0.1 as the export format going forward.',
+  },
+  predicates: ['is', 'has_status'],
+  sourceKind: 'meeting',
 }
 
 const answerInput: AnswerInput = {
@@ -106,6 +117,9 @@ describe('golden snapshots', () => {
   test('synthesize.v1 render for new concept', () => {
     expect(synthesizeV1.render(synthesizeInputNewConcept)).toMatchSnapshot()
   })
+  test('synthesize.v1 render for meeting source (decision mining on)', () => {
+    expect(synthesizeV1.render(synthesizeInputMeeting)).toMatchSnapshot()
+  })
 
   test('answer.v1 system prompt', () => {
     expect(answerV1.system).toMatchSnapshot()
@@ -131,6 +145,7 @@ describe('render determinism', () => {
   test('same input renders byte-identical output', () => {
     expect(classifyV1.render(classifyInput)).toBe(classifyV1.render(classifyInput))
     expect(synthesizeV1.render(synthesizeInput)).toBe(synthesizeV1.render(synthesizeInput))
+    expect(synthesizeV1.render(synthesizeInputMeeting)).toBe(synthesizeV1.render(synthesizeInputMeeting))
     expect(answerV1.render(answerInput)).toBe(answerV1.render(answerInput))
     expect(adjudicateV1.render(adjudicateInput)).toBe(adjudicateV1.render(adjudicateInput))
   })

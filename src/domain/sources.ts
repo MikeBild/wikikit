@@ -103,6 +103,10 @@ const zCreateSourceArgs = z.object({
   title: z.string().max(500).optional(),
   raw: z.string().min(1),
   markdown: z.string().min(1),
+  // What the source IS (meeting/article/note), distinct from `kind` (its
+  // transport). Stored on metadata, not a column: it is an optional hint that
+  // steers synthesis, not an identity or index key. Absent → not recorded.
+  sourceKind: z.enum(['meeting', 'article', 'note']).optional(),
 })
 
 export type CreateSourceArgs = z.input<typeof zCreateSourceArgs>
@@ -138,6 +142,7 @@ export async function createSource(
       title: input.title ?? null,
       raw_content: input.raw,
       markdown: input.markdown,
+      metadata: JSON.stringify(input.sourceKind ? { source_kind: input.sourceKind } : {}),
     })
     return { source: toSource(row!), created: true }
   } catch (error) {

@@ -476,6 +476,7 @@ export interface SynthesizeInput {
   concept: { slug: string; title: string; currentMarkdown: string | null } // null = new concept
   source: { id: string; title: string | null; markdown: string }
   predicates: string[] // space vocabulary
+  sourceKind?: 'meeting' | 'article' | 'note' // 'meeting' turns on decision mining
 }
 export interface SynthesizeOutput {
   title: string
@@ -483,6 +484,16 @@ export interface SynthesizeOutput {
   markdown: string
   claims: { subject: string; predicate: string; object: string; quote: string; confidence: number }[]
   relations: { to_slug: string; kind: 'related' | 'part_of' | 'depends_on' | 'contradicts' | 'supersedes' }[]
+  // Explicit decisions the source records (meeting sources); each → a proposed
+  // wk_decisions row (zCreateProposalArgs.decisions shape).
+  decisions: {
+    slug: string
+    title: string
+    context: string
+    decision: string
+    rationale: string
+    alternatives: string[]
+  }[]
 }
 
 export interface AnswerEvidence {
@@ -862,6 +873,7 @@ export const zIngestRequest = z
     text: z.string().min(1).optional(),
     url: z.string().url().optional(),
     title: z.string().max(500).optional(),
+    source_kind: z.enum(['meeting', 'article', 'note']).optional(), // steers synthesis; 'meeting' → decision mining
   })
   .refine((v) => [v.markdown, v.text, v.url].filter(Boolean).length === 1, {
     message: 'exactly one of markdown|text|url is required',

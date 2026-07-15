@@ -13,8 +13,11 @@ HTTP/REST and MCP — no CLI (ops flags only), no web UI.
 2. **Classify** (one cheap LLM call) maps the source onto the existing concept
    index: which concepts are affected, which new ones are warranted.
 3. **Synthesize** (one LLM call per concept) produces a new revision —
-   markdown, summary, claims with verbatim quotes and confidences, relations.
-   Every call is recorded in the `wk_agent_runs` ledger, and
+   markdown, summary, claims with verbatim quotes and confidences, relations,
+   and — when the source is a meeting (`source_kind: "meeting"`) — the explicit
+   decisions it records, staged as proposed `wk_decisions` (the decision-log
+   pattern: an agent stages decisions, a human promotes them). Every call is
+   recorded in the `wk_agent_runs` ledger, and
    `{model, prompt_version, input_hash, usage, source_ids}` is stamped into
    the `agent_meta` of every generated row.
 4. **Contradiction detection** is deterministic: same `(subject, predicate)`,
