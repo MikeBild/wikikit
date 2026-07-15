@@ -120,7 +120,10 @@ beforeAll(async () => {
     llm: createFakeProvider(),
     logger: createLogger({ level: 'error', write: () => {} }),
   })
-  app.mountRawHandler('/mcp', async (_req, res) => {
+  // Neutral probe path for the raw-mount MECHANISM: /mcp itself is now really
+  // mounted by createApp (the composition-root wiring), so re-mounting it would
+  // collide — that collision is exactly what the double-mount test below proves.
+  app.mountRawHandler('/__raw_probe', async (_req, res) => {
     res.writeHead(200, { 'content-type': 'text/plain' })
     res.end('mcp-ok')
   })
@@ -251,11 +254,13 @@ describe('http server', () => {
     expect(body.not_in_knowledge_base).toBe(true)
   })
 
-  test('raw mount at /mcp bypasses ROUTES and OpenAPI but shares the port', async () => {
-    const res = await fetch(`${base}/mcp`, { method: 'POST' })
+  test('a raw mount bypasses ROUTES and OpenAPI but shares the port', async () => {
+    const res = await fetch(`${base}/__raw_probe`, { method: 'POST' })
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('mcp-ok')
 
+    // /mcp is a raw mount too (real, from createApp) and must never appear as a
+    // documented REST path.
     const spec = (await (await fetch(`${base}/openapi.json`)).json()) as { paths: Record<string, unknown> }
     expect(Object.keys(spec.paths).some((p) => p.startsWith('/mcp'))).toBe(false)
   })

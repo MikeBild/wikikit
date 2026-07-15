@@ -19,6 +19,7 @@ import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
 import { createAuth, type Auth } from './http/auth.ts'
 import { createSpace, type HttpDeps } from './http/routes.ts'
 import { createHttpServer, type RawHandler } from './http/server.ts'
+import { createMcpMount, toNodeRawHandler, type McpMount } from './mcp/server.ts'
 
 export interface AppDeps {
   logger: Logger
@@ -69,6 +70,15 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, state }
   const http = createHttpServer(httpDeps)
 
+  // Mount the MCP Streamable-HTTP transport at /mcp — the composition-root
+  // wiring the McpMount contract describes. Without it the binary answers
+  // `no route for POST /mcp` even though the mount itself is unit/integration
+  // tested in isolation: /mcp lives OUTSIDE the ROUTES registry (§5.2), so only
+  // this raw mount attaches it. The regression is guarded by an initialize
+  // check in test/integration/http.test.ts against the real createApp server.
+  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger })
+  http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
+
   let closed = false
   return {
     server: http.server,
@@ -86,6 +96,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       if (closed) return
       closed = true
       state.draining = true
+      mcp.stop() // stop the session sweeper + close live MCP sessions
       outbox.stop()
       await ingest.stop()
       // Bounded drain: server.close() alone waits for keep-alive sockets

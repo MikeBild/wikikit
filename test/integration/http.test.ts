@@ -338,6 +338,29 @@ describe('http surface (integration)', () => {
     expect(report.counts.error).toBe(0)
   })
 
+  // Regression guard: /mcp must be mounted by the REAL createApp composition
+  // root, not just by the isolated mount tests. A prod deploy 404'd POST /mcp
+  // because the mount wiring lived only in a docstring — this initialize check
+  // over the same server the binary runs would have caught it.
+  it('POST /mcp initialize returns a session (composition-root mount)', async () => {
+    const res = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: {
+        ...json(BOOTSTRAP),
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'it', version: '0' } },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('mcp-session-id')).toBeTruthy()
+    expect(await res.text()).toContain('protocolVersion')
+  })
+
   it('export streams a zip; import stages it as ONE proposal in another space', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/export?format=md`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)
