@@ -1,0 +1,31 @@
+{
+  // WHY: Bun runs TypeScript natively — there is no build step for dev, so the
+  // compiler is used exclusively as a type checker (noEmit). Module settings
+  // mirror Bun's runtime semantics (ESM + bundler-style resolution) so what
+  // typechecks is exactly what runs.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+
+    // Strictness: zod guards the boundaries at runtime; the compiler guards
+    // everything else. All strict-family flags on, no implicit escape hatches.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "exactOptionalPropertyTypes": false,
+
+    "skipLibCheck": true,
+    "types": ["bun"]
+  },
+  "include": ["bin", "src", "scripts", "test"],
+  "exclude": ["node_modules", "dist"]
+}

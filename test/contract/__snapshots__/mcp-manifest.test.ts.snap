@@ -1,0 +1,2162 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Restrict hits to one kind",
+          "enum": [
+            "concept",
+            "claim",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max hits (default 20)",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "q": {
+          "description": "Full-text query",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "q",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_search",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read one concept completely: markdown, verified/disputed claims with citations, relations, current revision number and agent_meta provenance.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_read",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Provenance chain down to the original sources. Pass a concept slug to list every source its visible claims cite, or a source_id to inspect one archived source.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "description": "Concept slug — lists the sources its claims cite",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "source_id": {
+          "description": "Single source id to inspect",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_sources",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Revision history of a concept including proposed/rejected revisions and their agent_meta (model, prompt_version, sources) — the audit trail of who/what wrote each version.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_lint",
+  },
+]
+`;
+
+exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+    },
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "text": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "type": "string",
+        },
+        "url": {
+          "format": "uri",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ingest_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ingest_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest_status",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_meta": {
+          "additionalProperties": {},
+          "default": {},
+          "type": "object",
+        },
+        "concepts": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "base_revision_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+              },
+              "claims": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "citations": {
+                      "default": [],
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "locator": {
+                            "default": "",
+                            "maxLength": 500,
+                            "type": "string",
+                          },
+                          "quote": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "source_id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "source_id",
+                          "quote",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "confidence": {
+                      "default": 0.5,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number",
+                    },
+                    "object": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "predicate": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "subject": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "subject",
+                    "predicate",
+                    "object",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "markdown": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "relations": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "related",
+                        "part_of",
+                        "depends_on",
+                        "contradicts",
+                        "supersedes",
+                      ],
+                      "type": "string",
+                    },
+                    "to_slug": {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "to_slug",
+                    "kind",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "summary": {
+                "default": "",
+                "maxLength": 4000,
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "markdown",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "decisions": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "default": [],
+                "items": {},
+                "type": "array",
+              },
+              "context": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "decision": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "rationale": {
+                "default": "",
+                "type": "string",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "context",
+              "decision",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string",
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "input_hash",
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_propose",
+  },
+]
+`;
+
+exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Restrict hits to one kind",
+          "enum": [
+            "concept",
+            "claim",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max hits (default 20)",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "q": {
+          "description": "Full-text query",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "q",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_search",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read one concept completely: markdown, verified/disputed claims with citations, relations, current revision number and agent_meta provenance.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_read",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Provenance chain down to the original sources. Pass a concept slug to list every source its visible claims cite, or a source_id to inspect one archived source.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "description": "Concept slug — lists the sources its claims cite",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "source_id": {
+          "description": "Single source id to inspect",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_sources",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Revision history of a concept including proposed/rejected revisions and their agent_meta (model, prompt_version, sources) — the audit trail of who/what wrote each version.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_lint",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+    },
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "text": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "type": "string",
+        },
+        "url": {
+          "format": "uri",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ingest_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ingest_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest_status",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_meta": {
+          "additionalProperties": {},
+          "default": {},
+          "type": "object",
+        },
+        "concepts": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "base_revision_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+              },
+              "claims": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "citations": {
+                      "default": [],
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "locator": {
+                            "default": "",
+                            "maxLength": 500,
+                            "type": "string",
+                          },
+                          "quote": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "source_id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "source_id",
+                          "quote",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "confidence": {
+                      "default": 0.5,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number",
+                    },
+                    "object": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "predicate": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "subject": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "subject",
+                    "predicate",
+                    "object",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "markdown": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "relations": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "related",
+                        "part_of",
+                        "depends_on",
+                        "contradicts",
+                        "supersedes",
+                      ],
+                      "type": "string",
+                    },
+                    "to_slug": {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "to_slug",
+                    "kind",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "summary": {
+                "default": "",
+                "maxLength": 4000,
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "markdown",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "decisions": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "default": [],
+                "items": {},
+                "type": "array",
+              },
+              "context": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "decision": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "rationale": {
+                "default": "",
+                "type": "string",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "context",
+              "decision",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string",
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "input_hash",
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_propose",
+  },
+]
+`;
+
+exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `[]`;
+
+exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Restrict hits to one kind",
+          "enum": [
+            "concept",
+            "claim",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max hits (default 20)",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "q": {
+          "description": "Full-text query",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "q",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_search",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read one concept completely: markdown, verified/disputed claims with citations, relations, current revision number and agent_meta provenance.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_read",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Provenance chain down to the original sources. Pass a concept slug to list every source its visible claims cite, or a source_id to inspect one archived source.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "description": "Concept slug — lists the sources its claims cite",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "source_id": {
+          "description": "Single source id to inspect",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_sources",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Revision history of a concept including proposed/rejected revisions and their agent_meta (model, prompt_version, sources) — the audit trail of who/what wrote each version.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_lint",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+    },
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "text": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "type": "string",
+        },
+        "url": {
+          "format": "uri",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ingest_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ingest_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest_status",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_meta": {
+          "additionalProperties": {},
+          "default": {},
+          "type": "object",
+        },
+        "concepts": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "base_revision_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+              },
+              "claims": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "citations": {
+                      "default": [],
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "locator": {
+                            "default": "",
+                            "maxLength": 500,
+                            "type": "string",
+                          },
+                          "quote": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "source_id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "source_id",
+                          "quote",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "confidence": {
+                      "default": 0.5,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number",
+                    },
+                    "object": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "predicate": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "subject": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "subject",
+                    "predicate",
+                    "object",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "markdown": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "relations": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "related",
+                        "part_of",
+                        "depends_on",
+                        "contradicts",
+                        "supersedes",
+                      ],
+                      "type": "string",
+                    },
+                    "to_slug": {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "to_slug",
+                    "kind",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "summary": {
+                "default": "",
+                "maxLength": 4000,
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "markdown",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "decisions": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "default": [],
+                "items": {},
+                "type": "array",
+              },
+              "context": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "decision": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "rationale": {
+                "default": "",
+                "type": "string",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "context",
+              "decision",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string",
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "input_hash",
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_propose",
+  },
+]
+`;
+
+exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Restrict hits to one kind",
+          "enum": [
+            "concept",
+            "claim",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max hits (default 20)",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "q": {
+          "description": "Full-text query",
+          "maxLength": 1000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "q",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_search",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read one concept completely: markdown, verified/disputed claims with citations, relations, current revision number and agent_meta provenance.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_read",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Provenance chain down to the original sources. Pass a concept slug to list every source its visible claims cite, or a source_id to inspect one archived source.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "description": "Concept slug — lists the sources its claims cite",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "source_id": {
+          "description": "Single source id to inspect",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_sources",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Revision history of a concept including proposed/rejected revisions and their agent_meta (model, prompt_version, sources) — the audit trail of who/what wrote each version.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_lint",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false,
+    },
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "text": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "type": "string",
+        },
+        "url": {
+          "format": "uri",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "ingest_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ingest_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_ingest_status",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_meta": {
+          "additionalProperties": {},
+          "default": {},
+          "type": "object",
+        },
+        "concepts": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "base_revision_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+              },
+              "claims": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "citations": {
+                      "default": [],
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "locator": {
+                            "default": "",
+                            "maxLength": 500,
+                            "type": "string",
+                          },
+                          "quote": {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "source_id": {
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "source_id",
+                          "quote",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "confidence": {
+                      "default": 0.5,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number",
+                    },
+                    "object": {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "predicate": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "subject": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "subject",
+                    "predicate",
+                    "object",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "markdown": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "relations": {
+                "default": [],
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "related",
+                        "part_of",
+                        "depends_on",
+                        "contradicts",
+                        "supersedes",
+                      ],
+                      "type": "string",
+                    },
+                    "to_slug": {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "to_slug",
+                    "kind",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "summary": {
+                "default": "",
+                "maxLength": 4000,
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "markdown",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "decisions": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "alternatives": {
+                "default": [],
+                "items": {},
+                "type": "array",
+              },
+              "context": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "decision": {
+                "minLength": 1,
+                "type": "string",
+              },
+              "rationale": {
+                "default": "",
+                "type": "string",
+              },
+              "slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "title": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string",
+              },
+            },
+            "required": [
+              "slug",
+              "title",
+              "context",
+              "decision",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "input_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string",
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string",
+          },
+          "type": "array",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "default": "",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "title": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "title",
+        "input_hash",
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_propose",
+  },
+]
+`;
+
+exports[`MCP manifest contract supported protocol versions (snapshot — an SDK bump shows up in review) 1`] = `
+[
+  "2024-10-07",
+  "2024-11-05",
+  "2025-03-26",
+  "2025-06-18",
+  "2025-11-25",
+]
+`;

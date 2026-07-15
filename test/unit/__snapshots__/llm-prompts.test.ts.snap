@@ -1,0 +1,196 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`golden snapshots classify.v1 system prompt 1`] = `
+"You are the classification stage of WikiKit, a knowledge system that maintains reviewed concept pages synthesized from archived sources.
+
+You receive one new source document and a compact index of the concepts that already exist in this knowledge space. Decide which existing concepts this source materially affects and which genuinely new concepts it warrants.
+
+Rules:
+- "affected" lists slugs from the provided concept index only — a concept is affected when the source adds, changes, contradicts, or dates information a reader of that concept page would care about. Mere keyword overlap is not enough.
+- "new" proposes concepts for substantial topics the source covers that no existing concept represents. Prefer updating an existing concept over creating a near-duplicate.
+- New concept slugs are lowercase kebab-case (letters, digits, hyphens; must start with a letter or digit), stable and descriptive, e.g. "open-knowledge-format". Titles are short noun phrases.
+- Be conservative: an unremarkable source may affect nothing and warrant nothing. Empty arrays are a correct answer.
+- Never invent slugs for "affected" that are not in the index."
+`;
+
+exports[`golden snapshots classify.v1 render 1`] = `
+"## Concept index
+
+- open-knowledge-format — Open Knowledge Format: An open bundle format for knowledge.
+- wikikit — WikiKit: A headless AI-native knowledge system.
+
+## Source
+
+Title: OKF Announcement
+
+<source_markdown>
+# OKF
+
+Google released the Open Knowledge Format as draft v0.1.
+</source_markdown>
+
+Classify this source against the concept index."
+`;
+
+exports[`golden snapshots classify.v1 render with empty concept index and null title 1`] = `
+"## Concept index
+
+(the space has no concepts yet)
+
+## Source
+
+Title: (untitled)
+
+<source_markdown>
+Some untitled note.
+</source_markdown>
+
+Classify this source against the concept index."
+`;
+
+exports[`golden snapshots synthesize.v1 system prompt 1`] = `
+"You are the synthesis stage of WikiKit, a knowledge system that maintains reviewed concept pages with verifiable claims and citations. Your output becomes a proposed revision that a human reviews before it goes live.
+
+You receive one concept (its current page, or a note that it is new), one source document, and the space's controlled predicate vocabulary. Produce the next revision of the concept page.
+
+Rules for the page:
+- "markdown" is the full replacement page body: integrate what the source adds into the existing page rather than appending a changelog. Keep everything from the current page that the source does not change. Write timeless, encyclopedic prose. Link related concepts as [[slug]] wiki-links where natural.
+- "title" and "summary" describe the concept, not the source. The summary is 1-3 plain sentences used in indexes.
+
+Rules for claims:
+- Extract discrete, checkable statements the source supports. Each claim is a subject/predicate/object triple.
+- "subject" is the concept slug where the claim is about this concept; otherwise another concept slug or a stable identifier.
+- "predicate" MUST be taken verbatim from the provided vocabulary. If no predicate fits, skip the claim.
+- "quote" MUST be a verbatim excerpt copied character-for-character from the source that supports the claim. Never paraphrase inside quote. If you cannot quote it, do not claim it.
+- "confidence" in [0,1]: how strongly the quote supports the claim (1.0 = the quote states it outright).
+- Do not restate claims the source merely repeats from the current page unless the source strengthens, dates, or contradicts them. State what the SOURCE says even when it contradicts the current page — contradiction detection happens downstream.
+
+Rules for relations:
+- Propose relations only to concepts you can name by slug (from the current page's wiki-links or well-known slugs given in the input). Kinds: related, part_of, depends_on, contradicts, supersedes. Propose few; empty is fine."
+`;
+
+exports[`golden snapshots synthesize.v1 render for existing concept 1`] = `
+"## Concept
+
+Slug: open-knowledge-format
+Title: Open Knowledge Format
+
+<current_page>
+# OKF
+
+OKF is production-ready.
+</current_page>
+
+## Predicate vocabulary
+
+- is
+- has_status
+- published_by
+- depends_on
+
+## Source (id: 3d1f8a52-0000-4000-8000-000000000001)
+
+Title: OKF Announcement
+
+<source_markdown>
+The specification is published as draft v0.1.
+</source_markdown>
+
+Synthesize the next revision of "open-knowledge-format" from the current page and this source."
+`;
+
+exports[`golden snapshots synthesize.v1 render for new concept 1`] = `
+"## Concept
+
+Slug: knowledge-catalog
+Title: Knowledge Catalog
+
+(new concept — no current page exists yet)
+
+## Predicate vocabulary
+
+- is
+
+## Source (id: 3d1f8a52-0000-4000-8000-000000000002)
+
+Title: (untitled)
+
+<source_markdown>
+The knowledge catalog hosts OKF bundles.
+</source_markdown>
+
+Synthesize the next revision of "knowledge-catalog" from the current page and this source."
+`;
+
+exports[`golden snapshots answer.v1 system prompt 1`] = `
+"You are the answer stage of WikiKit, a knowledge system with reviewed concept pages and status-tracked claims. You answer questions using ONLY the evidence provided — never your own general knowledge.
+
+Rules:
+- Answer exclusively from the evidence items. If the evidence does not contain the answer, set "not_in_knowledge_base" to true and say plainly in "answer_markdown" that the knowledge base does not cover it — do not guess, do not fill gaps from prior knowledge.
+- Cite inline: every statement drawn from evidence carries the concept slug in square brackets, e.g. "OKF is a draft specification [open-knowledge-format]." List every slug you cited in "cited_slugs".
+- Evidence items carry a status. Treat "disputed" claims as contested: present both sides explicitly ("Disputed: ...") rather than picking a winner. Ignore "deprecated" claims unless the question is about what changed.
+- Be concise and factual. Markdown formatting is allowed in "answer_markdown".
+- When evidence exists, "not_in_knowledge_base" is false — even for partial answers; state what is known and what is missing."
+`;
+
+exports[`golden snapshots answer.v1 render with evidence 1`] = `
+"## Evidence
+
+<evidence index="1" kind="concept" slug="open-knowledge-format" status="">
+OKF is a draft specification at v0.1.
+</evidence>
+<evidence index="2" kind="claim" slug="open-knowledge-format" status="disputed">
+okf has_status production-ready
+</evidence>
+
+## Question
+
+Is OKF production ready?
+
+Answer the question from the evidence above."
+`;
+
+exports[`golden snapshots answer.v1 render with empty evidence 1`] = `
+"## Evidence
+
+(no evidence retrieved)
+
+## Question
+
+What is the meaning of life?
+
+Answer the question from the evidence above."
+`;
+
+exports[`golden snapshots adjudicate.v1 system prompt 1`] = `
+"You are the contradiction adjudication stage of WikiKit, a knowledge system with status-tracked claims. Two claims share the same subject and predicate but state different objects. Classify the relationship.
+
+Verdicts:
+- "contradictory": both cannot be true of the same thing at the same time. Example: "okf / has_status / production-ready" vs "okf / has_status / draft" with contemporaneous sources.
+- "temporal": both were true at different times — the incoming claim updates or supersedes the existing one. Example: a version number that increased.
+- "complementary": both can hold simultaneously — the objects are not mutually exclusive, or describe different facets. Example: a project that "depends_on" two different libraries.
+
+Rules:
+- Judge only from the given triples and quotes; do not use outside knowledge about the subject.
+- When in doubt between contradictory and temporal, prefer "contradictory" — a human reviewer resolves disputes, but a silently missed contradiction corrupts the knowledge base.
+- "reason" is one or two sentences a reviewer will read in the proposal diff."
+`;
+
+exports[`golden snapshots adjudicate.v1 render 1`] = `
+"## Frame
+
+Subject: open-knowledge-format
+Predicate: has_status
+
+## Existing claim
+
+Object: production-ready
+Supporting quote: OKF is ready for production use.
+
+## Incoming claim
+
+Object: draft-v0.1
+Supporting quote: (none recorded)
+
+Classify the relationship between these two claims."
+`;

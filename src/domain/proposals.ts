@@ -1,0 +1,750 @@
+// wk_change_proposals — the review gate (CONTRACTS §1.9, §4, §9.2).
+//
+// The central pattern (analog of ck_activate_release): a proposal's CONTENT is
+// real rows in the target tables with status='proposed' + proposal_id — never
+// a JSON diff blob. createProposal is the ONLY staging write, used identically
+// by ingest, import and manual POST .../proposals. Approve/reject are thin
+// wrappers around the whitelisted SQL functions — TypeScript never flips a
+// knowledge-row status itself, so the atomicity/locking discipline lives in
+// exactly one place (the migration). The single sanctioned exception is the
+// §9.2 stale_base handling: apply raises, the SQL has rolled back, and the
+// CALLER marks the proposal 'failed' (see approveProposal).
+//
+// Idempotency: input_hash (sha256 over ordered source hashes + prompt
+// version) + the partial unique index on (space_id, input_hash) WHERE
+// status='pending' make retried ingests converge on the SAME pending proposal
+// instead of stacking review work.
+import { z } from 'zod'
+import type { Db } from '../db/postgres.ts'
+import { findContradictions, zClaimTriple, type ClaimStatus, type ClaimTriple } from './claims.ts'
+import { ConflictError, NotFoundError, ValidationError } from './errors.ts'
+import { RELATION_KINDS, type RelationKind } from './relations.ts'
+import { clampLimit, isoString, sha256Hex } from './sources.ts'
+
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed'
+
+export interface ProposalSummary {
+  id: string
+  status: ProposalStatus
+  title: string
+  summary: string
+  created_at: string
+  reviewer: string | null
+  reviewed_at: string | null
+}
+
+/** Per-concept structured diff — the shape of zProposalDetailResponse.concepts. */
+export interface ConceptDiff {
+  slug: string
+  is_new: boolean
+  old_markdown: string | null
+  new_markdown: string
+  claims_added: ClaimTriple[]
+  claims_disputed: ClaimTriple[]
+  claims_deprecated: ClaimTriple[]
+  relations_added: { to_slug: string; kind: string }[]
+}
+
+export interface ProposalDetail {
+  id: string
+  /** Space slug — what the wire shape carries. */
+  space: string
+  /** Space id — the transport enforces key/space match on this (⚠ global-id lookup). */
+  space_id: string
+  status: ProposalStatus
+  title: string
+  summary: string
+  created_at: string
+  reviewer: string | null
+  review_note: string | null
+  reviewed_at: string | null
+  source_ids: string[]
+  agent_meta: Record<string, unknown>
+  concepts: ConceptDiff[]
+}
+
+export interface ApplyResult {
+  proposal_id: string
+  status: 'approved'
+  concepts: string[]
+  claims_verified: number
+  claims_disputed: number
+}
+
+export interface RejectResult {
+  proposal_id: string
+  status: 'rejected'
+}
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,126}$/
+
+/**
+ * The staging-write schema, exported so HTTP (zCreateProposalRequest) and the
+ * wikikit_propose MCP tool validate the SAME shape (zod-first, one source of
+ * truth). agent_meta is required by contract — 'manual' rows carry
+ * {model:'manual', prompt_version:'manual'} (§1.14).
+ */
+export const zCreateProposalArgs = z
+  .object({
+    title: z.string().min(1).max(500),
+    summary: z.string().max(4000).default(''),
+    input_hash: z.string().regex(/^[0-9a-f]{64}$/, 'input_hash must be a sha256 hex digest'),
+    source_ids: z.array(z.uuid()).default([]),
+    agent_meta: z.record(z.string(), z.unknown()).default({}),
+    concepts: z
+      .array(
+        z.object({
+          slug: z.string().regex(SLUG_PATTERN),
+          title: z.string().min(1).max(500),
+          summary: z.string().max(4000).default(''),
+          markdown: z.string().min(1),
+          /**
+           * The revision this content was SYNTHESIZED against (stale-base
+           * anchor, §1.9): null = explicitly "written against no revision"
+           * (new concept), absent = fall back to the concept's current
+           * pointer at staging time (manual proposals, where authoring and
+           * staging are the same moment). The ingest pipeline passes the id
+           * it actually read before its LLM calls — capturing the pointer at
+           * staging time instead would let a concurrent approval slip inside
+           * the synthesis window and defeat the very check the anchor exists
+           * for (lost-update TOCTOU).
+           */
+          base_revision_id: z.uuid().nullable().optional(),
+          claims: z
+            .array(
+              zClaimTriple.extend({
+                confidence: z.number().min(0).max(1).default(0.5),
+                citations: z
+                  .array(
+                    z.object({
+                      source_id: z.uuid(),
+                      quote: z.string().min(1),
+                      locator: z.string().max(500).default(''),
+                    }),
+                  )
+                  .default([]),
+              }),
+            )
+            .default([]),
+          relations: z
+            .array(z.object({ to_slug: z.string().regex(SLUG_PATTERN), kind: z.enum(RELATION_KINDS) }))
+            .default([]),
+        }),
+      )
+      .default([]),
+    decisions: z
+      .array(
+        z.object({
+          slug: z.string().regex(SLUG_PATTERN),
+          title: z.string().min(1).max(500),
+          context: z.string().min(1),
+          decision: z.string().min(1),
+          rationale: z.string().default(''),
+          alternatives: z.array(z.unknown()).default([]),
+        }),
+      )
+      .default([]),
+  })
+  .refine((value) => value.concepts.length > 0 || value.decisions.length > 0, {
+    message: 'a proposal must stage at least one concept or decision',
+  })
+  // Duplicate slugs would stage two proposed revisions (rev N and N+1) for
+  // one concept; on approval BOTH flip to 'current' and the concept pointer
+  // lands on an arbitrary one — permanently breaking the one-current-revision
+  // invariant. The import path dedups first-wins before calling; the boundary
+  // schema must refuse what import has to work around.
+  .refine((value) => new Set(value.concepts.map((concept) => concept.slug)).size === value.concepts.length, {
+    message: 'concepts[].slug must be unique within a proposal',
+  })
+  .refine((value) => new Set(value.decisions.map((decision) => decision.slug)).size === value.decisions.length, {
+    message: 'decisions[].slug must be unique within a proposal',
+  })
+
+export type CreateProposalArgs = z.input<typeof zCreateProposalArgs>
+
+/**
+ * The dedup anchor (§1.9): sha256 over the ORDERED source hashes plus the
+ * prompt version. Sorted so hash equality is set equality — the same sources
+ * ingested in a different order are the same knowledge.
+ */
+export function computeInputHash(sourceHashes: string[], promptVersion: string): string {
+  return sha256Hex([...sourceHashes].sort().join('\n') + '\n' + promptVersion)
+}
+
+export async function listProposals(
+  db: Db,
+  spaceId: string,
+  args: { status?: ProposalStatus; limit?: number } = {},
+): Promise<ProposalSummary[]> {
+  const limit = clampLimit(args.limit, 50, 200)
+  const rows = await db.select<{
+    id: string
+    status: ProposalStatus
+    title: string
+    summary: string
+    created_at: Date | string
+    reviewer: string | null
+    reviewed_at: Date | string | null
+  }>('wk_change_proposals', {
+    space_id: `eq.${spaceId}`,
+    ...(args.status ? { status: `eq.${args.status}` } : {}),
+    order: 'created_at.desc',
+    limit,
+  })
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    title: row.title,
+    summary: row.summary,
+    created_at: isoString(row.created_at),
+    reviewer: row.reviewer,
+    reviewed_at: row.reviewed_at === null ? null : isoString(row.reviewed_at),
+  }))
+}
+
+// Get-or-create a concept identity row and LOCK it. The lock serializes rev
+// numbering: two concurrent proposals touching the same concept compute
+// max(rev)+1 one after the other instead of colliding on unique(concept_id,
+// rev). Creation races resolve through ON CONFLICT DO NOTHING + re-select
+// (the second tx blocks on the unique index until the first commits).
+async function lockOrCreateConcept(
+  tx: Db,
+  spaceId: string,
+  slug: string,
+  title: string,
+): Promise<{ id: string; current_revision_id: string | null }> {
+  type ConceptRow = { id: string; current_revision_id: string | null }
+  const locked = await tx.query<ConceptRow>(
+    'SELECT id, current_revision_id FROM wk_concepts WHERE space_id = $1 AND slug = $2 FOR UPDATE',
+    [spaceId, slug],
+  )
+  if (locked.rows[0]) return locked.rows[0]
+  const inserted = await tx.query<ConceptRow>(
+    `INSERT INTO wk_concepts (space_id, slug, title)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (space_id, slug) DO NOTHING
+     RETURNING id, current_revision_id`,
+    [spaceId, slug, title],
+  )
+  if (inserted.rows[0]) return inserted.rows[0]
+  const retried = await tx.query<ConceptRow>(
+    'SELECT id, current_revision_id FROM wk_concepts WHERE space_id = $1 AND slug = $2 FOR UPDATE',
+    [spaceId, slug],
+  )
+  if (!retried.rows[0]) throw new Error(`concept ${slug} vanished during staging`)
+  return retried.rows[0]
+}
+
+/**
+ * Stage a ChangeProposal: proposal row + proposed revisions/claims/citations/
+ * relations/decisions + the proposal.created outbox event — ONE transaction
+ * (§4 CreateProposalArgs contract). Returns the existing pending proposal on
+ * an input_hash hit (idempotent convergence, no duplicate review work).
+ */
+export async function createProposal(
+  db: Db,
+  spaceId: string,
+  args: CreateProposalArgs,
+): Promise<{ proposal_id: string; status: 'pending' }> {
+  const input = zCreateProposalArgs.parse(args)
+
+  try {
+    return await db.tx(async (tx) => {
+      const [space] = await tx.select<{ slug: string }>('wk_spaces', { id: `eq.${spaceId}`, limit: 1 })
+      if (!space) throw new NotFoundError('space not found')
+
+      // Dedup fast path INSIDE the tx: the partial unique index is still the
+      // authority (the catch below handles the race), this just avoids
+      // staging rows that would be rolled back.
+      const [pending] = await tx.select<{ id: string }>('wk_change_proposals', {
+        space_id: `eq.${spaceId}`,
+        input_hash: `eq.${input.input_hash}`,
+        status: 'eq.pending',
+        limit: 1,
+      })
+      if (pending) return { proposal_id: pending.id, status: 'pending' as const }
+
+      // Space-ownership check on every referenced source id (proposal-level
+      // source_ids AND per-citation source_ids): 'no wk_ row access without
+      // space_id' applies to the row a citation POINTS AT too. Without this a
+      // knowledge:propose key could pin citations to another tenant's sources
+      // (cross-tenant provenance corruption — and wk_citations.source_id is
+      // ON DELETE RESTRICT, so a foreign citation would even block deleting
+      // the other tenant's space). A nonexistent id becomes a 400 here
+      // instead of a raw 23503 → 500 at the FK.
+      const referencedSourceIds = [
+        ...new Set([
+          ...input.source_ids,
+          ...input.concepts.flatMap((entry) =>
+            entry.claims.flatMap((claim) => claim.citations.map((citation) => citation.source_id)),
+          ),
+        ]),
+      ]
+      if (referencedSourceIds.length) {
+        const known = await tx.query<{ id: string }>(
+          'SELECT id FROM wk_sources WHERE space_id = $1 AND id = ANY($2::uuid[])',
+          [spaceId, referencedSourceIds],
+        )
+        const visible = new Set(known.rows.map((row) => row.id))
+        const missing = referencedSourceIds.filter((id) => !visible.has(id))
+        if (missing.length) {
+          throw new ValidationError(`source id(s) not found in this space: ${missing.join(', ')}`)
+        }
+      }
+
+      const [proposal] = await tx.insert<{ id: string }>('wk_change_proposals', {
+        space_id: spaceId,
+        title: input.title,
+        summary: input.summary,
+        input_hash: input.input_hash,
+        source_ids: input.source_ids,
+        agent_meta: JSON.stringify(input.agent_meta),
+      })
+      const proposalId = proposal!.id
+
+      const allTriples: ClaimTriple[] = []
+      const conceptSlugs: string[] = []
+      let claimsCount = 0
+
+      // Lock EVERY involved concept (staged concepts + relation targets) in
+      // one sorted pass BEFORE staging: two concurrent proposals over
+      // overlapping concept sets then acquire their FOR UPDATE locks in the
+      // same order and serialize instead of deadlocking (40P01 → 500).
+      // Residual: wk_apply_proposal locks in id order while this locks in
+      // slug order, so a create racing an approve can still theoretically
+      // deadlock — Postgres resolves it by aborting one, and the staging
+      // retry converges via the input_hash dedup.
+      const titleBySlug = new Map<string, string>()
+      for (const entry of input.concepts) {
+        for (const relation of entry.relations) {
+          if (relation.to_slug !== entry.slug && !titleBySlug.has(relation.to_slug)) {
+            titleBySlug.set(relation.to_slug, relation.to_slug)
+          }
+        }
+      }
+      for (const entry of input.concepts) titleBySlug.set(entry.slug, entry.title)
+      const conceptBySlug = new Map<string, { id: string; current_revision_id: string | null }>()
+      for (const slug of [...titleBySlug.keys()].sort()) {
+        conceptBySlug.set(slug, await lockOrCreateConcept(tx, spaceId, slug, titleBySlug.get(slug)!))
+      }
+
+      for (const entry of input.concepts) {
+        conceptSlugs.push(entry.slug)
+        const concept = conceptBySlug.get(entry.slug)!
+
+        // Safe under the concept row lock taken above — no two transactions
+        // compute the same next rev for one concept.
+        const nextRev = await tx.query<{ next: number }>(
+          'SELECT COALESCE(MAX(rev), 0) + 1 AS next FROM wk_concept_revisions WHERE concept_id = $1',
+          [concept.id],
+        )
+        await tx.insert(
+          'wk_concept_revisions',
+          {
+            space_id: spaceId,
+            concept_id: concept.id,
+            rev: Number(nextRev.rows[0]!.next),
+            status: 'proposed',
+            title: entry.title,
+            summary: entry.summary,
+            markdown: entry.markdown,
+            // The stale-base anchor: what this revision was synthesized
+            // against. Callers that synthesized EARLIER (the ingest pipeline,
+            // whose LLM calls take seconds-to-minutes) pass the id they
+            // actually read; the staging-time pointer is only the fallback
+            // for manual proposals where authoring and staging coincide.
+            // wk_apply_proposal fails the approve if the pointer moved.
+            base_revision_id:
+              entry.base_revision_id !== undefined ? entry.base_revision_id : concept.current_revision_id,
+            agent_meta: JSON.stringify(input.agent_meta),
+            proposal_id: proposalId,
+          },
+          { returning: false },
+        )
+
+        for (const claim of entry.claims) {
+          claimsCount += 1
+          allTriples.push({ subject: claim.subject, predicate: claim.predicate, object: claim.object })
+          const [claimRow] = await tx.insert<{ id: string }>('wk_claims', {
+            space_id: spaceId,
+            concept_id: concept.id,
+            subject: claim.subject,
+            predicate: claim.predicate,
+            object: claim.object,
+            status: 'proposed',
+            confidence: claim.confidence,
+            agent_meta: JSON.stringify(input.agent_meta),
+            proposal_id: proposalId,
+          })
+          if (claim.citations.length) {
+            await tx.insert(
+              'wk_citations',
+              claim.citations.map((citation) => ({
+                space_id: spaceId,
+                claim_id: claimRow!.id,
+                source_id: citation.source_id,
+                quote: citation.quote,
+                locator: citation.locator,
+              })),
+              { returning: false },
+            )
+          }
+        }
+
+        for (const relation of entry.relations) {
+          if (relation.to_slug === entry.slug) continue // self-relations are noise, drop silently
+          const target = conceptBySlug.get(relation.to_slug)!
+          // Upsert with RE-ADOPTION: an already-ACTIVE relation keeps its
+          // status and provenance (re-proposing it is a no-op, never a
+          // downgrade back to 'proposed'), but a row left 'removed' by a
+          // rejection — or 'proposed' under a different proposal — is taken
+          // over by THIS proposal. Plain DO NOTHING would poison the tuple
+          // forever: wk_apply_proposal's flip only activates rows whose
+          // proposal_id matches, so a once-rejected relation could never
+          // become active again.
+          await tx.query(
+            `INSERT INTO wk_relations (space_id, from_concept_id, to_concept_id, kind, status, proposal_id)
+             VALUES ($1, $2, $3, $4, 'proposed', $5)
+             ON CONFLICT (space_id, from_concept_id, to_concept_id, kind)
+             DO UPDATE SET status = 'proposed', proposal_id = EXCLUDED.proposal_id
+             WHERE wk_relations.status <> 'active'`,
+            [spaceId, concept.id, target.id, relation.kind, proposalId],
+          )
+        }
+      }
+
+      for (const decision of input.decisions) {
+        // Same re-adoption rationale as relations: unique(space_id, slug) —
+        // an ACTIVE decision keeps its row untouched, but a proposed (e.g.
+        // pinned to a rejected proposal) or superseded one is re-staged with
+        // this proposal's content and ownership, so approval can activate it.
+        await tx.query(
+          `INSERT INTO wk_decisions (space_id, slug, title, context, decision, rationale, alternatives, status, proposal_id, agent_meta)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'proposed', $8, $9)
+           ON CONFLICT (space_id, slug)
+           DO UPDATE SET title = EXCLUDED.title,
+                         context = EXCLUDED.context,
+                         decision = EXCLUDED.decision,
+                         rationale = EXCLUDED.rationale,
+                         alternatives = EXCLUDED.alternatives,
+                         agent_meta = EXCLUDED.agent_meta,
+                         status = 'proposed',
+                         proposal_id = EXCLUDED.proposal_id
+           WHERE wk_decisions.status <> 'active'`,
+          [
+            spaceId,
+            decision.slug,
+            decision.title,
+            decision.context,
+            decision.decision,
+            decision.rationale,
+            JSON.stringify(decision.alternatives),
+            proposalId,
+            JSON.stringify(input.agent_meta),
+          ],
+        )
+      }
+
+      // Run the SAME exact-frame matcher the approval will apply, so the
+      // proposal.created event announces contradictions before any review.
+      const contradictions = await findContradictions(tx, spaceId, { claims: allTriples })
+
+      await tx.emitEvent(spaceId, 'wikikit.proposal.created', {
+        proposal_id: proposalId,
+        space: space.slug,
+        title: input.title,
+        source_ids: input.source_ids,
+        concepts: conceptSlugs,
+        claims_count: claimsCount,
+        contradictions_count: contradictions.length,
+      })
+
+      return { proposal_id: proposalId, status: 'pending' as const }
+    })
+  } catch (error) {
+    // Dedup race: two identical ingests staged concurrently — the loser hits
+    // the partial unique index and converges on the winner's pending
+    // proposal. Any OTHER 23505 (e.g. citation FK issues) stays an error.
+    const pg = error as { code?: string; constraint?: string }
+    if (pg.code === '23505' && pg.constraint === 'wk_change_proposals_pending_dedup') {
+      const [winner] = await db.select<{ id: string }>('wk_change_proposals', {
+        space_id: `eq.${spaceId}`,
+        input_hash: `eq.${input.input_hash}`,
+        status: 'eq.pending',
+        limit: 1,
+      })
+      if (winner) return { proposal_id: winner.id, status: 'pending' }
+    }
+    throw error
+  }
+}
+
+interface ProposalRow {
+  id: string
+  space_id: string
+  status: ProposalStatus
+  title: string
+  summary: string
+  input_hash: string
+  source_ids: string[]
+  agent_meta: Record<string, unknown>
+  reviewer: string | null
+  review_note: string | null
+  reviewed_at: Date | string | null
+  created_at: Date | string
+}
+
+/**
+ * The structured diff (⚠ global-id lookup — transport must check the returned
+ * space_id against the key's space). Claims are grouped:
+ *   added      — every claim this proposal stages
+ *   disputed   — claims that ARE disputed (post-approval) or WOULD BE
+ *                (pending: exact-frame collision with an existing visible
+ *                claim) — the reviewer sees the dispute before deciding
+ *   deprecated — claims of this proposal in status 'deprecated' (empty in
+ *                v0.1 flows; the shape is part of the wire contract)
+ */
+export async function getProposal(db: Db, args: { id: string }): Promise<ProposalDetail> {
+  const [proposal] = await db.select<ProposalRow>('wk_change_proposals', { id: `eq.${args.id}`, limit: 1 })
+  if (!proposal) throw new NotFoundError(`proposal ${args.id} not found`)
+  const [space] = await db.select<{ slug: string }>('wk_spaces', { id: `eq.${proposal.space_id}`, limit: 1 })
+
+  const revisions = await db.query<{
+    concept_id: string
+    slug: string
+    markdown: string
+    base_revision_id: string | null
+    old_markdown: string | null
+  }>(
+    `SELECT r.concept_id, c.slug, r.markdown, r.base_revision_id, base.markdown AS old_markdown
+       FROM wk_concept_revisions r
+       JOIN wk_concepts c ON c.id = r.concept_id
+       LEFT JOIN wk_concept_revisions base ON base.id = r.base_revision_id
+      WHERE r.proposal_id = $1
+      ORDER BY c.slug ASC`,
+    [args.id],
+  )
+
+  // One query for all proposal claims with a "collides" flag computed by the
+  // same frame rule as wk_apply_proposal flip 5 — used only while pending
+  // (after approval the persisted 'disputed' status is the truth).
+  const claims = await db.query<{
+    concept_id: string
+    subject: string
+    predicate: string
+    object: string
+    status: ClaimStatus
+    collides: boolean
+  }>(
+    `SELECT cl.concept_id, cl.subject, cl.predicate, cl.object, cl.status,
+            EXISTS (
+              SELECT 1 FROM wk_claims other
+               WHERE other.space_id = cl.space_id
+                 AND other.subject = cl.subject
+                 AND other.predicate = cl.predicate
+                 AND other.object <> cl.object
+                 AND other.proposal_id IS DISTINCT FROM cl.proposal_id
+                 AND other.status IN ('verified', 'disputed')
+            ) AS collides
+       FROM wk_claims cl
+      WHERE cl.proposal_id = $1
+      ORDER BY cl.created_at ASC`,
+    [args.id],
+  )
+
+  const relations = await db.query<{ from_concept_id: string; to_slug: string; kind: RelationKind }>(
+    `SELECT rel.from_concept_id, t.slug AS to_slug, rel.kind
+       FROM wk_relations rel
+       JOIN wk_concepts t ON t.id = rel.to_concept_id
+      WHERE rel.proposal_id = $1
+      ORDER BY t.slug ASC, rel.kind ASC`,
+    [args.id],
+  )
+
+  const pending = proposal.status === 'pending'
+  const concepts: ConceptDiff[] = revisions.rows.map((revision) => {
+    const own = claims.rows.filter((claim) => claim.concept_id === revision.concept_id)
+    const triple = (claim: ClaimTriple): ClaimTriple => ({
+      subject: claim.subject,
+      predicate: claim.predicate,
+      object: claim.object,
+    })
+    return {
+      slug: revision.slug,
+      is_new: revision.base_revision_id === null,
+      old_markdown: revision.old_markdown,
+      new_markdown: revision.markdown,
+      claims_added: own.map(triple),
+      claims_disputed: own.filter((claim) => (pending ? claim.collides : claim.status === 'disputed')).map(triple),
+      claims_deprecated: own.filter((claim) => claim.status === 'deprecated').map(triple),
+      relations_added: relations.rows
+        .filter((relation) => relation.from_concept_id === revision.concept_id)
+        .map((relation) => ({ to_slug: relation.to_slug, kind: relation.kind })),
+    }
+  })
+
+  return {
+    id: proposal.id,
+    space: space?.slug ?? '',
+    space_id: proposal.space_id,
+    status: proposal.status,
+    title: proposal.title,
+    summary: proposal.summary,
+    created_at: isoString(proposal.created_at),
+    reviewer: proposal.reviewer,
+    review_note: proposal.review_note,
+    reviewed_at: proposal.reviewed_at === null ? null : isoString(proposal.reviewed_at),
+    source_ids: proposal.source_ids ?? [],
+    agent_meta: proposal.agent_meta ?? {},
+    concepts,
+  }
+}
+
+/**
+ * The human-readable diff (plan §15.3: review happens over curl/chat, so this
+ * text must carry the whole decision). Served as text/markdown via Accept
+ * header and readable inline in a chat. Pure function of the JSON detail —
+ * both representations always agree.
+ */
+export function renderProposalMarkdown(detail: ProposalDetail): string {
+  const lines: string[] = []
+  lines.push(`# Proposal: ${detail.title}`)
+  lines.push('')
+  lines.push(`- **id:** ${detail.id}`)
+  lines.push(`- **space:** ${detail.space}`)
+  lines.push(`- **status:** ${detail.status}`)
+  lines.push(`- **created:** ${detail.created_at}`)
+  if (detail.reviewer) {
+    lines.push(`- **reviewer:** ${detail.reviewer}${detail.reviewed_at ? ` (${detail.reviewed_at})` : ''}`)
+  }
+  if (detail.review_note) lines.push(`- **review note:** ${detail.review_note}`)
+  if (detail.source_ids.length) lines.push(`- **sources:** ${detail.source_ids.join(', ')}`)
+  const meta = detail.agent_meta as { model?: unknown; prompt_version?: unknown }
+  if (meta.model) lines.push(`- **agent:** ${String(meta.model)} (${String(meta.prompt_version ?? 'unknown')})`)
+  if (detail.summary) {
+    lines.push('')
+    lines.push(detail.summary)
+  }
+
+  const bullet = (claim: ClaimTriple) => `- ${claim.subject} **${claim.predicate}** ${claim.object}`
+
+  for (const concept of detail.concepts) {
+    lines.push('')
+    lines.push(`## Concept \`${concept.slug}\` — ${concept.is_new ? 'new' : 'update'}`)
+    if (!concept.is_new && concept.old_markdown !== null) {
+      lines.push('')
+      lines.push('### Old revision')
+      lines.push('')
+      lines.push('```markdown')
+      lines.push(concept.old_markdown)
+      lines.push('```')
+    }
+    lines.push('')
+    lines.push('### New revision')
+    lines.push('')
+    lines.push('```markdown')
+    lines.push(concept.new_markdown)
+    lines.push('```')
+    if (concept.claims_added.length) {
+      lines.push('')
+      lines.push(`### Claims added (${concept.claims_added.length})`)
+      lines.push('')
+      for (const claim of concept.claims_added) lines.push(bullet(claim))
+    }
+    if (concept.claims_disputed.length) {
+      lines.push('')
+      lines.push(`### Claims disputed (${concept.claims_disputed.length}) ⚠`)
+      lines.push('')
+      for (const claim of concept.claims_disputed) lines.push(bullet(claim))
+    }
+    if (concept.claims_deprecated.length) {
+      lines.push('')
+      lines.push(`### Claims deprecated (${concept.claims_deprecated.length})`)
+      lines.push('')
+      for (const claim of concept.claims_deprecated) lines.push(bullet(claim))
+    }
+    if (concept.relations_added.length) {
+      lines.push('')
+      lines.push('### Relations')
+      lines.push('')
+      for (const relation of concept.relations_added) lines.push(`- ${relation.kind} → [[${relation.to_slug}]]`)
+    }
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
+// The SQL functions raise with the machine code as the EXACT message
+// (documented in the migration), so mapping is string equality — never
+// substring guessing on arbitrary errors.
+function mapReviewError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message === 'proposal_not_found') throw new NotFoundError('proposal not found')
+  if (message === 'proposal_not_pending') {
+    throw new ConflictError('proposal_not_pending', 'proposal has already been reviewed', {
+      nextBestActions: ['GET /v1/proposals/{id} to see its terminal status'],
+    })
+  }
+  if (message === 'stale_base') {
+    throw new ConflictError('stale_base', 'the concept moved on since this proposal was synthesized', {
+      nextBestActions: [
+        'this proposal is now failed (terminal)',
+        're-ingest the source to synthesize against the current revision',
+      ],
+    })
+  }
+  throw error
+}
+
+/**
+ * ⚠ Global-id wrapper over db.call('wk_apply_proposal') — the only approve
+ * path. On stale_base the CALLER marks the proposal failed (terminal) per
+ * §9.2 — the one status write TypeScript performs itself, because the SQL
+ * function has already rolled back by the time the error surfaces. Failing
+ * (instead of leaving it pending forever) frees the (space_id, input_hash)
+ * pending-dedup slot so a re-ingest can produce a FRESH proposal against the
+ * current revision instead of converging back onto the unapprovable one.
+ */
+export async function approveProposal(
+  db: Db,
+  args: { id: string; reviewer: string; note?: string },
+): Promise<ApplyResult> {
+  if (!args.reviewer) throw new ValidationError('reviewer is required')
+  try {
+    const [result] = await db.call<ApplyResult>('wk_apply_proposal', [args.id, args.reviewer, args.note ?? null])
+    return result!
+  } catch (error) {
+    if (error instanceof Error && error.message === 'stale_base') {
+      // Guarded on status='pending' so a racing review cannot be overwritten;
+      // best-effort — the 409 below is the caller's truth either way.
+      await db
+        .update(
+          'wk_change_proposals',
+          { id: `eq.${args.id}`, status: 'eq.pending' },
+          {
+            status: 'failed',
+            reviewer: args.reviewer,
+            review_note: args.note ?? 'stale_base: concept moved on since synthesis',
+            reviewed_at: new Date().toISOString(),
+          },
+          { returning: false },
+        )
+        .catch(() => {})
+    }
+    mapReviewError(error)
+  }
+}
+
+/** ⚠ Global-id wrapper over db.call('wk_reject_proposal'). */
+export async function rejectProposal(
+  db: Db,
+  args: { id: string; reviewer: string; note?: string },
+): Promise<RejectResult> {
+  if (!args.reviewer) throw new ValidationError('reviewer is required')
+  try {
+    const [result] = await db.call<RejectResult>('wk_reject_proposal', [args.id, args.reviewer, args.note ?? null])
+    return result!
+  } catch (error) {
+    mapReviewError(error)
+  }
+}

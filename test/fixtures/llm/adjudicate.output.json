@@ -1,0 +1,4 @@
+{
+  "verdict": "contradictory",
+  "reason": "Both sources describe the same specification version at the same time; production-ready and draft cannot both hold."
+}

@@ -1,0 +1,104 @@
+# CI for every push to main and every PR (plan §14: lint → typecheck →
+# unit → contract → integration → build-binary). Fast checks run as parallel
+# jobs; the binary build gates on all of them so a red check can never
+# produce a green "buildable" signal.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Superseded pushes to the same branch/PR cancel their in-flight run — CI
+# feedback should always describe the latest commit, not a stale one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      # --frozen-lockfile: CI must build exactly what bun.lock pins; a
+      # package.json/bun.lock mismatch is a bug, not something to auto-heal.
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # tsc --noEmit — bun runs TS natively (no build step), so the compiler
+      # exists purely as a static gate.
+      - run: bun run typecheck
+
+  # Unit + contract suites are pure (FakeProvider, no network, no Postgres).
+  # Contract snapshots (OpenAPI, MCP manifest, webhook payloads, OKF) are the
+  # promises foreign systems rely on — a snapshot diff must fail CI until it
+  # is committed deliberately.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun test test/unit test/contract
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        # Credentials/port mirror the zero-config contract in
+        # scripts/start-local.ts (LOCAL_DATABASE_URL,
+        # postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit) — the
+        # suites connect to that URL verbatim.
+        env:
+          POSTGRES_PASSWORD: wikikit-local
+          POSTGRES_DB: wikikit
+        ports:
+          - '55442:5432'
+        # --name is load-bearing: test/integration provisions databases via
+        # ensureLocalPostgres(), which docker-inspects the container named
+        # wikikit-local-postgres and would otherwise try to `docker run` a
+        # second Postgres on the already-bound port. The runner puts user
+        # options after its generated --name, so ours wins and the helper
+        # sees "already running" and no-ops. The health check makes the
+        # runner wait until initdb finished before any step runs.
+        options: >-
+          --name wikikit-local-postgres
+          --health-cmd "pg_isready -U postgres -d wikikit"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # RUN_INTEGRATION=1 is the explicit opt-in gate the suites check —
+      # without it every integration test self-skips (local default).
+      - run: bun run test:integration
+        env:
+          RUN_INTEGRATION: '1'
+
+  # Compiling the binary in CI keeps plan risk #5 (bun --compile with pg/
+  # unified) permanently verified — a dependency that breaks --compile fails
+  # the PR that introduces it, not the next release. build-binary.sh already
+  # asserts the binary reports the package.json version; the extra --version
+  # step proves the artifact executes on a machine with no Bun involvement.
+  binary:
+    needs: [lint, typecheck, test, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bash build-binary.sh
+      - run: ./dist/wikikit --version
