@@ -229,6 +229,15 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "source_kind": {
+          "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
@@ -763,6 +772,15 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "properties": {
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "source_kind": {
+          "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
           "type": "string",
         },
         "space": {
@@ -1303,6 +1321,15 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "source_kind": {
+          "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
@@ -1837,6 +1864,15 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "properties": {
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "source_kind": {
+          "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
           "type": "string",
         },
         "space": {

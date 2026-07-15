@@ -120,7 +120,7 @@ Ingest a note and poll:
 ```bash
 curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/ingest" \
   -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" \
-  -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note"}'
+  -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note","source_kind":"note"}'
 # → 202 {"ingest_id":"...","status":"queued"}  + Location: /v1/ingests/{id}
 
 curl -s "$WIKIKIT_URL/v1/ingests/<id>" -H "Authorization: Bearer wk_..."
@@ -222,14 +222,19 @@ acquire → archive → dedup-gate → classify → synthesize (per concept)
 ```
 
 - **Acquire:** markdown/text in the request body, or `{url}` (HTML is
-  normalized to Markdown; raw archived verbatim).
+  normalized to Markdown; raw archived verbatim). An optional `source_kind`
+  (`meeting | article | note`) is recorded on the source and steers synthesis —
+  `meeting` turns on decision mining.
 - **Classify** (`WIKIKIT_MODEL_CLASSIFY`, default `claude-haiku-4-5`): one call
   with the source + a compact concept index → which existing concepts are
   affected, which new concepts are warranted.
 - **Synthesize** (`WIKIKIT_MODEL_SYNTHESIS`, default `claude-sonnet-5`): one
   call per affected concept — current revision + source → new markdown,
-  summary, claims with quotes and confidences, relations. Prompts are
-  versioned (`synthesize.v1`); any prompt text change requires a new version.
+  summary, claims with quotes and confidences, relations, and (for `meeting`
+  sources) explicit decisions staged as proposed `wk_decisions`. Categorizations
+  are emitted as claims, not fixed taxonomy, so a later source can dispute them.
+  Prompts are versioned (`synthesize.v1`); a shipped prompt change adds a new
+  version.
 - **Answer** (`WIKIKIT_MODEL_ANSWER`, default `claude-sonnet-5`): grounded Q&A
   for `POST .../query` — answers only from retrieved evidence, cites inline,
   flags disputed claims, and says "not in the knowledge base" on empty

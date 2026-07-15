@@ -78,7 +78,7 @@ describe('computeInputHash', () => {
   })
 
   test('is sensitive to the prompt version (prompt regression = new proposal)', () => {
-    expect(computeInputHash(['a'], 'synthesize.v1')).not.toBe(computeInputHash(['a'], 'synthesize.v2'))
+    expect(computeInputHash(['a'], 'synthesize.v1')).not.toBe(computeInputHash(['a'], 'classify.v1'))
   })
 })
 

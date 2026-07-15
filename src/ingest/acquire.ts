@@ -34,6 +34,15 @@ export const zIngestInput = z
     text: z.string().min(1).optional(),
     url: z.url().optional(),
     title: z.string().max(500).optional(),
+    // WHY source_kind is separate from `kind`: `kind` is the TRANSPORT of the
+    // content (markdown/text/url); source_kind is what the content IS. It is
+    // optional with NO default — absence is persisted as null on the source's
+    // metadata, never guessed — and it steers synthesis: meeting sources are
+    // actively scanned for explicit decision statements during synthesis.
+    source_kind: z
+      .enum(['meeting', 'article', 'note'])
+      .optional()
+      .describe("What the source is: 'meeting' sources are mined for explicit decision statements"),
   })
   .refine((value) => [value.markdown, value.text, value.url].filter(Boolean).length === 1, {
     message: 'exactly one of markdown|text|url is required',

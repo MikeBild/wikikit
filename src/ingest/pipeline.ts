@@ -275,6 +275,9 @@ export function createIngestPipeline(
       title: acquired.title ?? undefined,
       raw: acquired.raw,
       markdown: acquired.markdown,
+      // Optional hint (meeting/article/note); persisted on the source metadata
+      // and passed to synthesis, where 'meeting' turns on decision mining.
+      sourceKind: input.source_kind,
     })
     if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
       throw new ConflictError('already_ingested', `content already ingested as source ${source.id}`, {
@@ -354,6 +357,12 @@ export function createIngestPipeline(
 
     const proposalConcepts: CreateProposalArgs['concepts'] = []
     const allTriples: ClaimTriple[] = []
+    // Decisions surface per synthesis call (a meeting touching two concepts can
+    // report the same decision twice); dedupe first-wins by slug because
+    // zCreateProposalArgs refuses duplicate decision slugs — two proposed rows
+    // for one decision would both flip active on approval.
+    const proposalDecisions: NonNullable<CreateProposalArgs['decisions']> = []
+    const decisionSlugs = new Set<string>()
     const usage = { input_tokens: 0, output_tokens: 0 }
 
     for (const target of conceptInputs) {
@@ -361,6 +370,7 @@ export function createIngestPipeline(
         concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
         source: { id: source.id, title: source.title, markdown: budget.markdown },
         predicates: space.predicates,
+        sourceKind: input.source_kind,
       })
       runs.push({ kind: 'synthesize', run: synthesized.run })
       usage.input_tokens += synthesized.run.usage.input_tokens
@@ -392,6 +402,12 @@ export function createIngestPipeline(
         claims,
         relations: synthesized.output.relations,
       })
+
+      for (const decision of synthesized.output.decisions) {
+        if (decisionSlugs.has(decision.slug)) continue
+        decisionSlugs.add(decision.slug)
+        proposalDecisions.push(decision)
+      }
     }
 
     // 6. Deterministic contradiction detection (exact frame: same subject +
@@ -414,6 +430,9 @@ export function createIngestPipeline(
     if (contradictions.length > 0) {
       summaryParts.push(`${contradictions.length} contradiction${contradictions.length === 1 ? '' : 's'} detected`)
     }
+    if (proposalDecisions.length > 0) {
+      summaryParts.push(`${proposalDecisions.length} decision${proposalDecisions.length === 1 ? '' : 's'}`)
+    }
 
     // 7. Propose — the ONE staging transaction (createProposal owns it).
     // input_hash = f(source hashes, prompt version): re-ingesting the same
@@ -434,6 +453,7 @@ export function createIngestPipeline(
         source_ids: [source.id],
       },
       concepts: proposalConcepts,
+      decisions: proposalDecisions,
     })
 
     return { sourceId: source.id, proposalId: proposal_id }

@@ -93,7 +93,9 @@ export function createFakeProvider(overrides?: {
       calls.push({ method: 'synthesize', input })
       const output =
         overrides?.synthesize?.(input) ??
-        // Default: echo the source markdown, one grounded claim.
+        // Default: echo the source markdown, one grounded claim. A meeting
+        // source additionally yields one decision, so the decision-mining path
+        // is exercised deterministically offline (pipeline/apply tests).
         ({
           title: input.concept.title,
           summary: firstLine(input.source.markdown),
@@ -108,6 +110,19 @@ export function createFakeProvider(overrides?: {
             },
           ],
           relations: [],
+          decisions:
+            input.sourceKind === 'meeting'
+              ? [
+                  {
+                    slug: `${input.concept.slug}-decision`,
+                    title: `Decision on ${input.concept.title}`,
+                    context: firstLine(input.source.markdown),
+                    decision: firstLine(input.source.markdown),
+                    rationale: '',
+                    alternatives: [],
+                  },
+                ]
+              : [],
         } satisfies SynthesizeOutput)
       return { output, run: run(PROMPT_VERSIONS.synthesize, synthesizeV1.system, synthesizeV1.render(input)) }
     },

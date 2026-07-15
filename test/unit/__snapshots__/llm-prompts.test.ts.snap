@@ -51,7 +51,7 @@ Classify this source against the concept index."
 exports[`golden snapshots synthesize.v1 system prompt 1`] = `
 "You are the synthesis stage of WikiKit, a knowledge system that maintains reviewed concept pages with verifiable claims and citations. Your output becomes a proposed revision that a human reviews before it goes live.
 
-You receive one concept (its current page, or a note that it is new), one source document, and the space's controlled predicate vocabulary. Produce the next revision of the concept page.
+You receive one concept (its current page, or a note that it is new), one source document, the source's kind when known, and the space's controlled predicate vocabulary. Produce the next revision of the concept page.
 
 Rules for the page:
 - "markdown" is the full replacement page body: integrate what the source adds into the existing page rather than appending a changelog. Keep everything from the current page that the source does not change. Write timeless, encyclopedic prose. Link related concepts as [[slug]] wiki-links where natural.
@@ -64,9 +64,16 @@ Rules for claims:
 - "quote" MUST be a verbatim excerpt copied character-for-character from the source that supports the claim. Never paraphrase inside quote. If you cannot quote it, do not claim it.
 - "confidence" in [0,1]: how strongly the quote supports the claim (1.0 = the quote states it outright).
 - Do not restate claims the source merely repeats from the current page unless the source strengthens, dates, or contradicts them. State what the SOURCE says even when it contradicts the current page — contradiction detection happens downstream.
+- Classification is a claim, not a schema: when the source categorizes or re-categorizes something (it is a kind of X, it belongs to Y, it replaces Z), state that as an ordinary claim with its quote. Never treat a category as a fixed truth exempt from being contradicted later — a category is an assertion like any other, and stating it as a claim is what lets a future source dispute it.
 
 Rules for relations:
-- Propose relations only to concepts you can name by slug (from the current page's wiki-links or well-known slugs given in the input). Kinds: related, part_of, depends_on, contradicts, supersedes. Propose few; empty is fine."
+- Propose relations only to concepts you can name by slug (from the current page's wiki-links or well-known slugs given in the input). Kinds: related, part_of, depends_on, contradicts, supersedes. Propose few; empty is fine.
+
+Rules for decisions:
+- A decision is an explicit choice the source records as settled ("we decided", "wir haben entschieden", "the decision is", "agreed to", "going forward we will"). Only emit a decision when the source clearly states one — inferred or hypothetical choices are NOT decisions. For most sources "decisions" is an empty array.
+- Meeting sources are where decisions appear: when the source kind is "meeting", read it specifically for settled choices and record each one.
+- Each decision has: "slug" (lowercase kebab-case, stable, derived from the choice), "title" (short), "context" (why the choice was on the table, from the source), "decision" (what was chosen, stated plainly), "rationale" (why, if the source gives one — else empty), "alternatives" (options the source says were considered and rejected — else empty).
+- A decision may also warrant a claim on a concept page (e.g. a status change). Emit both when both are supported; they are independent."
 `;
 
 exports[`golden snapshots synthesize.v1 render for existing concept 1`] = `
@@ -88,7 +95,7 @@ OKF is production-ready.
 - published_by
 - depends_on
 
-## Source (id: 3d1f8a52-0000-4000-8000-000000000001)
+## Source (id: 3d1f8a52-0000-4000-8000-000000000001, kind: unknown)
 
 Title: OKF Announcement
 
@@ -111,7 +118,7 @@ Title: Knowledge Catalog
 
 - is
 
-## Source (id: 3d1f8a52-0000-4000-8000-000000000002)
+## Source (id: 3d1f8a52-0000-4000-8000-000000000002, kind: unknown)
 
 Title: (untitled)
 
@@ -120,6 +127,30 @@ The knowledge catalog hosts OKF bundles.
 </source_markdown>
 
 Synthesize the next revision of "knowledge-catalog" from the current page and this source."
+`;
+
+exports[`golden snapshots synthesize.v1 render for meeting source (decision mining on) 1`] = `
+"## Concept
+
+Slug: okf-adoption
+Title: OKF Adoption
+
+(new concept — no current page exists yet)
+
+## Predicate vocabulary
+
+- is
+- has_status
+
+## Source (id: 3d1f8a52-0000-4000-8000-000000000003, kind: meeting)
+
+Title: Architecture sync 2026-07-10
+
+<source_markdown>
+We decided to adopt OKF v0.1 as the export format going forward.
+</source_markdown>
+
+Synthesize the next revision of "okf-adoption" from the current page and this source. This is a meeting source — mine it for explicit decisions."
 `;
 
 exports[`golden snapshots answer.v1 system prompt 1`] = `

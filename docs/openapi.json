@@ -2529,6 +2529,11 @@
           "title": {
             "type": "string",
             "maxLength": 500
+          },
+          "source_kind": {
+            "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
+            "type": "string",
+            "enum": ["meeting", "article", "note"]
           }
         }
       },
