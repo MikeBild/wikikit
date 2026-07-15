@@ -21,6 +21,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
 import { ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../domain/errors.ts'
+import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { lintSpace } from '../domain/lint.ts'
 import { createProposal, zCreateProposalArgs } from '../domain/proposals.ts'
 import { isoString } from '../domain/sources.ts'
@@ -99,6 +100,12 @@ export const zSourcesToolInput = z
   .refine((value) => [value.slug, value.source_id].filter(Boolean).length === 1, {
     message: 'exactly one of slug|source_id is required',
   })
+
+/** No slug → list the decision log; slug → one decision with alternatives. */
+export const zDecisionsToolInput = z.object({
+  space: zSpaceSlug,
+  slug: zConceptSlug.optional().describe('Decision slug — omit to list all active/superseded decisions'),
+})
 
 export const zHistoryToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
@@ -252,6 +259,22 @@ export const TOOLS: McpToolDef[] = [
         [space.id, concept[0].id],
       )
       return { sources: rows.map(toProvenance) }
+    },
+  },
+  {
+    name: 'wikikit_decisions',
+    description:
+      'The decision log: pass a slug to read one decision (context, decision, rationale, rejected ' +
+      'alternatives), or omit it to list all active/superseded decisions newest-first. Proposed ' +
+      'decisions (awaiting review) are never returned.',
+    scope: 'knowledge:read',
+    inputSchema: zDecisionsToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zDecisionsToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      if (args.slug) return getDecision(deps.db, space.id, { slug: args.slug })
+      return { decisions: await listDecisions(deps.db, space.id) }
     },
   },
   {

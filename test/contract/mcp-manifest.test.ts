@@ -36,12 +36,13 @@ describe('MCP manifest contract', () => {
     })
   }
 
-  test('the full palette is exactly the eight §7.1 tools — no approve tool ever', () => {
+  test('the full palette is exactly the nine §7.1 tools — no approve tool ever', () => {
     const names = buildToolManifest(['*']).map((entry) => entry.name)
     expect(names).toEqual([
       'wikikit_search',
       'wikikit_read',
       'wikikit_sources',
+      'wikikit_decisions',
       'wikikit_history',
       'wikikit_lint',
       'wikikit_ingest',

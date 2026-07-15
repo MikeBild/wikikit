@@ -166,6 +166,7 @@ describe('createMcpMount', () => {
       'wikikit_search',
       'wikikit_read',
       'wikikit_sources',
+      'wikikit_decisions',
       'wikikit_history',
       'wikikit_lint',
     ])
@@ -338,7 +339,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
       })
       expect(list.status).toBe(200)
       const tools = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools
-      expect(tools).toHaveLength(5) // knowledge:read palette
+      expect(tools).toHaveLength(6) // knowledge:read palette
     } finally {
       mount.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))

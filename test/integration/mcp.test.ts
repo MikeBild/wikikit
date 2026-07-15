@@ -178,6 +178,12 @@ describe('MCP server (integration)', () => {
     expect(read.payload.rev).toBe(1)
     expect(mount.sessions.sessions.size).toBe(sessionsBefore)
 
+    // Decision log is reachable as a read tool (empty is a valid answer — no
+    // decisions seeded — proving the tool is wired and scope-visible).
+    const decisions = await callTool('wk_reader_a', sessionId, 'wikikit_decisions', { space: 'brain' })
+    expect(decisions.isError).toBeFalsy()
+    expect(Array.isArray(decisions.payload.decisions)).toBe(true)
+
     // Foreign VALID key on the known session id → the same 404/-32001 an
     // unknown session gets (no confirmation the id exists).
     const hijack = await mount.handler(
