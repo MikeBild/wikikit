@@ -23,7 +23,7 @@
     "gen:migrations": "bun scripts/gen-embedded-migrations.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.110.0",
+    "@anthropic-ai/sdk": "^0.111.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "pg": "^8.16.3",
     "rehype-parse": "^9.0.1",
