@@ -1,4 +1,4 @@
-# Weekly dependency updates (house pattern from ContentKit/SlideKit).
+# Weekly dependency updates.
 #
 # package-ecosystem is `bun`, NOT `npm`: this repo only has bun.lock. The npm
 # ecosystem would bump package.json without regenerating bun.lock, so every

@@ -1,5 +1,5 @@
-// buildOpenApi(ROUTES) — the document SubKit's import_connector_from_spec and
-// the docs/openapi.json snapshot rely on.
+// buildOpenApi(ROUTES) — the document any generated client / connector import
+// and the docs/openapi.json snapshot rely on.
 import { describe, expect, test } from 'bun:test'
 import { buildOpenApi } from '../../src/http/openapi.ts'
 import { ROUTES } from '../../src/http/routes.ts'

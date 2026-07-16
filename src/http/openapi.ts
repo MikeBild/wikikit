@@ -1,9 +1,9 @@
-// OpenAPI 3.1 document generated from the ROUTES registry (SlideKit
-// src/openapi.mjs pattern) — served live at GET /openapi.json, snapshotted
-// into docs/openapi.json, drift-tested against both.
+// OpenAPI 3.1 document generated from the ROUTES registry — served live at
+// GET /openapi.json, snapshotted into docs/openapi.json, drift-tested against
+// both.
 //
-// WHY generated and never hand-written: SubKit's import_connector_from_spec
-// (and any OpenAPI tooling) builds connectors from this document. A spec that
+// WHY generated and never hand-written: connector importers (and any OpenAPI
+// tooling) build connectors from this document. A spec that
 // drifts from the router produces connectors that fail at runtime; deriving
 // both from ROUTES makes that class of bug unrepresentable.
 //

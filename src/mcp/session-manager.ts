@@ -1,9 +1,9 @@
-// MCP session leasing (CONTRACTS §7, plan §7) — the SubKit production
-// learnings ported wholesale: sessions are LEASES, not permanent allocations.
+// MCP session leasing (CONTRACTS §7, plan §7) — a hard-won rule applied
+// throughout: sessions are LEASES, not permanent allocations.
 //
 // The MCP Streamable HTTP spec has clients send `DELETE /mcp` when done, and
 // almost none do. Every orphaned entry would pin an SDK Server + transport for
-// the life of the process — an RSS leak SubKit hit in production. Three
+// the life of the process — an RSS leak seen in production. Three
 // defenses, all here:
 //
 //   1. Idle-TTL sweeper (config.mcpSessionTtlMs, default 30 min): a lease
@@ -183,7 +183,7 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
 }
 
 // ---------------------------------------------------------------------------
-// Stream retain tracking (SubKit learning, verbatim rationale): handleRequest
+// Stream retain tracking (hard-won rationale): handleRequest
 // resolves the moment an SSE stream OPENS, not when it closes — entry-time
 // bookkeeping alone would let the sweeper terminate a live notification
 // stream 30 minutes in. The retain is handed to the body and released exactly

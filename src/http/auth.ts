@@ -1,5 +1,4 @@
-// API-key auth — the ContentKit src/auth.mjs pattern ported to TypeScript and
-// hardened to the CONTRACTS §5.4 surface.
+// API-key auth, hardened to the CONTRACTS §5.4 surface.
 //
 // Key format: `wk_<43 chars base64url of 32 random bytes>`. At rest only
 // hex(HMAC-SHA256(pepper, fullKeyString)) is stored — a database dump alone
@@ -9,7 +8,7 @@
 // WHY HMAC with a server-side pepper instead of bcrypt/argon2: API keys are
 // 256-bit random strings, not human passwords — brute force is already
 // hopeless, so the threat model is "DB leaked, pepper not" and a single fast
-// HMAC per request is exactly right (ContentKit/SubKit house pattern).
+// HMAC per request is exactly right (the house pattern).
 //
 // 401 vs 403 (§8.2): 401 unauthorized = we do not know WHO you are (missing,
 // unknown, or revoked key). 403 insufficient_scope = we know exactly who you

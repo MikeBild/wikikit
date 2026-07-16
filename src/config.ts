@@ -1,4 +1,4 @@
-// Environment loader — the ContentKit pattern ported to TypeScript.
+// Environment loader.
 //
 // Precedence (highest wins):
 //   1. real process environment (external env always wins — deploys set it)
@@ -52,7 +52,11 @@ function resolveEnvFile(name: string): string | undefined {
 
 function loadEnvironment(): void {
   const external = new Set(Object.keys(process.env))
-  const envPath = resolveEnvFile('.env')
+  // WIKIKIT_SKIP_DOTENV=1 ignores the on-disk .env overrides (not
+  // .env.defaults). Ops escape hatch for a stray .env, and what the config
+  // tests set so a developer's local .env cannot leak into env-sensitive cases.
+  const skipDotEnv = process.env.WIKIKIT_SKIP_DOTENV === '1'
+  const envPath = skipDotEnv ? undefined : resolveEnvFile('.env')
   const overrides = envPath ? readDotEnv(envPath) : {}
   const production = (process.env.NODE_ENV ?? overrides.NODE_ENV) === 'production'
   if (!production) {
@@ -161,7 +165,7 @@ export function loadConfig(): Config {
     llmConfigured: anthropicApiKey.length > 0,
   })
 
-  // Production guards (ContentKit principle: no boot without secrets). Only
+  // Production guards (principle: no boot without secrets). Only
   // the two hard secrets are enforced — everything else has a safe default,
   // and ANTHROPIC_API_KEY is deliberately optional so LLM-free deployments
   // (search/read/lint/export) remain first-class.

@@ -1,14 +1,15 @@
 // wk_change_proposals — the review gate (CONTRACTS §1.9, §4, §9.2).
 //
-// The central pattern (analog of ck_activate_release): a proposal's CONTENT is
-// real rows in the target tables with status='proposed' + proposal_id — never
-// a JSON diff blob. createProposal is the ONLY staging write, used identically
-// by ingest, import and manual POST .../proposals. Approve/reject are thin
-// wrappers around the whitelisted SQL functions — TypeScript never flips a
-// knowledge-row status itself, so the atomicity/locking discipline lives in
-// exactly one place (the migration). The single sanctioned exception is the
-// §9.2 stale_base handling: apply raises, the SQL has rolled back, and the
-// CALLER marks the proposal 'failed' (see approveProposal).
+// The central pattern (atomic apply via wk_apply_proposal): a proposal's
+// CONTENT is real rows in the target tables with status='proposed' +
+// proposal_id — never a JSON diff blob. createProposal is the ONLY staging
+// write, used identically by ingest, import and manual POST .../proposals.
+// Approve/reject are thin wrappers around the whitelisted SQL functions —
+// TypeScript never flips a knowledge-row status itself, so the
+// atomicity/locking discipline lives in exactly one place (the migration). The
+// single sanctioned exception is the §9.2 stale_base handling: apply raises,
+// the SQL has rolled back, and the CALLER marks the proposal 'failed' (see
+// approveProposal).
 //
 // Idempotency: input_hash (sha256 over ordered source hashes + prompt
 // version) + the partial unique index on (space_id, input_hash) WHERE

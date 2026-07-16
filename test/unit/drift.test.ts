@@ -1,4 +1,4 @@
-// Drift guards (plan §8, SlideKit test/unit/drift.test.mjs convention): keep
+// Drift guards (plan §8, drift-guard convention): keep
 // the router, the OpenAPI registry, the LLM docs, the config docs and the MCP
 // tool palette in sync with the implementation. These fail in CI when any of
 // them diverge — removing a route, adding an env var without documenting it,

@@ -17,7 +17,7 @@ summary. For the complete documentation inlined into a single file, see
 
 ## Start here
 
-- [README](README.md): What WikiKit is (the LLM-wiki loop, curation over collection), zero-config quickstart, the product family, and links to everything else.
+- [README](README.md): What WikiKit is (the LLM-wiki loop, curation over collection), zero-config quickstart, standards-only integration, and links to everything else.
 - [Example sources](examples/README.md): Two example source documents to ingest and the concept frontmatter reference for export/import bundles.
 - [Concept frontmatter reference](examples/concept-frontmatter-reference.md): The lossless claims/relations frontmatter format used by `?format=md` bundles.
 

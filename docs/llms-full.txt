@@ -14,8 +14,8 @@ The guiding idea is curation over collection: WikiKit is not a dump of
 everything you ever saw, it is a maintained set of concept pages an agent can
 trust — every statement is a claim with a citation, a status and a lifecycle,
 and nothing becomes visible without review. It is the knowledge foundation
-that agents, dashboards and apps (e.g. SubKit workflows) build on top of —
-WikiKit itself ships no CLI and no web UI.
+that agents, dashboards and apps build on top of — WikiKit itself ships no CLI
+and no web UI.
 
 - Source: https://github.com/MikeBild/wikikit
 - License: MIT
@@ -345,7 +345,8 @@ Envelope: HTTP POST `application/json` with Standard Webhooks headers —
 Body: `{"type": "...", "timestamp": "<ISO 8601>", "data": {...}}`. Always
 verify the signature (constant-time; the header may carry several
 space-separated signatures during secret rotation). This is the standard seam
-SubKit (or n8n, or anything) reacts through — no code dependency.
+any system (n8n, a governance layer, anything) reacts through — no code
+dependency.
 
 ---
 
@@ -431,6 +432,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
 | `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
 | `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
+| `WIKIKIT_SKIP_DOTENV` | `1` ignores an on-disk `.env` (keeps `.env.defaults`) | (unset) |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 
@@ -462,24 +464,22 @@ never logged.
 
 ---
 
-## 13. Product family (standards-only integration)
+## 13. Integration (standards only)
 
-WikiKit is one of four independent products; they communicate **only over
-standards** (OpenAPI/REST, MCP, Standard Webhooks, OKF, llms.txt) — no shared
-code, no direct dependencies:
+WikiKit integrates **only over open standards** (OpenAPI/REST, MCP, Standard
+Webhooks, OKF, llms.txt) — no SDK, no shared code, no direct dependencies. Any
+external system consumes it the same way:
 
-| Product | Job |
-|---------|-----|
-| ContentKit | Markdown in, multilingual static website out (publishing) |
-| SlideKit | Markdown in, one self-contained Slidev HTML deck out (rendering) |
-| SubKit | Governed, audited workflow execution for business processes |
-| WikiKit | Markdown-first knowledge in, structured and agent-ready knowledge out |
+- **OpenAPI/REST** — `/openapi.json` is a ready-to-import connector for the full API.
+- **MCP** — federate `/mcp` (Streamable HTTP) to give an agent search/read/propose tools.
+- **Standard Webhooks** — subscribe to `wikikit.proposal.created`, `proposal.approved`, `concept.updated`, `ingest.failed`.
+- **OKF / Markdown tree** — portable knowledge import and export.
 
-Examples: SubKit imports WikiKit as a connector from `/openapi.json` or
-federates the MCP server, and reacts to `wikikit.proposal.created` webhooks
-with an approval workflow; a workflow reads an approved concept and posts a
-curated projection to ContentKit's content API; the published article is
-re-ingested by URL and becomes a citable source.
+Typical seams: a governance layer imports the OpenAPI connector or federates
+the MCP server and reacts to `wikikit.proposal.created` with an approval
+workflow; a publishing pipeline reads an approved concept and posts a curated
+projection out as an article; that published article is re-ingested by URL and
+becomes a citable source.
 
 ---
 

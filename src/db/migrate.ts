@@ -1,6 +1,5 @@
-// Advisory-lock self-migration — the ContentKit migrate.mjs pattern ported to
-// TypeScript. The binary migrates itself at boot (and via --migrate); deploy
-// scripts never run app SQL.
+// Advisory-lock self-migration. The binary migrates itself at boot (and via
+// --migrate); deploy scripts never run app SQL.
 //
 // WHY an advisory lock: two systemd instances (deploy overlap, or a crashed
 // unit restarting while the new binary boots) must never both decide a

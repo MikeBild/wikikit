@@ -1,5 +1,4 @@
--- Server-side full-text search over the knowledge base (port of ContentKit
--- migration 0006).
+-- Server-side full-text search over the knowledge base.
 --   * wk_search_config() pins the text search configuration in ONE place so
 --     the index expressions, the insert triggers and the query side always
 --     stem identically. WikiKit has no per-space locale in v0.1 — 'english'
@@ -84,7 +83,7 @@ where search_vector is null;
 
 -- wk_search — ranked FTS over current revisions + visible claims.
 -- p_kind: NULL (both) | 'concept' | 'claim'. ts_headline is expensive, so it
--- runs in a second step over the returned page only (ContentKit pattern).
+-- runs in a second step over the returned page only.
 create or replace function public.wk_search(
   p_space_id uuid,
   p_query text,

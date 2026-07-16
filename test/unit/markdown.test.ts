@@ -46,7 +46,7 @@ describe('serializeFrontmatter — round-trip contract', () => {
       title: 'OKF',
       claims: [{ subject: 'okf', predicate: 'has_status', object: 'draft-v0.1', confidence: 0.9 }],
     }
-    const content = '# OKF\n\nBody text with [[subkit]].\n'
+    const content = '# OKF\n\nBody text with [[graph-store]].\n'
     const document = serializeFrontmatter(data, content)
     const parsed = parseFrontmatter(document)
     expect(parsed.content).toBe(content)
@@ -98,7 +98,7 @@ describe('htmlToMarkdown', () => {
 
 describe('extractWikiLinks', () => {
   test('collects well-formed slugs, deduplicated in first-appearance order', () => {
-    expect(extractWikiLinks('See [[okf]] and [[subkit]] — also [[okf]] again.')).toEqual(['okf', 'subkit'])
+    expect(extractWikiLinks('See [[okf]] and [[graph-store]] — also [[okf]] again.')).toEqual(['okf', 'graph-store'])
   })
 
   test('ignores malformed link targets (prose, not links)', () => {

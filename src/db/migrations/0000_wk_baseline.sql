@@ -2,7 +2,7 @@
 -- self-migrator under an advisory lock — never by deployment scripts. Keep
 -- changes additive and create a new migration after release.
 --
--- Central pattern (analog of ContentKit's ck_activate_release): proposal
+-- Central pattern (atomic apply via wk_apply_proposal): proposal
 -- content is REAL ROWS in the target tables with status='proposed' +
 -- proposal_id — never a JSON diff blob. Approval is a single atomic status
 -- flip inside wk_apply_proposal; rejection keeps every row for audit.
@@ -289,7 +289,7 @@ create index if not exists wk_ingest_jobs_queue_idx
 
 -- ---------------------------------------------------------------------------
 -- wk_agent_runs — LLM audit ledger, written for EVERY LLM call. The audit
--- contract downstream systems (SubKit governance) consume.
+-- contract downstream systems consume.
 create table if not exists public.wk_agent_runs (
   id uuid primary key default gen_random_uuid(),
   space_id uuid not null references public.wk_spaces(id) on delete cascade,
@@ -342,7 +342,7 @@ create trigger wk_webhook_deliveries_touch_updated_at
 
 -- ---------------------------------------------------------------------------
 -- wk_apply_proposal — atomic approve; the ONLY write path that promotes
--- proposed content. Analog of ck_activate_release.
+-- proposed content.
 --
 -- Locking order (deadlock discipline): proposal row first (serializes reviews
 -- of the SAME proposal → second caller sees 'approved' → proposal_not_pending),

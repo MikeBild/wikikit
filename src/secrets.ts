@@ -1,5 +1,4 @@
-// Webhook secret handling + SSRF endpoint validation — the ContentKit
-// `src/secrets.mjs` pattern ported to TypeScript.
+// Webhook secret handling + SSRF endpoint validation.
 //
 // WHY reversible encryption instead of hashing: endpoint signing secrets must
 // be reproducible at delivery time (every delivery re-computes the Standard

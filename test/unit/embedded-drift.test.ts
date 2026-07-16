@@ -1,4 +1,4 @@
-// Embedded-migration drift gate (ContentKit check:embedded-drift pattern).
+// Embedded-migration drift gate.
 // The compiled binary only ever sees embedded.ts — if a .sql file or the
 // journal changes without re-running scripts/gen-embedded-migrations.ts, the
 // binary would silently ship stale DDL. This test makes that a CI failure.

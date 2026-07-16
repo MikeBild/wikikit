@@ -1,6 +1,6 @@
 // MCP manifest contract (plan §14.2): the FULL tools/list manifest — names,
 // descriptions, draft-7 input schemas, all four annotations — snapshotted PER
-// SCOPE. Federated clients (Claude Code, claude.ai, SubKit MCP federation)
+// SCOPE. Federated clients (Claude Code, claude.ai, any MCP federation)
 // build against exactly these shapes; a diff in the snapshot file is a
 // visible, deliberate API change that requires a snapshot commit.
 //

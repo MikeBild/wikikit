@@ -115,7 +115,7 @@ describe('domain modules (integration)', () => {
               citations: [{ source_id: source.id, quote: 'OKF notes', locator: 'heading: 1' }],
             },
           ],
-          relations: [{ to_slug: 'subkit', kind: 'related' }],
+          relations: [{ to_slug: 'graph-store', kind: 'related' }],
         },
       ],
     })
@@ -130,14 +130,14 @@ describe('domain modules (integration)', () => {
     const detail = await getProposal(db, { id: created.proposal_id })
     expect(detail.space).toBe('loop-space')
     expect(detail.space_id).toBe(space.id)
-    // Only 'okf' carries a revision — the relation target 'subkit' exists as
+    // Only 'okf' carries a revision — the relation target 'graph-store' exists as
     // an identity row but is not part of the diff.
     expect(detail.concepts.map((concept) => concept.slug)).toEqual(['okf'])
     const okfDiff = detail.concepts.find((concept) => concept.slug === 'okf')!
     expect(okfDiff.is_new).toBe(true)
     expect(okfDiff.old_markdown).toBeNull()
     expect(okfDiff.claims_added.length).toBe(1)
-    expect(okfDiff.relations_added).toEqual([{ to_slug: 'subkit', kind: 'related' }])
+    expect(okfDiff.relations_added).toEqual([{ to_slug: 'graph-store', kind: 'related' }])
     expect(renderProposalMarkdown(detail)).toContain('## Concept `okf` — new')
 
     // Idempotent convergence on input_hash while pending.
@@ -161,11 +161,11 @@ describe('domain modules (integration)', () => {
     expect(concept.claims.length).toBe(1)
     expect(concept.claims[0]).toMatchObject({ status: 'verified', object: 'draft-v0.1' })
     expect(concept.claims[0]!.citations[0]).toMatchObject({ source_id: source.id, locator: 'heading: 1' })
-    expect(concept.relations).toEqual([{ to_slug: 'subkit', kind: 'related' }])
+    expect(concept.relations).toEqual([{ to_slug: 'graph-store', kind: 'related' }])
 
-    // The relation target 'subkit' has NO revision — it stays unreadable
+    // The relation target 'graph-store' has NO revision — it stays unreadable
     // (identity row only) and shows up in lint as a broken relation.
-    await expect(getConcept(db, space.id, { slug: 'subkit' })).rejects.toBeInstanceOf(NotFoundError)
+    await expect(getConcept(db, space.id, { slug: 'graph-store' })).rejects.toBeInstanceOf(NotFoundError)
 
     const listed = await listConcepts(db, space.id, {})
     expect(listed.items.map((item) => item.slug)).toEqual(['okf'])

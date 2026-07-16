@@ -1,5 +1,5 @@
-// Markdown utilities — the unified/remark frontmatter pipeline (ContentKit's
-// markdown.mjs pattern, trimmed to WikiKit's needs).
+// Markdown utilities — the unified/remark frontmatter pipeline, trimmed to
+// WikiKit's needs.
 //
 // WikiKit's markdown roles and who uses which helper:
 //   * parseFrontmatter / serializeFrontmatter — the lossless round-trip that

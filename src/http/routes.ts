@@ -1,7 +1,7 @@
-// ROUTES registry — the single source of truth for the HTTP surface
-// (SlideKit src/openapi.mjs pattern). The router (server.ts), the OpenAPI
-// document (openapi.ts), the drift tests and llms.txt all derive from the
-// same array, so the spec cannot drift from the implementation.
+// ROUTES registry — the single source of truth for the HTTP surface. The
+// router (server.ts), the OpenAPI document (openapi.ts), the drift tests and
+// llms.txt all derive from the same array, so the spec cannot drift from the
+// implementation.
 //
 // Registry entries reference handlers and zod schemas by NAME (strings), not
 // by object — that is what makes the registry introspectable: drift tests
@@ -603,7 +603,7 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const query = input.query as { limit?: number; after?: string }
     const page = await listConcepts(deps.db, space.id, { limit: query.limit, after: query.after })
-    // ETag over the space epoch (ContentKit pattern): the epoch bumps on
+    // ETag over the space epoch: the epoch bumps on
     // every approved proposal, so it is a perfect cheap validator for ANY
     // read of approved knowledge. RFC 9110 §13.1.2: If-None-Match may carry a
     // comma-separated list of entity-tags or '*' — any member matching (weak

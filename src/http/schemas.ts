@@ -419,7 +419,7 @@ export const zApiKeyCreatedResponse = z.object({
 // Ops
 // ---------------------------------------------------------------------------
 
-// EXACT deploy-gate shape: subkit-deploy's health gate polls /ready and
+// EXACT deploy-gate shape: the deploy pipeline's health gate polls /ready and
 // matches BOTH fields ({status:'ready', version:<tag>}) — do not add or
 // rename fields without updating the deploy pipeline first.
 export const zReadyResponse = z.object({

@@ -4,7 +4,7 @@
 // validate the actual JSON response against the declared zod schema.
 //
 // WHY this exists: buildOpenApi derives the spec from those schema NAMES, so
-// SubKit's import_connector_from_spec (and any generated client) trusts that a
+// any generated client / connector import trusts that a
 // 200 from /v1/spaces/{space}/concepts/{slug} parses as zConceptResponse. The
 // registry alone cannot prove that — only a handler actually producing a
 // response can. A handler that adds/renames/drops a field fails HERE, before

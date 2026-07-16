@@ -1,4 +1,4 @@
-// Session leasing (CONTRACTS §7, SubKit learnings): idle-TTL sweep, hard cap
+// Session leasing (CONTRACTS §7, session-leasing learnings): idle-TTL sweep, hard cap
 // with oldest-idle eviction, in-flight retain protection, bounded stream
 // retains. All driven through the injectable clock — no real timers.
 import { describe, expect, test } from 'bun:test'

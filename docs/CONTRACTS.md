@@ -787,8 +787,8 @@ the vendored spec lives at `docs/okf-v0.1.md`; every manifest carries
 
 ### 5.1 `ROUTES` registry entry shape (`src/http/routes.ts`)
 
-Single source of truth (SlideKit pattern) — handlers, OpenAPI, drift tests and
-llms.txt all derive from this array.
+Single source of truth — handlers, OpenAPI, drift tests and llms.txt all derive
+from this array.
 
 ```ts
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
@@ -1061,7 +1061,7 @@ result (`isError: true`), never bare strings.
 | `wikikit_propose`       | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                            | `{ proposal_id, status: 'pending' }`                                                              | `false`  | `true`      | `true`     | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
-per SubKit learning ("never destructiveHint:false on real writes") even though
+per the hard-won MCP rule ("never destructiveHint:false on real writes") even though
 they only stage content — an honest write is a write. `idempotentHint: true` on
 `wikikit_ingest` (content-hash dedup) and `wikikit_propose` (pending
 `input_hash` unique index) because retrying with identical input converges on

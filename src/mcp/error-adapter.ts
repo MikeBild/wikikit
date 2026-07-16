@@ -2,7 +2,7 @@
 // can produce becomes a TERMINAL, ACTIONABLE envelope serialized into the
 // SDK's fixed `{ isError: true, content: [{ type: 'text', text }] }` frame.
 //
-// WHY envelopes instead of bare strings (SubKit production learning): an agent
+// WHY envelopes instead of bare strings (hard-won rule): an agent
 // that receives "not found" as prose retries the same call in a loop, burning
 // tokens; an agent that receives `{code, next_best_actions}` terminates and
 // pivots. The envelope is byte-shaped like the REST §8.1 error body (same

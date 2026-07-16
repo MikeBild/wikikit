@@ -1,8 +1,7 @@
-// Safe query layer — the ContentKit PostgREST-style builder ported to
-// TypeScript, extended with the CONTRACTS.md §2.1 Db surface (query/tx/call/
-// emitEvent). No ORM by design: every SQL shape is either pinned here or
-// written explicitly by a domain module — nothing generates SQL from user
-// input.
+// Safe query layer — a PostgREST-style builder extended with the CONTRACTS.md
+// §2.1 Db surface (query/tx/call/emitEvent). No ORM by design: every SQL
+// shape is either pinned here or written explicitly by a domain module —
+// nothing generates SQL from user input.
 //
 // Three defense layers, all throwing before any SQL reaches Postgres:
 //   1. Table allowlist — builder methods only touch known wk_ tables, and
@@ -193,7 +192,7 @@ function limitClause(limit: number | undefined, values: unknown[]): string {
 
 /**
  * The Db surface everything downstream codes against (CONTRACTS §2.1) plus
- * the PostgREST-style builder helpers ported from ContentKit. The builders
+ * the PostgREST-style builder helpers. The builders
  * exist so simple CRUD never hand-writes SQL; anything with joins uses
  * query() (raw but allowlist-scanned and always parameterized).
  */

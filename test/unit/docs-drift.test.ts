@@ -1,5 +1,5 @@
-// Drift guards for the documentation set (SlideKit test/unit/drift.test.mjs
-// pattern): the docs are hand-written, so CI must prove they still describe
+// Drift guards for the documentation set (drift-guard convention): the docs
+// are hand-written, so CI must prove they still describe
 // the implementation. Each check parses the ACTUAL source of truth (ROUTES,
 // config.ts, the MCP tool palette, buildOpenApi) and asserts the committed
 // docs mention it — adding a route/env var/tool without documenting it fails
@@ -77,8 +77,8 @@ describe('docs drift', () => {
     expect([...documented].sort()).toEqual(TOOLS.map((tool) => tool.name).sort())
   })
 
-  // The committed OpenAPI snapshot must BE the live document — SubKit builds
-  // connectors from it without booting a server.
+  // The committed OpenAPI snapshot must BE the live document — any generated
+  // client builds connectors from it without booting a server.
   test('docs/openapi.json snapshot matches buildOpenApi(ROUTES)', () => {
     const snapshot = JSON.parse(read('docs/openapi.json')) as unknown
     expect(snapshot).toEqual(JSON.parse(JSON.stringify(buildOpenApi(ROUTES, { version: VERSION }))))

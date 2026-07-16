@@ -67,7 +67,7 @@ const stagingArgs = {
           citations: [{ source_id: '6f1e0dcb-5f0e-4b1a-9c1c-000000000001', quote: 'OKF is a draft' }],
         },
       ],
-      relations: [{ to_slug: 'subkit', kind: 'related' as const }],
+      relations: [{ to_slug: 'graph-store', kind: 'related' as const }],
     },
   ],
 }
@@ -95,7 +95,7 @@ describe('createProposal — staging in one transaction', () => {
         rows: (values) =>
           values[1] === 'okf'
             ? [{ id: 'con-okf', current_revision_id: 'rev-base' }]
-            : [{ id: 'con-subkit', current_revision_id: null }],
+            : [{ id: 'con-graph-store', current_revision_id: null }],
       },
       { match: /COALESCE\(MAX\(rev\), 0\)/, rows: [{ next: 4 }] },
       { match: /INSERT INTO "public"\."wk_claims"/, rows: [{ id: 'claim-1' }] },
@@ -132,7 +132,7 @@ describe('createProposal — staging in one transaction', () => {
     const relationInsert = calls.find((call) => call.sql.includes('INSERT INTO wk_relations'))!
     expect(relationInsert.sql).toContain("DO UPDATE SET status = 'proposed', proposal_id = EXCLUDED.proposal_id")
     expect(relationInsert.sql).toContain("WHERE wk_relations.status <> 'active'")
-    expect(relationInsert.values).toEqual(['space-1', 'con-okf', 'con-subkit', 'related', 'prop-1'])
+    expect(relationInsert.values).toEqual(['space-1', 'con-okf', 'con-graph-store', 'related', 'prop-1'])
 
     // Outbox event inside the SAME transaction, §6.3 payload shape.
     const outbox = calls.find((call) => call.sql.includes('wk_outbox_events'))!
@@ -306,7 +306,7 @@ describe('getProposal — structured diff', () => {
         ],
       },
       { match: /AS collides/, rows: claimRows },
-      { match: /AS to_slug/, rows: [{ from_concept_id: 'con-1', to_slug: 'subkit', kind: 'related' }] },
+      { match: /AS to_slug/, rows: [{ from_concept_id: 'con-1', to_slug: 'graph-store', kind: 'related' }] },
     ]
   }
 
@@ -330,7 +330,7 @@ describe('getProposal — structured diff', () => {
     expect(concept.claims_added.length).toBe(2)
     expect(concept.claims_disputed).toEqual([{ subject: 'okf', predicate: 'has_status', object: 'draft' }])
     expect(concept.claims_deprecated).toEqual([])
-    expect(concept.relations_added).toEqual([{ to_slug: 'subkit', kind: 'related' }])
+    expect(concept.relations_added).toEqual([{ to_slug: 'graph-store', kind: 'related' }])
   })
 
   test('approved: disputed group is the PERSISTED status, not the collision flag', async () => {
@@ -368,7 +368,7 @@ describe('renderProposalMarkdown', () => {
         claims_added: [{ subject: 'okf', predicate: 'has_status', object: 'draft-v0.1' }],
         claims_disputed: [{ subject: 'okf', predicate: 'has_status', object: 'draft-v0.1' }],
         claims_deprecated: [],
-        relations_added: [{ to_slug: 'subkit', kind: 'related' }],
+        relations_added: [{ to_slug: 'graph-store', kind: 'related' }],
       },
     ],
   }
@@ -386,7 +386,7 @@ describe('renderProposalMarkdown', () => {
     expect(markdown).toContain('### Claims added (1)')
     expect(markdown).toContain('### Claims disputed (1) ⚠')
     expect(markdown).toContain('- okf **has_status** draft-v0.1')
-    expect(markdown).toContain('- related → [[subkit]]')
+    expect(markdown).toContain('- related → [[graph-store]]')
     // Deterministic: same input, same output (it is served with an ETag-able body).
     expect(renderProposalMarkdown(detail)).toBe(markdown)
   })

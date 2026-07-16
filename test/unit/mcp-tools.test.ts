@@ -87,7 +87,7 @@ describe('tool palette shape (binding contract §7.1)', () => {
     }
   })
 
-  test('never destructiveHint:false on a real write (SubKit learning)', () => {
+  test('never destructiveHint:false on a real write (hard-won rule)', () => {
     for (const tool of TOOLS) {
       if (!tool.annotations.readOnlyHint && tool.name !== 'wikikit_ingest_status') {
         expect(tool.annotations.destructiveHint).toBe(true)

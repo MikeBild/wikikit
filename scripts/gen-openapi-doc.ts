@@ -3,7 +3,7 @@
 // ROUTES registry — the same buildOpenApi() call that serves GET /openapi.json
 // at runtime, so the snapshot IS the live document at the committed version.
 //
-// WHY a committed snapshot at all: SubKit's import_connector_from_spec (and
+// WHY a committed snapshot at all: a generated connector import (and
 // any other OpenAPI tooling) can consume the contract without booting a
 // server, and every HTTP-surface change shows up as a reviewable diff. The
 // drift test compares this file against buildOpenApi(ROUTES) so it can never

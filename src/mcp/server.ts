@@ -2,7 +2,7 @@
 // OUTSIDE the ROUTES registry and the OpenAPI surface, behind the same auth
 // as REST.
 //
-// Architecture (SubKit production pattern):
+// Architecture:
 //   - ONE SDK Server per session, whose handlers close over the Principal
 //     resolved at initialize — isolation by construction: no ambient auth
 //     state, no cross-session leakage.
@@ -16,11 +16,11 @@
 //   - Guards before auth: Origin allowlist (DNS-rebinding defense) and
 //     mcp-protocol-version against the SDK's SUPPORTED_PROTOCOL_VERSIONS.
 //
-// WHY enableJsonResponse: true (deliberate divergence from SubKit): SubKit
-// keeps every POST on an SSE stream because its tools raise mid-call
-// elicitation (server→client requests need the originating POST's stream).
-// WikiKit has NO in-band elicitation BY DESIGN — the SubKit production
-// learning is that approval elicitation gets ignored/auto-declined, so
+// WHY enableJsonResponse: true (a deliberate divergence from the usual MCP
+// setup): keeping every POST on an SSE stream is only needed when tools raise
+// mid-call elicitation (server→client requests need the originating POST's
+// stream). WikiKit has NO in-band elicitation BY DESIGN — the hard-won rule
+// is that approval elicitation gets ignored/auto-declined, so
 // approval lives on REST and every tool answers terminally. Long work is an
 // async-ack (wikikit_ingest → poll). With no server→client requests in a tool
 // call, buffered JSON responses are strictly simpler and bound every POST's
@@ -65,7 +65,7 @@ export interface McpDeps extends ToolDeps {
 }
 
 // ---------------------------------------------------------------------------
-// Transport guards (SubKit guards.ts port).
+// Transport guards.
 
 export type McpGuardResult =
   { ok: true } | { ok: false; reason: 'invalid_origin' | 'unsupported_protocol_version'; response: Response }
@@ -344,7 +344,7 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
     // Standalone GET SSE stream: the SDK permits exactly ONE per session and
     // 409s a second. A client re-opening its notification channel after a
     // network blip (before the server saw the old socket die) must REPLACE
-    // the stale stream, not get an unrecoverable Conflict (SubKit learning:
+    // the stale stream, not get an unrecoverable Conflict (the hard-won rule:
     // last-writer-wins reconnection).
     if (req.method === 'GET') {
       session.transport.closeStandaloneSSEStream()

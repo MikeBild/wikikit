@@ -1,10 +1,10 @@
-# Release pipeline (plan §11, SlideKit pattern). Cut a release by pushing a
+# Release pipeline. Cut a release by pushing a
 # version tag:
 #
 #   bun -e "..." / npm version 1.2.3   # bump package.json + create tag v1.2.3
 #   git push --follow-tags
 #
-# subkit-deploy's pull-based deploy polls GitHub releases whose tag matches
+# the pull-based deploy pipeline polls GitHub releases whose tag matches
 # ^v?[0-9]+\.[0-9]+\.[0-9]+$ and downloads the wikikit-linux-x64 asset, then
 # health-gates on /ready reporting exactly that version. Everything below
 # exists to make that contract unbreakable: tag == package.json version ==
@@ -84,8 +84,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      # SHA256SUMS covers every published binary so operators (and
-      # subkit-deploy, if it chooses) can verify downloads offline.
+      # SHA256SUMS covers every published binary so operators (and the deploy
+      # pipeline, if it chooses) can verify downloads offline.
       - name: Checksums
         run: cd dist && sha256sum wikikit-* > SHA256SUMS
       - uses: softprops/action-gh-release@v3

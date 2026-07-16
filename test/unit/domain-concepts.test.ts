@@ -104,7 +104,7 @@ describe('getConcept', () => {
         ],
       },
       { match: /wk_citations/, rows: [{ claim_id: 'cl-1', source_id: 'src-1', quote: 'q', locator: '' }] },
-      { match: /rel\.from_concept_id = \$2/, rows: [{ to_slug: 'subkit', kind: 'related' }] },
+      { match: /rel\.from_concept_id = \$2/, rows: [{ to_slug: 'graph-store', kind: 'related' }] },
     ])
     const detail = await getConcept(db, 'space-1', { slug: 'okf' })
     expect(detail).toMatchObject({
@@ -114,7 +114,7 @@ describe('getConcept', () => {
       rev: 3,
       updated_at: '2026-07-01T10:00:00.000Z',
       agent_meta: { model: 'claude-sonnet-5' },
-      relations: [{ to_slug: 'subkit', kind: 'related' }],
+      relations: [{ to_slug: 'graph-store', kind: 'related' }],
     })
     expect(detail.claims[0]!.citations).toEqual([{ source_id: 'src-1', quote: 'q', locator: '' }])
     // The read joins the current pointer AND only active relations.

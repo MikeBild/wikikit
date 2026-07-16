@@ -116,23 +116,25 @@ object` with a confidence, citations (verbatim quote + locator) and a
   `/metrics`, `/health` + `/ready` probes, structured logs, self-migrating
   single binary.
 
-## Product family
+## Integration
 
-WikiKit is one of four independent products. They integrate **only over
-standards** — OpenAPI/REST, MCP, Standard Webhooks, OKF, llms.txt — never
-through shared code or direct dependencies:
+WikiKit integrates **only over open standards** — no SDK, no shared code, no
+direct dependencies:
 
-| Product                                              | Job                                                               |
-| ---------------------------------------------------- | ----------------------------------------------------------------- |
-| [ContentKit](https://github.com/MikeBild/contentkit) | Publishing: Markdown in, multilingual static website out          |
-| [SlideKit](https://github.com/MikeBild/slidekit)     | Rendering: Markdown in, one self-contained Slidev HTML deck out   |
-| SubKit                                               | Governed execution: audited, permission-checked workflows         |
-| **WikiKit**                                          | Knowledge: Markdown in, structured, cited, reviewed knowledge out |
+- **REST / OpenAPI 3.1** (`/openapi.json`) — any client or agent framework can
+  drive the full API; the spec is a ready-to-import connector.
+- **MCP** (`/mcp`, Streamable HTTP) — agents search, read and propose through
+  scope-gated tools.
+- **Standard Webhooks** — any system can react to `proposal.created`,
+  `proposal.approved`, `concept.updated`, `ingest.failed`.
+- **OKF bundles** and the Obsidian-friendly Markdown tree — portable knowledge
+  in and out.
+- **llms.txt / llms-full.txt** — self-description for agents and crawlers.
 
-Examples of the seams: SubKit imports WikiKit as a connector from
-`/openapi.json` and reacts to `proposal.created` webhooks with an approval
-workflow; a workflow posts an approved concept to ContentKit as an article;
-the published article is re-ingested by URL and becomes a citable source.
+Typical seams: a governance layer imports the OpenAPI connector and reacts to
+`proposal.created` to run an approval workflow; a publishing pipeline posts an
+approved concept out as an article; that published article is re-ingested by
+URL and becomes a citable source.
 
 ## How it works
 

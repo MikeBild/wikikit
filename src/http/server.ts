@@ -1,6 +1,6 @@
 // node:http server — request lifecycle for the ROUTES registry.
 //
-// Per-request pipeline (ContentKit server.mjs shape, WikiKit contracts):
+// Per-request pipeline (WikiKit contracts):
 //   request-id → drain gate → raw mounts (/mcp) → route match → auth
 //   (401/403) → body read (size-capped) → zod validation (params/query/body)
 //   → handler → JSON/text response — with every failure mapped to the §8.1

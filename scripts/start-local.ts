@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Zero-config local stack (ContentKit start-local pattern): a dedicated
+// Zero-config local stack: a dedicated
 // Docker Postgres on a non-standard port + named volume, then the WikiKit
 // server. Nothing to configure — the container matches the committed
 // .env.defaults DATABASE_URL exactly, and the binary migrates itself at boot.
@@ -19,7 +19,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
 // Must stay identical to the committed .env.defaults DATABASE_URL — the
 // zero-config contract. Port 55442 avoids colliding with a host Postgres
-// (5432) and with ContentKit's local container (55432).
+// (5432) and with a default local Postgres container (55432).
 export const LOCAL_DATABASE_URL = 'postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit'
 export const LOCAL_CONTAINER = 'wikikit-local-postgres'
 export const LOCAL_VOLUME = 'wikikit-local-postgres'

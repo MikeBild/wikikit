@@ -1,5 +1,4 @@
-// Prometheus text-format metrics — the ContentKit `src/metrics.mjs` pattern
-// ported to TypeScript and widened for WikiKit's surfaces: HTTP
+// Prometheus text-format metrics, covering WikiKit's surfaces: HTTP
 // counters/histograms, ingest job outcomes, LLM token usage, webhook
 // deliveries.
 //

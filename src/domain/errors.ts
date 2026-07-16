@@ -2,8 +2,8 @@
 // wire envelopes by the transports (HTTP status + §8.1 JSON envelope, MCP tool
 // error via the error adapter).
 //
-// WHY typed classes instead of `Object.assign(new Error(), { statusCode })`
-// (the ContentKit style): the error code table is a WIRE CONTRACT here — REST
+// WHY typed classes instead of `Object.assign(new Error(), { statusCode })`:
+// the error code table is a WIRE CONTRACT here — REST
 // clients and MCP agents branch on `code`, so every throw site must pick from
 // the canonical set instead of inventing ad-hoc strings. The class carries
 // everything the envelope needs (code, status, next_best_actions, extra

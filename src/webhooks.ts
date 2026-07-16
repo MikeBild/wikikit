@@ -1,6 +1,5 @@
-// Standard Webhooks delivery — the ContentKit `src/webhooks.mjs` outbox
-// worker ported to TypeScript and adapted to the wk_ schema (CONTRACTS §1.11,
-// §6).
+// Standard Webhooks delivery — a transactional-outbox delivery worker over
+// the wk_ schema (CONTRACTS §1.11, §6).
 //
 // Architecture (transactional outbox):
 //   1. Business writes emit rows into wk_outbox_events INSIDE their own
@@ -35,7 +34,7 @@ import { assertDeliverableUrl, decryptSecret, encryptSecret, generateWebhookSecr
 
 // ---------------------------------------------------------------------------
 // Event payload schemas (CONTRACTS §6.3) — the wire contract consumers
-// (SubKit workflows, n8n, anything) build against. The contract test
+// (workflow engines, n8n, anything) build against. The contract test
 // snapshots the derived JSON Schemas: changing a payload requires a visible
 // snapshot commit.
 
@@ -107,7 +106,8 @@ export type WebhookEnvelope = z.infer<typeof zWebhookEnvelope>
 // ---------------------------------------------------------------------------
 // Signature (Standard Webhooks): v1,<base64(hmacSHA256(secret, `${id}.${timestamp}.${body}`))>
 // The HMAC key is the stored whsec_-style secret string as-is (CONTRACTS §6.2
-// formula — matches ContentKit, so one verifier snippet works for both).
+// formula — the canonical Standard Webhooks scheme, so any compliant verifier
+// works).
 
 export function signWebhook(secret: string, id: string, timestamp: string, body: string): string {
   const digest = createHmac('sha256', secret).update(`${id}.${timestamp}.${body}`).digest('base64')

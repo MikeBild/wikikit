@@ -1,6 +1,6 @@
 // Webhook wire contract (CONTRACTS §6, plan §14.2): the Standard Webhooks
 // envelope (headers + signature scheme) and every event payload schema,
-// snapshotted. External systems (SubKit workflows, n8n, any HTTP consumer)
+// snapshotted. External systems (n8n, any HTTP consumer)
 // build against exactly these shapes — a diff in the snapshot file is a
 // visible, deliberate API change that requires a snapshot commit.
 import { describe, expect, test } from 'bun:test'

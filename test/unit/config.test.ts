@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { loadConfig } from '../../src/config.ts'
 
 const MANAGED = [
+  // Skip the on-disk .env so a developer's local .env never leaks the real
+  // ANTHROPIC_API_KEY (etc.) into these precedence/guard cases. Restored per
+  // test like every other managed var.
+  'WIKIKIT_SKIP_DOTENV',
   'NODE_ENV',
   'HOST',
   'PORT',
@@ -39,6 +43,9 @@ beforeEach(() => {
     saved[name] = process.env[name]
     delete process.env[name]
   }
+  // Tests drive precedence purely through process.env; a real .env on disk
+  // (dev convenience) must not participate.
+  process.env.WIKIKIT_SKIP_DOTENV = '1'
 })
 
 afterEach(() => {

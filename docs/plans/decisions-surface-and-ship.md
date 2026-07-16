@@ -45,7 +45,7 @@ Gate: `bun run lint`, `bunx tsc --noEmit`, `bun test test/unit test/contract`,
 7. Tag `v0.1.0`, push tag → `release.yml` builds `wikikit-linux-x64` +
    `wikikit-macos-arm64` + `SHA256SUMS` and creates the GitHub release
    (fallback: local `build-binary.sh` + `gh release create`).
-8. **Deploy** via `subkit-deploy` (own the droplet): verify prerequisites
+8. **Deploy** via the deploy repo (own the droplet): verify prerequisites
    (`doctl auth`, `.env.deploy`, ssh) first; `scripts/deploy-wikikit/bootstrap.sh`
    (DNS, user, PG db, `/etc/wikikit/.env`) then `deploy.sh <tag>`. If a
    prerequisite/secret is missing, stop and report the exact operator step —

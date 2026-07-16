@@ -2,7 +2,7 @@
 // four annotations). Thin dispatch over the SAME domain modules REST consumes;
 // no knowledge logic lives here.
 //
-// Zod-first (SubKit learning): the write tools reuse the exact zod objects the
+// Zod-first (hard-won rule): the write tools reuse the exact zod objects the
 // rest of the system validates with — `zIngestInput` (the ingest pipeline's
 // boundary schema, shared with HTTP's zIngestRequest) and `zCreateProposalArgs`
 // (exported from domain/proposals.ts precisely so HTTP and MCP validate the
@@ -10,12 +10,12 @@
 // the cross-field refinements (exactly-one-of markdown|text|url, at-least-one
 // concept/decision) — a plain `.extend` would silently drop them.
 //
-// Scope-gating = tool VISIBILITY (SubKit pattern): a knowledge:read key never
-// sees the write tools in tools/list, and calling an invisible tool is
-// indistinguishable from calling a nonexistent one. There is deliberately NO
-// approve tool — agents write into the staging area; promotion is a human act
-// over REST (or later SubKit governance) with a knowledge:approve key that
-// this palette never requests.
+// Scope-gating = tool VISIBILITY: a knowledge:read key never sees the write
+// tools in tools/list, and calling an invisible tool is indistinguishable
+// from calling a nonexistent one. There is deliberately NO approve tool —
+// agents write into the staging area; promotion is a human act over REST (or
+// later governance) with a knowledge:approve key that this palette never
+// requests.
 import { z } from 'zod'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
@@ -167,7 +167,7 @@ function toProvenance(row: SourceProvenanceRow) {
 // ---------------------------------------------------------------------------
 // The palette. Annotation rationale is FIXED by CONTRACTS §7.1 — do not change
 // silently: writes are destructiveHint:true even though they only stage
-// content (SubKit learning: never destructiveHint:false on real writes — an
+// content (hard-won rule: never destructiveHint:false on real writes — an
 // honest write is a write, and a trusting client would file it under "always
 // allow"). idempotentHint:true on the writes because content-hash dedup
 // (ingest) and the pending input_hash unique index (propose) make identical

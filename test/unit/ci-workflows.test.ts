@@ -7,7 +7,7 @@
 //   credentials) — ensureLocalPostgres() docker-inspects that exact name and
 //   would race the service container on the port if it ever diverged.
 // - Release asset names and the version-tag regex are consumed by
-//   subkit-deploy's pull-based deployer (gh release download -p
+//   the pull-based deployer (gh release download -p
 //   wikikit-linux-x64, tag poll ^v?[0-9]+\.[0-9]+\.[0-9]+$).
 //
 // Parsing the YAML here turns "the deploy broke three weeks later" into a red
@@ -114,7 +114,7 @@ describe('ci.yml', () => {
 })
 
 describe('release.yml', () => {
-  test('triggers on v* tags and guards with the subkit-deploy version regex', () => {
+  test('triggers on v* tags and guards with the deploy pipeline version regex', () => {
     expect((release.on.push as { tags: string[] }).tags).toEqual(['v*'])
     const guard = runs(job(release, 'verify-tag')).join('\n')
     // The deployer polls releases matching exactly this pattern; the guard
@@ -127,8 +127,8 @@ describe('release.yml', () => {
   test('builds the deploy-contract assets natively per OS', () => {
     const include = job(release, 'build').strategy?.matrix?.include ?? []
     const assets = include.map((entry) => entry.asset)
-    // wikikit-linux-x64 is what subkit-deploy downloads; macos-arm64 is the
-    // dev machine target. linux-arm64 is optional but ships (SlideKit parity).
+    // wikikit-linux-x64 is what the deploy pipeline downloads; macos-arm64 is
+    // the dev machine target. linux-arm64 is optional but ships.
     expect(assets).toContain('wikikit-linux-x64')
     expect(assets).toContain('wikikit-macos-arm64')
     for (const entry of include) expect(entry.asset.startsWith('wikikit-')).toBe(true)

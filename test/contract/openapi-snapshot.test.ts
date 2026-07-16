@@ -2,8 +2,8 @@
 // snapshot must deep-equal what buildOpenApi(ROUTES) produces at runtime.
 //
 // WHY a committed snapshot when GET /openapi.json is generated live: the
-// snapshot makes every API change a VISIBLE diff in review (SubKit's
-// import_connector_from_spec and any OpenAPI tooling build connectors from
+// snapshot makes every API change a VISIBLE diff in review (any generated
+// connector import and OpenAPI tooling build connectors from
 // this document — an unreviewed shape change is a broken downstream
 // connector), and it lets consumers vendor the spec without running WikiKit.
 // Changing the surface therefore requires a deliberate snapshot commit; this

@@ -1,5 +1,5 @@
 // Composition root — createApp wires config → db → domain → llm → pipeline →
-// webhooks worker → http (the ContentKit src/server.mjs pattern in factory-DI
+// webhooks worker → http (a server composition in factory-DI
 // form). Everything is injectable for tests; production takes the defaults.
 //
 // WHY a separate createApp/start split: createApp builds a fully wired but

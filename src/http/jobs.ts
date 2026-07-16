@@ -1,5 +1,5 @@
-// Async ingest jobs — the HTTP read model over wk_ingest_jobs (SlideKit
-// jobs.mjs pattern: POST returns 202 + Location, GET polls the job).
+// Async ingest jobs — the HTTP read model over wk_ingest_jobs (POST returns
+// 202 + Location, GET polls the job).
 //
 // The WRITE side lives in src/ingest/pipeline.ts (enqueue + in-process
 // worker); this module owns the row → wire mapping for GET /v1/ingests/{id}
