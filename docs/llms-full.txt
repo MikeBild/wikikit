@@ -69,6 +69,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/spaces`                                  | admin             | Create a space (workspace scope for all knowledge) |
 | GET    | `/v1/spaces/{space}`                          | knowledge:read    | Read a space (settings, epoch) |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
+| POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status (queued\|running\|done\|failed) + proposal_id when done |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |

@@ -32,6 +32,7 @@ import {
 import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { getSource, isoString, listSources } from '../domain/sources.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
+import { extractDocument } from '../ingest/extract.ts'
 import type { IngestPipeline } from '../ingest/pipeline.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 import type { Logger } from '../logger.ts'
@@ -118,6 +119,24 @@ export const ROUTES: RouteDef[] = [
     handler: 'getIngestHandler',
     request: { params: 'zIdParams' },
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },
+  },
+  {
+    method: 'post',
+    path: '/v1/spaces/{space}/ingest/document',
+    scope: 'knowledge:propose',
+    summary: 'Upload a document (pdf|docx|xlsx|md|txt|csv, raw body) — extracted to Markdown then ingested; async',
+    handler: 'ingestDocumentHandler',
+    request: { params: 'zSpaceParams', query: 'zIngestDocumentQuery' },
+    rawBody: true,
+    responses: {
+      202: {
+        schema: 'zIngestAcceptedResponse',
+        type: 'application/json',
+        desc: 'Extracted + queued; poll /v1/ingests/{id}',
+      },
+      415: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'unsupported_document (unknown extension)' },
+      422: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'document_extraction_failed (no text layer)' },
+    },
   },
   {
     method: 'get',
@@ -559,6 +578,27 @@ export const HANDLERS: Record<string, Handler> = {
   async createIngestHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:propose')
     const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, input.body as never)
+    return {
+      status: 202,
+      body: { ingest_id, status: 'queued' as const },
+      headers: { location: `/v1/ingests/${ingest_id}` },
+    }
+  },
+
+  async ingestDocumentHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    const query = input.query as { filename: string; source_kind?: 'meeting' | 'article' | 'note' }
+    const bytes = input.body as Uint8Array
+    if (!bytes || bytes.byteLength === 0) throw new ValidationError('request body must be the document bytes')
+    // Extract to Markdown here (deterministic CPU work), then hand the result to
+    // the SAME ingest path a pasted markdown source takes — dedup, classify,
+    // synthesize, grounding all apply unchanged. The filename becomes the title.
+    const doc = await extractDocument(bytes, query.filename)
+    const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, {
+      markdown: doc.markdown,
+      title: doc.title,
+      source_kind: query.source_kind,
+    })
     return {
       status: 202,
       body: { ingest_id, status: 'queued' as const },

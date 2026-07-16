@@ -115,6 +115,13 @@ export const zIngestRequest = zIngestInput
 
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z.literal('queued') })
 
+// Document upload (raw bytes body): the filename gives the extension used to
+// pick the extractor (pdf/docx/xlsx/md/txt/csv).
+export const zIngestDocumentQuery = z.object({
+  filename: z.string().min(1).max(500).describe('Original filename incl. extension — selects the extractor'),
+  source_kind: z.enum(['meeting', 'article', 'note']).optional(),
+})
+
 export const zIngestStatusResponse = z.object({
   ingest_id: z.uuid(),
   status: z.enum(['queued', 'running', 'done', 'failed']),
@@ -445,6 +452,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zCreateSpaceRequest,
   zSpaceResponse,
   zIngestRequest,
+  zIngestDocumentQuery,
   zIngestAcceptedResponse,
   zIngestStatusResponse,
   zSourceListResponse,

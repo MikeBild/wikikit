@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.1.5",
+    "version": "0.1.6",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface."
   },
   "servers": [
@@ -382,6 +382,145 @@
             }
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "x-required-scope": "knowledge:propose"
+      }
+    },
+    "/v1/spaces/{space}/ingest/document": {
+      "post": {
+        "summary": "Upload a document (pdf|docx|xlsx|md|txt|csv, raw body) — extracted to Markdown then ingested; async",
+        "operationId": "ingestDocument",
+        "responses": {
+          "202": {
+            "description": "Extracted + queued; poll /v1/ingests/{id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zIngestAcceptedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "unsupported_document (unknown extension)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "document_extraction_failed (no text layer)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Original filename incl. extension — selects the extractor"
+            }
+          },
+          {
+            "name": "source_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["meeting", "article", "note"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

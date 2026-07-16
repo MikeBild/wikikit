@@ -4,6 +4,8 @@
 // LLM stage deterministic and offline.
 // Gated behind RUN_INTEGRATION=1; scripts/start-local.ts provisions the container.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Config } from '../../src/config.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
@@ -330,6 +332,43 @@ describe('http surface (integration)', () => {
     // A missing slug is a clean 404.
     const missing = await fetch(`${base}/v1/spaces/demo/decisions/does-not-exist`, { headers: bearer(readerKey) })
     expect(missing.status).toBe(404)
+  })
+
+  it('document upload: a real .docx is extracted and ingested end-to-end', async () => {
+    const docx = new Uint8Array(readFileSync(join(import.meta.dir, '../fixtures/documents/sample.docx')))
+    const res = await fetch(`${base}/v1/spaces/demo/ingest/document?filename=okf-brief.docx`, {
+      method: 'POST',
+      headers: { ...bearer(writerKey), 'content-type': 'application/octet-stream' },
+      body: docx,
+    })
+    expect(res.status).toBe(202)
+    const { ingest_id } = (await res.json()) as { ingest_id: string }
+    expect(res.headers.get('location')).toBe(`/v1/ingests/${ingest_id}`)
+
+    expect(await app.ingest.runOnce()).toBe(true)
+    const done = (await (await fetch(`${base}/v1/ingests/${ingest_id}`, { headers: bearer(writerKey) })).json()) as {
+      status: string
+      source_id: string
+    }
+    expect(done.status).toBe('done')
+
+    // The archived source is the EXTRACTED markdown from the docx (not the raw
+    // binary) — proving the extraction ran before the pipeline.
+    const source = (await (
+      await fetch(`${base}/v1/spaces/demo/sources/${done.source_id}`, { headers: bearer(readerKey) })
+    ).json()) as { raw_content: string; markdown: string }
+    expect(source.markdown).toContain('Open Knowledge Format')
+    expect(source.markdown).toContain('concept identity')
+  })
+
+  it('document upload: unknown extension → 415 unsupported_document', async () => {
+    const res = await fetch(`${base}/v1/spaces/demo/ingest/document?filename=archive.zip`, {
+      method: 'POST',
+      headers: { ...bearer(writerKey), 'content-type': 'application/octet-stream' },
+      body: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+    })
+    expect(res.status).toBe(415)
+    expect(((await res.json()) as { code: string }).code).toBe('unsupported_document')
   })
 
   it('lint reports a healthy space (counts shape, CI-consumable)', async () => {

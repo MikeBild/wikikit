@@ -459,6 +459,15 @@ const CASES: RouteCase[] = [
     status: 202,
     body: { markdown: '# a brand-new note\n\nnever seen before' },
   },
+  {
+    // .txt → text passthrough (no binary parser needed at contract level); the
+    // real pdf/docx/xlsx extractors are covered by unit + integration tests.
+    template: '/v1/spaces/{space}/ingest/document',
+    method: 'post',
+    url: '/v1/spaces/demo/ingest/document?filename=notes.txt',
+    status: 202,
+    rawBody: new TextEncoder().encode('A brand-new document, never seen before.'),
+  },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
   { template: '/v1/spaces/{space}/sources', method: 'get', url: '/v1/spaces/demo/sources', status: 200 },
   {
