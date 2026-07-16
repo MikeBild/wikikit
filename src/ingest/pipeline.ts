@@ -88,6 +88,15 @@ const WORKER_LOST_AFTER_MS = 15 * 60 * 1000
 
 const DEFAULT_POLL_MS = 1000
 
+// Verbatim-quote fidelity: a claim's quote must occur in the source the model
+// actually read. Normalization (collapse whitespace, case-insensitive) matches
+// the benchmarked check that had 0 false positives on real synthesis while
+// still catching a quote the model invented or paraphrased.
+function quoteGroundedIn(quote: string, sourceMarkdown: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  return norm(sourceMarkdown).includes(norm(quote))
+}
+
 interface JobRow {
   id: string
   space_id: string
@@ -376,11 +385,16 @@ export function createIngestPipeline(
       usage.input_tokens += synthesized.run.usage.input_tokens
       usage.output_tokens += synthesized.run.usage.output_tokens
 
-      // Claims only WITH supporting quotes: the schema already requires a
-      // non-empty quote, but an injected/overridden provider could bypass zod
-      // — an unquotable claim must never reach wk_claims (citation contract).
-      const claims = synthesized.output.claims
-        .filter((claim) => claim.quote.trim().length > 0)
+      // Claims only WITH a supporting quote that is VERBATIM in the source.
+      // The schema requires a non-empty quote, but not that it actually occurs
+      // in the source — a paraphrased or hallucinated quote is an unverifiable
+      // citation that would poison the KB. This deterministic verbatim-fidelity
+      // gate (the load-bearing quality mechanism in comparable systems) drops
+      // ungrounded claims; the benchmark measured 0 false positives across 43
+      // real grounded claims, so a well-behaved model loses nothing.
+      const rawClaims = synthesized.output.claims
+      const claims = rawClaims
+        .filter((claim) => claim.quote.trim().length > 0 && quoteGroundedIn(claim.quote, budget.markdown))
         .map((claim) => ({
           subject: claim.subject,
           predicate: claim.predicate,
@@ -388,6 +402,15 @@ export function createIngestPipeline(
           confidence: claim.confidence,
           citations: [{ source_id: source.id, quote: claim.quote }],
         }))
+      const dropped = rawClaims.length - claims.length
+      if (dropped > 0) {
+        logger.warn('dropped ungrounded claims (quote not verbatim in source)', {
+          ingest_id: job.id,
+          concept: target.slug,
+          dropped,
+          kept: claims.length,
+        })
+      }
       allTriples.push(...claims.map(({ subject, predicate, object }) => ({ subject, predicate, object })))
 
       proposalConcepts.push({

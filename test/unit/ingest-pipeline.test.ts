@@ -307,6 +307,41 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))).toBe(true)
   })
 
+  test('ungrounded claims (quote not verbatim in the source) are dropped before staging', async () => {
+    // Source is `# OKF\n\nOKF is a draft spec.` — one quote is verbatim, one is
+    // invented. Only the grounded claim may reach wk_claims/wk_citations.
+    const { db, calls } = fakeDb(workerRoutes())
+    const llm = createFakeProvider({
+      synthesize: () => ({
+        title: 'OKF',
+        summary: 's',
+        markdown: '# OKF',
+        claims: [
+          { subject: 'okf', predicate: 'is', object: 'draft', quote: 'OKF is a draft spec.', confidence: 0.9 },
+          {
+            subject: 'okf',
+            predicate: 'has_status',
+            object: 'production',
+            quote: 'OKF is production ready.',
+            confidence: 0.9,
+          },
+        ],
+        relations: [],
+        decisions: [],
+      }),
+    })
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+
+    const staged = calls.flatMap((call) => call.values.map((v) => String(v)))
+    // The grounded quote is staged…
+    expect(staged.some((v) => v.includes('OKF is a draft spec.'))).toBe(true)
+    // …the invented one never touches the database (dropped pre-staging).
+    expect(staged.some((v) => v.includes('OKF is production ready.'))).toBe(false)
+    // The proposal still stages (the grounded claim + revision have value).
+    expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))).toBe(true)
+  })
+
   test('hallucinated affected slugs (not in the index) are dropped, not synthesized', async () => {
     const { db, calls } = fakeDb(workerRoutes())
     const llm = createFakeProvider({ classify: () => ({ affected: ['ghost'], new: [] }) })
