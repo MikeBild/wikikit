@@ -447,13 +447,18 @@ export interface LlmProvider {
   answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>>
 }
 
-export function createAnthropicProvider(config: Config, deps?: { logger?: Logger }): LlmProvider
+export function createLlmProvider(config: Config, deps?: { logger?: Logger }): LlmProvider
 ```
 
-Anthropic specifics: `@anthropic-ai/sdk`, structured outputs
-(`output_config.format` with the zod-derived JSON schema), `ANTHROPIC_BASE_URL`
-honored natively by the SDK (test stub), prompt caching (`cache_control` on the
-static system prompt block). Every call the caller persists to `wk_agent_runs`.
+Implemented on the Vercel AI SDK (`ai` + `@ai-sdk/anthropic`/`@ai-sdk/openai`/
+`@ai-sdk/google`) — provider is config-selected (`WIKIKIT_LLM_PROVIDER`).
+Structured output via `generateObject(schema)`; errors map to the typed set
+(`content-filter` → refusal, `length`/`NoObjectGeneratedError` → invalid).
+Anthropic prompt caching: the byte-stable system prompt is sent as a
+`cache_control` leading user text part (AI SDK 7 forbids system messages in the
+array), so every later call reads the cached prefix. `ANTHROPIC_BASE_URL`
+honored for the anthropic provider (test stub). Every call the caller persists
+to `wk_agent_runs`, including fresh + cache-read token usage.
 
 ### 3.2 Input/output types (zod schemas live in `src/llm/schemas.ts`)
 

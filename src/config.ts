@@ -104,7 +104,11 @@ export interface Config {
   readonly databaseUrl: string
   readonly keyPepper: string
   readonly bootstrapApiKey: string
-  readonly anthropicApiKey: string
+  /** LLM provider the AI SDK routes to (WIKIKIT_LLM_PROVIDER). */
+  readonly llmProvider: 'anthropic' | 'openai' | 'google'
+  /** API key for the selected provider (the ANTHROPIC/OPENAI/GOOGLE key). */
+  readonly llmApiKey: string
+  /** Anthropic API base override (test stubs/proxies); honored when provider=anthropic. */
   readonly anthropicBaseUrl: string
   readonly modelSynthesis: string
   readonly modelClassify: string
@@ -122,14 +126,31 @@ export interface Config {
   readonly mcpMaxSessions: number
   readonly logLevel: string
   readonly version: string
-  /** True when an Anthropic key is configured — gates ingest/query (503 llm_not_configured otherwise). */
+  /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
   readonly llmConfigured: boolean
 }
+
+const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
+type LlmProviderName = (typeof LLM_PROVIDERS)[number]
 
 export function loadConfig(): Config {
   loadEnvironment()
   const production = process.env.NODE_ENV === 'production'
-  const anthropicApiKey = str('ANTHROPIC_API_KEY')
+
+  // Provider selection (WIKIKIT_LLM_PROVIDER) → which key gates the LLM. A
+  // mistyped provider fails the boot, not the first request.
+  const llmProvider = str('WIKIKIT_LLM_PROVIDER', 'anthropic') as LlmProviderName
+  if (!LLM_PROVIDERS.includes(llmProvider)) {
+    throw new Error(`WIKIKIT_LLM_PROVIDER must be one of ${LLM_PROVIDERS.join(', ')}`)
+  }
+  // Read all three key vars with literals (the drift test scans these) — the
+  // selected provider's key gates the LLM features.
+  const providerKeys: Record<LlmProviderName, string> = {
+    anthropic: str('ANTHROPIC_API_KEY'),
+    openai: str('OPENAI_API_KEY'),
+    google: str('GOOGLE_GENERATIVE_AI_API_KEY'),
+  }
+  const llmApiKey = providerKeys[llmProvider]
 
   const config: Config = Object.freeze({
     root: moduleRoot,
@@ -140,9 +161,10 @@ export function loadConfig(): Config {
     databaseUrl: str('DATABASE_URL'),
     keyPepper: str('WIKIKIT_KEY_PEPPER'),
     bootstrapApiKey: str('WIKIKIT_BOOTSTRAP_API_KEY'),
-    anthropicApiKey,
-    // The Anthropic SDK reads ANTHROPIC_BASE_URL itself; we surface it in the
-    // config so tests and /ready diagnostics can see the stub is in effect.
+    llmProvider,
+    llmApiKey,
+    // Surfaced so the AI SDK anthropic provider (and the e2e stub) can point at
+    // a non-default base URL; honored only when provider=anthropic.
     anthropicBaseUrl: str('ANTHROPIC_BASE_URL').replace(/\/$/, ''),
     modelSynthesis: str('WIKIKIT_MODEL_SYNTHESIS', 'claude-sonnet-5'),
     modelClassify: str('WIKIKIT_MODEL_CLASSIFY', 'claude-haiku-4-5'),
@@ -162,7 +184,7 @@ export function loadConfig(): Config {
     mcpMaxSessions: integer('WIKIKIT_MCP_MAX_SESSIONS', 200, { min: 1, max: 10_000 }),
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
-    llmConfigured: anthropicApiKey.length > 0,
+    llmConfigured: llmApiKey.length > 0,
   })
 
   // Production guards (principle: no boot without secrets). Only

@@ -21,8 +21,11 @@ instead of producing a half-configured server.
 | `DATABASE_URL`                      | PostgreSQL connection string (tables prefixed `wk_`). **Required in production**                  | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` |
 | `WIKIKIT_KEY_PEPPER`                | HMAC-SHA256 pepper for hashing `wk_` API keys at rest. **Required in production**                 | dev: `wikikit-local-key-pepper`                                    |
 | `WIKIKIT_BOOTSTRAP_API_KEY`         | Pin the bootstrap admin key (`wk_...`)                                                            | (empty; dev generates one and prints it once at boot)              |
-| `ANTHROPIC_API_KEY`                 | Enables the LLM features (ingest, query). The **only** variable with no default anywhere          | (unset → ingest/query answer `503 llm_not_configured`)             |
-| `ANTHROPIC_BASE_URL`                | Anthropic API base override (test stubs, proxies); honored natively by the SDK                    | (empty)                                                            |
+| `WIKIKIT_LLM_PROVIDER`              | LLM provider the AI SDK routes to: `anthropic` \| `openai` \| `google`                            | `anthropic`                                                        |
+| `ANTHROPIC_API_KEY`                 | Key for `anthropic` provider. Enables LLM features (ingest, query); no default anywhere           | (unset → ingest/query answer `503 llm_not_configured`)             |
+| `OPENAI_API_KEY`                    | Key for `openai` provider (used when `WIKIKIT_LLM_PROVIDER=openai`)                               | (unset)                                                            |
+| `GOOGLE_GENERATIVE_AI_API_KEY`      | Key for `google` provider (used when `WIKIKIT_LLM_PROVIDER=google`)                               | (unset)                                                            |
+| `ANTHROPIC_BASE_URL`                | Anthropic API base override (test stubs, proxies); honored when provider is `anthropic`           | (empty)                                                            |
 | `WIKIKIT_MODEL_SYNTHESIS`           | Model for concept synthesis (one call per affected concept)                                       | `claude-sonnet-5`                                                  |
 | `WIKIKIT_MODEL_CLASSIFY`            | Model for source classification (cheap, one call per ingest)                                      | `claude-haiku-4-5`                                                 |
 | `WIKIKIT_MODEL_ANSWER`              | Model for grounded Q&A (`POST .../query`)                                                         | `claude-sonnet-5`                                                  |
@@ -75,8 +78,7 @@ deployments (search/read/lint/export as a knowledge mirror) are first-class.
 - Changing `WIKIKIT_KEY_PEPPER` invalidates **every** issued API key (hashes
   no longer match) — rotate keys, not the pepper.
 - The env loader mutates `process.env` because downstream libraries (`pg`, the
-  Anthropic SDK reading `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`) read it
-  directly.
+  AI SDK reading the provider API keys / `ANTHROPIC_BASE_URL`) read it directly.
 - Every variable here is drift-tested: a `WIKIKIT_*` variable read by
   `src/config.ts` but missing from this file (or from `docs/llms-full.txt`)
   fails CI.

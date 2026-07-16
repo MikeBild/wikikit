@@ -71,7 +71,7 @@ describe('zero-config dev defaults', () => {
 
   test('ANTHROPIC_API_KEY has no default; llmConfigured reflects it', () => {
     const without = loadConfig()
-    expect(without.anthropicApiKey).toBe('')
+    expect(without.llmApiKey).toBe('')
     expect(without.llmConfigured).toBe(false)
 
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test'

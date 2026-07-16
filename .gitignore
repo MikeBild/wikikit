@@ -18,3 +18,6 @@ dist/
 # NOTE: src/db/migrations/embedded.ts (generated) is deliberately NOT ignored —
 # it is committed and guarded by the embedded-drift test, like ContentKit's
 # check:embedded-drift. Regenerate with `bun run gen:migrations`.
+
+# Planning docs — never committed
+docs/plans/

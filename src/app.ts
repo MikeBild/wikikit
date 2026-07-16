@@ -11,7 +11,7 @@ import { loadConfig, type Config } from './config.ts'
 import { createPostgres, type Database } from './db/postgres.ts'
 import { runMigrations } from './db/migrate.ts'
 import { createIngestPipeline, type IngestPipeline } from './ingest/pipeline.ts'
-import { createAnthropicProvider } from './llm/anthropic.ts'
+import { createLlmProvider } from './llm/aisdk.ts'
 import type { LlmProvider } from './llm/provider.ts'
 import { createLogger, type Logger } from './logger.ts'
 import { createMetrics, type Metrics } from './metrics.ts'
@@ -57,10 +57,10 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const logger = deps.logger ?? createLogger({ level: config.logLevel })
   const database = deps.database ?? createPostgres(config)
   const db = database.db
-  // The Anthropic provider self-reports configured:false without a key —
-  // ingest/query then answer 503 llm_not_configured while every LLM-free
-  // route keeps working (zero-config principle).
-  const llm = deps.llm ?? createAnthropicProvider(config, { logger })
+  // The provider self-reports configured:false without a key — ingest/query
+  // then answer 503 llm_not_configured while every LLM-free route keeps working
+  // (zero-config principle). Provider is config-selected (WIKIKIT_LLM_PROVIDER).
+  const llm = deps.llm ?? createLlmProvider(config, { logger })
   const auth = deps.auth ?? createAuth(config, db)
   const metrics = deps.metrics ?? createMetrics()
   const outbox = deps.outbox ?? createOutboxWorker(config, db, logger, { metrics })

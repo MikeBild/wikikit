@@ -242,10 +242,14 @@ acquire → archive → dedup-gate → classify → synthesize (per concept)
   flags disputed claims, and says "not in the knowledge base" on empty
   retrieval instead of hallucinating.
 
-`ANTHROPIC_API_KEY` is the only setting without a default. Without it, every
-LLM-free feature (search, read, history, lint, export, import, review) keeps
-working; ingest and query answer `503 llm_not_configured` with actionable
-hints. `ANTHROPIC_BASE_URL` is honored natively by the SDK (test stubs).
+The LLM runs through the Vercel AI SDK; the provider is config-selected
+(`WIKIKIT_LLM_PROVIDER` = `anthropic` (default) / `openai` / `google`) and only
+its API key has no default. Without a key every LLM-free feature (search, read,
+history, lint, export, import, review) keeps working; ingest and query answer
+`503 llm_not_configured` with actionable hints. Anthropic prompt caching is
+wired (the static system prompt is a cache-controlled prefix), so repeated
+synthesis pays for the cached prefix at ~0.1x. `ANTHROPIC_BASE_URL` is honored
+for the anthropic provider (test stubs).
 
 ---
 
@@ -416,8 +420,11 @@ Invalid values fail the boot, not the request.
 | `DATABASE_URL` | Postgres connection string; **required in production** | dev: local Docker Postgres |
 | `WIKIKIT_KEY_PEPPER` | HMAC pepper for API-key hashes; **required in production** | dev: committed dev pepper |
 | `WIKIKIT_BOOTSTRAP_API_KEY` | pin the bootstrap admin key | (dev: generated + printed once) |
-| `ANTHROPIC_API_KEY` | enables ingest/query; the only variable with no default anywhere | (unset → 503 `llm_not_configured`) |
-| `ANTHROPIC_BASE_URL` | Anthropic API base (test stubs); honored by the SDK | (empty) |
+| `WIKIKIT_LLM_PROVIDER` | LLM provider the AI SDK routes to: `anthropic`/`openai`/`google` | `anthropic` |
+| `ANTHROPIC_API_KEY` | key for the `anthropic` provider; enables ingest/query | (unset → 503 `llm_not_configured`) |
+| `OPENAI_API_KEY` | key for the `openai` provider | (unset) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | key for the `google` provider | (unset) |
+| `ANTHROPIC_BASE_URL` | Anthropic API base (test stubs); honored when provider is `anthropic` | (empty) |
 | `WIKIKIT_MODEL_SYNTHESIS` | synthesis model | `claude-sonnet-5` |
 | `WIKIKIT_MODEL_CLASSIFY` | classification model | `claude-haiku-4-5` |
 | `WIKIKIT_MODEL_ANSWER` | grounded-answer model | `claude-sonnet-5` |
