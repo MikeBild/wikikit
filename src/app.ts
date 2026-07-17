@@ -91,6 +91,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     '/.well-known/oauth-authorization-server',
     '/v1/oauth/register',
     '/v1/oauth/authorize',
+    '/v1/oauth/firebase/callback',
     '/v1/oauth/token',
     '/v1/oauth/revoke',
   ]) {

@@ -11,6 +11,7 @@ import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
+import { verifyFirebaseIdToken } from './firebase.ts'
 
 const OAUTH_SCOPES = ['knowledge:read', 'knowledge:propose', 'offline_access'] as const
 const DEFAULT_SCOPE = OAUTH_SCOPES.join(' ')
@@ -32,6 +33,7 @@ interface CodeRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
+  principal_kind: 'api_key' | 'firebase'
 }
 
 interface RefreshRow {
@@ -42,9 +44,22 @@ interface RefreshRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
+  principal_kind: 'api_key' | 'firebase'
   family_id: string
   expires_at: Date | string
   revoked_at: Date | string | null
+}
+
+interface FirebaseLoginStateRow {
+  id: string
+  client_id: string
+  redirect_uri: string
+  scopes: string[]
+  code_challenge: string
+  resource: string
+  client_state: string | null
+  provider_subject: string | null
+  provider_email: string | null
 }
 
 class OAuthError extends Error {
@@ -160,6 +175,7 @@ function consentPage(args: {
   error?: string
   csrfToken: string
   secureCookie: boolean
+  loginState?: string
 }): Response {
   const hidden = [...args.params.entries()]
     .filter(([name]) => name !== 'api_key' && name !== 'action')
@@ -178,8 +194,9 @@ small{color:#555}</style></head><body><main>
 <h1>Authorize WikiKit</h1><p><strong>${escapeHtml(args.clientName)}</strong> requests these permissions:</p><ul>${scopeItems}</ul>${error}
 <form method="post" action="/v1/oauth/authorize">${hidden}
 <input type="hidden" name="csrf_token" value="${escapeHtml(args.csrfToken)}">
-<label for="api_key">WikiKit API key</label><input id="api_key" name="api_key" type="password" required autocomplete="off" spellcheck="false">
-<small>The key is checked once and is never stored. The issued OAuth token is limited to the permissions above.</small>
+${args.loginState ? `<input type="hidden" name="login_state" value="${escapeHtml(args.loginState)}">` : ''}
+${args.loginState ? '<p><strong>Signed in with your approved Google account.</strong></p>' : '<label for="api_key">WikiKit API key</label><input id="api_key" name="api_key" type="password" required autocomplete="off" spellcheck="false">'}
+<small>${args.loginState ? 'WikiKit only receives a verified Google identity. The issued OAuth token is limited to the permissions above.' : 'The key is checked once and is never stored. The issued OAuth token is limited to the permissions above.'}</small>
 <div class="actions"><button class="primary" type="submit" name="action" value="approve">Authorize</button><button type="submit" name="action" value="deny" formnovalidate>Deny</button></div>
 </form></main></body></html>`)
   response.headers.set(
@@ -261,6 +278,40 @@ async function loadAuthorizationRequest(
   return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource }
 }
 
+function firebaseEnabled(config: Config): boolean {
+  return config.oauthLoginProvider === 'firebase'
+}
+
+function firebaseLoginUrl(config: Config, loginState: string): string {
+  const base = config.oauthFirebaseLoginUrl
+  if (!base || !config.oauthFirebaseProjectId || !config.oauthAllowedEmails?.length) {
+    throw new OAuthError('server_error', 'Firebase OAuth login is not configured', 500)
+  }
+  const target = new URL(base)
+  // The state is opaque and single-use. No MCP redirect URI or OAuth client
+  // data crosses the Firebase-hosted page.
+  target.searchParams.set('wikikit_oauth_callback', `${config.publicUrl}/v1/oauth/firebase/callback`)
+  target.searchParams.set('wikikit_oauth_state', loginState)
+  return target.toString()
+}
+
+async function firebaseGrantIsCurrent(
+  db: Db,
+  config: Config,
+  row: { principal_kind: string; principal_key_id: string },
+): Promise<boolean> {
+  if (row.principal_kind !== 'firebase') return true
+  const subject = row.principal_key_id.startsWith('firebase:') ? row.principal_key_id.slice('firebase:'.length) : ''
+  if (!subject || !config.oauthAllowedEmails?.length) return false
+  const { rows } = await db.query<{ email: string }>(
+    `SELECT email FROM wk_oauth_identities
+      WHERE provider_subject = $1 AND revoked_at IS NULL
+      LIMIT 1`,
+    [subject],
+  )
+  return !!rows[0] && config.oauthAllowedEmails.includes(rows[0].email.toLowerCase())
+}
+
 async function issueTokens(
   config: Config,
   db: Db,
@@ -272,6 +323,7 @@ async function issueTokens(
     principalSpaceId: string | null
     principalKeyId: string
     principalKeyHash: string
+    principalKind: 'api_key' | 'firebase'
     familyId?: string
   },
 ): Promise<Record<string, unknown>> {
@@ -289,6 +341,7 @@ async function issueTokens(
       principal_space_id: args.principalSpaceId,
       principal_key_id: args.principalKeyId,
       principal_key_hash: args.principalKeyHash,
+      principal_kind: args.principalKind,
       family_id: familyId,
       expires_at: new Date(Date.now() + accessTtlMs).toISOString(),
     },
@@ -313,6 +366,7 @@ async function issueTokens(
         principal_space_id: args.principalSpaceId,
         principal_key_id: args.principalKeyId,
         principal_key_hash: args.principalKeyHash,
+        principal_kind: args.principalKind,
         family_id: familyId,
         expires_at: new Date(Date.now() + (config.oauthRefreshTokenTtlMs ?? 30 * 24 * 60 * 60 * 1000)).toISOString(),
       },
@@ -435,12 +489,80 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       }
       if (request.method === 'GET' && path === '/v1/oauth/authorize') {
         const loaded = await loadAuthorizationRequest(config, deps.db, url.searchParams)
+        if (firebaseEnabled(config)) {
+          const loginState = randomToken('wkl_')
+          await deps.db.insert('wk_oauth_login_states', {
+            state_hash: hashApiKey(loginState, config.keyPepper),
+            client_id: loaded.client.client_id,
+            redirect_uri: loaded.redirectUri,
+            scopes: loaded.scopes,
+            code_challenge: url.searchParams.get('code_challenge')!,
+            resource: loaded.resource,
+            client_state: url.searchParams.get('state'),
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          })
+          return new Response(null, {
+            status: 302,
+            headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
+          })
+        }
         return consentPage({
           clientName: loaded.client.client_name,
           params: url.searchParams,
           scopes: loaded.scopes,
           csrfToken: randomBytes(32).toString('base64url'),
           secureCookie: new URL(config.publicUrl).protocol === 'https:',
+        })
+      }
+      if (request.method === 'POST' && path === '/v1/oauth/firebase/callback') {
+        if (!firebaseEnabled(config)) throw new OAuthError('not_found', 'Firebase OAuth login is disabled', 404)
+        const params = new URLSearchParams(await request.text())
+        const loginState = params.get('wikikit_oauth_state') || ''
+        const idToken = params.get('id_token') || ''
+        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState) || !idToken) {
+          throw new OAuthError('invalid_request', 'a valid Firebase OAuth login state and ID token are required')
+        }
+        const identity = await verifyFirebaseIdToken({
+          token: idToken,
+          projectId: config.oauthFirebaseProjectId || '',
+          allowedEmails: config.oauthAllowedEmails || [],
+        }).catch((error) => {
+          throw new OAuthError(
+            'access_denied',
+            error instanceof Error ? error.message : 'Firebase login was rejected',
+            403,
+          )
+        })
+        const stateHash = hashApiKey(loginState, config.keyPepper)
+        const { rows } = await deps.db.query<FirebaseLoginStateRow>(
+          `UPDATE wk_oauth_login_states
+              SET provider_subject = $2, provider_email = $3, authenticated_at = now()
+            WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+            RETURNING id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
+                      provider_subject, provider_email`,
+          [stateHash, identity.subject, identity.email],
+        )
+        const state = rows[0]
+        if (!state) throw new OAuthError('invalid_request', 'Firebase OAuth login state is expired or already used')
+        await deps.db.query(
+          `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
+           VALUES ($1, $2, 'firebase', now())
+           ON CONFLICT (provider_subject) DO UPDATE
+             SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
+          [identity.subject, identity.email],
+        )
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${state.client_id}`,
+          limit: 1,
+        })
+        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+        return consentPage({
+          clientName: client.client_name,
+          params: new URLSearchParams(),
+          scopes: state.scopes,
+          csrfToken: randomBytes(32).toString('base64url'),
+          secureCookie: new URL(config.publicUrl).protocol === 'https:',
+          loginState,
         })
       }
       if (request.method === 'POST' && path === '/v1/oauth/authorize') {
@@ -450,56 +572,120 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!csrfToken || !csrfCookie || !safeEqualText(csrfToken, csrfCookie)) {
           throw new OAuthError('invalid_request', 'consent form CSRF validation failed')
         }
-        const loaded = await loadAuthorizationRequest(config, deps.db, params)
+        let loaded: { client: ClientRow; redirectUri: string; scopes: string[]; resource: string }
+        let principal: Principal | null = null
+        let principalKeyHash = ''
+        let principalKind: 'api_key' | 'firebase' = 'api_key'
+        let firebaseStateId: string | null = null
+        let callbackState: string | undefined = params.get('state') ?? undefined
+        if (firebaseEnabled(config)) {
+          const loginState = params.get('login_state') || ''
+          if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
+            throw new OAuthError('invalid_request', 'Firebase OAuth login state is required')
+          const { rows } = await deps.db.query<FirebaseLoginStateRow>(
+            `SELECT s.id, s.client_id, s.redirect_uri, s.scopes, s.code_challenge, s.resource, s.client_state,
+                    s.provider_subject, s.provider_email
+               FROM wk_oauth_login_states s
+               JOIN wk_oauth_clients c ON c.client_id = s.client_id
+              WHERE s.state_hash = $1 AND s.consumed_at IS NULL AND s.expires_at > now()
+                AND s.authenticated_at IS NOT NULL AND c.revoked_at IS NULL
+              LIMIT 1`,
+            [hashApiKey(loginState, config.keyPepper)],
+          )
+          const state = rows[0]
+          if (!state?.provider_subject || !state.provider_email)
+            throw new OAuthError('invalid_request', 'Firebase OAuth login is no longer valid')
+          const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+            client_id: `eq.${state.client_id}`,
+            limit: 1,
+          })
+          if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+          loaded = { client, redirectUri: state.redirect_uri, scopes: state.scopes, resource: state.resource }
+          principal = {
+            keyId: `firebase:${state.provider_subject}`,
+            name: state.provider_email,
+            scopes: ['knowledge:read', 'knowledge:propose'],
+            spaceId: null,
+          }
+          principalKeyHash = hashApiKey(principal.keyId, config.keyPepper)
+          principalKind = 'firebase'
+          firebaseStateId = state.id
+          callbackState = state.client_state ?? undefined
+        } else {
+          loaded = await loadAuthorizationRequest(config, deps.db, params)
+        }
         if (params.get('action') === 'deny') {
+          if (firebaseStateId) {
+            await deps.db.update(
+              'wk_oauth_login_states',
+              { id: `eq.${firebaseStateId}`, consumed_at: 'is.null' },
+              { consumed_at: new Date().toISOString() },
+            )
+          }
           return clearCsrfCookie(
             redirectWith(loaded.redirectUri, {
               error: 'access_denied',
-              state: params.get('state') ?? undefined,
+              state: callbackState,
             }),
             new URL(config.publicUrl).protocol === 'https:',
           )
         }
-        let principal: Principal
-        const apiKey = params.get('api_key') || ''
-        const principalKeyHash = hashApiKey(apiKey, config.keyPepper)
-        try {
-          principal = await deps.auth.authenticate(`Bearer ${apiKey}`)
-          if (principal.keyId.startsWith('oauth:')) throw new Error('an operator API key is required')
-          for (const scope of loaded.scopes) {
-            if (scope !== 'offline_access')
-              deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose')
+        if (!principal) {
+          const apiKey = params.get('api_key') || ''
+          principalKeyHash = hashApiKey(apiKey, config.keyPepper)
+          try {
+            principal = await deps.auth.authenticate(`Bearer ${apiKey}`)
+            if (principal.keyId.startsWith('oauth:')) throw new Error('an operator API key is required')
+            for (const scope of loaded.scopes) {
+              if (scope !== 'offline_access')
+                deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose')
+            }
+          } catch {
+            return consentPage({
+              clientName: loaded.client.client_name,
+              params,
+              scopes: loaded.scopes,
+              error: 'The API key is invalid or lacks one of the requested scopes.',
+              csrfToken,
+              secureCookie: new URL(config.publicUrl).protocol === 'https:',
+            })
           }
-        } catch {
-          return consentPage({
-            clientName: loaded.client.client_name,
-            params,
-            scopes: loaded.scopes,
-            error: 'The API key is invalid or lacks one of the requested scopes.',
-            csrfToken,
-            secureCookie: new URL(config.publicUrl).protocol === 'https:',
-          })
         }
+        for (const scope of loaded.scopes)
+          if (scope !== 'offline_access')
+            deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose')
         const code = randomToken('wka_')
-        await deps.db.insert(
-          'wk_oauth_authorization_codes',
-          {
-            code_hash: hashApiKey(code, config.keyPepper),
-            client_id: loaded.client.client_id,
-            redirect_uri: loaded.redirectUri,
-            scopes: loaded.scopes,
-            code_challenge: params.get('code_challenge')!,
-            resource: loaded.resource,
-            principal_name: principal.name,
-            principal_space_id: principal.spaceId,
-            principal_key_id: principal.keyId,
-            principal_key_hash: principalKeyHash,
-            expires_at: new Date(Date.now() + (config.oauthAuthorizationCodeTtlMs ?? 10 * 60 * 1000)).toISOString(),
-          },
-          { returning: false },
-        )
+        await deps.db.tx(async (tx) => {
+          if (firebaseStateId) {
+            const changed = await tx.update(
+              'wk_oauth_login_states',
+              { id: `eq.${firebaseStateId}`, consumed_at: 'is.null' },
+              { consumed_at: new Date().toISOString() },
+            )
+            if (!changed.length)
+              throw new OAuthError('invalid_request', 'Firebase OAuth login state is already consumed')
+          }
+          await tx.insert(
+            'wk_oauth_authorization_codes',
+            {
+              code_hash: hashApiKey(code, config.keyPepper),
+              client_id: loaded.client.client_id,
+              redirect_uri: loaded.redirectUri,
+              scopes: loaded.scopes,
+              code_challenge: params.get('code_challenge')!,
+              resource: loaded.resource,
+              principal_name: principal.name,
+              principal_space_id: principal.spaceId,
+              principal_key_id: principal.keyId,
+              principal_key_hash: principalKeyHash,
+              principal_kind: principalKind,
+              expires_at: new Date(Date.now() + (config.oauthAuthorizationCodeTtlMs ?? 10 * 60 * 1000)).toISOString(),
+            },
+            { returning: false },
+          )
+        })
         return clearCsrfCookie(
-          redirectWith(loaded.redirectUri, { code, state: params.get('state') ?? undefined }),
+          redirectWith(loaded.redirectUri, { code, state: callbackState }),
           new URL(config.publicUrl).protocol === 'https:',
         )
       }
@@ -521,14 +707,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           const tokens = await deps.db.tx(async (tx) => {
             const { rows } = await tx.query<CodeRow>(
               `SELECT a.id, a.scopes, a.code_challenge, a.principal_name, a.principal_space_id,
-                      a.principal_key_id, a.principal_key_hash
+                      a.principal_key_id, a.principal_key_hash, a.principal_kind
                  FROM wk_oauth_authorization_codes a
                  JOIN wk_oauth_clients c ON c.client_id = a.client_id
                 WHERE a.code_hash = $1 AND a.client_id = $2 AND a.redirect_uri = $3
                   AND a.resource = $4 AND a.consumed_at IS NULL AND a.expires_at > now()
                   AND c.revoked_at IS NULL
                   AND (
-                    a.principal_key_id = 'bootstrap'
+                    a.principal_kind = 'firebase'
+                    OR a.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k
                        WHERE k.id::text = a.principal_key_id
@@ -543,6 +730,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             if (
               !row ||
               !bootstrapGrantIsCurrent(config, row) ||
+              !(await firebaseGrantIsCurrent(tx, config, row)) ||
               !safeEqualText(pkceChallenge(verifier), row.code_challenge)
             ) {
               throw new OAuthError('invalid_grant', 'authorization code is invalid, expired or already used')
@@ -561,6 +749,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               principalSpaceId: row.principal_space_id,
               principalKeyId: row.principal_key_id,
               principalKeyHash: row.principal_key_hash,
+              principalKind: row.principal_kind,
             })
             return tokens
           })
@@ -572,14 +761,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           const outcome = await deps.db.tx(async (tx) => {
             const { rows } = await tx.query<RefreshRow>(
               `SELECT r.id, r.scopes, r.resource, r.principal_name, r.principal_space_id,
-                      r.principal_key_id, r.principal_key_hash, r.family_id,
+                      r.principal_key_id, r.principal_key_hash, r.principal_kind, r.family_id,
                       r.expires_at, r.revoked_at
                  FROM wk_oauth_refresh_tokens r
                  JOIN wk_oauth_clients c ON c.client_id = r.client_id
                 WHERE r.token_hash = $1 AND r.client_id = $2
                   AND c.revoked_at IS NULL
                   AND (
-                    r.principal_key_id = 'bootstrap'
+                    r.principal_kind = 'firebase'
+                    OR r.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k
                        WHERE k.id::text = r.principal_key_id
@@ -591,7 +781,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               [hashApiKey(refreshToken, config.keyPepper), clientId],
             )
             const row = rows[0]
-            if (!row || !bootstrapGrantIsCurrent(config, row)) {
+            if (!row || !bootstrapGrantIsCurrent(config, row) || !(await firebaseGrantIsCurrent(tx, config, row))) {
               throw new OAuthError('invalid_grant', 'refresh token is invalid, expired or already used')
             }
             const now = new Date()
@@ -625,6 +815,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               principalSpaceId: row.principal_space_id,
               principalKeyId: row.principal_key_id,
               principalKeyHash: row.principal_key_hash,
+              principalKind: row.principal_kind,
               familyId: row.family_id,
             })
             return { tokens } as const

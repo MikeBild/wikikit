@@ -179,11 +179,12 @@ In ChatGPT, enable Developer mode, create an app/plugin, and enter:
 https://wikikit.mikebild.dev/mcp
 ```
 
-Choose OAuth. On the first connection WikiKit asks once for an existing
-operator API key with the requested `knowledge:read`/`knowledge:propose`
-scopes; it checks but never stores that plaintext key. ChatGPT receives only a
-scoped, short-lived OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical
-HTTPS base URL in production because it is the OAuth issuer and audience.
+Choose OAuth. In production WikiKit uses the same Google/Firebase sign-in
+bridge as SubKit: it verifies the signed Firebase ID token and admits only the
+explicitly configured email allow-list. No WikiKit operator key is entered in
+ChatGPT or sent to the browser. ChatGPT receives only a scoped, short-lived
+OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base URL in
+production because it is the OAuth issuer and audience.
 
 The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,

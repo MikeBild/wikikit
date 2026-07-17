@@ -7,6 +7,7 @@ export interface OAuthCleanupReport {
   accessTokens: number
   refreshTokens: number
   authorizationCodes: number
+  loginStates: number
   unusedClients: number
 }
 
@@ -25,6 +26,11 @@ export async function cleanupOAuthRows(db: Db): Promise<OAuthCleanupReport> {
     `DELETE FROM wk_oauth_authorization_codes
       WHERE expires_at < now() - interval '1 day'`,
   )
+  const loginStates = await db.query(
+    `DELETE FROM wk_oauth_login_states
+      WHERE expires_at < now() - interval '1 day'
+         OR (consumed_at IS NOT NULL AND consumed_at < now() - interval '1 day')`,
+  )
   const clients = await db.query(
     `DELETE FROM wk_oauth_clients c
       WHERE c.created_at < now() - interval '30 days'
@@ -36,6 +42,7 @@ export async function cleanupOAuthRows(db: Db): Promise<OAuthCleanupReport> {
     accessTokens: access.rowCount,
     refreshTokens: refresh.rowCount,
     authorizationCodes: codes.rowCount,
+    loginStates: loginStates.rowCount,
     unusedClients: clients.rowCount,
   }
 }

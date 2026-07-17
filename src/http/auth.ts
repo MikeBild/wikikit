@@ -91,6 +91,24 @@ interface OAuthTokenRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
+  principal_kind: 'api_key' | 'firebase'
+}
+
+async function firebaseGrantIsCurrent(
+  db: Db,
+  config: Config,
+  row: { principal_key_id: string; principal_kind: string },
+): Promise<boolean> {
+  if (row.principal_kind !== 'firebase') return true
+  const subject = row.principal_key_id.startsWith('firebase:') ? row.principal_key_id.slice('firebase:'.length) : ''
+  if (!subject || !config.oauthAllowedEmails?.length) return false
+  const { rows } = await db.query<{ email: string }>(
+    `SELECT email FROM wk_oauth_identities
+      WHERE provider_subject = $1 AND revoked_at IS NULL
+      LIMIT 1`,
+    [subject],
+  )
+  return !!rows[0] && config.oauthAllowedEmails.includes(rows[0].email.toLowerCase())
 }
 
 export function createAuth(config: Config, db: Db): Auth {
@@ -111,7 +129,7 @@ export function createAuth(config: Config, db: Db): Auth {
         const tokenHash = hashApiKey(key, config.keyPepper)
         const { rows } = await db.query<OAuthTokenRow>(
           `SELECT t.id, t.client_id, t.scopes, t.principal_name, t.principal_space_id,
-                  t.principal_key_id, t.principal_key_hash
+                  t.principal_key_id, t.principal_key_hash, t.principal_kind
              FROM wk_oauth_access_tokens t
              JOIN wk_oauth_clients c ON c.client_id = t.client_id
             WHERE t.token_hash = $1
@@ -120,7 +138,8 @@ export function createAuth(config: Config, db: Db): Auth {
               AND t.expires_at > now()
               AND c.revoked_at IS NULL
               AND (
-                t.principal_key_id = 'bootstrap'
+                t.principal_kind = 'firebase'
+                OR t.principal_key_id = 'bootstrap'
                 OR EXISTS (
                   SELECT 1 FROM wk_api_keys k
                    WHERE k.id::text = t.principal_key_id
@@ -133,6 +152,9 @@ export function createAuth(config: Config, db: Db): Auth {
         )
         const row = rows[0]
         if (!row) throw new UnauthorizedError('unknown or expired OAuth access token')
+        if (!(await firebaseGrantIsCurrent(db, config, row))) {
+          throw new UnauthorizedError('the Firebase identity behind this OAuth grant is no longer active')
+        }
         if (
           row.principal_key_id === 'bootstrap' &&
           (!config.bootstrapApiKey ||

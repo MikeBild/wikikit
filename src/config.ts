@@ -140,6 +140,14 @@ export interface Config {
   readonly oauthRefreshTokenTtlMs?: number
   /** Allow RFC 7591 dynamic client registration for remote MCP clients. */
   readonly oauthDynamicRegistrationEnabled?: boolean
+  /** Interactive identity used by the remote MCP OAuth consent flow. */
+  readonly oauthLoginProvider?: 'api_key' | 'firebase'
+  /** Firebase project whose ID tokens may establish a WikiKit OAuth login. */
+  readonly oauthFirebaseProjectId?: string
+  /** Existing SubKit Firebase Hosting sign-in page used for the browser hop. */
+  readonly oauthFirebaseLoginUrl?: string
+  /** Explicit allow-list; a Firebase project alone never grants WikiKit access. */
+  readonly oauthAllowedEmails?: string[]
   readonly logLevel: string
   readonly version: string
   /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
@@ -188,6 +196,14 @@ export function loadConfig(): Config {
   if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
     throw new Error('WIKIKIT_INGEST_HEARTBEAT_MS must be less than half of WIKIKIT_INGEST_LEASE_MS')
   }
+  const oauthLoginProvider = str('WIKIKIT_OAUTH_LOGIN_PROVIDER', 'api_key')
+  if (oauthLoginProvider !== 'api_key' && oauthLoginProvider !== 'firebase') {
+    throw new Error('WIKIKIT_OAUTH_LOGIN_PROVIDER must be api_key or firebase')
+  }
+  const oauthAllowedEmails = str('WIKIKIT_OAUTH_ALLOWED_EMAILS')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
 
   const config: Config = Object.freeze({
     root: moduleRoot,
@@ -235,6 +251,10 @@ export function loadConfig(): Config {
       max: 90 * 24 * 60 * 60 * 1000,
     }),
     oauthDynamicRegistrationEnabled: bool('WIKIKIT_OAUTH_DCR_ENABLED', true),
+    oauthLoginProvider,
+    oauthFirebaseProjectId: str('WIKIKIT_OAUTH_FIREBASE_PROJECT_ID'),
+    oauthFirebaseLoginUrl: str('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL'),
+    oauthAllowedEmails,
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
@@ -255,6 +275,16 @@ export function loadConfig(): Config {
     if (missing.length) throw new Error(`missing production configuration: ${missing.join(', ')}`)
     if (new URL(config.publicUrl).protocol !== 'https:') {
       throw new Error('WIKIKIT_PUBLIC_URL must use https in production (OAuth redirect and issuer security)')
+    }
+    if (config.oauthLoginProvider === 'firebase') {
+      if (!config.oauthFirebaseProjectId || !config.oauthFirebaseLoginUrl || !config.oauthAllowedEmails?.length) {
+        throw new Error(
+          'Firebase OAuth login requires WIKIKIT_OAUTH_FIREBASE_PROJECT_ID, WIKIKIT_OAUTH_FIREBASE_LOGIN_URL and WIKIKIT_OAUTH_ALLOWED_EMAILS',
+        )
+      }
+      if (new URL(config.oauthFirebaseLoginUrl).protocol !== 'https:') {
+        throw new Error('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL must use https in production')
+      }
     }
   }
 

@@ -35,6 +35,8 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_oauth_authorization_codes',
   'wk_oauth_access_tokens',
   'wk_oauth_refresh_tokens',
+  'wk_oauth_identities',
+  'wk_oauth_login_states',
   'wk_outbox_events',
   'wk_webhook_endpoints',
   'wk_webhook_deliveries',

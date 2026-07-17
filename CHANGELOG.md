@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.11
+
+### Changed
+
+- Remote MCP OAuth can now use the existing SubKit Firebase/Google browser
+  sign-in bridge. WikiKit verifies the signed Firebase identity and an explicit
+  email allow-list before showing OAuth consent, so ChatGPT never asks for a
+  WikiKit operator API key.
+
+### Security
+
+- Firebase login states are opaque, single-use and server-stored; the shared
+  Firebase page only posts ID tokens to WikiKit's fixed callback. OAuth grants
+  remain scoped, refresh rotation remains intact, and an inactive Firebase
+  identity immediately invalidates its MCP bearer token.
+
 ## 0.1.10
 
 ### Added

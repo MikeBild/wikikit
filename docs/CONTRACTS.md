@@ -1131,19 +1131,25 @@ Remote public clients dynamically register at `POST /v1/oauth/register` (RFC
 7591): at most five safe HTTPS or loopback redirect URIs, no client secret,
 and a bounded per-source-address rate. Authorization is code-only, requires
 PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
-one-time code. The consent page checks an existing WikiKit API key once, uses
-CSRF protection, and stores only the key's HMAC identity. It can grant only
-`knowledge:read`, `knowledge:propose`, and `offline_access`; it never turns an
-operator key into an OAuth admin/approve capability.
+one-time code. In `firebase` mode, the same Firebase/Google sign-in bridge as
+SubKit posts a signed ID token to a fixed WikiKit callback; WikiKit verifies
+Google's RS256 signature, issuer, audience, expiry, verified email and its
+explicit allow-list. The hosted sign-in page is never an arbitrary token relay.
+The consent form has CSRF protection and persists only the provider identity,
+never an API key or an ID token. `api_key` remains the local compatibility
+mode. Either identity can grant only `knowledge:read`, `knowledge:propose`, and
+`offline_access`; no flow turns an operator identity into OAuth admin/approve
+capability.
 
 `POST /v1/oauth/token` issues one-hour bearer tokens and, when
 `offline_access` is granted, rotating 30-day refresh tokens. A refresh-token
 replay revokes its entire token family. `POST /v1/oauth/revoke` is idempotent;
 revoking a refresh token revokes its family. Every exchange and MCP bearer
-authentication rechecks the source API key's current revocation state. Raw
-secrets, authorization codes, access tokens and refresh tokens are never
-stored; only keyed HMAC hashes are retained. Expired artifacts and unused DCR
-clients are removed by the hourly housekeeping sweep.
+authentication rechecks the source API key or Firebase identity's current
+revocation state. Raw secrets, Firebase ID tokens, authorization codes, access
+tokens and refresh tokens are never stored; only keyed HMAC hashes and the
+minimal identity record are retained. Expired artifacts and unused DCR clients
+are removed by the hourly housekeeping sweep.
 
 **Self-description (binding)**: capabilities are `{ tools, resources }`, and
 `initialize` returns `instructions` describing the read/write split and the
@@ -1297,6 +1303,10 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                  |
+| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase`                                   |
+| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | required for `firebase`                                   |
+| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | fixed HTTPS Firebase Hosting login page                   |
+| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated allow-list; required for `firebase`       |
 | `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                     |
 | `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`  |
 

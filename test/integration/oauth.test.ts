@@ -317,6 +317,50 @@ describe('MCP OAuth 2.1 (integration)', () => {
     ).toBe(400)
   })
 
+  it('starts the Firebase login bridge without exposing an operator API key', async () => {
+    const firebaseApp = createApp(
+      {
+        ...config(app.config.databaseUrl),
+        oauthLoginProvider: 'firebase',
+        oauthFirebaseProjectId: 'subkit-auth-prod',
+        oauthFirebaseLoginUrl: 'https://subkit-auth-prod.web.app',
+        oauthAllowedEmails: ['mike@mikebild.com'],
+      },
+      { llm: createFakeProvider(), logger: createLogger({ level: 'error', write: () => {} }) },
+    )
+    await new Promise<void>((resolve) => firebaseApp.server.listen(0, '127.0.0.1', resolve))
+    const firebaseBase = `http://127.0.0.1:${(firebaseApp.server.address() as { port: number }).port}`
+    try {
+      const registration = await fetch(`${firebaseBase}/v1/oauth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ client_name: 'Firebase bridge test', redirect_uris: [REDIRECT] }),
+      })
+      const { client_id } = (await registration.json()) as { client_id: string }
+      const response = await fetch(
+        `${firebaseBase}/v1/oauth/authorize?${form({
+          response_type: 'code',
+          client_id,
+          redirect_uri: REDIRECT,
+          code_challenge: randomBytes(32).toString('base64url'),
+          code_challenge_method: 'S256',
+          resource: RESOURCE,
+          scope: 'knowledge:read',
+          state: 'firebase-state',
+        })}`,
+        { redirect: 'manual' },
+      )
+      expect(response.status).toBe(302)
+      const location = new URL(response.headers.get('location')!)
+      expect(location.origin).toBe('https://subkit-auth-prod.web.app')
+      expect(location.searchParams.get('wikikit_oauth_callback')).toBe(`${ISSUER}/v1/oauth/firebase/callback`)
+      expect(location.searchParams.get('wikikit_oauth_state')).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
+      expect(location.toString()).not.toContain(BOOTSTRAP)
+    } finally {
+      await firebaseApp.close()
+    }
+  })
+
   it('housekeeping retains replay evidence briefly and prunes expired OAuth rows in dependency order', async () => {
     const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
     const clientId = `wkc_cleanup_${randomBytes(8).toString('hex')}`
@@ -366,6 +410,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       accessTokens: 1,
       refreshTokens: 1,
       authorizationCodes: 1,
+      loginStates: 0,
       unusedClients: 1,
     })
   })

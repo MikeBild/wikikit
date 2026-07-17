@@ -46,6 +46,10 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_CODE_TTL_MS`          | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
+| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | Human login for remote MCP OAuth: `api_key` (local compatibility) or `firebase` (production)                   | `api_key`                                                          |
+| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | Firebase project whose signed ID tokens establish a WikiKit OAuth login                                        | (required for `firebase`)                                          |
+| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | Trusted Firebase Hosting sign-in page; production uses the existing SubKit page                                | (required for `firebase`)                                          |
+| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | Comma-separated, case-insensitive human allow-list; Firebase project membership alone is never sufficient      | (required for `firebase`)                                          |
 | `LOG_LEVEL`                          | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
 | `NODE_ENV`                           | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
 

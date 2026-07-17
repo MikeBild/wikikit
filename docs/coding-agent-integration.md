@@ -88,9 +88,10 @@ full docs as MCP resources, so it needs no further explanation from you.
 
 For ChatGPT Developer mode, create an app with
 `https://wikikit.mikebild.dev/mcp` and choose OAuth. WikiKit performs dynamic
-client registration and the PKCE authorization-code flow. The consent page
-checks an existing WikiKit operator key once; it never stores that plaintext
-key, and ChatGPT receives a scoped short-lived token instead.
+client registration and the PKCE authorization-code flow. Production uses the
+same Google/Firebase sign-in bridge as SubKit and an explicit WikiKit email
+allow-list; the operator API key is never entered into ChatGPT. ChatGPT
+receives only a scoped short-lived token instead.
 
 ### 3. Wire the hooks
 
