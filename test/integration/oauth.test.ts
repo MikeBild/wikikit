@@ -337,12 +337,14 @@ describe('MCP OAuth 2.1 (integration)', () => {
         body: JSON.stringify({ client_name: 'Firebase bridge test', redirect_uris: [REDIRECT] }),
       })
       const { client_id } = (await registration.json()) as { client_id: string }
+      const verifier = randomBytes(32).toString('base64url')
+      const challenge = createHash('sha256').update(verifier).digest('base64url')
       const response = await fetch(
         `${firebaseBase}/v1/oauth/authorize?${form({
           response_type: 'code',
           client_id,
           redirect_uri: REDIRECT,
-          code_challenge: randomBytes(32).toString('base64url'),
+          code_challenge: challenge,
           code_challenge_method: 'S256',
           resource: RESOURCE,
           scope: 'knowledge:read',
@@ -354,8 +356,54 @@ describe('MCP OAuth 2.1 (integration)', () => {
       const location = new URL(response.headers.get('location')!)
       expect(location.origin).toBe('https://subkit-auth-prod.web.app')
       expect(location.searchParams.get('wikikit_oauth_callback')).toBe(`${ISSUER}/v1/oauth/firebase/callback`)
-      expect(location.searchParams.get('wikikit_oauth_state')).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
+      const loginState = location.searchParams.get('wikikit_oauth_state')!
+      expect(loginState).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
       expect(location.toString()).not.toContain(BOOTSTRAP)
+
+      // The Firebase verifier is covered separately by jose's issuer/signature
+      // validation. Here we model its successful, server-side result and
+      // exercise the failure-prone transition from consent to a PKCE code.
+      await firebaseApp.database.db.insert('wk_oauth_identities', {
+        provider_subject: 'firebase-test-subject',
+        email: 'mike@mikebild.com',
+      })
+      await firebaseApp.database.db.update(
+        'wk_oauth_login_states',
+        { state_hash: `eq.${hashApiKey(loginState, 'itest-oauth-pepper')}` },
+        {
+          provider_subject: 'firebase-test-subject',
+          provider_email: 'mike@mikebild.com',
+          authenticated_at: new Date().toISOString(),
+        },
+      )
+      const csrf = randomBytes(32).toString('base64url')
+      const approved = await fetch(`${firebaseBase}/v1/oauth/authorize`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: `wk_oauth_csrf=${encodeURIComponent(csrf)}`,
+        },
+        body: form({ login_state: loginState, csrf_token: csrf, action: 'approve' }),
+        redirect: 'manual',
+      })
+      expect(approved.status).toBe(302)
+      const callback = new URL(approved.headers.get('location')!)
+      const code = callback.searchParams.get('code')!
+      expect(code).toMatch(/^wka_/)
+      const exchanged = await fetch(`${firebaseBase}/v1/oauth/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: form({
+          grant_type: 'authorization_code',
+          client_id,
+          code,
+          code_verifier: verifier,
+          redirect_uri: REDIRECT,
+          resource: RESOURCE,
+        }),
+      })
+      expect(exchanged.status).toBe(200)
+      expect(((await exchanged.json()) as { access_token: string }).access_token).toMatch(/^wko_/)
     } finally {
       await firebaseApp.close()
     }

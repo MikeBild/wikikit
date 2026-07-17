@@ -578,6 +578,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         let principalKind: 'api_key' | 'firebase' = 'api_key'
         let firebaseStateId: string | null = null
         let callbackState: string | undefined = params.get('state') ?? undefined
+        let codeChallenge = params.get('code_challenge') || ''
         if (firebaseEnabled(config)) {
           const loginState = params.get('login_state') || ''
           if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
@@ -611,6 +612,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           principalKind = 'firebase'
           firebaseStateId = state.id
           callbackState = state.client_state ?? undefined
+          codeChallenge = state.code_challenge
         } else {
           loaded = await loadAuthorizationRequest(config, deps.db, params)
         }
@@ -672,7 +674,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               client_id: loaded.client.client_id,
               redirect_uri: loaded.redirectUri,
               scopes: loaded.scopes,
-              code_challenge: params.get('code_challenge')!,
+              code_challenge: codeChallenge,
               resource: loaded.resource,
               principal_name: principal.name,
               principal_space_id: principal.spaceId,
