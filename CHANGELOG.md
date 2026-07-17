@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.8
+
+**No runtime changes** — the binary is byte-identical to v0.1.7 (verified by
+building both and comparing hashes). Upgrading is optional; this release exists
+so the work below is in the record.
+
+### Changed
+
+- The two drift suites are now one (`test/unit/drift.test.ts`). They checked
+  overlapping things with slightly different scanners, and that split cost
+  accuracy rather than merely duplicating effort: the stricter of the two
+  env-var scanners forced `WIKIKIT_SKIP_DOTENV` — a test-harness-only
+  variable — into the operator documentation, because "a drift test wants it"
+  is indistinguishable from "an operator needs it" when there is more than one
+  list. Each of the 12 surviving checks was verified to still fail when the
+  drift it guards is introduced; the 5 tests that disappeared were duplicates,
+  not coverage.
+- `docs/ARCHITECTURE.md` now lists every drift gate (the prompt-file and
+  provider-key guards were missing) and states that codegen drift stays
+  separate in `embedded-drift.test.ts` on purpose.
+- `CONTRIBUTING.md` points at the test-tier table instead of restating the
+  tiers a second time, 30 lines below it — the copy did not know about e2e.
+
 ## 0.1.7
 
 ### Added
