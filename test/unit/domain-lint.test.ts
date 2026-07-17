@@ -43,6 +43,10 @@ describe('lintSpace', () => {
   // Route disambiguation uses each rule's distinctive SQL fragment.
   const routes = [
     {
+      match: /"wk_spaces"/,
+      rows: [{ settings: { functional_predicates: ['has_status'] } }],
+    },
+    {
       match: /GROUP BY cl\.subject, cl\.predicate/,
       rows: [
         {
@@ -104,10 +108,10 @@ describe('lintSpace', () => {
     expect(report.counts).toEqual({ error: 3, warn: 2, info: 3 })
 
     // Every rule query is space-scoped with the SAME parameter.
-    expect(calls.length).toBe(8)
-    for (const call of calls) {
+    expect(calls.length).toBe(9)
+    for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
-      expect(call.values).toEqual(['space-1'])
+      expect(call.values[0]).toBe('space-1')
     }
   })
 
@@ -143,9 +147,18 @@ describe('lintSpace', () => {
     // than one distinct object instead of filtering on status='disputed'.
     const { db, calls } = fakeDb(routes)
     await lintSpace(db, 'space-1')
-    const sql = calls[0]!.sql
+    const sql = calls.find((call) => call.sql.includes('GROUP BY cl.subject, cl.predicate'))!.sql
     expect(sql).toContain("cl.status IN ('verified', 'disputed')")
+    expect(sql).toContain('cl.predicate = ANY($2::text[])')
     expect(sql).toContain('HAVING count(DISTINCT cl.object) > 1')
     expect(sql).not.toContain("cl.status = 'disputed'")
+  })
+
+  test('a space with no functional predicates reports no frame contradictions', async () => {
+    const noFunctions = routes.map((route, index) => (index === 0 ? { ...route, rows: [{ settings: {} }] } : route))
+    const { db, calls } = fakeDb(noFunctions)
+    const report = await lintSpace(db, 'space-1')
+    expect(report.findings.some((finding) => finding.rule === 'contradictions')).toBe(false)
+    expect(calls.some((call) => call.sql.includes('GROUP BY cl.subject, cl.predicate'))).toBe(false)
   })
 })

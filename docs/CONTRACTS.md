@@ -33,7 +33,7 @@ CREATE TABLE wk_spaces (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug        text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
   name        text NOT NULL,
-  settings    jsonb NOT NULL DEFAULT '{}',           -- incl. predicate vocabulary: {"predicates": ["is","has_status",...]}
+  settings    jsonb NOT NULL DEFAULT '{}',           -- predicates + functional_predicates cardinality contract
   epoch       bigint NOT NULL DEFAULT 0,             -- bumped on every approved proposal; drives ETag on list endpoints
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
@@ -293,6 +293,9 @@ CREATE TABLE wk_ingest_jobs (
   error       jsonb,                                 -- {code, message} on failure
   created_at  timestamptz NOT NULL DEFAULT now(),
   started_at  timestamptz,
+  heartbeat_at timestamptz,
+  lease_owner text,
+  lease_expires_at timestamptz,
   finished_at timestamptz
 );
 CREATE INDEX wk_ingest_jobs_queue_idx ON wk_ingest_jobs (created_at) WHERE status = 'queued';
@@ -344,8 +347,9 @@ Callable exclusively through the RPC whitelist in `src/db/postgres.ts` (§2.1).
 --    must equal revision.base_revision_id → else RAISE 'stale_base'.
 -- 3. Flip: old current revisions → 'superseded'; proposed → 'current';
 --    concepts.current_revision_id repointed; claims proposed → 'verified';
---    contradicting (subject,predicate) pairs → both 'disputed' + ensure a
---    'contradicts' relation; relations/decisions proposed → 'active'.
+--    collisions on settings.functional_predicates → both 'disputed' + ensure
+--    a 'contradicts' relation; undeclared predicates remain multi-valued;
+--    relations/decisions proposed → 'active'.
 -- 4. Proposal → 'approved' (reviewer, note, reviewed_at); space epoch += 1;
 --    outbox events 'wikikit.proposal.approved' + 'wikikit.concept.updated' per concept.
 -- Errors: 'proposal_not_found', 'proposal_not_pending', 'stale_base'.
@@ -861,7 +865,9 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}/webhooks`                 | admin             | `listWebhooksHandler`          | params `zSpaceParams`                    | 200 `zWebhookListResponse`                                                               |
 | POST   | `/v1/spaces/{space}/webhooks`                 | admin             | `createWebhookHandler`         | body `zCreateWebhookRequest`             | 201 `zWebhookResponse` (secret shown once)                                               |
 | GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin             | `listWebhookDeliveriesHandler` | params `zSpaceIdParams`                  | 200 `zDeliveryListResponse`                                                              |
+| GET    | `/v1/api-keys`                                | admin             | `listApiKeysHandler`           | —                                        | 200 `zApiKeyListResponse` (never plaintext/hash)                                         |
 | POST   | `/v1/api-keys`                                | admin             | `createApiKeyHandler`          | body `zCreateApiKeyRequest`              | 201 `zApiKeyCreatedResponse` (plaintext key shown once)                                  |
+| DELETE | `/v1/api-keys/{id}`                           | admin             | `revokeApiKeyHandler`          | params `zIdParams`                       | 200 `zApiKeyRevokedResponse` (idempotent)                                                |
 | GET    | `/health`                                     | —                 | `healthHandler`                | —                                        | 200 `text/plain` `"ok"`                                                                  |
 | GET    | `/ready`                                      | —                 | `readyHandler`                 | —                                        | 200 `zReadyResponse` `{status:'ready', version}`; 503 while draining/not migrated        |
 | GET    | `/metrics`                                    | —                 | `metricsHandler`               | —                                        | 200 Prometheus text                                                                      |
@@ -1200,8 +1206,10 @@ queued ──(worker claims, sets started_at)──▶ running ──▶ done   
 
 Terminal: `done`, `failed`. Terminal states never regress (the flips are
 guarded on `status='running'`). No retries in v0.1 — a failed job is
-re-submitted by the client (the archive is reused; see §4.1 dedup). Jobs stuck
-`running` past a reaper window (worker crash) are flipped to `failed` with
+re-submitted by the client (the archive is reused; see §4.1 dedup). Every
+claimed job has a unique lease owner, `heartbeat_at`, and `lease_expires_at`;
+a live worker renews the lease during long LLM calls. Expired leases (worker
+crash) are flipped to `failed` with
 `code: 'worker_lost'` AND emit `wikikit.ingest.failed` in the same
 transaction — every failure path reaches the outbox.
 
@@ -1249,6 +1257,8 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_MAX_BODY_BYTES`            | `10485760`                                                         | 1 KiB – 250 MiB                                           |
 | `WIKIKIT_MAX_INGEST_TOKENS`         | `100000`                                                           | chunking threshold                                        |
 | `WIKIKIT_INGEST_CONCURRENCY`        | `2`                                                                | 1–16                                                      |
+| `WIKIKIT_INGEST_LEASE_MS`           | `900000`                                                           | 10 s–24 h                                                 |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`       | `30000`                                                            | 1 s–1 h; less than half the lease                         |
 | `WIKIKIT_WEBHOOK_POLL_MS`           | `5000` (dev default file: `1000`)                                  |                                                           |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS`        | `10000`                                                            |                                                           |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`      | `10`                                                               |                                                           |

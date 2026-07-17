@@ -43,7 +43,7 @@ async function stageFixture(): Promise<void> {
     proposalId = proposal!.id
     const [concept] = await tx.insert<{ id: string }>('wk_concepts', {
       space_id: spaceId,
-      slug: 'teleportation',
+      slug: 'quantum-teleportation',
       title: 'Teleportation',
     })
     await tx.insert(
@@ -106,7 +106,7 @@ describe('wk_search (integration)', () => {
 
     const conceptHits = await search('teleportation', 'concept')
     expect(conceptHits.length).toBe(1)
-    expect(conceptHits[0]!).toMatchObject({ kind: 'concept', concept_slug: 'teleportation', claim_id: null })
+    expect(conceptHits[0]!).toMatchObject({ kind: 'concept', concept_slug: 'quantum-teleportation', claim_id: null })
     expect(conceptHits[0]!.title).toBe('Quantum Teleportation')
     expect(conceptHits[0]!.headline).toContain('<mark>')
     expect(conceptHits[0]!.rank).toBeGreaterThan(0)
@@ -115,7 +115,7 @@ describe('wk_search (integration)', () => {
     expect(claimHits.length).toBe(1)
     expect(claimHits[0]!.kind).toBe('claim')
     expect(claimHits[0]!.claim_id).toBeTruthy()
-    expect(claimHits[0]!.concept_slug).toBe('teleportation')
+    expect(claimHits[0]!.concept_slug).toBe('quantum-teleportation')
   })
 
   it('kind filter partitions concept vs claim hits; NULL returns both', async () => {
@@ -125,6 +125,11 @@ describe('wk_search (integration)', () => {
     expect((await search('entanglement', 'claim')).every((hit) => hit.kind === 'claim')).toBe(true)
   })
 
+  it('finds an exact hyphenated concept slug even when websearch parses hyphens as operators', async () => {
+    const hits = await search('quantum-teleportation', 'concept')
+    expect(hits[0]).toMatchObject({ concept_slug: 'quantum-teleportation', rank: 10 })
+  })
+
   it('frontmatter is stripped from the index — metadata never matches', async () => {
     expect(await search('frontmatter-secret')).toEqual([])
   })
@@ -132,7 +137,7 @@ describe('wk_search (integration)', () => {
   it('a follow-up proposed revision stays invisible while the current one still matches', async () => {
     const [concept] = await db.select<{ id: string; current_revision_id: string }>('wk_concepts', {
       space_id: `eq.${spaceId}`,
-      slug: 'eq.teleportation',
+      slug: 'eq.quantum-teleportation',
     })
     const [proposal] = await db.insert<{ id: string }>('wk_change_proposals', {
       space_id: spaceId,

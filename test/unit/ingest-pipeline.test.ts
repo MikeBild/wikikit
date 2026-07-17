@@ -78,7 +78,16 @@ function workerRoutes(
     {
       match: /RETURNING id, space_id, input/,
       rows: (_values, call) =>
-        call === 1 ? [{ id: 'job-1', space_id: 'space-1', input: overrides.jobInput ?? { markdown: RAW } }] : [],
+        call === 1
+          ? [
+              {
+                id: 'job-1',
+                space_id: 'space-1',
+                input: overrides.jobInput ?? { markdown: RAW },
+                lease_owner: String(_values[0]),
+              },
+            ]
+          : [],
     },
     { match: /j\.status = 'running'/, rows: [] }, // reaper (nothing orphaned)
     // Re-ingest blocker check: a hash hit only 409s while a pending/approved
@@ -513,6 +522,29 @@ describe('worker — failure paths', () => {
     const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
     expect(jobUpdate.sql).toContain('"status" = $')
     expect(jobUpdate.values).toContain('running') // the guard predicate
+  })
+
+  test('a live long-running worker heartbeats its lease until the terminal flip', async () => {
+    const routes = workerRoutes()
+    routes.unshift({ match: /SET heartbeat_at = now\(\)/, rows: [{ id: 'job-1' }] })
+    const { db, calls } = fakeDb(routes)
+    const llm = createFakeProvider()
+    const classify = llm.classify.bind(llm)
+    llm.classify = async (input) => {
+      // Longer than the whole lease: without renewal the concurrent reaper
+      // would be entitled to fail this still-live job.
+      await new Promise((resolve) => setTimeout(resolve, 130))
+      return classify(input)
+    }
+    const pipeline = createIngestPipeline(config, db, llm, logger, { leaseMs: 50, heartbeatMs: 10 })
+
+    await pipeline.runOnce()
+
+    const heartbeats = calls.filter((call) => call.sql.includes('SET heartbeat_at = now()'))
+    expect(heartbeats.length).toBeGreaterThanOrEqual(3)
+    expect(heartbeats.every((call) => call.values.includes('job-1'))).toBe(true)
+    const terminal = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(terminal.values).toContain('done')
   })
 })
 

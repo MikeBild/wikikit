@@ -120,6 +120,10 @@ export interface Config {
   readonly maxBodyBytes: number
   readonly maxIngestTokens: number
   readonly ingestConcurrency: number
+  /** Duration of an ingest worker lease before another worker may reap it. */
+  readonly ingestLeaseMs: number
+  /** Cadence at which a live worker extends its ingest lease. */
+  readonly ingestHeartbeatMs: number
   readonly webhookPollMs: number
   readonly webhookTimeoutMs: number
   readonly webhookMaxAttempts: number
@@ -171,6 +175,12 @@ export function loadConfig(): Config {
   }
   const llmApiKey = providerKeys[llmProvider]
 
+  const ingestLeaseMs = integer('WIKIKIT_INGEST_LEASE_MS', 15 * 60 * 1000, { min: 10_000, max: 24 * 3600 * 1000 })
+  const ingestHeartbeatMs = integer('WIKIKIT_INGEST_HEARTBEAT_MS', 30_000, { min: 1000, max: 3600 * 1000 })
+  if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
+    throw new Error('WIKIKIT_INGEST_HEARTBEAT_MS must be less than half of WIKIKIT_INGEST_LEASE_MS')
+  }
+
   const config: Config = Object.freeze({
     root: moduleRoot,
     production,
@@ -192,6 +202,8 @@ export function loadConfig(): Config {
     maxBodyBytes: integer('WIKIKIT_MAX_BODY_BYTES', 10 * 1024 * 1024, { min: 1024, max: 250 * 1024 * 1024 }),
     maxIngestTokens: integer('WIKIKIT_MAX_INGEST_TOKENS', 100_000, { min: 1000, max: 1_000_000 }),
     ingestConcurrency: integer('WIKIKIT_INGEST_CONCURRENCY', 2, { min: 1, max: 16 }),
+    ingestLeaseMs,
+    ingestHeartbeatMs,
     webhookPollMs: integer('WIKIKIT_WEBHOOK_POLL_MS', 5000, { min: 250, max: 300_000 }),
     webhookTimeoutMs: integer('WIKIKIT_WEBHOOK_TIMEOUT_MS', 10_000, { min: 1000, max: 60_000 }),
     webhookMaxAttempts: integer('WIKIKIT_WEBHOOK_MAX_ATTEMPTS', 10, { min: 1, max: 20 }),

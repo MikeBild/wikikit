@@ -33,8 +33,12 @@ setDefaultTimeout(120_000)
 let database: Database
 let db: Db
 
-async function seedSpace(slug: string): Promise<{ id: string; slug: string }> {
-  const rows = await db.insert<{ id: string; slug: string }>('wk_spaces', { slug, name: `Space ${slug}` })
+async function seedSpace(slug: string, settings: Record<string, unknown> = {}): Promise<{ id: string; slug: string }> {
+  const rows = await db.insert<{ id: string; slug: string }>('wk_spaces', {
+    slug,
+    name: `Space ${slug}`,
+    settings,
+  })
   return rows[0]!
 }
 
@@ -263,7 +267,7 @@ describe('wk_apply_proposal / wk_reject_proposal (integration)', () => {
   })
 
   it('exact-frame contradictions dispute both claims and ensure a contradicts relation', async () => {
-    const space = await seedSpace('contradiction')
+    const space = await seedSpace('contradiction', { functional_predicates: ['has_status'] })
     const a = await stageProposal({
       spaceId: space.id,
       conceptSlug: 'okf',
@@ -297,6 +301,31 @@ describe('wk_apply_proposal / wk_reject_proposal (integration)', () => {
     )
     expect(relations.length).toBe(1)
     expect(relations[0]!).toMatchObject({ status: 'active', from_concept_id: b.conceptId, to_concept_id: a.conceptId })
+  })
+
+  it('different objects on an undeclared multi-valued predicate remain verified and complementary', async () => {
+    const space = await seedSpace('multi-valued')
+    const first = await stageProposal({
+      spaceId: space.id,
+      conceptSlug: 'one',
+      markdown: '# One',
+      rev: 1,
+      claims: [{ subject: 'service', predicate: 'uses', object: 'postgres' }],
+    })
+    const second = await stageProposal({
+      spaceId: space.id,
+      conceptSlug: 'two',
+      markdown: '# Two',
+      rev: 1,
+      claims: [{ subject: 'service', predicate: 'uses', object: 'redis' }],
+    })
+    await db.call('wk_apply_proposal', [first.proposalId, 'mike'])
+    const [result] = await db.call('wk_apply_proposal', [second.proposalId, 'mike'])
+    expect(result).toMatchObject({ claims_verified: 1, claims_disputed: 0 })
+
+    const claims = await db.select<{ status: string }>('wk_claims', { space_id: `eq.${space.id}` })
+    expect(claims.map((claim) => claim.status)).toEqual(['verified', 'verified'])
+    expect((await db.select('wk_relations', { space_id: `eq.${space.id}`, kind: 'eq.contradicts' })).length).toBe(0)
   })
 
   it('reject keeps rows for audit: revisions rejected, relations removed, claims stay proposed', async () => {

@@ -51,6 +51,8 @@ function e2eConfig(databaseUrl: string, stubUrl: string): Config {
     maxBodyBytes: 10 * 1024 * 1024,
     maxIngestTokens: 100_000,
     ingestConcurrency: 1,
+    ingestLeaseMs: 15 * 60 * 1000,
+    ingestHeartbeatMs: 30_000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,

@@ -26,6 +26,8 @@ const MANAGED = [
   'WIKIKIT_MAX_BODY_BYTES',
   'WIKIKIT_MAX_INGEST_TOKENS',
   'WIKIKIT_INGEST_CONCURRENCY',
+  'WIKIKIT_INGEST_LEASE_MS',
+  'WIKIKIT_INGEST_HEARTBEAT_MS',
   'WIKIKIT_WEBHOOK_POLL_MS',
   'WIKIKIT_WEBHOOK_TIMEOUT_MS',
   'WIKIKIT_WEBHOOK_MAX_ATTEMPTS',
@@ -111,6 +113,12 @@ describe('validation', () => {
   test('rejects non-numeric integers', () => {
     process.env.WIKIKIT_MAX_BODY_BYTES = 'lots'
     expect(() => loadConfig()).toThrow(/WIKIKIT_MAX_BODY_BYTES/)
+  })
+
+  test('requires enough lease headroom for two heartbeat intervals', () => {
+    process.env.WIKIKIT_INGEST_LEASE_MS = '10000'
+    process.env.WIKIKIT_INGEST_HEARTBEAT_MS = '5000'
+    expect(() => loadConfig()).toThrow(/HEARTBEAT_MS must be less than half/)
   })
 
   test('bool parsing accepts 1/true/yes/on', () => {

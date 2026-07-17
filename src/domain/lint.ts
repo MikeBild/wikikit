@@ -12,6 +12,7 @@
 // one deliberate exception is unreviewed-proposals, whose whole point is to
 // surface the staging backlog.
 import type { Db } from '../db/postgres.ts'
+import { getFunctionalPredicates } from './claims.ts'
 
 export type LintRule =
   | 'contradictions'
@@ -59,6 +60,8 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
 // proposal, which the apply-time dispute flip's cross-proposal join skips);
 // lint must see the contradiction regardless of how it was persisted.
 async function contradictions(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const functionalPredicates = await getFunctionalPredicates(db, spaceId)
+  if (!functionalPredicates.length) return []
   const { rows } = await db.query<{
     subject: string
     predicate: string
@@ -72,11 +75,13 @@ async function contradictions(db: Db, spaceId: string): Promise<LintFinding[]> {
             array_agg(DISTINCT c.slug) AS slugs
        FROM wk_claims cl
        JOIN wk_concepts c ON c.id = cl.concept_id
-      WHERE cl.space_id = $1 AND cl.status IN ('verified', 'disputed')
+      WHERE cl.space_id = $1
+        AND cl.predicate = ANY($2::text[])
+        AND cl.status IN ('verified', 'disputed')
       GROUP BY cl.subject, cl.predicate
      HAVING count(DISTINCT cl.object) > 1
       ORDER BY cl.subject, cl.predicate`,
-    [spaceId],
+    [spaceId, functionalPredicates],
   )
   return rows.map((row) => ({
     rule: 'contradictions' as const,
@@ -186,8 +191,10 @@ async function orphanConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
+       JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
+        AND coalesce(r.agent_meta->>'kind', '') NOT IN ('structural-reference', 'subkit-domain-migration-relation-repair')
         AND NOT EXISTS (
           SELECT 1 FROM wk_relations rel
            WHERE rel.status = 'active'
@@ -210,8 +217,10 @@ async function emptyConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
+       JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
+        AND coalesce(r.agent_meta->>'kind', '') NOT IN ('structural-reference', 'subkit-domain-migration-relation-repair')
         AND NOT EXISTS (
           SELECT 1 FROM wk_claims cl
            WHERE cl.concept_id = c.id

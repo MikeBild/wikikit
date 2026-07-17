@@ -31,6 +31,7 @@
 // Every LLM call is recorded (classify + one synthesize per concept) and the
 // rows are persisted even when the job FAILS afterwards — cost telemetry from
 // day one (plan §15.4) must include the money burned on failed jobs.
+import { randomUUID } from 'node:crypto'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptIndex } from '../domain/concepts.ts'
@@ -80,11 +81,8 @@ const DEFAULT_PREDICATES = [
   'released_on',
 ] as const
 
-// Jobs stuck 'running' longer than this were orphaned by a crashed worker —
-// the reaper flips them to failed:'worker_lost' (§9.1). Generous relative to
-// worst-case LLM latency so a slow-but-alive job is never killed under a
-// living worker.
-const WORKER_LOST_AFTER_MS = 15 * 60 * 1000
+const DEFAULT_LEASE_MS = 15 * 60 * 1000
+const DEFAULT_HEARTBEAT_MS = 30 * 1000
 
 const DEFAULT_POLL_MS = 1000
 
@@ -101,6 +99,7 @@ interface JobRow {
   id: string
   space_id: string
   input: IngestInput
+  lease_owner: string
 }
 
 interface AgentRunDraft {
@@ -115,6 +114,10 @@ export interface CreateIngestPipelineOptions {
   fetchImpl?: typeof fetch
   /** Injected acquirer (overrides fetchImpl when given). */
   acquirer?: Acquirer
+  /** Test/embedding override; production uses WIKIKIT_INGEST_LEASE_MS. */
+  leaseMs?: number
+  /** Test/embedding override; production uses WIKIKIT_INGEST_HEARTBEAT_MS. */
+  heartbeatMs?: number
 }
 
 export function createIngestPipeline(
@@ -126,6 +129,8 @@ export function createIngestPipeline(
 ): IngestPipeline {
   const acquirer = options.acquirer ?? createAcquirer(config, { fetchImpl: options.fetchImpl })
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS
+  const leaseMs = options.leaseMs ?? config.ingestLeaseMs ?? DEFAULT_LEASE_MS
+  const heartbeatMs = options.heartbeatMs ?? config.ingestHeartbeatMs ?? DEFAULT_HEARTBEAT_MS
 
   let running = false
   const loops: Promise<void>[] = []
@@ -186,12 +191,14 @@ export function createIngestPipeline(
       // regress — a poller observing failed→done would violate §9.1.
       const flipped = await tx.update(
         'wk_ingest_jobs',
-        { id: `eq.${job.id}`, status: 'eq.running' },
+        { id: `eq.${job.id}`, status: 'eq.running', lease_owner: `eq.${job.lease_owner}` },
         {
           status: 'done',
           source_id: result.sourceId,
           proposal_id: result.proposalId,
           finished_at: new Date().toISOString(),
+          lease_owner: null,
+          lease_expires_at: null,
         },
       )
       if (!flipped.length) {
@@ -216,12 +223,14 @@ export function createIngestPipeline(
       // the flip that actually happened (the reaper emits its own).
       const flipped = await tx.update(
         'wk_ingest_jobs',
-        { id: `eq.${job.id}`, status: 'eq.running' },
+        { id: `eq.${job.id}`, status: 'eq.running', lease_owner: `eq.${job.lease_owner}` },
         {
           status: 'failed',
           source_id: sourceId,
           error: JSON.stringify(error),
           finished_at: new Date().toISOString(),
+          lease_owner: null,
+          lease_expires_at: null,
         },
       )
       if (!flipped.length) {
@@ -482,8 +491,52 @@ export function createIngestPipeline(
     return { sourceId: source.id, proposalId: proposal_id }
   }
 
-  /** Wraps processJob with the terminal state handling (done/failed + audit). */
+  /**
+   * Extend a claimed job's lease while its worker is alive. The timer is
+   * serialized (never overlapping updates), and stop waits for a running
+   * heartbeat before the terminal state transition clears lease ownership.
+   */
+  function startHeartbeat(job: JobRow): () => Promise<void> {
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inFlight = Promise.resolve()
+    const tick = () => {
+      if (stopped) return
+      inFlight = db
+        .query<{ id: string }>(
+          `UPDATE wk_ingest_jobs
+              SET heartbeat_at = now(),
+                  lease_expires_at = now() + ($3 || ' milliseconds')::interval
+            WHERE id = $1
+              AND status = 'running'
+              AND lease_owner = $2
+          RETURNING id`,
+          [job.id, job.lease_owner, String(leaseMs)],
+        )
+        .then(({ rows }) => {
+          if (!rows.length) {
+            stopped = true
+            logger.warn('ingest heartbeat lost lease ownership', { ingest_id: job.id })
+          }
+        })
+        .catch((error) => {
+          logger.error('ingest heartbeat failed; lease remains bounded', { ingest_id: job.id, error: String(error) })
+        })
+        .finally(() => {
+          if (!stopped) timer = setTimeout(tick, heartbeatMs)
+        })
+    }
+    timer = setTimeout(tick, heartbeatMs)
+    return async () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+      await inFlight
+    }
+  }
+
+  /** Wraps processJob with lease heartbeat and terminal state handling. */
   async function processClaimed(job: JobRow): Promise<void> {
+    const stopHeartbeat = startHeartbeat(job)
     const runs: AgentRunDraft[] = []
     let space: { slug: string; predicates: string[] } | null = null
     let sourceId: string | null = null
@@ -506,6 +559,8 @@ export function createIngestPipeline(
         // for the reaper — flipping state is better done late than lost.
         logger.error('ingest failure could not be persisted', { ingest_id: job.id, error: String(writeError) })
       }
+    } finally {
+      await stopHeartbeat()
     }
   }
 
@@ -518,19 +573,21 @@ export function createIngestPipeline(
    * consumers must learn about crash-orphaned jobs the same way.
    */
   async function reapStale(): Promise<void> {
-    const error = { code: 'worker_lost', message: 'worker did not finish this job' }
+    const error = { code: 'worker_lost', message: 'worker lease expired before this job finished' }
     await db.tx(async (tx) => {
       const reaped = await tx.query<{ id: string; space_id: string; space_slug: string }>(
         `UPDATE wk_ingest_jobs j
             SET status = 'failed',
                 error = $1,
-                finished_at = now()
+                finished_at = now(),
+                lease_owner = null,
+                lease_expires_at = null
            FROM wk_spaces s
           WHERE s.id = j.space_id
             AND j.status = 'running'
-            AND j.started_at < now() - ($2 || ' milliseconds')::interval
+            AND coalesce(j.lease_expires_at, j.started_at + ($2 || ' milliseconds')::interval) < now()
         RETURNING j.id, j.space_id, s.slug AS space_slug`,
-        [JSON.stringify(error), String(WORKER_LOST_AFTER_MS)],
+        [JSON.stringify(error), String(leaseMs)],
       )
       for (const job of reaped.rows) {
         logger.warn('reaped orphaned ingest job as worker_lost', { ingest_id: job.id })
@@ -545,11 +602,16 @@ export function createIngestPipeline(
 
   async function runOnce(): Promise<boolean> {
     await reapStale()
+    const leaseOwner = randomUUID()
     // Claim oldest-first with SKIP LOCKED: concurrent workers each grab a
     // DIFFERENT queued row or none — never the same one, never blocking.
     const { rows } = await db.query<JobRow>(
       `UPDATE wk_ingest_jobs
-          SET status = 'running', started_at = now()
+          SET status = 'running',
+              started_at = now(),
+              heartbeat_at = now(),
+              lease_owner = $1,
+              lease_expires_at = now() + ($2 || ' milliseconds')::interval
         WHERE id = (
           SELECT id FROM wk_ingest_jobs
            WHERE status = 'queued'
@@ -557,8 +619,8 @@ export function createIngestPipeline(
            LIMIT 1
            FOR UPDATE SKIP LOCKED
         )
-        RETURNING id, space_id, input`,
-      [],
+        RETURNING id, space_id, input, lease_owner`,
+      [leaseOwner, String(leaseMs)],
     )
     const job = rows[0]
     if (!job) return false

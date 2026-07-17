@@ -139,6 +139,10 @@ curl -s -X POST "$WK/v1/api-keys" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
   -d '{"name":"claude","scopes":["knowledge:read","knowledge:propose"],"space":"default"}'
 # → {"id":"...","key":"wk_...","scopes":[...],"space":"default"}   ← shown once
+
+# Inventory never exposes plaintext keys or hashes; revocation is idempotent.
+curl -s "$WK/v1/api-keys" -H "Authorization: Bearer $KEY"
+curl -s -X DELETE "$WK/v1/api-keys/$KEY_ID" -H "Authorization: Bearer $KEY"
 ```
 
 Then register WikiKit as a Streamable-HTTP MCP server. In Claude Code:
@@ -182,9 +186,10 @@ object` with a confidence, citations (verbatim quote + locator) and a
 - **Grounding guard:** a claim survives only if its quote occurs **verbatim**
   in the source the model read. Paraphrased or invented citations are dropped
   before they reach the review gate, not argued about afterwards.
-- **Contradiction detection:** same subject+predicate, different object →
-  both claims become `disputed`, linked by a `contradicts` relation; `/query`
-  reports the dispute with sources instead of picking a winner.
+- **Contradiction detection:** for predicates explicitly declared in a space's
+  `settings.functional_predicates`, same subject+predicate and a different
+  object makes both claims `disputed` and links them with `contradicts`.
+  Undeclared predicates are multi-valued, so complementary facts stay verified.
 - **Review gate:** all writes — LLM ingest, agent proposals, bundle imports —
   stage as ChangeProposals; approval is an atomic SQL flip with stale-base
   protection and a full audit trail (reviewer, note, timestamp).

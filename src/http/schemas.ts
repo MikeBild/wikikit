@@ -436,6 +436,23 @@ export const zApiKeyCreatedResponse = z.object({
   space: z.string().nullable(),
 })
 
+export const zApiKeyResponse = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  scopes: z.array(z.string()),
+  space: z.string().nullable(),
+  created_at: z.string(),
+  last_used_at: z.string().nullable(),
+  revoked_at: z.string().nullable(),
+})
+
+export const zApiKeyListResponse = z.object({ items: z.array(zApiKeyResponse) })
+
+export const zApiKeyRevokedResponse = z.object({
+  id: z.uuid(),
+  revoked_at: z.string(),
+})
+
 // ---------------------------------------------------------------------------
 // Ops
 // ---------------------------------------------------------------------------
@@ -494,5 +511,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zDeliveryListResponse,
   zCreateApiKeyRequest,
   zApiKeyCreatedResponse,
+  zApiKeyResponse,
+  zApiKeyListResponse,
+  zApiKeyRevokedResponse,
   zReadyResponse,
 }

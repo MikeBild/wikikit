@@ -323,6 +323,18 @@ function stubDb(): Db {
                 created_at: NOW,
               },
             ]
+          case 'wk_api_keys':
+            return [
+              {
+                id: KEY_ID,
+                name: 'ci-reader',
+                scopes: ['knowledge:read'],
+                space_id: null,
+                created_at: NOW,
+                last_used_at: null,
+                revoked_at: null,
+              },
+            ]
           default:
             return []
         }
@@ -408,6 +420,8 @@ function testConfig(): Config {
     maxBodyBytes: 10 * 1024 * 1024,
     maxIngestTokens: 100_000,
     ingestConcurrency: 1,
+    ingestLeaseMs: 15 * 60 * 1000,
+    ingestHeartbeatMs: 30_000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,
@@ -443,7 +457,7 @@ function fixtureBundleZip(): Uint8Array {
 // coverage test below proves this list stays complete as routes are added).
 interface RouteCase {
   template: string
-  method: 'get' | 'post'
+  method: 'get' | 'post' | 'delete'
   url: string
   status: number
   body?: unknown
@@ -570,10 +584,22 @@ const CASES: RouteCase[] = [
   },
   {
     template: '/v1/api-keys',
+    method: 'get',
+    url: '/v1/api-keys',
+    status: 200,
+  },
+  {
+    template: '/v1/api-keys',
     method: 'post',
     url: '/v1/api-keys',
     status: 201,
     body: { name: 'ci-reader', scopes: ['knowledge:read'] },
+  },
+  {
+    template: '/v1/api-keys/{id}',
+    method: 'delete',
+    url: `/v1/api-keys/${KEY_ID}`,
+    status: 200,
   },
   { template: '/ready', method: 'get', url: '/ready', status: 200 },
 ]

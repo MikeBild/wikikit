@@ -16,7 +16,9 @@ function fakeDb(routes: { match: RegExp; rows: Rows }[]) {
   const query = async (sql: string, values: unknown[] = []) => {
     calls.push({ sql, values })
     const route = routes.find((entry) => entry.match.test(sql))
-    return { rows: route?.rows ?? [], rowCount: route?.rows.length ?? 0 }
+    const rows =
+      route?.rows ?? (sql.includes('"wk_spaces"') ? [{ settings: { functional_predicates: ['has_status'] } }] : [])
+    return { rows, rowCount: rows.length }
   }
   const pool: PoolLike = { query, connect: async () => ({ query, release() {} }), end: async () => {} }
   const { db } = createPostgres({ databaseUrl: 'postgresql://stub' } as Config, { pool })
@@ -112,8 +114,9 @@ describe('findContradictions — exact-frame matcher', () => {
       },
     ])
     // Only verified/disputed on the persisted side — mirrors wk_apply_proposal.
-    expect(calls[0]!.sql).toContain(`status IN ('verified', 'disputed')`)
-    expect(calls[0]!.values[0]).toBe('space-1')
+    const collisionQuery = calls.find((call) => call.sql.includes('unnest'))!
+    expect(collisionQuery.sql).toContain(`status IN ('verified', 'disputed')`)
+    expect(collisionQuery.values[0]).toBe('space-1')
   })
 
   test('same frame + SAME object is agreement, not contradiction', async () => {
@@ -152,6 +155,15 @@ describe('findContradictions — exact-frame matcher', () => {
       },
     ])
     expect(await findContradictions(db, 'space-1', { claims: incoming })).toEqual([])
+  })
+
+  test('undeclared predicates are multi-valued and never produce pairs', async () => {
+    const { db, calls } = fakeDb([
+      { match: /wk_spaces/, rows: [{ settings: {} }] },
+      { match: /unnest/, rows: [] },
+    ])
+    expect(await findContradictions(db, 'space-1', { claims: incoming })).toEqual([])
+    expect(calls.some((call) => call.sql.includes('unnest'))).toBe(false)
   })
 
   test('intra-batch collisions are detected with existing_claim_id null', async () => {

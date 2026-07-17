@@ -49,7 +49,7 @@ import { readDocsFile } from './docs-embedded.ts'
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
 
 export interface RouteDef {
-  method: 'get' | 'post'
+  method: 'get' | 'post' | 'delete'
   /** OpenAPI template style: '/v1/spaces/{space}/concepts/{slug}'. */
   path: string
   /** null = public (health/docs endpoints). */
@@ -351,6 +351,14 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: { schema: 'zDeliveryListResponse', type: 'application/json', desc: 'Deliveries' } },
   },
   {
+    method: 'get',
+    path: '/v1/api-keys',
+    scope: 'admin',
+    summary: 'List API keys and revocation/usage metadata (never plaintext or hashes)',
+    handler: 'listApiKeysHandler',
+    responses: { 200: { schema: 'zApiKeyListResponse', type: 'application/json', desc: 'Keys visible to this admin' } },
+  },
+  {
     method: 'post',
     path: '/v1/api-keys',
     scope: 'admin',
@@ -358,6 +366,15 @@ export const ROUTES: RouteDef[] = [
     handler: 'createApiKeyHandler',
     request: { body: 'zCreateApiKeyRequest' },
     responses: { 201: { schema: 'zApiKeyCreatedResponse', type: 'application/json', desc: 'Key (shown once)' } },
+  },
+  {
+    method: 'delete',
+    path: '/v1/api-keys/{id}',
+    scope: 'admin',
+    summary: 'Revoke an API key (idempotent; bootstrap env key is not a DB key)',
+    handler: 'revokeApiKeyHandler',
+    request: { params: 'zIdParams' },
+    responses: { 200: { schema: 'zApiKeyRevokedResponse', type: 'application/json', desc: 'Revocation timestamp' } },
   },
   {
     method: 'get',
@@ -819,6 +836,61 @@ export const HANDLERS: Record<string, Handler> = {
     }
     const { id, key } = await deps.auth.createKey({ name: body.name, scopes: body.scopes, spaceId })
     return { status: 201, body: { id, name: body.name, key, scopes: body.scopes, space: spaceSlug } }
+  },
+
+  async listApiKeysHandler(deps, input) {
+    const scopedSpaceId = input.principal!.spaceId
+    const where = scopedSpaceId ? 'WHERE k.space_id = $1' : ''
+    const { rows } = await deps.db.query<{
+      id: string
+      name: string
+      scopes: string[]
+      space: string | null
+      created_at: Date | string
+      last_used_at: Date | string | null
+      revoked_at: Date | string | null
+    }>(
+      `SELECT k.id, k.name, k.scopes, s.slug AS space,
+              k.created_at, k.last_used_at, k.revoked_at
+         FROM wk_api_keys k
+         LEFT JOIN wk_spaces s ON s.id = k.space_id
+         ${where}
+        ORDER BY k.created_at DESC, k.id`,
+      scopedSpaceId ? [scopedSpaceId] : [],
+    )
+    const wireDate = (value: Date | string | null) =>
+      value === null ? null : value instanceof Date ? value.toISOString() : String(value)
+    return {
+      status: 200,
+      body: {
+        items: rows.map((row) => ({
+          ...row,
+          created_at: wireDate(row.created_at),
+          last_used_at: wireDate(row.last_used_at),
+          revoked_at: wireDate(row.revoked_at),
+        })),
+      },
+    }
+  },
+
+  async revokeApiKeyHandler(deps, input) {
+    const id = input.params.id!
+    const [key] = await deps.db.select<{ id: string; space_id: string | null; revoked_at: Date | string | null }>(
+      'wk_api_keys',
+      { id: `eq.${id}`, limit: 1 },
+    )
+    if (!key || (input.principal!.spaceId && input.principal!.spaceId !== key.space_id)) {
+      throw new NotFoundError(`API key '${id}' not found`)
+    }
+    const revokedAt = key.revoked_at
+      ? key.revoked_at instanceof Date
+        ? key.revoked_at.toISOString()
+        : String(key.revoked_at)
+      : new Date().toISOString()
+    if (!key.revoked_at) {
+      await deps.db.update('wk_api_keys', { id: `eq.${id}`, revoked_at: 'is.null' }, { revoked_at: revokedAt })
+    }
+    return { status: 200, body: { id, revoked_at: revokedAt } }
   },
 
   async healthHandler() {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface."
   },
   "servers": [{ "url": "/" }],
@@ -1298,6 +1298,38 @@
       }
     },
     "/v1/api-keys": {
+      "get": {
+        "summary": "List API keys and revocation/usage metadata (never plaintext or hashes)",
+        "operationId": "listApiKeys",
+        "responses": {
+          "200": {
+            "description": "Keys visible to this admin",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zApiKeyListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
+      },
       "post": {
         "summary": "Mint a scoped API key (plaintext shown once)",
         "operationId": "createApiKey",
@@ -1331,6 +1363,52 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateApiKeyRequest" } } }
         },
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
+      }
+    },
+    "/v1/api-keys/{id}": {
+      "delete": {
+        "summary": "Revoke an API key (idempotent; bootstrap env key is not a DB key)",
+        "operationId": "revokeApiKey",
+        "responses": {
+          "200": {
+            "description": "Revocation timestamp",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zApiKeyRevokedResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
         "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
@@ -2317,6 +2395,34 @@
         "required": ["items"],
         "additionalProperties": false
       },
+      "zApiKeyListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "name": { "type": "string" },
+                "scopes": { "type": "array", "items": { "type": "string" } },
+                "space": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "created_at": { "type": "string" },
+                "last_used_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "revoked_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              },
+              "required": ["id", "name", "scopes", "space", "created_at", "last_used_at", "revoked_at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
       "zCreateApiKeyRequest": {
         "type": "object",
         "properties": {
@@ -2344,6 +2450,19 @@
           "space": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
         },
         "required": ["id", "name", "key", "scopes", "space"],
+        "additionalProperties": false
+      },
+      "zApiKeyRevokedResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "revoked_at": { "type": "string" }
+        },
+        "required": ["id", "revoked_at"],
         "additionalProperties": false
       },
       "zReadyResponse": {

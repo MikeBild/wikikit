@@ -29,7 +29,7 @@ source (markdown | text | url)
   ──POST /v1/spaces/{space}/ingest──▶ archive verbatim (sha256 dedup)
   ──▶ classify (which concepts does this affect?)          [LLM, haiku]
   ──▶ synthesize new revision + claims + citations         [LLM, sonnet]
-  ──▶ detect contradictions (same subject+predicate, different object)
+  ──▶ detect contradictions (declared-functional subject+predicate frames)
   ──▶ ONE pending ChangeProposal (staged rows, invisible to readers)
   ──▶ human reviews the structured diff and approves/rejects over REST
   ──▶ atomic apply: revision → current, claims → verified/disputed,
@@ -92,7 +92,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/webhooks`                 | admin             | List webhook endpoints |
 | POST   | `/v1/spaces/{space}/webhooks`                 | admin             | Register a webhook endpoint (Standard Webhooks; secret shown once) |
 | GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin             | Delivery attempts for one endpoint (status, attempts, backoff) |
+| GET    | `/v1/api-keys`                                | admin             | List visible API keys without plaintext or hashes |
 | POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
+| DELETE | `/v1/api-keys/{id}`                           | admin             | Revoke a DB-backed API key idempotently |
 | GET    | `/health`                                     | public            | Liveness — `200 "ok"` while the process is up |
 | GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
 | GET    | `/metrics`                                    | public            | Prometheus metrics |
@@ -206,11 +208,11 @@ the approve scope to an autonomous agent.
 | Ingest job | Async pipeline run: `queued → running → done\|failed` |
 | Agent run | LLM audit ledger entry: kind, model, prompt_version, input_hash, usage, duration |
 
-Contradiction handling is deterministic: two claims with the same
-`(subject, predicate)` but a different `object` are flagged in the proposal;
-on approval both sides flip to `disputed` and a `contradicts` relation is
-ensured. Disputed knowledge stays visible and is reported as disputed —
-WikiKit records disagreement instead of silently overwriting it.
+Contradiction handling is deterministic and cardinality-aware: only predicates
+listed in a space's `settings.functional_predicates` treat different objects
+for the same `(subject, predicate)` as a conflict. Undeclared predicates are
+multi-valued. On a declared-functional collision both sides flip to `disputed`
+and a `contradicts` relation is ensured.
 
 Stale-base protection: every proposed revision remembers the revision it was
 synthesized against; approving a proposal whose base is no longer current
@@ -447,6 +449,8 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
 | `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
 | `WIKIKIT_INGEST_CONCURRENCY` | parallel ingest workers (1–16) | `2` |
+| `WIKIKIT_INGEST_LEASE_MS` | worker lease before `worker_lost` reaping | `900000` |
+| `WIKIKIT_INGEST_HEARTBEAT_MS` | lease renewal cadence (< half the lease) | `30000` |
 | `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS` | per-delivery HTTP timeout | `10000` |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS` | retries before a delivery is dead | `10` |

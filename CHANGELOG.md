@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.9
+
+### Added
+
+- Durable ingest leases with unique owners, heartbeats and bounded expiry.
+  Long-running LLM work now renews its lease, while crashed workers still end
+  as auditable `worker_lost` failures.
+- Administrative `GET /v1/api-keys` and idempotent
+  `DELETE /v1/api-keys/{id}` endpoints. Inventory responses expose usage and
+  revocation metadata but never plaintext keys or hashes; space-scoped admins
+  remain confined to their own space.
+
+### Changed
+
+- Contradiction detection is cardinality-aware. Only predicates explicitly
+  listed in a space's `settings.functional_predicates` are single-valued;
+  undeclared predicates are multi-valued and complementary objects stay
+  verified. The migration reconciles disputes and synthetic contradiction
+  relations produced by the old blanket matcher.
+- Lint excludes revisions explicitly marked as structural migration references
+  from empty/orphan findings. Isolated Subkit-migrated content pages receive
+  deterministic relations to their domain anchor; genuine claim-free pages
+  remain visible as hygiene findings.
+
+### Fixed
+
+- Exact concept-slug search now bypasses PostgreSQL web-search hyphen operator
+  parsing and receives a stable rank boost. Existing non-null vectors remain
+  untouched; legacy null vectors are backfilled.
+- The ingest reaper no longer judges liveness from the original `started_at`,
+  which previously killed healthy jobs after 15 minutes when concurrency was
+  greater than one.
+
 ## 0.1.8
 
 **No runtime changes** — the binary is byte-identical to v0.1.7 (verified by

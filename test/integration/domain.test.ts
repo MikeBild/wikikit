@@ -29,8 +29,12 @@ setDefaultTimeout(120_000)
 let database: Database
 let db: Db
 
-async function seedSpace(slug: string): Promise<{ id: string; slug: string }> {
-  const rows = await db.insert<{ id: string; slug: string }>('wk_spaces', { slug, name: `Space ${slug}` })
+async function seedSpace(slug: string, settings: Record<string, unknown> = {}): Promise<{ id: string; slug: string }> {
+  const rows = await db.insert<{ id: string; slug: string }>('wk_spaces', {
+    slug,
+    name: `Space ${slug}`,
+    settings,
+  })
   return rows[0]!
 }
 
@@ -187,7 +191,7 @@ describe('domain modules (integration)', () => {
   })
 
   it('contradiction flow: prospective dispute in the pending diff, real dispute after approval, lint reports it', async () => {
-    const space = await seedSpace('dispute-space')
+    const space = await seedSpace('dispute-space', { functional_predicates: ['has_status'] })
     const sourceA = await createSource(db, space.id, { kind: 'text', raw: 'A says ready', markdown: 'A says ready' })
     const first = await createProposal(db, space.id, {
       title: 'A',

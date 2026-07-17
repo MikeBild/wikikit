@@ -37,6 +37,8 @@ function integrationConfig(databaseUrl: string): Config {
     maxBodyBytes: 1024 * 1024,
     maxIngestTokens: 100_000,
     ingestConcurrency: 1,
+    ingestLeaseMs: 15 * 60 * 1000,
+    ingestHeartbeatMs: 30_000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,
@@ -189,6 +191,43 @@ describe('auth over the wire (integration)', () => {
     const res = await fetch(`${base}/v1/spaces/alpha`, { headers: bearer(key) })
     expect(res.status).toBe(401)
     expect(((await res.json()) as { code: string }).code).toBe('unauthorized')
+  })
+
+  it('lists key metadata without secrets and revokes a key idempotently through the public API', async () => {
+    const target = await mintKey({ name: 'api-revocation-target', scopes: ['knowledge:read'] })
+    const listed = await fetch(`${base}/v1/api-keys`, { headers: bearer(BOOTSTRAP) })
+    expect(listed.status).toBe(200)
+    const listBody = (await listed.json()) as { items: Record<string, unknown>[] }
+    const item = listBody.items.find((entry) => entry.id === target.id)!
+    expect(item).toMatchObject({ name: 'api-revocation-target', revoked_at: null })
+    expect(item).not.toHaveProperty('key')
+    expect(item).not.toHaveProperty('key_hash')
+
+    const first = await fetch(`${base}/v1/api-keys/${target.id}`, { method: 'DELETE', headers: bearer(BOOTSTRAP) })
+    expect(first.status).toBe(200)
+    const firstBody = (await first.json()) as { id: string; revoked_at: string }
+    const second = await fetch(`${base}/v1/api-keys/${target.id}`, { method: 'DELETE', headers: bearer(BOOTSTRAP) })
+    expect(second.status).toBe(200)
+    expect(await second.json()).toEqual(firstBody)
+    expect((await fetch(`${base}/v1/spaces/alpha`, { headers: bearer(target.key) })).status).toBe(401)
+  })
+
+  it('space-scoped admins only list and revoke keys in their own space', async () => {
+    const alphaAdmin = await mintKey({ name: 'alpha-inventory-admin', scopes: ['admin'], space: 'alpha' })
+    const alphaChild = await mintKey({ name: 'alpha-inventory-child', scopes: ['knowledge:read'], space: 'alpha' })
+    const betaChild = await mintKey({ name: 'beta-inventory-child', scopes: ['knowledge:read'], space: 'beta' })
+
+    const list = await fetch(`${base}/v1/api-keys`, { headers: bearer(alphaAdmin.key) })
+    expect(list.status).toBe(200)
+    const items = ((await list.json()) as { items: { id: string; space: string | null }[] }).items
+    expect(items.some((item) => item.id === alphaChild.id)).toBe(true)
+    expect(items.every((item) => item.space === 'alpha')).toBe(true)
+
+    const foreign = await fetch(`${base}/v1/api-keys/${betaChild.id}`, {
+      method: 'DELETE',
+      headers: bearer(alphaAdmin.key),
+    })
+    expect(foreign.status).toBe(404)
   })
 
   it('last_used_at telemetry is recorded on authenticated use', async () => {
