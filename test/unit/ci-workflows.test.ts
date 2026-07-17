@@ -87,6 +87,32 @@ describe('ci.yml', () => {
     expect(ciJobs.map((name) => (name === 'test' ? 'unit' : name)).sort()).toEqual(stageIds.sort())
   })
 
+  // Every `bun run <name>` in a workflow must resolve, in every workflow.
+  // This exists because it happened: a package.json edit was reverted, the
+  // `test:e2e` script vanished, and CI failed with "Script not found" — while
+  // the local gate passed, because the pre-push hook invokes
+  // `bun run scripts/gate.ts` (a file path) and never touches the script names
+  // CI depends on. Nothing else covers the seam between the two.
+  test('every `bun run <script>` a workflow invokes exists in package.json', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+    for (const [file, workflow] of [
+      ['ci.yml', ci],
+      ['release.yml', release],
+    ] as const) {
+      for (const [jobName, job] of Object.entries(workflow.jobs)) {
+        for (const command of runs(job)) {
+          for (const match of command.matchAll(/\bbun run ([a-z][a-z0-9:-]*)/g)) {
+            const script = match[1]!
+            expect(
+              pkg.scripts[script],
+              `${file} job '${jobName}' runs \`bun run ${script}\`, which package.json lacks`,
+            ).toBeDefined()
+          }
+        }
+      }
+    }
+  })
+
   test('every job installs with a frozen lockfile via setup-bun', () => {
     for (const [name, job] of Object.entries(ci.jobs)) {
       const uses = (job.steps ?? []).map((step) => step.uses ?? '')
