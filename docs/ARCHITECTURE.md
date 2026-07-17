@@ -113,19 +113,29 @@ array, so the spec cannot drift from the implementation. Entries reference
 handlers and zod schemas **by name**, which keeps the registry introspectable
 without executing handlers.
 
-Drift detection (CI gates, `test/unit/docs-drift.test.ts`): route handlers ↔
-ROUTES set-equality; the endpoint lists in `docs/llms.txt` /
-`docs/llms-full.txt` ↔ ROUTES; every env var `src/config.ts` reads documented
-in `docs/CONFIGURATION.md`, `docs/llms-full.txt` **and** `docs/CONTRACTS.md`
-§10, and present in `.env.example` + `.env.defaults`; the MCP tool list ↔
-`docs/llms-full.txt`, `README.md` and `CHANGELOG.md`; a `CHANGELOG.md` section
-for the `package.json` version; the committed `docs/openapi.json` ↔
-`buildOpenApi()`; `embedded.ts` ↔ `migrations/*.sql`.
+Drift detection lives in `test/unit/drift.test.ts` — deliberately ONE suite,
+so there is one list and one place to look: route handlers ↔ ROUTES
+set-equality; the endpoint lists in `docs/llms.txt` / `docs/llms-full.txt` ↔
+ROUTES; every env var `src/config.ts` reads documented in
+`docs/CONFIGURATION.md`, `docs/llms-full.txt` **and** `docs/CONTRACTS.md` §10,
+and present in `.env.example` + `.env.defaults`; every prompt file registered
+in `PROMPT_VERSIONS` and named in CONTRACTS; `LLM_PROVIDER_KEY_ENV` ↔ the keys
+config.ts reads; the MCP tool list ↔ `docs/llms-full.txt`, `README.md` and
+`CHANGELOG.md`; a `CHANGELOG.md` section for the `package.json` version; the
+committed `docs/openapi.json` ↔ `buildOpenApi()`. (Codegen drift —
+`embedded.ts` ↔ `migrations/*.sql` — is its own concern in
+`test/unit/embedded-drift.test.ts`.)
 
 The rule these encode: **a doc that CI does not check will drift.** Everything
 gated here stayed accurate across releases; the README, CHANGELOG, env
 templates and CONTRACTS §10 drifted for three releases precisely because they
 were not — which is why they are gated now.
+
+The corollary, learned the same way: **two suites checking the same thing is
+worse than one.** These guards were once split across two files whose scanners
+disagreed slightly, and the stricter one quietly forced a test-harness-only
+variable into the operator documentation — because "a drift test wants it" and
+"an operator needs it" are indistinguishable when there is more than one list.
 
 ## Test tiers
 
