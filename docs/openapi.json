@@ -2,10 +2,14 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.1.12",
+    "version": "0.1.13",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface."
   },
-  "servers": [{ "url": "/" }],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
   "paths": {
     "/v1/spaces": {
       "post": {
@@ -14,34 +18,83 @@
         "responses": {
           "201": {
             "description": "Space created",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpaceResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zSpaceResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateSpaceRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zCreateSpaceRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       }
     },
@@ -52,27 +105,63 @@
         "responses": {
           "200": {
             "description": "Space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpaceResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zSpaceResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -80,10 +169,20 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -94,35 +193,83 @@
         "responses": {
           "202": {
             "description": "Queued; poll the Location header (/v1/ingests/{id})",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestAcceptedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zIngestAcceptedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "already_ingested (envelope carries source_id)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "503": {
             "description": "llm_not_configured",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -130,14 +277,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zIngestRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -148,31 +311,73 @@
         "responses": {
           "200": {
             "description": "no_learnings (nothing durable taught) | queued (poll ingest_id) | already_captured",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCaptureSessionResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zCaptureSessionResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "503": {
             "description": "llm_not_configured",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -180,14 +385,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCaptureSessionRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zCaptureSessionRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -198,27 +419,63 @@
         "responses": {
           "200": {
             "description": "Job status",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestStatusResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zIngestStatusResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -233,7 +490,14 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -244,35 +508,83 @@
         "responses": {
           "202": {
             "description": "Extracted + queued; poll /v1/ingests/{id}",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestAcceptedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zIngestAcceptedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "415": {
             "description": "unsupported_document (unknown extension)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "422": {
             "description": "document_extraction_failed (no text layer)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -280,7 +592,10 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "filename",
@@ -297,14 +612,31 @@
             "name": "source_kind",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["meeting", "article", "note"] }
+            "schema": {
+              "type": "string",
+              "enum": ["meeting", "article", "note"]
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } }
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -315,27 +647,63 @@
         "responses": {
           "200": {
             "description": "Sources page",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSourceListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zSourceListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -343,18 +711,48 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           },
-          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
-          { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -365,27 +763,63 @@
         "responses": {
           "200": {
             "description": "Source",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSourceResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zSourceResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -393,7 +827,10 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "id",
@@ -406,7 +843,14 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -417,27 +861,63 @@
         "responses": {
           "200": {
             "description": "Decisions",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zDecisionListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zDecisionListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -445,18 +925,48 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           },
-          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
-          { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -467,27 +977,63 @@
         "responses": {
           "200": {
             "description": "Decision",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zDecisionResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zDecisionResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -495,16 +1041,29 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "slug",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -515,31 +1074,69 @@
         "responses": {
           "200": {
             "description": "Concepts page (ETag: \"<epoch>\")",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zConceptListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zConceptListResponse"
+                }
+              }
+            }
           },
           "304": {
             "description": "Not modified (If-None-Match matched the space epoch)",
-            "content": { "application/json": {} }
+            "content": {
+              "application/json": {}
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -547,18 +1144,48 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           },
-          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
-          { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 500
+            }
+          }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -569,27 +1196,63 @@
         "responses": {
           "200": {
             "description": "Concept",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zConceptResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zConceptResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -597,16 +1260,29 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "slug",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -617,27 +1293,63 @@
         "responses": {
           "200": {
             "description": "Revisions",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zConceptHistoryResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zConceptHistoryResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -645,16 +1357,29 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "slug",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -665,27 +1390,63 @@
         "responses": {
           "200": {
             "description": "Ranked hits",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSearchResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zSearchResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -693,28 +1454,49 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "q",
             "in": "query",
             "required": true,
-            "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
           },
           {
             "name": "kind",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["concept", "claim"] }
+            "schema": {
+              "type": "string",
+              "enum": ["concept", "claim"]
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "minimum": 1, "maximum": 50 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -725,31 +1507,73 @@
         "responses": {
           "200": {
             "description": "Cited answer",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zQueryResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zQueryResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "503": {
             "description": "llm_not_configured",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -757,14 +1581,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zQueryRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zQueryRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -775,27 +1615,63 @@
         "responses": {
           "200": {
             "description": "Proposals",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -803,22 +1679,39 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "status",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] }
+            "schema": {
+              "type": "string",
+              "enum": ["pending", "approved", "rejected", "failed"]
+            }
           },
           {
             "name": "limit",
             "in": "query",
             "required": false,
-            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       },
       "post": {
@@ -827,27 +1720,63 @@
         "responses": {
           "201": {
             "description": "Proposal staged",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalCreatedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalCreatedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -855,14 +1784,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateProposalRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zCreateProposalRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -873,27 +1818,63 @@
         "responses": {
           "200": {
             "description": "Diff (or text/markdown via Accept)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalDetailResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalDetailResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -908,7 +1889,14 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -919,31 +1907,73 @@
         "responses": {
           "200": {
             "description": "Applied",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalReviewResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalReviewResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "proposal_not_pending | stale_base",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -960,9 +1990,22 @@
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReviewRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zReviewRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:approve"
       }
     },
@@ -973,31 +2016,73 @@
         "responses": {
           "200": {
             "description": "Rejected",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalReviewResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalReviewResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "409": {
             "description": "proposal_not_pending",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1014,9 +2099,22 @@
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReviewRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zReviewRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:approve"
       }
     },
@@ -1027,27 +2125,63 @@
         "responses": {
           "200": {
             "description": "Findings + counts",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zLintResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zLintResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1055,10 +2189,20 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1067,26 +2211,61 @@
         "summary": "Export the space as a zip bundle (?format=md|okf)",
         "operationId": "export",
         "responses": {
-          "200": { "description": "Zip stream (markdown tree or OKF bundle)", "content": { "application/zip": {} } },
+          "200": {
+            "description": "Zip stream (markdown tree or OKF bundle)",
+            "content": {
+              "application/zip": {}
+            }
+          },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1094,16 +2273,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "format",
             "in": "query",
             "required": false,
-            "schema": { "default": "md", "type": "string", "enum": ["md", "okf"] }
+            "schema": {
+              "default": "md",
+              "type": "string",
+              "enum": ["md", "okf"]
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1114,27 +2307,63 @@
         "responses": {
           "202": {
             "description": "Proposal staged for review",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalCreatedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zProposalCreatedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1142,20 +2371,41 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "format",
             "in": "query",
             "required": false,
-            "schema": { "default": "md", "type": "string", "enum": ["md", "okf"] }
+            "schema": {
+              "default": "md",
+              "type": "string",
+              "enum": ["md", "okf"]
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } }
+          "content": {
+            "application/zip": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -1166,27 +2416,63 @@
         "responses": {
           "200": {
             "description": "Endpoints",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zWebhookListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zWebhookListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1194,10 +2480,20 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       },
       "post": {
@@ -1206,27 +2502,63 @@
         "responses": {
           "201": {
             "description": "Endpoint + one-time secret",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zWebhookResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zWebhookResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1234,14 +2566,30 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           }
         ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateWebhookRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zCreateWebhookRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       }
     },
@@ -1252,27 +2600,63 @@
         "responses": {
           "200": {
             "description": "Deliveries",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zDeliveryListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zDeliveryListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1280,7 +2664,10 @@
             "name": "space",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+            }
           },
           {
             "name": "id",
@@ -1293,7 +2680,14 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       }
     },
@@ -1304,30 +2698,73 @@
         "responses": {
           "200": {
             "description": "Keys visible to this admin",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zApiKeyListResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zApiKeyListResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       },
       "post": {
@@ -1336,34 +2773,83 @@
         "responses": {
           "201": {
             "description": "Key (shown once)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zApiKeyCreatedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zApiKeyCreatedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateApiKeyRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/zCreateApiKeyRequest"
+              }
+            }
+          }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       }
     },
@@ -1374,27 +2860,63 @@
         "responses": {
           "200": {
             "description": "Revocation timestamp",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zApiKeyRevokedResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zApiKeyRevokedResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "401": {
             "description": "unauthorized — missing, unknown or revoked API key",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "403": {
             "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zErrorEnvelope"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -1409,7 +2931,14 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
         "x-required-scope": "admin"
       }
     },
@@ -1418,7 +2947,12 @@
         "summary": "Liveness probe (process is up)",
         "operationId": "health",
         "responses": {
-          "200": { "description": "Always \"ok\" while the process lives", "content": { "text/plain": {} } }
+          "200": {
+            "description": "Always \"ok\" while the process lives",
+            "content": {
+              "text/plain": {}
+            }
+          }
         }
       }
     },
@@ -1429,11 +2963,23 @@
         "responses": {
           "200": {
             "description": "Ready",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReadyResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zReadyResponse"
+                }
+              }
+            }
           },
           "503": {
             "description": "Draining (graceful shutdown in progress)",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReadyResponse" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/zReadyResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -1442,14 +2988,28 @@
       "get": {
         "summary": "Prometheus metrics",
         "operationId": "metrics",
-        "responses": { "200": { "description": "Prometheus text exposition", "content": { "text/plain": {} } } }
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
       }
     },
     "/openapi.json": {
       "get": {
         "summary": "This OpenAPI 3.1 document (generated live from the ROUTES registry)",
         "operationId": "openapi",
-        "responses": { "200": { "description": "OpenAPI 3.1 spec", "content": { "application/json": {} } } }
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 spec",
+            "content": {
+              "application/json": {}
+            }
+          }
+        }
       }
     },
     "/llms.txt": {
@@ -1457,7 +3017,12 @@
         "summary": "LLM docs index (llmstxt.org format)",
         "operationId": "llmsTxt",
         "responses": {
-          "200": { "description": "Markdown index of the documentation", "content": { "text/plain": {} } }
+          "200": {
+            "description": "Markdown index of the documentation",
+            "content": {
+              "text/plain": {}
+            }
+          }
         }
       }
     },
@@ -1465,22 +3030,50 @@
       "get": {
         "summary": "Full LLM documentation in one file",
         "operationId": "llmsFullTxt",
-        "responses": { "200": { "description": "Complete documentation", "content": { "text/plain": {} } } }
+        "responses": {
+          "200": {
+            "description": "Complete documentation",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
       }
     }
   },
   "components": {
     "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Authorization: Bearer wk_..." },
-      "apiKey": { "type": "apiKey", "in": "header", "name": "X-API-Key" }
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Authorization: Bearer wk_..."
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
     },
     "schemas": {
       "zCreateSpaceRequest": {
         "type": "object",
         "properties": {
-          "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
-          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-          "settings": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "settings": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "required": ["slug", "name"]
       },
@@ -1492,12 +3085,30 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "slug": { "type": "string" },
-          "name": { "type": "string" },
-          "settings": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
-          "epoch": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-          "created_at": { "type": "string" },
-          "updated_at": { "type": "string" }
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
         },
         "required": ["id", "slug", "name", "settings", "epoch", "created_at", "updated_at"],
         "additionalProperties": false
@@ -1505,10 +3116,21 @@
       "zErrorEnvelope": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "code": { "type": "string" },
-          "request_id": { "type": "string" },
-          "next_best_actions": { "type": "array", "items": { "type": "string" } }
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "next_best_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         },
         "required": ["error", "code", "request_id"],
         "additionalProperties": {}
@@ -1516,10 +3138,22 @@
       "zIngestRequest": {
         "type": "object",
         "properties": {
-          "markdown": { "type": "string", "minLength": 1 },
-          "text": { "type": "string", "minLength": 1 },
-          "url": { "type": "string", "format": "uri" },
-          "title": { "type": "string", "maxLength": 500 },
+          "markdown": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500
+          },
           "source_kind": {
             "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
             "type": "string",
@@ -1535,7 +3169,10 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "status": { "type": "string", "const": "queued" }
+          "status": {
+            "type": "string",
+            "const": "queued"
+          }
         },
         "required": ["ingest_id", "status"],
         "additionalProperties": false
@@ -1548,7 +3185,10 @@
             "minLength": 1,
             "description": "The coding-agent session transcript; over-long input keeps its tail"
           },
-          "title": { "type": "string", "maxLength": 500 }
+          "title": {
+            "type": "string",
+            "maxLength": 500
+          }
         },
         "required": ["transcript"]
       },
@@ -1567,7 +3207,9 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              { "type": "null" }
+              {
+                "type": "null"
+              }
             ],
             "description": "Set when status is queued — poll GET /v1/ingests/{id}"
           },
@@ -1595,7 +3237,10 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "status": { "type": "string", "enum": ["queued", "running", "done", "failed"] },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "done", "failed"]
+          },
           "proposal_id": {
             "anyOf": [
               {
@@ -1603,7 +3248,9 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              { "type": "null" }
+              {
+                "type": "null"
+              }
             ]
           },
           "source_id": {
@@ -1613,18 +3260,29 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              { "type": "null" }
+              {
+                "type": "null"
+              }
             ]
           },
           "error": {
             "anyOf": [
               {
                 "type": "object",
-                "properties": { "code": { "type": "string" }, "message": { "type": "string" } },
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
                 "required": ["code", "message"],
                 "additionalProperties": false
               },
-              { "type": "null" }
+              {
+                "type": "null"
+              }
             ]
           }
         },
@@ -1644,17 +3302,51 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "kind": { "type": "string", "enum": ["markdown", "text", "url", "import"] },
-                "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "content_hash": { "type": "string" },
-                "created_at": { "type": "string" }
+                "kind": {
+                  "type": "string",
+                  "enum": ["markdown", "text", "url", "import"]
+                },
+                "url": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "content_hash": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
               "required": ["id", "kind", "url", "title", "content_hash", "created_at"],
               "additionalProperties": false
             }
           },
-          "next_before": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         },
         "required": ["items", "next_before"],
         "additionalProperties": false
@@ -1667,14 +3359,49 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "kind": { "type": "string", "enum": ["markdown", "text", "url", "import"] },
-          "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "content_hash": { "type": "string" },
-          "created_at": { "type": "string" },
-          "raw_content": { "type": "string" },
-          "markdown": { "type": "string" },
-          "metadata": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+          "kind": {
+            "type": "string",
+            "enum": ["markdown", "text", "url", "import"]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "raw_content": {
+            "type": "string"
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "required": ["id", "kind", "url", "title", "content_hash", "created_at", "raw_content", "markdown", "metadata"],
         "additionalProperties": false
@@ -1687,10 +3414,19 @@
             "items": {
               "type": "object",
               "properties": {
-                "slug": { "type": "string" },
-                "title": { "type": "string" },
-                "status": { "type": "string", "enum": ["active", "superseded"] },
-                "created_at": { "type": "string" }
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "superseded"]
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
               "required": ["slug", "title", "status", "created_at"],
               "additionalProperties": false
@@ -1703,15 +3439,39 @@
       "zDecisionResponse": {
         "type": "object",
         "properties": {
-          "slug": { "type": "string" },
-          "title": { "type": "string" },
-          "status": { "type": "string", "enum": ["active", "superseded"] },
-          "created_at": { "type": "string" },
-          "context": { "type": "string" },
-          "decision": { "type": "string" },
-          "rationale": { "type": "string" },
-          "alternatives": { "type": "array", "items": {} },
-          "agent_meta": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "superseded"]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {}
+          },
+          "agent_meta": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "required": [
           "slug",
@@ -1734,18 +3494,43 @@
             "items": {
               "type": "object",
               "properties": {
-                "slug": { "type": "string" },
-                "title": { "type": "string" },
-                "summary": { "type": "string" },
-                "rev": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                "updated_at": { "type": "string" }
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "updated_at": {
+                  "type": "string"
+                }
               },
               "required": ["slug", "title", "summary", "rev", "updated_at"],
               "additionalProperties": false
             }
           },
-          "next_after": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "epoch": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+          "next_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
         },
         "required": ["items", "next_after", "epoch"],
         "additionalProperties": false
@@ -1753,12 +3538,26 @@
       "zConceptResponse": {
         "type": "object",
         "properties": {
-          "slug": { "type": "string" },
-          "title": { "type": "string" },
-          "summary": { "type": "string" },
-          "markdown": { "type": "string" },
-          "rev": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-          "updated_at": { "type": "string" },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "markdown": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updated_at": {
+            "type": "string"
+          },
           "claims": {
             "type": "array",
             "items": {
@@ -1769,11 +3568,22 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "subject": { "type": "string" },
-                "predicate": { "type": "string" },
-                "object": { "type": "string" },
-                "status": { "type": "string", "enum": ["verified", "disputed", "deprecated"] },
-                "confidence": { "type": "number" },
+                "subject": {
+                  "type": "string"
+                },
+                "predicate": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["verified", "disputed", "deprecated"]
+                },
+                "confidence": {
+                  "type": "number"
+                },
                 "citations": {
                   "type": "array",
                   "items": {
@@ -1784,8 +3594,12 @@
                         "format": "uuid",
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       },
-                      "quote": { "type": "string" },
-                      "locator": { "type": "string" }
+                      "quote": {
+                        "type": "string"
+                      },
+                      "locator": {
+                        "type": "string"
+                      }
                     },
                     "required": ["source_id", "quote", "locator"],
                     "additionalProperties": false
@@ -1801,14 +3615,25 @@
             "items": {
               "type": "object",
               "properties": {
-                "to_slug": { "type": "string" },
-                "kind": { "type": "string", "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"] }
+                "to_slug": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"]
+                }
               },
               "required": ["to_slug", "kind"],
               "additionalProperties": false
             }
           },
-          "agent_meta": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+          "agent_meta": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         },
         "required": ["slug", "title", "summary", "markdown", "rev", "updated_at", "claims", "relations", "agent_meta"],
         "additionalProperties": false
@@ -1816,7 +3641,9 @@
       "zConceptHistoryResponse": {
         "type": "object",
         "properties": {
-          "slug": { "type": "string" },
+          "slug": {
+            "type": "string"
+          },
           "revisions": {
             "type": "array",
             "items": {
@@ -1827,10 +3654,21 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "rev": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                "status": { "type": "string", "enum": ["proposed", "current", "superseded", "rejected"] },
-                "title": { "type": "string" },
-                "summary": { "type": "string" },
+                "rev": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["proposed", "current", "superseded", "rejected"]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
                 "base_revision_id": {
                   "anyOf": [
                     {
@@ -1838,7 +3676,9 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    { "type": "null" }
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
                 "proposal_id": {
@@ -1848,11 +3688,21 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    { "type": "null" }
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
-                "agent_meta": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
-                "created_at": { "type": "string" }
+                "agent_meta": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
               "required": [
                 "id",
@@ -1880,8 +3730,20 @@
             "items": {
               "type": "object",
               "properties": {
-                "kind": { "type": "string", "enum": ["concept", "claim"] },
-                "slug": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "kind": {
+                  "type": "string",
+                  "enum": ["concept", "claim"]
+                },
+                "slug": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "claim_id": {
                   "anyOf": [
                     {
@@ -1889,12 +3751,20 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    { "type": "null" }
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
-                "title": { "type": "string" },
-                "headline": { "type": "string" },
-                "rank": { "type": "number" }
+                "title": {
+                  "type": "string"
+                },
+                "headline": {
+                  "type": "string"
+                },
+                "rank": {
+                  "type": "number"
+                }
               },
               "required": ["kind", "slug", "claim_id", "title", "headline", "rank"],
               "additionalProperties": false
@@ -1907,25 +3777,45 @@
       "zQueryRequest": {
         "type": "object",
         "properties": {
-          "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
-          "top_k": { "default": 8, "type": "integer", "minimum": 1, "maximum": 50 }
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "top_k": {
+            "default": 8,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
         },
         "required": ["question"]
       },
       "zQueryResponse": {
         "type": "object",
         "properties": {
-          "answer_markdown": { "type": "string" },
+          "answer_markdown": {
+            "type": "string"
+          },
           "citations": {
             "type": "array",
             "items": {
               "type": "object",
-              "properties": { "slug": { "type": "string" }, "title": { "type": "string" } },
+              "properties": {
+                "slug": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
               "required": ["slug", "title"],
               "additionalProperties": false
             }
           },
-          "not_in_knowledge_base": { "type": "boolean" },
+          "not_in_knowledge_base": {
+            "type": "boolean"
+          },
           "agent_run_id": {
             "type": "string",
             "format": "uuid",
@@ -1948,12 +3838,39 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] },
-                "title": { "type": "string" },
-                "summary": { "type": "string" },
-                "created_at": { "type": "string" },
-                "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "rejected", "failed"]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "reviewer": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reviewed_at": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
               },
               "required": ["id", "status", "title", "summary", "created_at", "reviewer", "reviewed_at"],
               "additionalProperties": false
@@ -1966,9 +3883,20 @@
       "zCreateProposalRequest": {
         "type": "object",
         "properties": {
-          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
-          "summary": { "default": "", "type": "string", "maxLength": 4000 },
-          "input_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "summary": {
+            "default": "",
+            "type": "string",
+            "maxLength": 4000
+          },
+          "input_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "source_ids": {
             "default": [],
             "type": "array",
@@ -1981,7 +3909,9 @@
           "agent_meta": {
             "default": {},
             "type": "object",
-            "propertyNames": { "type": "string" },
+            "propertyNames": {
+              "type": "string"
+            },
             "additionalProperties": {}
           },
           "concepts": {
@@ -1990,10 +3920,24 @@
             "items": {
               "type": "object",
               "properties": {
-                "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
-                "title": { "type": "string", "minLength": 1, "maxLength": 500 },
-                "summary": { "default": "", "type": "string", "maxLength": 4000 },
-                "markdown": { "type": "string", "minLength": 1 },
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "summary": {
+                  "default": "",
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "markdown": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "base_revision_id": {
                   "anyOf": [
                     {
@@ -2001,7 +3945,9 @@
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    { "type": "null" }
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
                 "claims": {
@@ -2010,10 +3956,27 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "subject": { "type": "string", "minLength": 1, "maxLength": 500 },
-                      "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
-                      "object": { "type": "string", "minLength": 1, "maxLength": 2000 },
-                      "confidence": { "default": 0.5, "type": "number", "minimum": 0, "maximum": 1 },
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "predicate": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "object": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      },
+                      "confidence": {
+                        "default": 0.5,
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
                       "citations": {
                         "default": [],
                         "type": "array",
@@ -2025,8 +3988,15 @@
                               "format": "uuid",
                               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                             },
-                            "quote": { "type": "string", "minLength": 1 },
-                            "locator": { "default": "", "type": "string", "maxLength": 500 }
+                            "quote": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "locator": {
+                              "default": "",
+                              "type": "string",
+                              "maxLength": 500
+                            }
                           },
                           "required": ["source_id", "quote"]
                         }
@@ -2041,7 +4011,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "to_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
+                      "to_slug": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+                      },
                       "kind": {
                         "type": "string",
                         "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"]
@@ -2060,12 +4033,32 @@
             "items": {
               "type": "object",
               "properties": {
-                "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
-                "title": { "type": "string", "minLength": 1, "maxLength": 500 },
-                "context": { "type": "string", "minLength": 1 },
-                "decision": { "type": "string", "minLength": 1 },
-                "rationale": { "default": "", "type": "string" },
-                "alternatives": { "default": [], "type": "array", "items": {} }
+                "slug": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,126}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "context": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "decision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rationale": {
+                  "default": "",
+                  "type": "string"
+                },
+                "alternatives": {
+                  "default": [],
+                  "type": "array",
+                  "items": {}
+                }
               },
               "required": ["slug", "title", "context", "decision"]
             }
@@ -2081,8 +4074,15 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "status": { "type": "string", "const": "pending" },
-          "sources_created": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+          "status": {
+            "type": "string",
+            "const": "pending"
+          },
+          "sources_created": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
         },
         "required": ["proposal_id", "status"],
         "additionalProperties": false
@@ -2095,14 +4095,52 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "space": { "type": "string" },
-          "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] },
-          "title": { "type": "string" },
-          "summary": { "type": "string" },
-          "created_at": { "type": "string" },
-          "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "review_note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "space": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "failed"]
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "source_ids": {
             "type": "array",
             "items": {
@@ -2111,24 +4149,57 @@
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             }
           },
-          "agent_meta": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+          "agent_meta": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
           "concepts": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "slug": { "type": "string" },
-                "is_new": { "type": "boolean" },
-                "old_markdown": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "new_markdown": { "type": "string" },
+                "slug": {
+                  "type": "string"
+                },
+                "is_new": {
+                  "type": "boolean"
+                },
+                "old_markdown": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "new_markdown": {
+                  "type": "string"
+                },
                 "claims_added": {
                   "type": "array",
                   "items": {
                     "type": "object",
                     "properties": {
-                      "subject": { "type": "string", "minLength": 1, "maxLength": 500 },
-                      "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
-                      "object": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "predicate": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "object": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
                     },
                     "required": ["subject", "predicate", "object"],
                     "additionalProperties": false
@@ -2139,9 +4210,21 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "subject": { "type": "string", "minLength": 1, "maxLength": 500 },
-                      "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
-                      "object": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "predicate": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "object": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
                     },
                     "required": ["subject", "predicate", "object"],
                     "additionalProperties": false
@@ -2152,9 +4235,21 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "subject": { "type": "string", "minLength": 1, "maxLength": 500 },
-                      "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
-                      "object": { "type": "string", "minLength": 1, "maxLength": 2000 }
+                      "subject": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "predicate": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "object": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
                     },
                     "required": ["subject", "predicate", "object"],
                     "additionalProperties": false
@@ -2164,7 +4259,14 @@
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "properties": { "to_slug": { "type": "string" }, "kind": { "type": "string" } },
+                    "properties": {
+                      "to_slug": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      }
+                    },
                     "required": ["to_slug", "kind"],
                     "additionalProperties": false
                   }
@@ -2203,7 +4305,12 @@
       "zReviewRequest": {
         "default": {},
         "type": "object",
-        "properties": { "note": { "type": "string", "maxLength": 2000 } }
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
       },
       "zProposalReviewResponse": {
         "oneOf": [
@@ -2215,10 +4322,26 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              "status": { "type": "string", "const": "approved" },
-              "concepts": { "type": "array", "items": { "type": "string" } },
-              "claims_verified": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-              "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+              "status": {
+                "type": "string",
+                "const": "approved"
+              },
+              "concepts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "claims_verified": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "claims_disputed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
             },
             "required": ["proposal_id", "status", "concepts", "claims_verified", "claims_disputed"],
             "additionalProperties": false
@@ -2231,7 +4354,10 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              "status": { "type": "string", "const": "rejected" }
+              "status": {
+                "type": "string",
+                "const": "rejected"
+              }
             },
             "required": ["proposal_id", "status"],
             "additionalProperties": false
@@ -2259,11 +4385,26 @@
                     "dangling-sources"
                   ]
                 },
-                "severity": { "type": "string", "enum": ["error", "warn", "info"] },
-                "message": { "type": "string" },
-                "concept_slug": { "type": "string" },
-                "claim_id": { "type": "string" },
-                "details": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                "severity": {
+                  "type": "string",
+                  "enum": ["error", "warn", "info"]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "concept_slug": {
+                  "type": "string"
+                },
+                "claim_id": {
+                  "type": "string"
+                },
+                "details": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
               },
               "required": ["rule", "severity", "message"],
               "additionalProperties": false
@@ -2272,9 +4413,21 @@
           "counts": {
             "type": "object",
             "properties": {
-              "error": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-              "warn": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-              "info": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+              "error": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "warn": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "info": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
             },
             "required": ["error", "warn", "info"],
             "additionalProperties": false
@@ -2296,12 +4449,36 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "url": { "type": "string" },
-                "events": { "type": "array", "items": { "type": "string" } },
-                "active": { "type": "boolean" },
-                "failure_count": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                "disabled_until": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "created_at": { "type": "string" }
+                "url": {
+                  "type": "string"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "failure_count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "disabled_until": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
               "required": ["id", "url", "events", "active", "failure_count", "disabled_until", "created_at"],
               "additionalProperties": false
@@ -2314,7 +4491,10 @@
       "zCreateWebhookRequest": {
         "type": "object",
         "properties": {
-          "url": { "type": "string", "format": "uri" },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
           "events": {
             "type": "array",
             "items": {
@@ -2339,13 +4519,39 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "url": { "type": "string" },
-          "events": { "type": "array", "items": { "type": "string" } },
-          "active": { "type": "boolean" },
-          "failure_count": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-          "disabled_until": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "created_at": { "type": "string" },
-          "secret": { "type": "string" }
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "failure_count": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "disabled_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
         },
         "required": ["id", "url", "events", "active", "failure_count", "disabled_until", "created_at", "secret"],
         "additionalProperties": false
@@ -2363,19 +4569,55 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "event_id": { "type": "string" },
-                "event_type": { "type": "string" },
-                "status": { "type": "string" },
-                "attempt": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                "next_attempt_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "response_status": {
+                "event_id": {
+                  "type": "string"
+                },
+                "event_type": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "attempt": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "next_attempt_at": {
                   "anyOf": [
-                    { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                    { "type": "null" }
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
                   ]
                 },
-                "last_error": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "created_at": { "type": "string" }
+                "response_status": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "last_error": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
               "required": [
                 "id",
@@ -2408,12 +4650,48 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "name": { "type": "string" },
-                "scopes": { "type": "array", "items": { "type": "string" } },
-                "space": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "created_at": { "type": "string" },
-                "last_used_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "revoked_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                "name": {
+                  "type": "string"
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "space": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "last_used_at": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revoked_at": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
               },
               "required": ["id", "name", "scopes", "space", "created_at", "last_used_at", "revoked_at"],
               "additionalProperties": false
@@ -2426,13 +4704,23 @@
       "zCreateApiKeyRequest": {
         "type": "object",
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
           "scopes": {
             "minItems": 1,
             "type": "array",
-            "items": { "type": "string", "enum": ["knowledge:read", "knowledge:propose", "knowledge:approve", "admin"] }
+            "items": {
+              "type": "string",
+              "enum": ["knowledge:read", "knowledge:propose", "knowledge:approve", "admin"]
+            }
           },
-          "space": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          "space": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+          }
         },
         "required": ["name", "scopes"]
       },
@@ -2444,10 +4732,28 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "name": { "type": "string" },
-          "key": { "type": "string" },
-          "scopes": { "type": "array", "items": { "type": "string" } },
-          "space": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "space": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         },
         "required": ["id", "name", "key", "scopes", "space"],
         "additionalProperties": false
@@ -2460,7 +4766,9 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "revoked_at": { "type": "string" }
+          "revoked_at": {
+            "type": "string"
+          }
         },
         "required": ["id", "revoked_at"],
         "additionalProperties": false
@@ -2468,8 +4776,13 @@
       "zReadyResponse": {
         "type": "object",
         "properties": {
-          "status": { "type": "string", "enum": ["ready", "draining"] },
-          "version": { "type": "string" }
+          "status": {
+            "type": "string",
+            "enum": ["ready", "draining"]
+          },
+          "version": {
+            "type": "string"
+          }
         },
         "required": ["status", "version"],
         "additionalProperties": false

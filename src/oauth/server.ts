@@ -130,14 +130,19 @@ function escapeHtml(value: string): string {
   )
 }
 
-function html(body: string, status = 200): Response {
+function html(body: string, status = 200, redirectOrigin?: string): Response {
+  // CSP applies to a form submission's redirect chain too. The consent POST
+  // is same-origin, but its successful OAuth response must be allowed to
+  // redirect to the (already registered and validated) client redirect URI.
+  // Keep the exception origin-scoped; the form itself can still only POST
+  // back to WikiKit.
+  const formAction = [`'self'`, ...(redirectOrigin ? [redirectOrigin] : [])].join(' ')
   return new Response(body, {
     status,
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
-      'content-security-policy':
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
     },
@@ -176,6 +181,7 @@ function consentPage(args: {
   csrfToken: string
   secureCookie: boolean
   loginState?: string
+  redirectUri?: string
 }): Response {
   const hidden = [...args.params.entries()]
     .filter(([name]) => name !== 'api_key' && name !== 'action')
@@ -183,7 +189,10 @@ function consentPage(args: {
     .join('\n')
   const scopeItems = args.scopes.map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`).join('')
   const error = args.error ? `<p class="error">${escapeHtml(args.error)}</p>` : ''
-  const response = html(`<!doctype html>
+  const redirectUri = args.redirectUri ?? args.params.get('redirect_uri') ?? undefined
+  const redirectOrigin = redirectUri ? new URL(redirectUri).origin : undefined
+  const response = html(
+    `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Authorize WikiKit</title><style>
 body{font:16px/1.5 system-ui,sans-serif;background:#f4f4f1;color:#171713;margin:0;padding:2rem}
@@ -198,7 +207,10 @@ ${args.loginState ? `<input type="hidden" name="login_state" value="${escapeHtml
 ${args.loginState ? '<p><strong>Signed in with your approved Google account.</strong></p>' : '<label for="api_key">WikiKit API key</label><input id="api_key" name="api_key" type="password" required autocomplete="off" spellcheck="false">'}
 <small>${args.loginState ? 'WikiKit only receives a verified Google identity. The issued OAuth token is limited to the permissions above.' : 'The key is checked once and is never stored. The issued OAuth token is limited to the permissions above.'}</small>
 <div class="actions"><button class="primary" type="submit" name="action" value="approve">Authorize</button><button type="submit" name="action" value="deny" formnovalidate>Deny</button></div>
-</form></main></body></html>`)
+</form></main></body></html>`,
+    200,
+    redirectOrigin,
+  )
   response.headers.set(
     'set-cookie',
     `wk_oauth_csrf=${encodeURIComponent(args.csrfToken)}; HttpOnly; SameSite=Lax; Path=/v1/oauth/authorize; Max-Age=600${args.secureCookie ? '; Secure' : ''}`,
@@ -563,6 +575,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           csrfToken: randomBytes(32).toString('base64url'),
           secureCookie: new URL(config.publicUrl).protocol === 'https:',
           loginState,
+          redirectUri: state.redirect_uri,
         })
       }
       if (request.method === 'POST' && path === '/v1/oauth/authorize') {

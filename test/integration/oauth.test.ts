@@ -157,6 +157,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
     }
     const consent = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`)
     expect(consent.status).toBe(200)
+    expect(consent.headers.get('content-security-policy')).toContain("form-action 'self' https://chatgpt.com")
     const csrfCookie = consent.headers.get('set-cookie')?.split(';')[0]
     expect(csrfCookie).toMatch(/^wk_oauth_csrf=/)
     const consentHtml = await consent.text()
