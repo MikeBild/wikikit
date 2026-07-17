@@ -100,11 +100,11 @@ a 5x bill, and nothing else fails — is only visible in e2e.
   on the approach before you invest time.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat: …`, `fix: …`, `docs: …`, `chore: …`).
-- Add or update tests for behavior changes. Route/domain behavior belongs in
-  `test/unit/`; anything touching real SQL belongs in `test/integration/`;
-  shapes external systems rely on (OpenAPI, MCP manifest, webhook payloads,
-  OKF bundles) are snapshot-tested in `test/contract/` — changing them
-  requires a deliberate snapshot commit.
+- Add or update tests for behavior changes — see
+  [which tier does a change need?](#which-tier-does-a-change-need) above.
+  Contract snapshots (OpenAPI, MCP manifest, webhook payloads, OKF bundles)
+  are what foreign systems rely on: changing one requires a deliberate
+  snapshot commit.
 - **Interface changes start in [`docs/CONTRACTS.md`](docs/CONTRACTS.md)** —
   the binding contract document wins over code on interface details; change
   it first, then the implementation.
