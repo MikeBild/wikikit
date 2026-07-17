@@ -50,9 +50,10 @@ Key invariants:
 - **Classification is a revisable claim, not a schema.** Relations and
   categorizations are claims with a source, a status and a lifecycle — they
   can be disputed and deprecated like any other statement.
-- **Approval is deliberately outside the agent palette.** Agents write into
-  the staging area (ingest/propose); promotion is a human act over REST with a
-  `knowledge:approve` key. There is no MCP approve tool.
+- **Approval remains a human decision, now available over MCP.** Agents stage
+  with ingest/propose; a principal with `knowledge:approve` reads the complete
+  diff through `wikikit_proposals` and makes an explicit confirmed
+  approve/reject call through `wikikit_review_proposal`.
 
 ---
 
@@ -295,7 +296,8 @@ on `@modelcontextprotocol/sdk`. Local/operator clients use the same `wk_` key
 auth as REST. Remote clients such as ChatGPT use OAuth 2.1 discovery, DCR,
 authorization code + PKCE, rotating refresh tokens and Bearer access tokens.
 An unauthenticated `/mcp` response advertises protected-resource metadata via
-`WWW-Authenticate`; OAuth tokens expose only the consented read/propose scopes.
+`WWW-Authenticate`; OAuth tokens expose only the consented read/propose/approve
+scopes, capped by the configured identity-provider policy.
 Sessions are leases: idle TTL sweep (`WIKIKIT_MCP_SESSION_TTL_MS`), hard cap
 (`WIKIKIT_MCP_MAX_SESSIONS`) with oldest-idle eviction; a different key on a
 known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC
@@ -304,8 +306,9 @@ known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC
 supported versions.
 
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose
-scope the key holds — a `knowledge:read` key sees only the read tools. There
-is deliberately **no approve tool**: agents stage, humans promote over REST.
+scope the key holds — a `knowledge:read` key sees only the read tools.
+`wikikit_proposals` and `wikikit_review_proposal` require
+`knowledge:approve`; the final review decision is a confirmed MCP write.
 
 **Coding-agent loop** (`docs/coding-agent-integration.md`): a SessionStart hook
 injects the space's concept index + a grounding rule; a SessionEnd/Stop hook
@@ -467,10 +470,12 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER` | human OAuth login: `api_key` or `firebase` | `api_key` |
+| `WIKIKIT_OAUTH_LOGIN_PROVIDER` | human OAuth login: `api_key`, `firebase`, `oidc`, or `federated` | `api_key` |
 | `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID` | Firebase project whose signed ID tokens establish a WikiKit login | (required for `firebase`) |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` | fixed trusted Firebase Hosting sign-in page | (required for `firebase`) |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS` | comma-separated human allow-list | (required for `firebase`) |
+| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` | dedicated trusted WikiKit Firebase sign-in page | (required for `firebase`) |
+| `WIKIKIT_OAUTH_ALLOWED_EMAILS` | comma-separated global human allow-list | (required for Firebase; OIDC can override) |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES` | interactive identity permission ceiling | `knowledge:read,knowledge:propose` |
+| `WIKIKIT_OAUTH_OIDC_PROVIDERS` | JSON array of configured standard OIDC providers | (required for `oidc`) |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 
@@ -521,7 +526,7 @@ Webhooks, OKF, llms.txt) — no SDK, no shared code, no direct dependencies. Any
 external system consumes it the same way:
 
 - **OpenAPI/REST** — `/openapi.json` is a ready-to-import connector for the full API.
-- **MCP** — federate `/mcp` (Streamable HTTP) to give an agent search/read/propose tools.
+- **MCP** — federate `/mcp` (Streamable HTTP) to give an agent search/read/propose and permission-gated review tools.
 - **Standard Webhooks** — subscribe to `wikikit.proposal.created`, `proposal.approved`, `concept.updated`, `ingest.failed`.
 - **OKF / Markdown tree** — portable knowledge import and export.
 

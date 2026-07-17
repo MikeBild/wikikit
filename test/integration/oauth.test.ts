@@ -98,7 +98,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
     expect(await resourceMetadata.json()).toEqual({
       resource: RESOURCE,
       authorization_servers: [ISSUER],
-      scopes_supported: ['knowledge:read', 'knowledge:propose', 'offline_access'],
+      scopes_supported: ['knowledge:read', 'knowledge:propose', 'knowledge:approve', 'offline_access'],
       bearer_methods_supported: ['header'],
     })
 

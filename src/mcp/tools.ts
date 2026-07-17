@@ -12,10 +12,10 @@
 //
 // Scope-gating = tool VISIBILITY: a knowledge:read key never sees the write
 // tools in tools/list, and calling an invisible tool is indistinguishable
-// from calling a nonexistent one. There is deliberately NO approve tool —
-// agents write into the staging area; promotion is a human act over REST (or
-// later governance) with a knowledge:approve key that this palette never
-// requests.
+// from calling a nonexistent one. Review is deliberately a separate,
+// stronger scope: an agent may stage with knowledge:propose, but only a
+// principal explicitly granted knowledge:approve can inspect the complete
+// diff and make the irreversible approve/reject decision.
 import { z } from 'zod'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
@@ -23,7 +23,14 @@ import { getConcept, getConceptHistory, toConceptResponse } from '../domain/conc
 import { ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../domain/errors.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { lintSpace } from '../domain/lint.ts'
-import { createProposal, zCreateProposalArgs } from '../domain/proposals.ts'
+import {
+  approveProposal,
+  createProposal,
+  getProposal,
+  listProposals,
+  rejectProposal,
+  zCreateProposalArgs,
+} from '../domain/proposals.ts'
 import { isoString } from '../domain/sources.ts'
 import { zIngestInput, type IngestPipeline } from '../ingest/pipeline.ts'
 import { search } from '../query/search.ts'
@@ -37,8 +44,8 @@ import { zodToJsonSchema7 } from './json-schema.ts'
 export type { Principal } from '../http/auth.ts'
 import type { Principal } from '../http/auth.ts'
 
-/** The only scopes MCP tools may require — approve is REST-only by design. */
-export type ToolScope = 'knowledge:read' | 'knowledge:propose'
+/** The only scopes MCP tools may require. */
+export type ToolScope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'
 
 /**
  * Scope semantics per CONTRACTS §5.2: `*` and `admin` imply all knowledge
@@ -119,6 +126,21 @@ export const zIngestStatusToolInput = z.object({ ingest_id: z.uuid() })
 /** zCreateProposalArgs (shared with HTTP + import) + space; refinement kept. */
 export const zProposeToolInput = zCreateProposalArgs.safeExtend({ space: zSpaceSlug })
 
+/** List proposal summaries or load one complete review diff. */
+export const zProposalsToolInput = z.object({
+  space: zSpaceSlug,
+  proposal_id: z.uuid().optional().describe('Proposal id — when set, return the complete review diff'),
+  status: z.enum(['pending', 'approved', 'rejected', 'failed']).optional().describe('Filter proposal summaries'),
+  limit: z.number().int().min(1).max(200).optional().describe('Max summaries when proposal_id is omitted'),
+})
+
+/** A review decision is intentionally explicit and must follow a full diff read. */
+export const zReviewProposalToolInput = z.object({
+  proposal_id: z.uuid().describe('Pending proposal id returned by wikikit_proposals'),
+  decision: z.enum(['approve', 'reject']).describe('The human reviewer’s final decision'),
+  note: z.string().max(4000).optional().describe('Optional auditable review rationale'),
+})
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -178,6 +200,15 @@ const READ_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: false,
+}
+
+const REVIEW_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: false,
+  // The decision permanently promotes or rejects staged knowledge. MCP hosts
+  // must surface a confirmation; callers must never auto-run this tool.
+  destructiveHint: true,
+  idempotentHint: false,
   openWorldHint: false,
 }
 
@@ -371,7 +402,7 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_propose',
     description:
       'Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into ' +
-      'the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.',
+      'the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.',
     scope: 'knowledge:propose',
     inputSchema: zProposeToolInput,
     annotations: {
@@ -388,6 +419,45 @@ export const TOOLS: McpToolDef[] = [
         ...proposal,
         agent_meta: withManualAgentMeta(proposal.agent_meta),
       })
+    },
+  },
+  {
+    name: 'wikikit_proposals',
+    description:
+      'Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, ' +
+      'including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.',
+    scope: 'knowledge:approve',
+    inputSchema: zProposalsToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zProposalsToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      if (!args.proposal_id) {
+        return { proposals: await listProposals(deps.db, space.id, { status: args.status, limit: args.limit }) }
+      }
+      const proposal = await getProposal(deps.db, { id: args.proposal_id })
+      if (proposal.space_id !== space.id) throw new ForbiddenError('proposal belongs to a different space')
+      return proposal
+    },
+  },
+  {
+    name: 'wikikit_review_proposal',
+    description:
+      'Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. ' +
+      'Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.',
+    scope: 'knowledge:approve',
+    inputSchema: zReviewProposalToolInput,
+    annotations: REVIEW_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zReviewProposalToolInput.parse(input)
+      const proposal = await getProposal(deps.db, { id: args.proposal_id })
+      if (principal.spaceId && principal.spaceId !== proposal.space_id) {
+        throw new ForbiddenError('proposal belongs to a different space')
+      }
+      if (args.decision === 'approve') {
+        return approveProposal(deps.db, { id: args.proposal_id, reviewer: principal.name, note: args.note })
+      }
+      return rejectProposal(deps.db, { id: args.proposal_id, reviewer: principal.name, note: args.note })
     },
   },
 ]

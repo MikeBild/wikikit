@@ -350,7 +350,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -933,7 +933,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1171,7 +1171,113 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
 ]
 `;
 
-exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `[]`;
+exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max summaries when proposal_id is omitted",
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "proposal_id": {
+          "description": "Proposal id — when set, return the complete review diff",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "status": {
+          "description": "Filter proposal summaries",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "failed",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_proposals",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "description": "The human reviewer’s final decision",
+          "enum": [
+            "approve",
+            "reject",
+          ],
+          "type": "string",
+        },
+        "note": {
+          "description": "Optional auditable review rationale",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "proposal_id": {
+          "description": "Pending proposal id returned by wikikit_proposals",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "proposal_id",
+        "decision",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_review_proposal",
+  },
+]
+`;
 
 exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
 [
@@ -1518,7 +1624,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1752,6 +1858,109 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       },
     },
     "name": "wikikit_propose",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max summaries when proposal_id is omitted",
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "proposal_id": {
+          "description": "Proposal id — when set, return the complete review diff",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "status": {
+          "description": "Filter proposal summaries",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "failed",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_proposals",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "description": "The human reviewer’s final decision",
+          "enum": [
+            "approve",
+            "reject",
+          ],
+          "type": "string",
+        },
+        "note": {
+          "description": "Optional auditable review rationale",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "proposal_id": {
+          "description": "Pending proposal id returned by wikikit_proposals",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "proposal_id",
+        "decision",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_review_proposal",
   },
 ]
 `;
@@ -2101,7 +2310,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human approves over REST — there is no approve tool.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2335,6 +2544,109 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
     },
     "name": "wikikit_propose",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "Max summaries when proposal_id is omitted",
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "proposal_id": {
+          "description": "Proposal id — when set, return the complete review diff",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "status": {
+          "description": "Filter proposal summaries",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "failed",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_proposals",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "description": "The human reviewer’s final decision",
+          "enum": [
+            "approve",
+            "reject",
+          ],
+          "type": "string",
+        },
+        "note": {
+          "description": "Optional auditable review rationale",
+          "maxLength": 4000,
+          "type": "string",
+        },
+        "proposal_id": {
+          "description": "Pending proposal id returned by wikikit_proposals",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "proposal_id",
+        "decision",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_review_proposal",
   },
 ]
 `;

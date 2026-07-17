@@ -200,9 +200,10 @@ describe('createMcpMount', () => {
     ).result
 
     expect(result.capabilities.resources).toBeDefined()
-    // The load-bearing half of the contract: no approve tool, staging only.
+    // The load-bearing half of the contract: review is explicit and confirmed.
     expect(result.instructions).toContain('wikikit_search')
-    expect(result.instructions).toContain('NO approve tool')
+    expect(result.instructions).toContain('wikikit_review_proposal')
+    expect(result.instructions).toContain('never call it without a human')
     mount.stop()
   })
 

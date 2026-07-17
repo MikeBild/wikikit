@@ -172,8 +172,9 @@ gets JSON-RPC `-32001` for clean re-initialization. Origin validation guards
 against DNS rebinding. Tool input schemas are the same zod objects REST
 validates with, converted to draft-07 JSON Schema with
 `additionalProperties: false`; all four annotations are explicit on every
-tool. Scope-gating is tool _visibility_ — and there is intentionally no
-approve tool: agents stage, humans promote.
+tool. Scope-gating is tool _visibility_: agents stage with `knowledge:propose`,
+while `knowledge:approve` exposes the full review diff and the explicit,
+confirmed approve/reject decision.
 
 The server also describes itself: `initialize` carries `instructions`, and a
 `resources` capability serves `wikikit://docs/llms.txt` and

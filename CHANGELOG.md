@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.14
+
+### Added
+
+- MCP proposal review is now complete: `wikikit_proposals` exposes the full
+  staged diff and `wikikit_review_proposal` performs an explicit, confirmed
+  approve/reject decision. Both require `knowledge:approve`.
+- Remote MCP OAuth supports a dedicated WikiKit Firebase page, standard OIDC
+  Authorization Code + PKCE providers, or a federated provider chooser.
+  Identity-provider allow-lists and the read/propose/approve permission ceiling
+  are independently configurable.
+
+### Changed
+
+- OAuth does not grant `knowledge:approve` by default; a client must request it
+  and the selected identity provider must explicitly allow it.
+
 ## 0.1.13
 
 ### Fixed

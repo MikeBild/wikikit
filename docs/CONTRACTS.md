@@ -1115,8 +1115,9 @@ SAME zod objects as REST (via `toJsonSchemaCompat` → draft-07 with
 `additionalProperties: false`).
 
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose scope
-the key holds. There is deliberately NO approve tool — approval is REST-only.
-No in-band elicitation. Errors use the §8 envelope serialized into the tool
+the key holds. `knowledge:approve` exposes proposal review plus an explicitly
+destructive, non-idempotent approve/reject tool; MCP hosts must confirm that
+write. Errors use the §8 envelope serialized into the tool
 result (`isError: true`), never bare strings.
 
 ### 7.0 OAuth 2.1 for remote MCP clients
@@ -1152,8 +1153,8 @@ minimal identity record are retained. Expired artifacts and unused DCR clients
 are removed by the hourly housekeeping sweep.
 
 **Self-description (binding)**: capabilities are `{ tools, resources }`, and
-`initialize` returns `instructions` describing the read/write split and the
-"no approve tool" rule. `resources/list` exposes `wikikit://docs/llms.txt` and
+`initialize` returns `instructions` describing the read/write/review split and
+the explicit human-decision rule. `resources/list` exposes `wikikit://docs/llms.txt` and
 `wikikit://docs/llms-full.txt`, read via `resources/read` and served from the
 same embedded copies as `GET /llms.txt` (`readDocsFile`). NOT scope-gated —
 the same documents are public over HTTP. Rationale: a pure-MCP client cannot
@@ -1162,17 +1163,19 @@ audience they are written for.
 
 ### 7.1 Tool table (binding — names, schemas, outputs, scopes, all four annotations)
 
-| Tool                    | Scope             | Input schema (zod, in `src/mcp/tools.ts`)                                                    | Output (JSON in content)                                                                          | readOnly | destructive | idempotent | openWorld |
-| ----------------------- | ----------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- | ----------- | ---------- | --------- |
-| `wikikit_search`        | knowledge:read    | `{ space: string, q: string, kind?: 'concept'\|'claim', limit?: number (1-50, default 20) }` | `{ hits: SearchHit[] }` (§4.2)                                                                    | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_read`          | knowledge:read    | `{ space: string, slug: string }`                                                            | `zConceptResponse` shape (§5.3)                                                                   | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_sources`       | knowledge:read    | `{ space: string, slug?: string, source_id?: string }` (exactly one of slug/source_id)       | `{ sources: { id, kind, url, title, content_hash, created_at, cited_by_claims: number }[] }`      | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_decisions`     | knowledge:read    | `{ space: string, slug?: string }` (omit slug → list)                                        | slug → one decision; else `{ decisions: { slug, title, status, created_at }[] }`                  | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_history`       | knowledge:read    | `{ space: string, slug: string }`                                                            | `{ revisions: { rev, status, created_at, agent_meta }[] }`                                        | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_lint`          | knowledge:read    | `{ space: string }`                                                                          | `LintReport` (§4)                                                                                 | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_ingest`        | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                       | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks) | `false`  | `true`      | `true`     | `true`    |
-| `wikikit_ingest_status` | knowledge:propose | `{ ingest_id: string (uuid) }`                                                               | `zIngestStatusResponse` shape (§5.3)                                                              | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_propose`       | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                            | `{ proposal_id, status: 'pending' }`                                                              | `false`  | `true`      | `true`     | `false`   |
+| Tool                      | Scope             | Input schema (zod, in `src/mcp/tools.ts`)                                                    | Output (JSON in content)                                                                          | readOnly | destructive | idempotent | openWorld |
+| ------------------------- | ----------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- | ----------- | ---------- | --------- |
+| `wikikit_search`          | knowledge:read    | `{ space: string, q: string, kind?: 'concept'\|'claim', limit?: number (1-50, default 20) }` | `{ hits: SearchHit[] }` (§4.2)                                                                    | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_read`            | knowledge:read    | `{ space: string, slug: string }`                                                            | `zConceptResponse` shape (§5.3)                                                                   | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_sources`         | knowledge:read    | `{ space: string, slug?: string, source_id?: string }` (exactly one of slug/source_id)       | `{ sources: { id, kind, url, title, content_hash, created_at, cited_by_claims: number }[] }`      | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_decisions`       | knowledge:read    | `{ space: string, slug?: string }` (omit slug → list)                                        | slug → one decision; else `{ decisions: { slug, title, status, created_at }[] }`                  | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_history`         | knowledge:read    | `{ space: string, slug: string }`                                                            | `{ revisions: { rev, status, created_at, agent_meta }[] }`                                        | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_lint`            | knowledge:read    | `{ space: string }`                                                                          | `LintReport` (§4)                                                                                 | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                       | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks) | `false`  | `true`      | `true`     | `true`    |
+| `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                               | `zIngestStatusResponse` shape (§5.3)                                                              | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                            | `{ proposal_id, status: 'pending' }`                                                              | `false`  | `true`      | `true`     | `false`   |
+| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`              | summaries, or one complete `ProposalDetail` diff                                                  | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_review_proposal` | knowledge:approve | `{ proposal_id: uuid, decision: 'approve'\|'reject', note?: string }`                        | approved apply result or `{ proposal_id, status: 'rejected' }`                                    | `false`  | `true`      | `false`    | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
 per the hard-won MCP rule ("never destructiveHint:false on real writes") even though
@@ -1270,45 +1273,47 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                             | Default                                                            | Notes                                                     |
-| ------------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------- |
-| `HOST`                               | `127.0.0.1`                                                        |                                                           |
-| `PORT`                               | `4060`                                                             |                                                           |
-| `WIKIKIT_PUBLIC_URL`                 | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production   |
-| `DATABASE_URL`                       | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                |
-| `WIKIKIT_KEY_PEPPER`                 | dev: `wikikit-local-key-pepper`                                    | **required in production**                                |
-| `WIKIKIT_BOOTSTRAP_API_KEY`          | `` (dev: generated + printed once at boot)                         |                                                           |
-| `WIKIKIT_LLM_PROVIDER`               | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails |
-| `ANTHROPIC_API_KEY`                  | `` — no default anywhere                                           | read when provider is `anthropic`                         |
-| `OPENAI_API_KEY`                     | `` — no default anywhere                                           | read when provider is `openai`                            |
-| `GOOGLE_GENERATIVE_AI_API_KEY`       | `` — no default anywhere                                           | read when provider is `google`                            |
-| `ANTHROPIC_BASE_URL`                 | ``                                                                 | honored when provider is `anthropic`; test stub target    |
-| `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                           |
-| `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                           |
-| `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                           |
-| `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                           |
-| `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                        |
-| `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                      |
-| `WIKIKIT_INGEST_LEASE_MS`            | `900000`                                                           | 10 s–24 h                                                 |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`        | `30000`                                                            | 1 s–1 h; less than half the lease                         |
-| `WIKIKIT_WEBHOOK_POLL_MS`            | `5000` (dev default file: `1000`)                                  |                                                           |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`         | `10000`                                                            |                                                           |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`       | `10`                                                               |                                                           |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`  | `5`                                                                |                                                           |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`      | `!production`                                                      | SSRF guard                                                |
-| `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                           |
-| `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                           |
-| `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                           |
-| `WIKIKIT_OAUTH_DCR_ENABLED`          | `true`                                                             | RFC 7591 remote-client registration                       |
-| `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                  |
-| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                |
-| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                  |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase`                                   |
-| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | required for `firebase`                                   |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | fixed HTTPS Firebase Hosting login page                   |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated allow-list; required for `firebase`       |
-| `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                     |
-| `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`  |
+| Variable                             | Default                                                            | Notes                                                      |
+| ------------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------- |
+| `HOST`                               | `127.0.0.1`                                                        |                                                            |
+| `PORT`                               | `4060`                                                             |                                                            |
+| `WIKIKIT_PUBLIC_URL`                 | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production    |
+| `DATABASE_URL`                       | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                 |
+| `WIKIKIT_KEY_PEPPER`                 | dev: `wikikit-local-key-pepper`                                    | **required in production**                                 |
+| `WIKIKIT_BOOTSTRAP_API_KEY`          | `` (dev: generated + printed once at boot)                         |                                                            |
+| `WIKIKIT_LLM_PROVIDER`               | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails  |
+| `ANTHROPIC_API_KEY`                  | `` — no default anywhere                                           | read when provider is `anthropic`                          |
+| `OPENAI_API_KEY`                     | `` — no default anywhere                                           | read when provider is `openai`                             |
+| `GOOGLE_GENERATIVE_AI_API_KEY`       | `` — no default anywhere                                           | read when provider is `google`                             |
+| `ANTHROPIC_BASE_URL`                 | ``                                                                 | honored when provider is `anthropic`; test stub target     |
+| `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                            |
+| `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                            |
+| `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                            |
+| `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                            |
+| `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                         |
+| `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                       |
+| `WIKIKIT_INGEST_LEASE_MS`            | `900000`                                                           | 10 s–24 h                                                  |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`        | `30000`                                                            | 1 s–1 h; less than half the lease                          |
+| `WIKIKIT_WEBHOOK_POLL_MS`            | `5000` (dev default file: `1000`)                                  |                                                            |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`         | `10000`                                                            |                                                            |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`       | `10`                                                               |                                                            |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`  | `5`                                                                |                                                            |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`      | `!production`                                                      | SSRF guard                                                 |
+| `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                            |
+| `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                            |
+| `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                            |
+| `WIKIKIT_OAUTH_DCR_ENABLED`          | `true`                                                             | RFC 7591 remote-client registration                        |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                   |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                 |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                   |
+| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase` \| `oidc` \| `federated`           |
+| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | Firebase project for `firebase`/`federated`                |
+| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | dedicated HTTPS WikiKit Firebase login page                |
+| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated global allow-list                          |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                    |
+| `WIKIKIT_OAUTH_OIDC_PROVIDERS`       | ``                                                                 | JSON provider array; standard OIDC Authorization Code+PKCE |
+| `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                      |
+| `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`   |
 
 Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
 query answer 503 `llm_not_configured`, naming **that** provider's key, while

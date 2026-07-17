@@ -19,8 +19,8 @@ import { validateMcpRequest } from '../../src/mcp/server.ts'
 
 describe('MCP manifest contract', () => {
   // One snapshot per key type an operator can mint (§1.10 scopes). The
-  // read+propose pair is the palette a personal-agent key sees (plan §13.A);
-  // approve alone must see an EMPTY palette — approval is REST-only.
+  // read+propose is the staging palette; approve alone can inspect and decide
+  // but cannot read arbitrary knowledge or stage new content.
   const SCOPE_SETS: Record<string, string[]> = {
     'read-key': ['knowledge:read'],
     'propose-key': ['knowledge:propose'],
@@ -36,7 +36,7 @@ describe('MCP manifest contract', () => {
     })
   }
 
-  test('the full palette is exactly the nine §7.1 tools — no approve tool ever', () => {
+  test('the full palette is exactly the eleven §7.1 tools, including gated review', () => {
     const names = buildToolManifest(['*']).map((entry) => entry.name)
     expect(names).toEqual([
       'wikikit_search',
@@ -48,6 +48,8 @@ describe('MCP manifest contract', () => {
       'wikikit_ingest',
       'wikikit_ingest_status',
       'wikikit_propose',
+      'wikikit_proposals',
+      'wikikit_review_proposal',
     ])
   })
 

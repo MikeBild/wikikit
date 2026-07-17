@@ -179,24 +179,26 @@ In ChatGPT, enable Developer mode, create an app/plugin, and enter:
 https://wikikit.mikebild.dev/mcp
 ```
 
-Choose OAuth. In production WikiKit uses the same Google/Firebase sign-in
-bridge as SubKit: it verifies the signed Firebase ID token and admits only the
-explicitly configured email allow-list. No WikiKit operator key is entered in
-ChatGPT or sent to the browser. ChatGPT receives only a scoped, short-lived
-OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base URL in
-production because it is the OAuth issuer and audience.
+Choose OAuth. In production WikiKit has its own branded sign-in page and can
+use Firebase or one or more standard OIDC providers (for example Google,
+Microsoft Entra ID, Okta or Keycloak). WikiKit verifies the provider identity
+and admits only the explicit provider/email allow-list. No WikiKit operator key
+is entered in ChatGPT or sent to the browser. ChatGPT receives only a scoped,
+short-lived OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base
+URL in production because it is the OAuth issuer and audience.
 
 The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
-`wikikit_ingest_status` and `wikikit_propose` — and deliberately **no approve
-tool**: agents write into the staging area, promotion stays a human act over
-REST. Tools are scope-gated, so a read-only key simply does not see the write
-tools. The server also hands the agent its own documentation — usage
+`wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
+`wikikit_review_proposal`. The two review tools are visible only with
+`knowledge:approve`; the final approve/reject call is an explicitly marked,
+confirmed MCP write. Tools are scope-gated, so a read-only key simply does not
+see write or review tools. The server also hands the agent its own documentation — usage
 instructions on connect, and `llms.txt` / `llms-full.txt` as MCP resources — so
 it does not have to guess the model. Ask your agent to "take this article into
 the wiki and check whether it changes our assessment" — it ingests, polls, and
-reports the proposal with any detected contradictions; you approve with one
-curl.
+reports the proposal with any detected contradictions; review and approve it
+in the same MCP conversation.
 
 ## Features
 

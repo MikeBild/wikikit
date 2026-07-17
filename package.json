@@ -1,6 +1,6 @@
 {
   "name": "wikikit",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Headless AI-native knowledge system for humans and agents — Markdown-first knowledge in, structured and agent-ready knowledge out",
   "private": true,
   "type": "module",
@@ -35,6 +35,7 @@
     "exceljs": "^4.4.0",
     "jose": "^6.1.0",
     "mammoth": "^1.12.0",
+    "openid-client": "^6.8.4",
     "pg": "^8.16.3",
     "rehype-parse": "^9.0.1",
     "rehype-remark": "^10.0.1",

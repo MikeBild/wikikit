@@ -141,13 +141,17 @@ export interface Config {
   /** Allow RFC 7591 dynamic client registration for remote MCP clients. */
   readonly oauthDynamicRegistrationEnabled?: boolean
   /** Interactive identity used by the remote MCP OAuth consent flow. */
-  readonly oauthLoginProvider?: 'api_key' | 'firebase'
+  readonly oauthLoginProvider?: 'api_key' | 'firebase' | 'oidc' | 'federated'
   /** Firebase project whose ID tokens may establish a WikiKit OAuth login. */
   readonly oauthFirebaseProjectId?: string
-  /** Existing SubKit Firebase Hosting sign-in page used for the browser hop. */
+  /** Dedicated WikiKit Firebase Hosting sign-in page used for the browser hop. */
   readonly oauthFirebaseLoginUrl?: string
-  /** Explicit allow-list; a Firebase project alone never grants WikiKit access. */
+  /** Explicit global allow-list; a configured identity provider alone never grants WikiKit access. */
   readonly oauthAllowedEmails?: string[]
+  /** Maximum permissions that an interactive identity can receive. */
+  readonly oauthAllowedScopes?: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'>
+  /** Independently configured standard OIDC providers (Google, Microsoft, Okta, Keycloak, …). */
+  readonly oauthOidcProviders?: OidcProviderConfig[]
   readonly logLevel: string
   readonly version: string
   /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
@@ -156,6 +160,95 @@ export interface Config {
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
 type LlmProviderName = (typeof LLM_PROVIDERS)[number]
+
+export interface OidcProviderConfig {
+  readonly id: string
+  readonly label: string
+  readonly issuer: string
+  readonly clientId: string
+  readonly clientSecret?: string
+  readonly scopes: string
+  readonly allowedEmails: string[]
+  readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'>
+}
+
+const IDENTITY_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:approve'] as const
+type IdentityScope = (typeof IDENTITY_SCOPES)[number]
+
+function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[]): IdentityScope[] {
+  const values = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const scopes = values.length ? values : fallback
+  if (!scopes.length || scopes.some((scope) => !(IDENTITY_SCOPES as readonly string[]).includes(scope))) {
+    throw new Error(`${name} must be a comma-separated subset of ${IDENTITY_SCOPES.join(', ')}`)
+  }
+  return [...new Set(scopes)] as IdentityScope[]
+}
+
+function parseOidcProviders(raw: string, globalEmails: string[], globalScopes: IdentityScope[]): OidcProviderConfig[] {
+  if (!raw.trim()) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error('WIKIKIT_OAUTH_OIDC_PROVIDERS must be valid JSON')
+  }
+  if (!Array.isArray(parsed)) throw new Error('WIKIKIT_OAUTH_OIDC_PROVIDERS must be a JSON array')
+  const ids = new Set<string>()
+  return parsed.map((value, index) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}] must be an object`)
+    }
+    const item = value as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id.trim() : ''
+    const issuer = typeof item.issuer === 'string' ? item.issuer.trim().replace(/\/$/, '') : ''
+    const clientId = typeof item.client_id === 'string' ? item.client_id.trim() : ''
+    const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim() : id
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id) || ids.has(id) || !issuer || !clientId || label.length > 120) {
+      throw new Error(
+        `WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}] has an invalid or duplicate id, issuer, client_id or label`,
+      )
+    }
+    let issuerUrl: URL
+    try {
+      issuerUrl = new URL(issuer)
+    } catch {
+      throw new Error(`WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}].issuer must be an https URL`)
+    }
+    if (issuerUrl.protocol !== 'https:') throw new Error(`WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}].issuer must use https`)
+    ids.add(id)
+    const emails = Array.isArray(item.allowed_emails)
+      ? item.allowed_emails
+          .filter((email): email is string => typeof email === 'string')
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean)
+      : globalEmails
+    const scopes = Array.isArray(item.allowed_scopes)
+      ? parseIdentityScopes(
+          item.allowed_scopes.join(','),
+          `WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}].allowed_scopes`,
+          globalScopes,
+        )
+      : globalScopes
+    const requestedScopes =
+      typeof item.scopes === 'string' && item.scopes.trim() ? item.scopes.trim() : 'openid profile email'
+    if (!requestedScopes.split(/\s+/).includes('openid')) {
+      throw new Error(`WIKIKIT_OAUTH_OIDC_PROVIDERS[${index}].scopes must include openid`)
+    }
+    return {
+      id,
+      label,
+      issuer: issuerUrl.toString().replace(/\/$/, ''),
+      clientId,
+      clientSecret: typeof item.client_secret === 'string' && item.client_secret ? item.client_secret : undefined,
+      scopes: requestedScopes,
+      allowedEmails: emails,
+      allowedScopes: scopes,
+    }
+  })
+}
 
 /**
  * Which env var holds each provider's key. Exported because the 503
@@ -196,14 +289,23 @@ export function loadConfig(): Config {
   if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
     throw new Error('WIKIKIT_INGEST_HEARTBEAT_MS must be less than half of WIKIKIT_INGEST_LEASE_MS')
   }
-  const oauthLoginProvider = str('WIKIKIT_OAUTH_LOGIN_PROVIDER', 'api_key')
-  if (oauthLoginProvider !== 'api_key' && oauthLoginProvider !== 'firebase') {
-    throw new Error('WIKIKIT_OAUTH_LOGIN_PROVIDER must be api_key or firebase')
+  const oauthLoginProvider = str('WIKIKIT_OAUTH_LOGIN_PROVIDER', 'api_key') as NonNullable<Config['oauthLoginProvider']>
+  if (!['api_key', 'firebase', 'oidc', 'federated'].includes(oauthLoginProvider)) {
+    throw new Error('WIKIKIT_OAUTH_LOGIN_PROVIDER must be api_key, firebase, oidc or federated')
   }
   const oauthAllowedEmails = str('WIKIKIT_OAUTH_ALLOWED_EMAILS')
     .split(',')
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean)
+  const oauthAllowedScopes = parseIdentityScopes(str('WIKIKIT_OAUTH_ALLOWED_SCOPES'), 'WIKIKIT_OAUTH_ALLOWED_SCOPES', [
+    'knowledge:read',
+    'knowledge:propose',
+  ])
+  const oauthOidcProviders = parseOidcProviders(
+    str('WIKIKIT_OAUTH_OIDC_PROVIDERS'),
+    oauthAllowedEmails,
+    oauthAllowedScopes,
+  )
 
   const config: Config = Object.freeze({
     root: moduleRoot,
@@ -255,6 +357,8 @@ export function loadConfig(): Config {
     oauthFirebaseProjectId: str('WIKIKIT_OAUTH_FIREBASE_PROJECT_ID'),
     oauthFirebaseLoginUrl: str('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL'),
     oauthAllowedEmails,
+    oauthAllowedScopes,
+    oauthOidcProviders,
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
@@ -280,6 +384,26 @@ export function loadConfig(): Config {
       if (!config.oauthFirebaseProjectId || !config.oauthFirebaseLoginUrl || !config.oauthAllowedEmails?.length) {
         throw new Error(
           'Firebase OAuth login requires WIKIKIT_OAUTH_FIREBASE_PROJECT_ID, WIKIKIT_OAUTH_FIREBASE_LOGIN_URL and WIKIKIT_OAUTH_ALLOWED_EMAILS',
+        )
+      }
+      if (new URL(config.oauthFirebaseLoginUrl).protocol !== 'https:') {
+        throw new Error('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL must use https in production')
+      }
+    }
+    if (config.oauthLoginProvider === 'oidc' && !config.oauthOidcProviders?.length) {
+      throw new Error('OIDC OAuth login requires WIKIKIT_OAUTH_OIDC_PROVIDERS')
+    }
+    if (
+      config.oauthLoginProvider === 'federated' &&
+      !config.oauthFirebaseProjectId &&
+      !config.oauthOidcProviders?.length
+    ) {
+      throw new Error('federated OAuth login requires Firebase or at least one OIDC provider')
+    }
+    if (config.oauthLoginProvider === 'federated' && config.oauthFirebaseProjectId) {
+      if (!config.oauthFirebaseLoginUrl || !config.oauthAllowedEmails?.length) {
+        throw new Error(
+          'federated Firebase login requires WIKIKIT_OAUTH_FIREBASE_LOGIN_URL and WIKIKIT_OAUTH_ALLOWED_EMAILS',
         )
       }
       if (new URL(config.oauthFirebaseLoginUrl).protocol !== 'https:') {

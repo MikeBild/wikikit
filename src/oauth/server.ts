@@ -12,9 +12,12 @@ import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
 import { verifyFirebaseIdToken } from './firebase.ts'
+import { finishOidcLogin, startOidcLogin } from './oidc.ts'
 
-const OAUTH_SCOPES = ['knowledge:read', 'knowledge:propose', 'offline_access'] as const
-const DEFAULT_SCOPE = OAUTH_SCOPES.join(' ')
+const OAUTH_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:approve', 'offline_access'] as const
+// A client must opt in to the review right. Adding support must never silently
+// turn existing read/propose integrations into approvers on reconnect.
+const DEFAULT_SCOPE = 'knowledge:read knowledge:propose offline_access'
 const DCR_MAX_PER_MINUTE = 10
 const MAX_FORM_BYTES = 32 * 1024
 
@@ -33,7 +36,7 @@ interface CodeRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
-  principal_kind: 'api_key' | 'firebase'
+  principal_kind: 'api_key' | 'firebase' | 'oidc'
 }
 
 interface RefreshRow {
@@ -44,13 +47,13 @@ interface RefreshRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
-  principal_kind: 'api_key' | 'firebase'
+  principal_kind: 'api_key' | 'firebase' | 'oidc'
   family_id: string
   expires_at: Date | string
   revoked_at: Date | string | null
 }
 
-interface FirebaseLoginStateRow {
+interface IdentityLoginStateRow {
   id: string
   client_id: string
   redirect_uri: string
@@ -60,6 +63,9 @@ interface FirebaseLoginStateRow {
   client_state: string | null
   provider_subject: string | null
   provider_email: string | null
+  provider_id: string | null
+  oidc_nonce: string | null
+  oidc_code_verifier: string | null
 }
 
 class OAuthError extends Error {
@@ -218,6 +224,26 @@ ${args.loginState ? '<p><strong>Signed in with your approved Google account.</st
   return response
 }
 
+function loginChoicePage(args: {
+  state: string
+  firebase: boolean
+  oidc: Array<{ id: string; label: string }>
+}): Response {
+  const options = [...(args.firebase ? [{ id: 'firebase', label: 'Continue with Google' }] : []), ...args.oidc]
+    .map(
+      (provider) =>
+        `<a class="provider" href="/v1/oauth/login?state=${encodeURIComponent(args.state)}&provider=${encodeURIComponent(provider.id)}">${escapeHtml(provider.label)}</a>`,
+    )
+    .join('')
+  return html(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in to WikiKit</title><style>
+body{font:16px/1.5 system-ui,sans-serif;background:#f4f4f1;color:#171713;margin:0;padding:2rem}main{max-width:34rem;margin:10vh auto;background:#fff;border:1px solid #d8d8d0;border-radius:14px;padding:2rem;box-shadow:0 8px 30px #0001}h1{margin:0 0 .4rem}.provider{display:block;margin:.75rem 0;padding:.85rem 1rem;border:1px solid #777;border-radius:8px;color:#171713;text-decoration:none;font-weight:650}.provider:hover{background:#f4f4f1}small{color:#555}</style></head><body><main>
+<h1>Sign in to WikiKit</h1><p>Choose an approved identity provider to continue.</p>${options}<small>WikiKit only grants the permissions requested by your MCP client and allowed by this identity provider.</small>
+</main></body></html>`,
+  )
+}
+
 function cookieValue(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
     const [key, ...rest] = part.trim().split('=')
@@ -291,7 +317,27 @@ async function loadAuthorizationRequest(
 }
 
 function firebaseEnabled(config: Config): boolean {
-  return config.oauthLoginProvider === 'firebase'
+  return (
+    (config.oauthLoginProvider === 'firebase' || config.oauthLoginProvider === 'federated') &&
+    !!config.oauthFirebaseProjectId &&
+    !!config.oauthFirebaseLoginUrl
+  )
+}
+
+function oidcEnabled(config: Config): boolean {
+  return (
+    (config.oauthLoginProvider === 'oidc' || config.oauthLoginProvider === 'federated') &&
+    !!config.oauthOidcProviders?.length
+  )
+}
+
+function interactiveLoginEnabled(config: Config): boolean {
+  return firebaseEnabled(config) || oidcEnabled(config)
+}
+
+function providerAllowedScopes(config: Config, providerId: string | null): string[] {
+  if (providerId === 'firebase') return config.oauthAllowedScopes ?? ['knowledge:read', 'knowledge:propose']
+  return (config.oauthOidcProviders || []).find((provider) => provider.id === providerId)?.allowedScopes ?? []
 }
 
 function firebaseLoginUrl(config: Config, loginState: string): string {
@@ -317,11 +363,31 @@ async function firebaseGrantIsCurrent(
   if (!subject || !config.oauthAllowedEmails?.length) return false
   const { rows } = await db.query<{ email: string }>(
     `SELECT email FROM wk_oauth_identities
-      WHERE provider_subject = $1 AND revoked_at IS NULL
+      WHERE provider = 'firebase' AND provider_subject = $1 AND revoked_at IS NULL
       LIMIT 1`,
     [subject],
   )
   return !!rows[0] && config.oauthAllowedEmails.includes(rows[0].email.toLowerCase())
+}
+
+async function identityGrantIsCurrent(
+  db: Db,
+  config: Config,
+  row: { principal_kind: string; principal_key_id: string },
+): Promise<boolean> {
+  if (row.principal_kind === 'firebase') return firebaseGrantIsCurrent(db, config, row)
+  if (row.principal_kind !== 'oidc') return true
+  const match = row.principal_key_id.match(/^oidc:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
+  if (!match) return false
+  const provider = config.oauthOidcProviders?.find((candidate) => candidate.id === match[1])
+  if (!provider) return false
+  const { rows } = await db.query<{ email: string }>(
+    `SELECT email FROM wk_oauth_identities
+      WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
+      LIMIT 1`,
+    [provider.id, match[2]],
+  )
+  return !!rows[0] && provider.allowedEmails.includes(rows[0].email.toLowerCase())
 }
 
 async function issueTokens(
@@ -335,7 +401,7 @@ async function issueTokens(
     principalSpaceId: string | null
     principalKeyId: string
     principalKeyHash: string
-    principalKind: 'api_key' | 'firebase'
+    principalKind: 'api_key' | 'firebase' | 'oidc'
     familyId?: string
   },
 ): Promise<Record<string, unknown>> {
@@ -501,7 +567,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       }
       if (request.method === 'GET' && path === '/v1/oauth/authorize') {
         const loaded = await loadAuthorizationRequest(config, deps.db, url.searchParams)
-        if (firebaseEnabled(config)) {
+        if (interactiveLoginEnabled(config)) {
           const loginState = randomToken('wkl_')
           await deps.db.insert('wk_oauth_login_states', {
             state_hash: hashApiKey(loginState, config.keyPepper),
@@ -513,9 +579,26 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             client_state: url.searchParams.get('state'),
             expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
           })
-          return new Response(null, {
-            status: 302,
-            headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
+          const oidcProviders = oidcEnabled(config) ? config.oauthOidcProviders || [] : []
+          if (firebaseEnabled(config) && !oidcProviders.length) {
+            return new Response(null, {
+              status: 302,
+              headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
+            })
+          }
+          if (!firebaseEnabled(config) && oidcProviders.length === 1) {
+            const target = new URL(`${config.publicUrl}/v1/oauth/login`)
+            target.searchParams.set('state', loginState)
+            target.searchParams.set('provider', oidcProviders[0]!.id)
+            return new Response(null, {
+              status: 302,
+              headers: { location: target.toString(), 'cache-control': 'no-store' },
+            })
+          }
+          return loginChoicePage({
+            state: loginState,
+            firebase: firebaseEnabled(config),
+            oidc: oidcProviders.map((provider) => ({ id: provider.id, label: `Continue with ${provider.label}` })),
           })
         }
         return consentPage({
@@ -524,6 +607,38 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           scopes: loaded.scopes,
           csrfToken: randomBytes(32).toString('base64url'),
           secureCookie: new URL(config.publicUrl).protocol === 'https:',
+        })
+      }
+      if (request.method === 'GET' && path === '/v1/oauth/login') {
+        const loginState = url.searchParams.get('state') || ''
+        const providerId = url.searchParams.get('provider') || ''
+        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
+          throw new OAuthError('invalid_request', 'valid login state is required')
+        if (providerId === 'firebase' && firebaseEnabled(config)) {
+          return new Response(null, {
+            status: 302,
+            headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
+          })
+        }
+        const provider = (config.oauthOidcProviders || []).find((candidate) => candidate.id === providerId)
+        if (!provider || !oidcEnabled(config))
+          throw new OAuthError('not_found', 'identity provider is not available', 404)
+        const started = await startOidcLogin({
+          provider,
+          redirectUri: `${config.publicUrl}/v1/oauth/oidc/callback`,
+          state: loginState,
+        }).catch(() => {
+          throw new OAuthError('temporarily_unavailable', 'OIDC provider discovery is unavailable', 503)
+        })
+        const changed = await deps.db.update(
+          'wk_oauth_login_states',
+          { state_hash: `eq.${hashApiKey(loginState, config.keyPepper)}`, consumed_at: 'is.null' },
+          { provider_id: provider.id, oidc_nonce: started.nonce, oidc_code_verifier: started.codeVerifier },
+        )
+        if (!changed.length) throw new OAuthError('invalid_request', 'OAuth login state is expired or already used')
+        return new Response(null, {
+          status: 302,
+          headers: { location: started.authorizationUrl, 'cache-control': 'no-store' },
         })
       }
       if (request.method === 'POST' && path === '/v1/oauth/firebase/callback') {
@@ -546,12 +661,13 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           )
         })
         const stateHash = hashApiKey(loginState, config.keyPepper)
-        const { rows } = await deps.db.query<FirebaseLoginStateRow>(
+        const { rows } = await deps.db.query<IdentityLoginStateRow>(
           `UPDATE wk_oauth_login_states
-              SET provider_subject = $2, provider_email = $3, authenticated_at = now()
+              SET provider_subject = $2, provider_email = $3, provider_id = 'firebase', authenticated_at = now()
             WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+              AND (provider_id IS NULL OR provider_id = 'firebase')
             RETURNING id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
-                      provider_subject, provider_email`,
+                      provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier`,
           [stateHash, identity.subject, identity.email],
         )
         const state = rows[0]
@@ -559,9 +675,70 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         await deps.db.query(
           `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
            VALUES ($1, $2, 'firebase', now())
-           ON CONFLICT (provider_subject) DO UPDATE
+           ON CONFLICT (provider, provider_subject) DO UPDATE
              SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
           [identity.subject, identity.email],
+        )
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${state.client_id}`,
+          limit: 1,
+        })
+        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+        return consentPage({
+          clientName: client.client_name,
+          params: new URLSearchParams(),
+          scopes: state.scopes,
+          csrfToken: randomBytes(32).toString('base64url'),
+          secureCookie: new URL(config.publicUrl).protocol === 'https:',
+          loginState,
+          redirectUri: state.redirect_uri,
+        })
+      }
+      if (request.method === 'GET' && path === '/v1/oauth/oidc/callback') {
+        const loginState = url.searchParams.get('state') || ''
+        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
+          throw new OAuthError('invalid_request', 'a valid OIDC login state is required')
+        const { rows } = await deps.db.query<IdentityLoginStateRow>(
+          `SELECT id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
+                  provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier
+             FROM wk_oauth_login_states
+            WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+            LIMIT 1`,
+          [hashApiKey(loginState, config.keyPepper)],
+        )
+        const state = rows[0]
+        const provider = state?.provider_id
+          ? (config.oauthOidcProviders || []).find((candidate) => candidate.id === state.provider_id)
+          : undefined
+        if (!state || !provider || !state.oidc_nonce || !state.oidc_code_verifier) {
+          throw new OAuthError('invalid_request', 'OIDC login state is expired or invalid')
+        }
+        const identity = await finishOidcLogin({
+          provider,
+          redirectUri: `${config.publicUrl}/v1/oauth/oidc/callback`,
+          callbackUrl: url,
+          state: loginState,
+          nonce: state.oidc_nonce,
+          codeVerifier: state.oidc_code_verifier,
+        }).catch((error) => {
+          throw new OAuthError('access_denied', error instanceof Error ? error.message : 'OIDC login was rejected', 403)
+        })
+        const authenticated = await deps.db.update(
+          'wk_oauth_login_states',
+          { id: `eq.${state.id}`, consumed_at: 'is.null' },
+          {
+            provider_subject: identity.subject,
+            provider_email: identity.email,
+            authenticated_at: new Date().toISOString(),
+          },
+        )
+        if (!authenticated.length) throw new OAuthError('invalid_request', 'OIDC login state was already consumed')
+        await deps.db.query(
+          `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (provider, provider_subject) DO UPDATE
+             SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
+          [identity.subject, identity.email, provider.id],
         )
         const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
           client_id: `eq.${state.client_id}`,
@@ -588,17 +765,17 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         let loaded: { client: ClientRow; redirectUri: string; scopes: string[]; resource: string }
         let principal: Principal | null = null
         let principalKeyHash = ''
-        let principalKind: 'api_key' | 'firebase' = 'api_key'
-        let firebaseStateId: string | null = null
+        let principalKind: 'api_key' | 'firebase' | 'oidc' = 'api_key'
+        let identityStateId: string | null = null
         let callbackState: string | undefined = params.get('state') ?? undefined
         let codeChallenge = params.get('code_challenge') || ''
-        if (firebaseEnabled(config)) {
+        if (interactiveLoginEnabled(config)) {
           const loginState = params.get('login_state') || ''
           if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
-            throw new OAuthError('invalid_request', 'Firebase OAuth login state is required')
-          const { rows } = await deps.db.query<FirebaseLoginStateRow>(
+            throw new OAuthError('invalid_request', 'interactive OAuth login state is required')
+          const { rows } = await deps.db.query<IdentityLoginStateRow>(
             `SELECT s.id, s.client_id, s.redirect_uri, s.scopes, s.code_challenge, s.resource, s.client_state,
-                    s.provider_subject, s.provider_email
+                    s.provider_subject, s.provider_email, s.provider_id, s.oidc_nonce, s.oidc_code_verifier
                FROM wk_oauth_login_states s
                JOIN wk_oauth_clients c ON c.client_id = s.client_id
               WHERE s.state_hash = $1 AND s.consumed_at IS NULL AND s.expires_at > now()
@@ -608,32 +785,42 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           )
           const state = rows[0]
           if (!state?.provider_subject || !state.provider_email)
-            throw new OAuthError('invalid_request', 'Firebase OAuth login is no longer valid')
+            throw new OAuthError('invalid_request', 'interactive OAuth login is no longer valid')
           const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
             client_id: `eq.${state.client_id}`,
             limit: 1,
           })
           if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+          // Pre-federation Firebase states have no provider_id. They remain
+          // valid during a rolling deploy and are unambiguously Firebase when
+          // this mount exposes Firebase as its only interactive provider.
+          const providerId = state.provider_id || (firebaseEnabled(config) ? 'firebase' : '')
+          const providerScopes = providerAllowedScopes(config, providerId)
+          if (!providerScopes.length)
+            throw new OAuthError('access_denied', 'identity provider is no longer authorized', 403)
           loaded = { client, redirectUri: state.redirect_uri, scopes: state.scopes, resource: state.resource }
           principal = {
-            keyId: `firebase:${state.provider_subject}`,
+            keyId:
+              providerId === 'firebase'
+                ? `firebase:${state.provider_subject}`
+                : `oidc:${providerId}:${state.provider_subject}`,
             name: state.provider_email,
-            scopes: ['knowledge:read', 'knowledge:propose'],
+            scopes: providerScopes,
             spaceId: null,
           }
           principalKeyHash = hashApiKey(principal.keyId, config.keyPepper)
-          principalKind = 'firebase'
-          firebaseStateId = state.id
+          principalKind = providerId === 'firebase' ? 'firebase' : 'oidc'
+          identityStateId = state.id
           callbackState = state.client_state ?? undefined
           codeChallenge = state.code_challenge
         } else {
           loaded = await loadAuthorizationRequest(config, deps.db, params)
         }
         if (params.get('action') === 'deny') {
-          if (firebaseStateId) {
+          if (identityStateId) {
             await deps.db.update(
               'wk_oauth_login_states',
-              { id: `eq.${firebaseStateId}`, consumed_at: 'is.null' },
+              { id: `eq.${identityStateId}`, consumed_at: 'is.null' },
               { consumed_at: new Date().toISOString() },
             )
           }
@@ -653,7 +840,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             if (principal.keyId.startsWith('oauth:')) throw new Error('an operator API key is required')
             for (const scope of loaded.scopes) {
               if (scope !== 'offline_access')
-                deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose')
+                deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve')
             }
           } catch {
             return consentPage({
@@ -668,17 +855,17 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         }
         for (const scope of loaded.scopes)
           if (scope !== 'offline_access')
-            deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose')
+            deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve')
         const code = randomToken('wka_')
         await deps.db.tx(async (tx) => {
-          if (firebaseStateId) {
+          if (identityStateId) {
             const changed = await tx.update(
               'wk_oauth_login_states',
-              { id: `eq.${firebaseStateId}`, consumed_at: 'is.null' },
+              { id: `eq.${identityStateId}`, consumed_at: 'is.null' },
               { consumed_at: new Date().toISOString() },
             )
             if (!changed.length)
-              throw new OAuthError('invalid_request', 'Firebase OAuth login state is already consumed')
+              throw new OAuthError('invalid_request', 'interactive OAuth login state is already consumed')
           }
           await tx.insert(
             'wk_oauth_authorization_codes',
@@ -729,7 +916,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
                   AND a.resource = $4 AND a.consumed_at IS NULL AND a.expires_at > now()
                   AND c.revoked_at IS NULL
                   AND (
-                    a.principal_kind = 'firebase'
+                    a.principal_kind IN ('firebase', 'oidc')
                     OR a.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k
@@ -745,7 +932,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             if (
               !row ||
               !bootstrapGrantIsCurrent(config, row) ||
-              !(await firebaseGrantIsCurrent(tx, config, row)) ||
+              !(await identityGrantIsCurrent(tx, config, row)) ||
               !safeEqualText(pkceChallenge(verifier), row.code_challenge)
             ) {
               throw new OAuthError('invalid_grant', 'authorization code is invalid, expired or already used')
@@ -783,7 +970,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
                 WHERE r.token_hash = $1 AND r.client_id = $2
                   AND c.revoked_at IS NULL
                   AND (
-                    r.principal_kind = 'firebase'
+                    r.principal_kind IN ('firebase', 'oidc')
                     OR r.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k
@@ -796,7 +983,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               [hashApiKey(refreshToken, config.keyPepper), clientId],
             )
             const row = rows[0]
-            if (!row || !bootstrapGrantIsCurrent(config, row) || !(await firebaseGrantIsCurrent(tx, config, row))) {
+            if (!row || !bootstrapGrantIsCurrent(config, row) || !(await identityGrantIsCurrent(tx, config, row))) {
               throw new OAuthError('invalid_grant', 'refresh token is invalid, expired or already used')
             }
             const now = new Date()

@@ -13,6 +13,8 @@ import {
   visibleTools,
   withManualAgentMeta,
   zIngestToolInput,
+  zProposalsToolInput,
+  zReviewProposalToolInput,
   zProposeToolInput,
   zSourcesToolInput,
   type Principal,
@@ -28,6 +30,7 @@ const READ_TOOLS = [
   'wikikit_lint',
 ]
 const PROPOSE_TOOLS = ['wikikit_ingest', 'wikikit_ingest_status', 'wikikit_propose']
+const REVIEW_TOOLS = ['wikikit_proposals', 'wikikit_review_proposal']
 
 function principal(overrides: Partial<Principal> = {}): Principal {
   return { keyId: 'key-1', scopes: ['*'], spaceId: null, name: 'test', ...overrides }
@@ -73,9 +76,9 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
 }
 
 describe('tool palette shape (binding contract §7.1)', () => {
-  test('exactly the nine contracted tools — and NO approve tool', () => {
-    expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...READ_TOOLS, ...PROPOSE_TOOLS].sort())
-    expect(TOOLS.some((tool) => tool.name.includes('approve') || tool.name.includes('reject'))).toBe(false)
+  test('exactly the eleven contracted tools — review is explicitly scoped', () => {
+    expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...READ_TOOLS, ...PROPOSE_TOOLS, ...REVIEW_TOOLS].sort())
+    expect(TOOLS.some((tool) => tool.name === 'wikikit_review_proposal')).toBe(true)
   })
 
   test('all four annotations are explicit on every tool', () => {
@@ -112,6 +115,13 @@ describe('tool palette shape (binding contract §7.1)', () => {
       idempotentHint: true,
       openWorldHint: false,
     })
+    expect(byName.wikikit_proposals).toEqual(read)
+    expect(byName.wikikit_review_proposal).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
   })
 })
 
@@ -124,19 +134,25 @@ describe('scope-gated visibility', () => {
     expect(visibleTools(['knowledge:propose']).map((tool) => tool.name)).toEqual(PROPOSE_TOOLS)
   })
 
-  test('read+propose, admin and * each see the full palette; approve alone sees nothing', () => {
+  test('review tools require knowledge:approve; admin and * see the full palette', () => {
     expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(9)
-    expect(visibleTools(['admin'])).toHaveLength(9) // admin implies knowledge scopes (§5.2)
-    expect(visibleTools(['*'])).toHaveLength(9)
-    expect(visibleTools(['knowledge:approve'])).toHaveLength(0) // approval is REST-only
+    expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
+    expect(visibleTools(['admin'])).toHaveLength(11) // admin implies knowledge scopes (§5.2)
+    expect(visibleTools(['*'])).toHaveLength(11)
     expect(visibleTools([])).toHaveLength(0)
   })
 
   test('holdsScope semantics', () => {
     expect(holdsScope(['knowledge:read'], 'knowledge:read')).toBe(true)
     expect(holdsScope(['knowledge:read'], 'knowledge:propose')).toBe(false)
+    expect(holdsScope(['knowledge:approve'], 'knowledge:approve')).toBe(true)
     expect(holdsScope(['admin'], 'knowledge:propose')).toBe(true)
     expect(holdsScope(['*'], 'knowledge:read')).toBe(true)
+  })
+
+  test('review input rejects a decision without a valid proposal id', () => {
+    expect(() => zProposalsToolInput.parse({ space: 'main', proposal_id: 'not-a-uuid' })).toThrow()
+    expect(() => zReviewProposalToolInput.parse({ proposal_id: 'not-a-uuid', decision: 'approve' })).toThrow()
   })
 
   test('manifest entries carry name, description, draft-7 schema and annotations', () => {

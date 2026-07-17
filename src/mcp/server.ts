@@ -153,7 +153,7 @@ const INSTRUCTIONS = `WikiKit is a curated knowledge base: sources are archived 
 
 Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. These never invent — if the answer is not in the base, say so rather than filling the gap.
 
-Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. There is deliberately NO approve tool — a human approves over REST. Do not tell the user their change is live; tell them it is proposed.
+Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:approve can use wikikit_proposals to inspect the full diff, then wikikit_review_proposal to explicitly approve or reject it. The review tool is an irreversible confirmed write: never call it without a human’s explicit decision. Do not tell the user their change is live until approval succeeds.
 
 Only the tools your API key's scopes allow are listed. Read the "wikikit://docs/llms.txt" resource for the full API and data model.`
 
