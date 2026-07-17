@@ -50,6 +50,11 @@ export interface AnswerInput {
   evidence: AnswerEvidence[]
 }
 
+export interface DistillInput {
+  /** Raw coding-agent session transcript (already tail-capped by the caller). */
+  transcript: string
+}
+
 /** Input for the optional Haiku contradiction adjudication (adjudicate.v1, cuttable). */
 export interface AdjudicateInput {
   subject: string
@@ -117,6 +122,28 @@ export const zAnswerOutput = z.object({
   not_in_knowledge_base: z.boolean(),
 })
 export type AnswerOutput = z.infer<typeof zAnswerOutput>
+
+// Session distillation: a coding-agent transcript in, durable rules out.
+//
+// WHY an empty array is the EXPECTED answer: most sessions teach nothing that
+// outlives them ("fix this typo"). Distillation is a filter first and an
+// extractor second — capturing routine sessions would fill the review queue
+// with noise a human then has to reject by hand, which kills the whole loop.
+// `quote` is verbatim from the transcript for the same reason claims carry
+// one: it is the evidence a reviewer checks the rule against, and the ingest
+// pipeline's grounding guard drops any claim whose quote it cannot find.
+export const zDistillOutput = z.object({
+  learnings: z
+    .array(
+      z.object({
+        title: z.string().min(1).max(200),
+        rule: z.string().min(1),
+        quote: z.string().min(1),
+      }),
+    )
+    .default([]),
+})
+export type DistillOutput = z.infer<typeof zDistillOutput>
 
 // Adjudication verdicts (deterministic exact-frame matcher finds the pair; the
 // model only classifies WHY the objects differ):

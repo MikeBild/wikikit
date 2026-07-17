@@ -35,10 +35,19 @@ Only the latest release receives security fixes.
 - **Webhook targets are operator-configured (admin scope) and SSRF-guarded:**
   in production, deliveries to private/loopback addresses are refused unless
   `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` is explicitly enabled.
-- **LLM boundary:** source material is sent to the configured Anthropic
-  models during ingest/query. Do not ingest content you may not share with
-  your model provider; run without `ANTHROPIC_API_KEY` for a fully LLM-free
-  deployment.
+- **LLM boundary:** source material is sent to the configured model provider
+  (`WIKIKIT_LLM_PROVIDER`: Anthropic, OpenAI or Google) during ingest and
+  query. Do not ingest content you may not share with that provider. Leaving
+  the provider's API key unset gives a fully LLM-free deployment — search,
+  read, history, lint, export and review all keep working.
+- **Session capture sends transcripts:** `POST /v1/spaces/{space}/agent/sessions`
+  (the SessionEnd hook in `docs/coding-agent-integration.md`) sends the **whole
+  coding-agent transcript** to the model provider for distillation. A transcript
+  can contain far more than you intend — pasted credentials, customer data,
+  scratch thinking. WikiKit never archives it (only the distilled rules are
+  persisted, and only after human approval), but the provider does see it. Treat
+  enabling that hook as a deliberate decision, not a default: it is opt-in, and
+  a deployment that never calls the route never sends anything.
 
 ## Hardening notes for operators
 

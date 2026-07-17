@@ -11,8 +11,15 @@ import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
 import * as classifyV1 from '../../src/llm/prompts/classify.v1.ts'
 import * as synthesizeV1 from '../../src/llm/prompts/synthesize.v1.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
+import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
-import type { AdjudicateInput, AnswerInput, ClassifyInput, SynthesizeInput } from '../../src/llm/schemas.ts'
+import type {
+  AdjudicateInput,
+  AnswerInput,
+  ClassifyInput,
+  DistillInput,
+  SynthesizeInput,
+} from '../../src/llm/schemas.ts'
 
 // Fixed inputs — deliberately exercising every branch of each render():
 // null titles, empty vs populated lists, null quotes/markdown.
@@ -75,6 +82,10 @@ const answerInput: AnswerInput = {
 
 const answerInputNoEvidence: AnswerInput = { question: 'What is the meaning of life?', evidence: [] }
 
+const distillInput: DistillInput = {
+  transcript: 'human: no — always let CI deploy, never by hand\nassistant: understood, updating the runbook',
+}
+
 const adjudicateInput: AdjudicateInput = {
   subject: 'open-knowledge-format',
   predicate: 'has_status',
@@ -87,6 +98,7 @@ describe('prompt version constants', () => {
     expect(PROMPT_VERSIONS.classify).toBe(classifyV1.version)
     expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV1.version)
     expect(PROMPT_VERSIONS.answer).toBe(answerV1.version)
+    expect(PROMPT_VERSIONS.distill).toBe(distillV1.version)
     expect(PROMPT_VERSIONS.adjudicate).toBe(adjudicateV1.version)
   })
 
@@ -129,6 +141,13 @@ describe('golden snapshots', () => {
   })
   test('answer.v1 render with empty evidence', () => {
     expect(answerV1.render(answerInputNoEvidence)).toMatchSnapshot()
+  })
+
+  test('distill.v1 system prompt', () => {
+    expect(distillV1.system).toMatchSnapshot()
+  })
+  test('distill.v1 render', () => {
+    expect(distillV1.render(distillInput)).toMatchSnapshot()
   })
 
   test('adjudicate.v1 system prompt', () => {

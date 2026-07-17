@@ -75,6 +75,25 @@ describe('aisdk provider', () => {
     expect(lastArgs).toBeUndefined()
   })
 
+  // Regression: the 503 used to name ANTHROPIC_API_KEY whatever the provider
+  // was, sending openai/google operators to set a variable that gates nothing.
+  test('the not-configured 503 names the SELECTED provider key', async () => {
+    for (const [provider, keyEnv] of [
+      ['openai', 'OPENAI_API_KEY'],
+      ['google', 'GOOGLE_GENERATIVE_AI_API_KEY'],
+      ['anthropic', 'ANTHROPIC_API_KEY'],
+    ] as const) {
+      const llm = createLlmProvider(
+        makeConfig({ llmProvider: provider, llmApiKeyEnv: keyEnv, llmApiKey: '', llmConfigured: false }),
+      )
+      expect(llm.apiKeyEnv).toBe(keyEnv)
+      const err = (await llm.classify(classifyInput).catch((e: unknown) => e)) as LlmNotConfiguredError
+      expect(err).toBeInstanceOf(LlmNotConfiguredError)
+      expect(err.message).toContain(keyEnv)
+      expect(err.next_best_actions.join(' ')).toContain(keyEnv)
+    }
+  })
+
   test('classify (anthropic): system prompt is a cache-controlled leading user part', async () => {
     nextResult = okResult({ affected: ['open-knowledge-format'], new: [] })
     const provider = createLlmProvider(makeConfig())

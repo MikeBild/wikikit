@@ -325,8 +325,8 @@ export const TOOLS: McpToolDef[] = [
       // Fail fast BEFORE queueing: a keyless deployment would otherwise accept
       // the job and fail it asynchronously — a worse loop for the agent than
       // one terminal llm_not_configured envelope (zero-config principle: the
-      // read tools keep working without ANTHROPIC_API_KEY).
-      if (!deps.config.llmConfigured) throw new LlmNotConfiguredError()
+      // read tools keep working without an LLM key).
+      if (!deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
       const space = await resolveSpace(deps.db, principal, args.space)
       const { space: _space, ...request } = args
       const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, request)

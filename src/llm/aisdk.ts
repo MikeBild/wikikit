@@ -42,14 +42,18 @@ import { PROMPT_VERSIONS } from './prompts/index.ts'
 import * as classifyV1 from './prompts/classify.v1.ts'
 import * as synthesizeV1 from './prompts/synthesize.v1.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
+import * as distillV1 from './prompts/distill.v1.ts'
 import {
   zAnswerOutput,
   zClassifyOutput,
+  zDistillOutput,
   zSynthesizeOutput,
   type AnswerInput,
   type AnswerOutput,
   type ClassifyInput,
   type ClassifyOutput,
+  type DistillInput,
+  type DistillOutput,
   type SynthesizeInput,
   type SynthesizeOutput,
 } from './schemas.ts'
@@ -57,7 +61,7 @@ import type { z } from 'zod'
 
 // Output ceilings per call kind (maxOutputTokens): classify emits tiny JSON;
 // synthesis carries a full page body; answers are a few paragraphs.
-const MAX_TOKENS = { classify: 2048, synthesize: 32_000, answer: 8192 } as const
+const MAX_TOKENS = { classify: 2048, synthesize: 32_000, answer: 8192, distill: 4096 } as const
 
 interface PromptModule<I> {
   system: string
@@ -94,7 +98,7 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
   let resolved: ResolvedProvider | undefined
 
   function provider(): ResolvedProvider {
-    if (!config.llmConfigured) throw new LlmNotConfiguredError()
+    if (!config.llmConfigured) throw new LlmNotConfiguredError(config.llmApiKeyEnv)
     return (resolved ??= resolveProvider(config))
   }
 
@@ -144,7 +148,7 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
   }
 
   async function call<I, T>(args: {
-    kind: 'classify' | 'synthesize' | 'answer'
+    kind: 'classify' | 'synthesize' | 'answer' | 'distill'
     model: string
     promptVersion: string
     prompt: PromptModule<I>
@@ -208,6 +212,9 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
     get configured() {
       return config.llmConfigured
     },
+    get apiKeyEnv() {
+      return config.llmApiKeyEnv
+    },
     classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>> {
       return call({
         kind: 'classify',
@@ -236,6 +243,18 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
         prompt: answerV1,
         input,
         schema: zAnswerOutput,
+      })
+    },
+    distill(input: DistillInput): Promise<LlmResult<DistillOutput>> {
+      return call({
+        // Filter-shaped like classify, so it rides the same cheap model: it
+        // runs after EVERY captured session and usually returns nothing.
+        kind: 'distill',
+        model: config.modelClassify,
+        promptVersion: PROMPT_VERSIONS.distill,
+        prompt: distillV1,
+        input,
+        schema: zDistillOutput,
       })
     },
   }

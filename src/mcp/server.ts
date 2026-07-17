@@ -32,12 +32,15 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import {
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  ReadResourceRequestSchema,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { Config } from '../config.ts'
 import { DomainError, UnauthorizedError } from '../domain/errors.ts'
 import type { Auth } from '../http/auth.ts'
+import { readDocsFile } from '../http/docs-embedded.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { toToolError } from './error-adapter.ts'
@@ -140,17 +143,73 @@ function newRequestId(): string {
 }
 
 /**
+ * Server-level usage hints, returned by `initialize`. This is the one place an
+ * MCP client learns the SHAPE of the workflow before calling anything — the
+ * tool descriptions can only speak for one tool each, and a pure-MCP agent
+ * cannot reach the REST docs. Deliberately short: the detail lives in the
+ * `docs` resources below.
+ */
+const INSTRUCTIONS = `WikiKit is a curated knowledge base: sources are archived verbatim, an LLM synthesizes concept pages whose every claim carries a verbatim quote from a source, and nothing becomes visible knowledge without human approval.
+
+Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. These never invent — if the answer is not in the base, say so rather than filling the gap.
+
+Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. There is deliberately NO approve tool — a human approves over REST. Do not tell the user their change is live; tell them it is proposed.
+
+Only the tools your API key's scopes allow are listed. Read the "wikikit://docs/llms.txt" resource for the full API and data model.`
+
+/** Documentation exposed to MCP clients — the same files the REST surface serves. */
+const DOC_RESOURCES = [
+  {
+    uri: 'wikikit://docs/llms.txt',
+    name: 'WikiKit documentation index',
+    description: 'Index of the WikiKit docs: endpoints, MCP tools, auth, and what to read next.',
+    file: 'llms.txt',
+  },
+  {
+    uri: 'wikikit://docs/llms-full.txt',
+    name: 'WikiKit full documentation',
+    description: 'Complete API and data-model documentation in one file: endpoints, schemas, errors, config.',
+    file: 'llms-full.txt',
+  },
+] as const
+
+/**
  * One SDK Server per session, closing over the principal. tools/list is
  * scope-FILTERED (visibility gating): a knowledge:read key does not see the
  * write tools at all, and calling an invisible tool is indistinguishable from
  * calling a nonexistent one (no scope oracle).
+ *
+ * Resources carry the documentation: WikiKit embeds its own docs (the binary is
+ * self-contained), but they used to be reachable only over HTTP GET — a
+ * pure-MCP client saw the tool list and nothing else. The docs are public
+ * anyway (`GET /llms.txt` needs no auth), so they are not scope-gated here.
  */
 export function createSessionServer(config: Config, deps: McpDeps, principal: Principal): Server {
-  const server = new Server({ name: 'wikikit', version: config.version }, { capabilities: { tools: {} } })
+  const server = new Server(
+    { name: 'wikikit', version: config.version },
+    { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS },
+  )
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: buildToolManifest(principal.scopes),
   }))
+
+  server.setRequestHandler(ListResourcesRequestSchema, () => ({
+    resources: DOC_RESOURCES.filter((resource) => readDocsFile(config, resource.file) !== null).map(
+      ({ uri, name, description }) => ({ uri, name, description, mimeType: 'text/plain' }),
+    ),
+  }))
+
+  server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+    const resource = DOC_RESOURCES.find((candidate) => candidate.uri === request.params.uri)
+    const text = resource ? readDocsFile(config, resource.file) : null
+    if (!text) {
+      throw new DomainError('not_found', `unknown resource: ${request.params.uri}`, 404, {
+        nextBestActions: ['call resources/list to see the documentation this server exposes'],
+      })
+    }
+    return { contents: [{ uri: resource!.uri, mimeType: 'text/plain', text }] }
+  })
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestId = newRequestId()

@@ -11,6 +11,7 @@ export const PROMPT_VERSIONS = {
   classify: 'classify.v1',
   synthesize: 'synthesize.v1',
   answer: 'answer.v1',
+  distill: 'distill.v1', // coding-agent session transcript → durable rules
   adjudicate: 'adjudicate.v1', // optional Haiku contradiction adjudication (cuttable)
 } as const
 
@@ -19,4 +20,5 @@ export type PromptKind = keyof typeof PROMPT_VERSIONS
 export * as classifyV1 from './classify.v1.ts'
 export * as synthesizeV1 from './synthesize.v1.ts'
 export * as answerV1 from './answer.v1.ts'
+export * as distillV1 from './distill.v1.ts'
 export * as adjudicateV1 from './adjudicate.v1.ts'

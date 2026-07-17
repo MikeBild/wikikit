@@ -17,17 +17,20 @@ import { PROMPT_VERSIONS } from './prompts/index.ts'
 import * as classifyV1 from './prompts/classify.v1.ts'
 import * as synthesizeV1 from './prompts/synthesize.v1.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
+import * as distillV1 from './prompts/distill.v1.ts'
 import type {
   AnswerInput,
   AnswerOutput,
   ClassifyInput,
   ClassifyOutput,
+  DistillInput,
+  DistillOutput,
   SynthesizeInput,
   SynthesizeOutput,
 } from './schemas.ts'
 
 export interface FakeCall {
-  method: 'classify' | 'synthesize' | 'answer'
+  method: 'classify' | 'synthesize' | 'answer' | 'distill'
   input: unknown
 }
 
@@ -60,6 +63,7 @@ export function createFakeProvider(overrides?: {
   classify?: (input: ClassifyInput) => ClassifyOutput
   synthesize?: (input: SynthesizeInput) => SynthesizeOutput
   answer?: (input: AnswerInput) => AnswerOutput
+  distill?: (input: DistillInput) => DistillOutput
 }): FakeProvider {
   const calls: FakeCall[] = []
 
@@ -75,6 +79,9 @@ export function createFakeProvider(overrides?: {
 
   return {
     configured: true,
+    // Never surfaces (configured is always true) — present to satisfy the
+    // interface and to keep a 503 assertion readable if a test forces one.
+    apiKeyEnv: 'ANTHROPIC_API_KEY',
     calls,
 
     async classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>> {
@@ -143,6 +150,18 @@ export function createFakeProvider(overrides?: {
               not_in_knowledge_base: false,
             } satisfies AnswerOutput))
       return { output, run: run(PROMPT_VERSIONS.answer, answerV1.system, answerV1.render(input)) }
+    },
+
+    async distill(input: DistillInput): Promise<LlmResult<DistillOutput>> {
+      calls.push({ method: 'distill', input })
+      const output =
+        overrides?.distill?.(input) ??
+        // Default: nothing — the honest default, since that is what a routine
+        // session yields. Tests that want a learning pass an override, which
+        // also keeps the "empty means no proposal" path the one you get for
+        // free.
+        ({ learnings: [] } satisfies DistillOutput)
+      return { output, run: run(PROMPT_VERSIONS.distill, distillV1.system, distillV1.render(input)) }
     },
   }
 }

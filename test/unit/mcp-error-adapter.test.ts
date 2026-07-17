@@ -30,7 +30,7 @@ describe('toToolError', () => {
     for (const err of [
       new NotFoundError('concept x not found'),
       new ForbiddenError(),
-      new LlmNotConfiguredError(),
+      new LlmNotConfiguredError('ANTHROPIC_API_KEY'),
       new Error('boom'),
       'a bare string',
     ]) {

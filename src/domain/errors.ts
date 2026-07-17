@@ -89,12 +89,20 @@ export class RateLimitError extends DomainError {
   }
 }
 
-/** 503 llm_not_configured — LLM-free features keep working without a key. */
+/**
+ * 503 llm_not_configured — LLM-free features keep working without a key.
+ * `keyEnv` is the key of the SELECTED provider (config.llmApiKeyEnv /
+ * LlmProvider.apiKeyEnv): naming ANTHROPIC_API_KEY on an openai deployment
+ * would send the operator to fix a variable that does not gate anything.
+ */
 export class LlmNotConfiguredError extends DomainError {
-  constructor(message = 'no ANTHROPIC_API_KEY configured — LLM features are disabled') {
+  constructor(
+    readonly keyEnv: string,
+    message = `no ${keyEnv} configured — LLM features are disabled`,
+  ) {
     super('llm_not_configured', message, 503, {
       nextBestActions: [
-        'set ANTHROPIC_API_KEY and restart',
+        `set ${keyEnv} and restart`,
         'use the LLM-free endpoints (search, read, lint, export) meanwhile',
       ],
     })

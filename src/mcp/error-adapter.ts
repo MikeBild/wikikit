@@ -35,7 +35,12 @@ const DEFAULT_ACTIONS: Record<string, string[]> = {
   ],
   proposal_not_pending: ['fetch the proposal via REST GET /v1/proposals/{id} to see its terminal status'],
   stale_base: ['re-ingest the source so it is synthesized against the current revision'],
-  llm_not_configured: ['set ANTHROPIC_API_KEY and restart', 'use the LLM-free tools (search, read, lint) meanwhile'],
+  // Fallback only: LlmNotConfiguredError carries actions naming its own
+  // provider key, so this fires only for a code-shaped error thrown elsewhere.
+  llm_not_configured: [
+    'set the API key for the configured provider (WIKIKIT_LLM_PROVIDER) and restart',
+    'use the LLM-free tools (search, read, lint) meanwhile',
+  ],
   internal_error: ['do not retry immediately', 'report the request_id to the operator'],
 }
 

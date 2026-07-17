@@ -400,6 +400,7 @@ function testConfig(): Config {
     bootstrapApiKey: BOOTSTRAP,
     llmProvider: 'anthropic' as const,
     llmApiKey: '',
+    llmApiKeyEnv: 'ANTHROPIC_API_KEY',
     anthropicBaseUrl: '',
     modelSynthesis: 'claude-sonnet-5',
     modelClassify: 'claude-haiku-4-5',
@@ -467,6 +468,15 @@ const CASES: RouteCase[] = [
     url: '/v1/spaces/demo/ingest/document?filename=notes.txt',
     status: 202,
     rawBody: new TextEncoder().encode('A brand-new document, never seen before.'),
+  },
+  {
+    // FakeProvider.distill returns no learnings — the routine-session shape,
+    // and the one that answers without touching the ingest pipeline.
+    template: '/v1/spaces/{space}/agent/sessions',
+    method: 'post',
+    url: '/v1/spaces/demo/agent/sessions',
+    status: 200,
+    body: { transcript: 'human: fix the typo\nassistant: done' },
   },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
   { template: '/v1/spaces/{space}/sources', method: 'get', url: '/v1/spaces/demo/sources', status: 200 },

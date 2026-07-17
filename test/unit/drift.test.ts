@@ -108,6 +108,9 @@ describe('drift', () => {
     // dotenv plumbing, not config surface — deliberately unmatched.
     for (const match of source.matchAll(/\b(?:str|integer|bool)\(\s*'([A-Z][A-Z0-9_]*)'/g)) envs.add(match[1]!)
     for (const match of source.matchAll(/process\.env\.([A-Z][A-Z0-9_]*)/g)) envs.add(match[1]!)
+    // Test-harness internals, not a knob anyone configures — documenting it
+    // would only add noise to the operator table.
+    envs.delete('WIKIKIT_SKIP_DOTENV')
 
     expect(envs.size, `expected the full env set from config.ts, parsed only ${envs.size}`).toBeGreaterThanOrEqual(20)
     expect(envs.has('WIKIKIT_KEY_PEPPER')).toBe(true)

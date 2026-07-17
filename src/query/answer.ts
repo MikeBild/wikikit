@@ -60,7 +60,7 @@ export async function answerQuestion(
   args: AnswerArgs,
 ): Promise<QueryAnswer> {
   const input = zAnswerArgs.parse(args)
-  if (!llm.configured) throw new LlmNotConfiguredError()
+  if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
 
   // Retrieval: the question itself is the FTS query (websearch syntax is
   // forgiving of natural language). Claim hits and concept hits both resolve

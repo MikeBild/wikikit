@@ -52,9 +52,11 @@ function resolveEnvFile(name: string): string | undefined {
 
 function loadEnvironment(): void {
   const external = new Set(Object.keys(process.env))
-  // WIKIKIT_SKIP_DOTENV=1 ignores the on-disk .env overrides (not
-  // .env.defaults). Ops escape hatch for a stray .env, and what the config
-  // tests set so a developer's local .env cannot leak into env-sensitive cases.
+  // Test-harness internal, deliberately undocumented: the config tests delete
+  // the vars they drive out of process.env, and this stops the layering pass
+  // below from reading a developer's .env straight back in. NOT an ops switch —
+  // Bun auto-loads a neighbouring .env before we run (compiled binary too), so
+  // it cannot keep a stray file out anyway; remove the file for that.
   const skipDotEnv = process.env.WIKIKIT_SKIP_DOTENV === '1'
   const envPath = skipDotEnv ? undefined : resolveEnvFile('.env')
   const overrides = envPath ? readDotEnv(envPath) : {}
@@ -108,6 +110,8 @@ export interface Config {
   readonly llmProvider: 'anthropic' | 'openai' | 'google'
   /** API key for the selected provider (the ANTHROPIC/OPENAI/GOOGLE key). */
   readonly llmApiKey: string
+  /** Env var name holding the selected provider's key — so a 503 names the key the operator must actually set. */
+  readonly llmApiKeyEnv: string
   /** Anthropic API base override (test stubs/proxies); honored when provider=anthropic. */
   readonly anthropicBaseUrl: string
   readonly modelSynthesis: string
@@ -132,6 +136,21 @@ export interface Config {
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
 type LlmProviderName = (typeof LLM_PROVIDERS)[number]
+
+/**
+ * Which env var holds each provider's key. Exported because the 503
+ * llm_not_configured path must name the key for the SELECTED provider — a
+ * deployment on WIKIKIT_LLM_PROVIDER=openai told to "set ANTHROPIC_API_KEY"
+ * is being sent to fix the wrong thing.
+ *
+ * Kept in sync with the str() literals below by the docs-drift test — the
+ * literals must stay literal, they are what the test scans for.
+ */
+export const LLM_PROVIDER_KEY_ENV: Record<LlmProviderName, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+}
 
 export function loadConfig(): Config {
   loadEnvironment()
@@ -163,6 +182,7 @@ export function loadConfig(): Config {
     bootstrapApiKey: str('WIKIKIT_BOOTSTRAP_API_KEY'),
     llmProvider,
     llmApiKey,
+    llmApiKeyEnv: LLM_PROVIDER_KEY_ENV[llmProvider],
     // Surfaced so the AI SDK anthropic provider (and the e2e stub) can point at
     // a non-default base URL; honored only when provider=anthropic.
     anthropicBaseUrl: str('ANTHROPIC_BASE_URL').replace(/\/$/, ''),
@@ -189,7 +209,7 @@ export function loadConfig(): Config {
 
   // Production guards (principle: no boot without secrets). Only
   // the two hard secrets are enforced — everything else has a safe default,
-  // and ANTHROPIC_API_KEY is deliberately optional so LLM-free deployments
+  // and the provider API key is deliberately optional so LLM-free deployments
   // (search/read/lint/export) remain first-class.
   if (production) {
     const required: Record<string, string> = {

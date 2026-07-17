@@ -9,7 +9,10 @@ HTTP/REST and MCP — no CLI (ops flags only), no web UI.
 ## The knowledge lifecycle
 
 1. **Ingest** archives the source verbatim (`sha256` content hash = the
-   idempotency anchor; a hash hit answers `409 already_ingested`).
+   idempotency anchor; a hash hit answers `409 already_ingested`). Binary
+   documents (`POST .../ingest/document`: pdf, docx, xlsx, md, txt, csv — the
+   `?filename=` extension selects the extractor) are extracted to Markdown
+   first; from there the path is identical to any other source.
 2. **Classify** (one cheap LLM call) maps the source onto the existing concept
    index: which concepts are affected, which new ones are warranted.
 3. **Synthesize** (one LLM call per concept) produces a new revision —
@@ -20,14 +23,20 @@ HTTP/REST and MCP — no CLI (ops flags only), no web UI.
    recorded in the `wk_agent_runs` ledger, and
    `{model, prompt_version, input_hash, usage, source_ids}` is stamped into
    the `agent_meta` of every generated row.
-4. **Contradiction detection** is deterministic: same `(subject, predicate)`,
+4. **Grounding guard** is deterministic and runs before anything is staged: a
+   claim is kept only if its quote occurs verbatim (whitespace- and
+   case-normalized) in the source the model actually read. The schema forces a
+   non-empty quote but cannot force it to be _real_ — an invented or
+   paraphrased quote is an unverifiable citation, so it is dropped and logged
+   with a `dropped`/`kept` count rather than proposed.
+5. **Contradiction detection** is deterministic: same `(subject, predicate)`,
    different `object` → flagged in the proposal.
-5. **Propose**: one transaction inserts the revisions, claims, citations,
+6. **Propose**: one transaction inserts the revisions, claims, citations,
    relations, decisions and the ChangeProposal, plus an outbox event.
-6. **Review**: a human (or governed workflow) reads the structured diff
+7. **Review**: a human (or governed workflow) reads the structured diff
    (`GET /v1/proposals/{id}`, also as `text/markdown` via Accept) and calls
    approve or reject — a deliberate, separate act.
-7. **Apply** is a single SQL function (`wk_apply_proposal`): old revision →
+8. **Apply** is a single SQL function (`wk_apply_proposal`): old revision →
    `superseded`, proposed → `current`, pointer repointed, claims →
    `verified` (contradicting pairs → both `disputed` + a `contradicts`
    relation), relations/decisions activated, space epoch bumped, webhooks
@@ -77,21 +86,22 @@ pass `space.id` down — every space-scoped SQL query filters by `space_id`.
 
 ## Module map (`src/`)
 
-| Module           | Responsibility                                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| `config.ts`      | Env loader (`WIKIKIT_*`), precedence env > `.env` > `.env.defaults`, production guards                          |
-| `app.ts`         | Composition root: `createApp(config, deps)` wires db → llm → pipeline → workers → http                          |
-| `db/postgres.ts` | Safe query layer: `wk_` table allowlist, SQL-function whitelist (`db.call`), `db.tx`, outbox `emitEvent`        |
-| `db/migrate.ts`  | Self-migration under a PG advisory lock; SQL files embedded via codegen (`embedded.ts`, drift-tested)           |
-| `domain/`        | Transport-agnostic knowledge logic — consumed identically by REST and MCP                                       |
-| `ingest/`        | The product core: acquire → archive → dedup → classify → synthesize → detect → propose                          |
-| `llm/`           | 3-method provider interface (`classify`/`synthesize`/`answer`), Anthropic impl, FakeProvider, versioned prompts |
-| `query/`         | `search.ts` (LLM-free FTS) and `answer.ts` (grounded Q&A with citations)                                        |
-| `export/`        | Markdown tree + OKF bundle adapters behind one `BundleFormatAdapter`; import stages ONE proposal                |
-| `http/`          | `routes.ts` (ROUTES registry + handlers), `openapi.ts`, `auth.ts`, `jobs.ts`, `server.ts`, `schemas.ts`         |
-| `mcp/`           | Streamable HTTP server, session leases, tool palette, draft-07 schema conversion, error adapter                 |
-| `webhooks.ts`    | Standard-Webhooks outbox worker: backoff, circuit breaker, `v1,<HMAC>` signatures                               |
-| `markdown.ts`    | unified/remark frontmatter pipeline (parse/serialize, HTML→Markdown normalization)                              |
+| Module           | Responsibility                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `config.ts`      | Env loader (`WIKIKIT_*`), precedence env > `.env` > `.env.defaults`, production guards                           |
+| `app.ts`         | Composition root: `createApp(config, deps)` wires db → llm → pipeline → workers → http                           |
+| `db/postgres.ts` | Safe query layer: `wk_` table allowlist, SQL-function whitelist (`db.call`), `db.tx`, outbox `emitEvent`         |
+| `db/migrate.ts`  | Self-migration under a PG advisory lock; SQL files embedded via codegen (`embedded.ts`, drift-tested)            |
+| `domain/`        | Transport-agnostic knowledge logic — consumed identically by REST and MCP                                        |
+| `ingest/`        | The product core: acquire → archive → dedup → classify → synthesize → detect → propose                           |
+| `llm/`           | Provider interface (`classify`/`synthesize`/`answer`/`distill`), AI SDK impl (`aisdk.ts`), FakeProvider, prompts |
+| `agent/`         | `sessions.ts`: distil a coding-agent transcript into the rules a human taught, then stage them (usually nothing) |
+| `query/`         | `search.ts` (LLM-free FTS) and `answer.ts` (grounded Q&A with citations)                                         |
+| `export/`        | Markdown tree + OKF bundle adapters behind one `BundleFormatAdapter`; import stages ONE proposal                 |
+| `http/`          | `routes.ts` (ROUTES registry + handlers), `openapi.ts`, `auth.ts`, `jobs.ts`, `server.ts`, `schemas.ts`          |
+| `mcp/`           | Streamable HTTP server, session leases, tool palette, draft-07 schema conversion, error adapter                  |
+| `webhooks.ts`    | Standard-Webhooks outbox worker: backoff, circuit breaker, `v1,<HMAC>` signatures                                |
+| `markdown.ts`    | unified/remark frontmatter pipeline (parse/serialize, HTML→Markdown normalization)                               |
 
 ## One registry, many surfaces
 
@@ -103,11 +113,40 @@ array, so the spec cannot drift from the implementation. Entries reference
 handlers and zod schemas **by name**, which keeps the registry introspectable
 without executing handlers.
 
-Drift detection (CI gates): route handlers ↔ ROUTES set-equality; the endpoint
-lists in `docs/llms.txt` / `docs/llms-full.txt` ↔ ROUTES; every `WIKIKIT_*`
-env var in `src/config.ts` documented in `docs/CONFIGURATION.md` **and**
-`docs/llms-full.txt`; the MCP tool list ↔ `docs/llms-full.txt`; the committed
-`docs/openapi.json` ↔ `buildOpenApi()`; `embedded.ts` ↔ `migrations/*.sql`.
+Drift detection (CI gates, `test/unit/docs-drift.test.ts`): route handlers ↔
+ROUTES set-equality; the endpoint lists in `docs/llms.txt` /
+`docs/llms-full.txt` ↔ ROUTES; every env var `src/config.ts` reads documented
+in `docs/CONFIGURATION.md`, `docs/llms-full.txt` **and** `docs/CONTRACTS.md`
+§10, and present in `.env.example` + `.env.defaults`; the MCP tool list ↔
+`docs/llms-full.txt`, `README.md` and `CHANGELOG.md`; a `CHANGELOG.md` section
+for the `package.json` version; the committed `docs/openapi.json` ↔
+`buildOpenApi()`; `embedded.ts` ↔ `migrations/*.sql`.
+
+The rule these encode: **a doc that CI does not check will drift.** Everything
+gated here stayed accurate across releases; the README, CHANGELOG, env
+templates and CONTRACTS §10 drifted for three releases precisely because they
+were not — which is why they are gated now.
+
+## Test tiers
+
+Each tier exists because the one below it is structurally blind to a class of
+bug. `scripts/gate.ts` (`bun run gate`, and the `pre-push` hook) runs all of
+them in this order; CI runs the same list.
+
+| Tier               | Substitutes                           | The bug class only it sees                                                                 |
+| ------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `test/unit`        | everything (FakeProvider, no I/O)     | Logic, plus the drift gates that keep docs and env templates true                          |
+| `test/contract`    | nothing — pins committed snapshots    | Silent breaks in what foreign systems consume (OpenAPI, MCP manifest, webhooks, OKF)       |
+| `test/integration` | the LLM (FakeProvider); real Postgres | SQL, CHECK constraints, migrations, transactions, dedup indexes                            |
+| `test/e2e`         | only the vendor's HTTP endpoint       | The SDK edge: request shape, `cache_control` placement, usage mapping, stop-reason mapping |
+| `benchmarks/`      | nothing — reports, never gates        | (none; the cost regression that _does_ gate is `test/unit/prompt-budget.test.ts`)          |
+
+The load-bearing distinction is integration ↔ e2e. Integration injects
+`FakeProvider`, which replaces the provider **object** — so `ai` +
+`@ai-sdk/anthropic` never execute. E2E replaces the vendor's **endpoint**
+instead (`config.anthropicBaseUrl` → `test/e2e/llm-stub.ts`), leaving the real
+SDK path intact. Prompt caching lives entirely in that gap: lose it and the
+input-token bill multiplies while every other suite stays green.
 
 ## MCP server
 
@@ -122,6 +161,13 @@ validates with, converted to draft-07 JSON Schema with
 `additionalProperties: false`; all four annotations are explicit on every
 tool. Scope-gating is tool _visibility_ — and there is intentionally no
 approve tool: agents stage, humans promote.
+
+The server also describes itself: `initialize` carries `instructions`, and a
+`resources` capability serves `wikikit://docs/llms.txt` and
+`wikikit://docs/llms-full.txt` through the same `readDocsFile` the REST docs
+routes use — one embedded source, two transports. An MCP-only client has no
+way to issue `GET /llms.txt`, so without this the documentation written for
+agents would be reachable only by humans.
 
 ## Database access discipline
 

@@ -15,6 +15,7 @@
 // space id only exists after the slug is resolved, and the check must use it
 // (a space-scoped key touching a foreign space is 403, §5.4).
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { captureSession } from '../agent/sessions.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
@@ -43,9 +44,7 @@ import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } 
 import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
-import { readFileSync } from 'node:fs'
-import { EMBEDDED_DOCS } from './docs-embedded.ts'
-import { join } from 'node:path'
+import { readDocsFile } from './docs-embedded.ts'
 
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
 
@@ -107,6 +106,22 @@ export const ROUTES: RouteDef[] = [
         schema: 'zErrorEnvelope',
         type: 'application/json',
         desc: 'already_ingested (envelope carries source_id)',
+      },
+      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/spaces/{space}/agent/sessions',
+    scope: 'knowledge:propose',
+    summary: 'Capture a coding-agent session: distil the rules a human taught; usually nothing, else one proposal',
+    handler: 'captureSessionHandler',
+    request: { params: 'zSpaceParams', body: 'zCaptureSessionRequest' },
+    responses: {
+      200: {
+        schema: 'zCaptureSessionResponse',
+        type: 'application/json',
+        desc: 'no_learnings (nothing durable taught) | queued (poll ingest_id) | already_captured',
       },
       503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
     },
@@ -520,30 +535,6 @@ function requireSpaceAccess(deps: HttpDeps, input: HandlerInput, scope: Scope, s
   deps.auth.requireScope(input.principal!, scope, spaceId)
 }
 
-// Docs are compile-time EMBEDDED (EMBEDDED_DOCS) so the single binary is fully
-// self-contained — no docs/ directory ships beside it. Dev prefers the on-disk
-// copy for live edits; the filesystem read fails in the compiled binary and the
-// embedded value (identical to docs/ at build time) is always used. Cached
-// after first read — release artifacts, not hot-reload content.
-const docsCache = new Map<string, string | null>()
-function readDocsFile(config: Config, name: string): string | null {
-  if (!docsCache.has(name)) {
-    let content: string | null = null
-    for (const dir of [join(config.root, 'docs'), join(process.cwd(), 'docs')]) {
-      try {
-        content = readFileSync(join(dir, name), 'utf8')
-        break
-      } catch {
-        // try next location
-      }
-    }
-    // Fallback to the embedded copy — the path the compiled binary always hits.
-    content ??= EMBEDDED_DOCS[name] ?? null
-    docsCache.set(name, content)
-  }
-  return docsCache.get(name) ?? null
-}
-
 /** The §1.14 stamp for human/agent-authored proposals. */
 const MANUAL_AGENT_META = { model: 'manual', prompt_version: 'manual' }
 
@@ -604,6 +595,15 @@ export const HANDLERS: Record<string, Handler> = {
       body: { ingest_id, status: 'queued' as const },
       headers: { location: `/v1/ingests/${ingest_id}` },
     }
+  },
+
+  async captureSessionHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    const result = await captureSession(deps.db, space.id, { llm: deps.llm, ingest: deps.ingest }, input.body as never)
+    // 200, not 202, even for `queued`: unlike ingest, the caller does not know
+    // whether there is anything to poll until we answer — the status field is
+    // the payload, and a SessionEnd hook must not have to branch on the code.
+    return { status: 200, body: result }
   },
 
   async getIngestHandler(deps, input) {

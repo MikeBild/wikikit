@@ -70,6 +70,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}`                          | knowledge:read    | Read a space (settings, epoch) |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
+| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status (queued\|running\|done\|failed) + proposal_id when done |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
@@ -280,7 +281,7 @@ actionable envelope — never a bare string:
 | `body_too_large` | 413 | body exceeds `WIKIKIT_MAX_BODY_BYTES` |
 | `rate_limited` | 429 | slow down |
 | `internal_error` | 500 | unexpected failure (message never leaks internals) |
-| `llm_not_configured` | 503 | set `ANTHROPIC_API_KEY` to enable ingest/query |
+| `llm_not_configured` | 503 | set the key for the configured `WIKIKIT_LLM_PROVIDER` to enable ingest/query (the error names it) |
 | `draining` | 503 | graceful shutdown in progress |
 
 ---
@@ -299,6 +300,20 @@ supported versions.
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose
 scope the key holds — a `knowledge:read` key sees only the read tools. There
 is deliberately **no approve tool**: agents stage, humans promote over REST.
+
+**Coding-agent loop** (`docs/coding-agent-integration.md`): a SessionStart hook
+injects the space's concept index + a grounding rule; a SessionEnd/Stop hook
+posts the transcript to `POST /v1/spaces/{space}/agent/sessions`, which distils
+ONLY durable rules a human explicitly taught and stages them as a proposal.
+A routine session answers `no_learnings` and writes nothing; the transcript is
+distilled and dropped, never archived.
+
+**Self-description**: `initialize` returns `instructions` (how the tools fit
+together; the staging-not-publishing rule), and the server advertises a
+`resources` capability. `resources/list` offers this documentation —
+`wikikit://docs/llms.txt` and `wikikit://docs/llms-full.txt` — readable via
+`resources/read`, so an MCP-only client never needs an HTTP GET to learn the
+API. Not scope-gated: the same files are public at `/llms.txt`.
 
 ### Tools
 
@@ -427,7 +442,7 @@ Invalid values fail the boot, not the request.
 | `GOOGLE_GENERATIVE_AI_API_KEY` | key for the `google` provider | (unset) |
 | `ANTHROPIC_BASE_URL` | Anthropic API base (test stubs); honored when provider is `anthropic` | (empty) |
 | `WIKIKIT_MODEL_SYNTHESIS` | synthesis model | `claude-sonnet-5` |
-| `WIKIKIT_MODEL_CLASSIFY` | classification model | `claude-haiku-4-5` |
+| `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation | `claude-haiku-4-5` |
 | `WIKIKIT_MODEL_ANSWER` | grounded-answer model | `claude-sonnet-5` |
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
 | `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
@@ -440,15 +455,16 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
 | `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
 | `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
-| `WIKIKIT_SKIP_DOTENV` | `1` ignores an on-disk `.env` (keeps `.env.defaults`) | (unset) |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 
 Zero-config principle: `./wikikit` with nothing configured boots a complete
 local stack — Docker Postgres is provisioned automatically, migrations run
 under an advisory lock, a default space is created, and a bootstrap key is
-printed once. Only `ANTHROPIC_API_KEY` has no default; without it every
-LLM-free feature still works. In production the behavior flips: no
+printed once. Only the provider API keys (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`) have no default, and only the
+one matching `WIKIKIT_LLM_PROVIDER` is read; without it every LLM-free feature
+still works. In production the behavior flips: no
 auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
 
 ---
@@ -469,6 +485,16 @@ deploy gates match **both** fields; 503 while draining). On SIGTERM/SIGINT the
 service fails `/ready`, stops the workers, drains in-flight requests, then
 exits 0. Logs are structured JSON on stdout with request ids; API keys are
 never logged.
+
+**Checks:** `bun run gate` runs everything CI runs (~60s, needs Docker) and
+installs as a `pre-push` hook via `bun run hooks:install`. Five tiers, each
+covering what the one below cannot: `test/unit` (logic + the drift gates that
+keep these docs true), `test/contract` (snapshots foreign systems consume),
+`test/integration` (real Postgres, FakeProvider), `test/e2e` (the REAL AI SDK
+against a stub Anthropic endpoint — the only tier that sees the vendor edge:
+request shape, `cache_control` placement, usage mapping), and `benchmarks/`
+(`bun run bench` — reports, never gates; the cost regression that does gate is
+`test/unit/prompt-budget.test.ts`).
 
 ---
 
@@ -502,7 +528,8 @@ becomes a citable source.
   pipeline is idempotent by design.
 - **409 stale_base on approve** — the concept changed since the proposal was
   created; re-ingest or re-propose against the current revision.
-- **503 llm_not_configured** — set `ANTHROPIC_API_KEY`; all LLM-free routes
+- **503 llm_not_configured** — set the key the error names (the one for the
+  configured `WIKIKIT_LLM_PROVIDER`); all LLM-free routes
   keep working meanwhile.
 - **Webhook endpoint stopped receiving** — check
   `GET .../webhooks/{id}/deliveries`; after repeated failures the circuit

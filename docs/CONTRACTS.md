@@ -304,7 +304,7 @@ CREATE INDEX wk_ingest_jobs_queue_idx ON wk_ingest_jobs (created_at) WHERE statu
 CREATE TABLE wk_agent_runs (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   space_id       uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
-  kind           text NOT NULL CHECK (kind IN ('classify','synthesize','answer','adjudicate')),
+  kind           text NOT NULL CHECK (kind IN ('classify','synthesize','answer','distill','adjudicate')),
   model          text NOT NULL,
   prompt_version text NOT NULL,                      -- §3.4 constants, e.g. 'synthesize.v1'
   input_hash     text NOT NULL,                      -- sha256 of the fully rendered prompt input
@@ -414,9 +414,9 @@ export function runMigrations(config: Config, logger: Logger): Promise<Migration
 
 ---
 
-## 3. LLM provider (`src/llm/provider.ts`, `src/llm/anthropic.ts`, `src/llm/fake.ts`)
+## 3. LLM provider (`src/llm/provider.ts`, `src/llm/aisdk.ts`, `src/llm/fake.ts`)
 
-### 3.1 Interface — exactly three methods
+### 3.1 Interface — exactly four methods
 
 ```ts
 export interface LlmUsage {
@@ -437,14 +437,18 @@ export interface LlmResult<T> {
 }
 
 export interface LlmProvider {
-  /** False when no ANTHROPIC_API_KEY — callers answer 503 llm_not_configured. FakeProvider: true. */
+  /** False when the selected provider's key is unset — callers answer 503 llm_not_configured. FakeProvider: true. */
   readonly configured: boolean
+  /** Env var holding the selected provider's key — the 503 names it. */
+  readonly apiKeyEnv: string
   /** Which existing concepts a source affects + which new concepts it warrants. Model: config.modelClassify. */
   classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>>
   /** One call per affected concept: new revision + claims + relations. Model: config.modelSynthesis. */
   synthesize(input: SynthesizeInput): Promise<LlmResult<SynthesizeOutput>>
   /** Grounded Q&A over retrieved evidence with inline citations. Model: config.modelAnswer. */
   answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>>
+  /** Session transcript → the durable rules a human taught. Empty is the expected result. Model: config.modelClassify. */
+  distill(input: DistillInput): Promise<LlmResult<DistillOutput>>
 }
 
 export function createLlmProvider(config: Config, deps?: { logger?: Logger }): LlmProvider
@@ -516,17 +520,25 @@ export interface AnswerOutput {
   cited_slugs: string[]
   not_in_knowledge_base: boolean
 }
+export interface DistillInput {
+  transcript: string // a coding-agent session, tail-capped by the caller
+}
+export interface DistillOutput {
+  // Empty is the EXPECTED result: most sessions teach nothing durable.
+  // `quote` is verbatim from the transcript — the evidence a reviewer checks.
+  learnings: { title: string; rule: string; quote: string }[]
+}
 ```
 
-Zod schemas: `zClassifyOutput`, `zSynthesizeOutput`, `zAnswerOutput` — the
-provider parses model responses through these and throws
+Zod schemas: `zClassifyOutput`, `zSynthesizeOutput`, `zAnswerOutput`,
+`zDistillOutput` — the provider parses model responses through these and throws
 `LlmOutputInvalidError` on failure (no silent partials).
 
 ### 3.3 FakeProvider (`src/llm/fake.ts`)
 
 ```ts
 export interface FakeCall {
-  method: 'classify' | 'synthesize' | 'answer'
+  method: 'classify' | 'synthesize' | 'answer' | 'distill'
   input: unknown
 }
 export interface FakeProvider extends LlmProvider {
@@ -536,6 +548,7 @@ export function createFakeProvider(overrides?: {
   classify?: (input: ClassifyInput) => ClassifyOutput
   synthesize?: (input: SynthesizeInput) => SynthesizeOutput
   answer?: (input: AnswerInput) => AnswerOutput
+  distill?: (input: DistillInput) => DistillOutput
 }): FakeProvider
 ```
 
@@ -543,7 +556,9 @@ Defaults (deterministic, no network): `classify` → affects nothing, proposes o
 new concept derived from the source title; `synthesize` → echoes source
 markdown, one claim `{subject: concept.slug, predicate: 'is', object: 'described', quote: first line, confidence: 0.9}`;
 `answer` → `not_in_knowledge_base: true` for empty evidence, else concatenates
-evidence. `run` meta uses `model: 'fake'`, real prompt_version constants, zero usage.
+evidence; `distill` → no learnings (the routine-session case, so "nothing is
+staged" is the behavior a test gets for free). `run` meta uses `model: 'fake'`,
+real prompt_version constants, zero usage.
 
 ### 3.4 Prompt version constants (`src/llm/prompts/index.ts`)
 
@@ -552,11 +567,12 @@ export const PROMPT_VERSIONS = {
   classify: 'classify.v1',
   synthesize: 'synthesize.v1',
   answer: 'answer.v1',
+  distill: 'distill.v1', // coding-agent session transcript → durable rules
   adjudicate: 'adjudicate.v1', // optional Haiku contradiction adjudication (cuttable)
 } as const
 ```
 
-Prompt files: `src/llm/prompts/{classify,synthesize,answer}.v1.ts` exporting
+Prompt files: `src/llm/prompts/{classify,synthesize,answer,distill,adjudicate}.v1.ts` exporting
 `system: string` and `render(input): string`. Any prompt text change requires a
 new version constant (prompt regression = product regression; goldens in
 `test/unit/`).
@@ -823,6 +839,7 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}`                          | knowledge:read    | `getSpaceHandler`              | params `zSpaceParams`                    | 200 `zSpaceResponse`                                                                     |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | `createIngestHandler`          | body `zIngestRequest`                    | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}`                             |
 | POST   | `/v1/spaces/{space}/ingest/document`          | knowledge:propose | `ingestDocumentHandler`        | query `zIngestDocumentQuery`, raw body   | 202 `zIngestAcceptedResponse` (415 unsupported_document, 422 document_extraction_failed) |
+| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | `captureSessionHandler`        | body `zCaptureSessionRequest`            | 200 `zCaptureSessionResponse` (503 llm_not_configured)                                   |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | `getIngestHandler`             | params `zIdParams`                       | 200 `zIngestStatusResponse`                                                              |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | `listSourcesHandler`           | query `zListQuery`                       | 200 `zSourceListResponse`                                                                |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | `getSourceHandler`             | params `zSpaceIdParams`                  | 200 `zSourceResponse`                                                                    |
@@ -989,6 +1006,50 @@ generate one with scopes `['*']`, print **once** to stdout.
 
 ---
 
+## 5.5 Session capture (`src/agent/sessions.ts`)
+
+```ts
+export const zCaptureSessionArgs: z.ZodType<{ transcript: string; title?: string }>
+export interface CaptureResult {
+  status: 'no_learnings' | 'queued' | 'already_captured'
+  ingest_id: string | null
+  learnings: number
+  agent_run_id: string // always present — the distill call is always audited
+}
+export function captureSession(
+  db: Db,
+  spaceId: string,
+  deps: { llm: LlmProvider; ingest: IngestPipeline },
+  args: CaptureSessionArgs,
+): Promise<CaptureResult>
+export function capTranscript(transcript: string): string // keeps the TAIL over 200k chars
+export function renderLearnings(learnings: DistillOutput['learnings']): string
+```
+
+Binding behavior:
+
+- **Distillation is a FILTER, and runs first.** No learnings → no source, no
+  proposal, no synthesis cost: a routine session costs one cheap call and
+  writes only its `wk_agent_runs` row (`kind: 'distill'`). This is what keeps
+  the review queue worth reading; a capture path that always produces something
+  trains the operator to stop reviewing.
+- **The transcript is distilled and DROPPED, never archived.** Sources are kept
+  verbatim and forever; a transcript carries pasted secrets and scratch
+  thinking, so only the distilled rules are persisted — after human approval.
+  (The provider still sees the transcript — see `SECURITY.md`.)
+- **Everything after distillation reuses the ingest pipeline.** `renderLearnings`
+  output is enqueued as a normal `source_kind: 'note'` source, so capture
+  inherits content-hash dedup, the verbatim-quote grounding guard,
+  contradiction detection and the one-proposal review gate. It is `'note'`, not
+  `'meeting'`: conventions are not decision records.
+- **`renderLearnings` is deterministic** (no timestamps, no ids). Re-teaching a
+  rule renders identical markdown → the same content hash → `already_captured`,
+  never a duplicate proposal. A hook that fires after every session depends on
+  this being a success rather than a 409.
+- No API key → `LlmNotConfiguredError` (503) before any write.
+
+---
+
 ## 6. Webhooks (Standard Webhooks)
 
 ### 6.1 Event names (the `event_type` column and the payload `type` field)
@@ -1052,6 +1113,15 @@ the key holds. There is deliberately NO approve tool — approval is REST-only.
 No in-band elicitation. Errors use the §8 envelope serialized into the tool
 result (`isError: true`), never bare strings.
 
+**Self-description (binding)**: capabilities are `{ tools, resources }`, and
+`initialize` returns `instructions` describing the read/write split and the
+"no approve tool" rule. `resources/list` exposes `wikikit://docs/llms.txt` and
+`wikikit://docs/llms-full.txt`, read via `resources/read` and served from the
+same embedded copies as `GET /llms.txt` (`readDocsFile`). NOT scope-gated —
+the same documents are public over HTTP. Rationale: a pure-MCP client cannot
+issue a plain GET, so without this the docs are unreachable for exactly the
+audience they are written for.
+
 ### 7.1 Tool table (binding — names, schemas, outputs, scopes, all four annotations)
 
 | Tool                    | Scope             | Input schema (zod, in `src/mcp/tools.ts`)                                                    | Output (JSON in content)                                                                          | readOnly | destructive | idempotent | openWorld |
@@ -1102,20 +1172,20 @@ export function toToolError(
 
 ### 8.2 Canonical codes ↔ HTTP status (typed errors in `src/domain/errors.ts`)
 
-| Code                                                                       | HTTP | Thrown as               |
-| -------------------------------------------------------------------------- | ---- | ----------------------- |
-| `bad_request` (zod details in `error`)                                     | 400  | `ValidationError`       |
-| `unauthorized`                                                             | 401  | `UnauthorizedError`     |
-| `insufficient_scope`                                                       | 403  | `ForbiddenError`        |
-| `not_found`                                                                | 404  | `NotFoundError`         |
-| `already_ingested` (envelope carries `source_id`)                          | 409  | `ConflictError`         |
-| `proposal_not_pending`                                                     | 409  | `ConflictError`         |
-| `stale_base`                                                               | 409  | `ConflictError`         |
-| `body_too_large`                                                           | 413  | `PayloadTooLargeError`  |
-| `rate_limited`                                                             | 429  | `RateLimitError`        |
-| `internal_error` (message NEVER leaks internals)                           | 500  | anything unrecognized   |
-| `llm_not_configured` (`next_best_actions: ["set ANTHROPIC_API_KEY", ...]`) | 503  | `LlmNotConfiguredError` |
-| `draining`                                                                 | 503  | shutdown state          |
+| Code                                                                                               | HTTP | Thrown as               |
+| -------------------------------------------------------------------------------------------------- | ---- | ----------------------- |
+| `bad_request` (zod details in `error`)                                                             | 400  | `ValidationError`       |
+| `unauthorized`                                                                                     | 401  | `UnauthorizedError`     |
+| `insufficient_scope`                                                                               | 403  | `ForbiddenError`        |
+| `not_found`                                                                                        | 404  | `NotFoundError`         |
+| `already_ingested` (envelope carries `source_id`)                                                  | 409  | `ConflictError`         |
+| `proposal_not_pending`                                                                             | 409  | `ConflictError`         |
+| `stale_base`                                                                                       | 409  | `ConflictError`         |
+| `body_too_large`                                                                                   | 413  | `PayloadTooLargeError`  |
+| `rate_limited`                                                                                     | 429  | `RateLimitError`        |
+| `internal_error` (message NEVER leaks internals)                                                   | 500  | anything unrecognized   |
+| `llm_not_configured` (`next_best_actions: ["set <the selected provider's key> and restart", ...]`) | 503  | `LlmNotConfiguredError` |
+| `draining`                                                                                         | 503  | shutdown state          |
 
 ---
 
@@ -1160,32 +1230,40 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                            | Default                                                            | Notes                                                    |
-| ----------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------- |
-| `HOST`                              | `127.0.0.1`                                                        |                                                          |
-| `PORT`                              | `4060`                                                             |                                                          |
-| `WIKIKIT_PUBLIC_URL`                | `http://127.0.0.1:4060`                                            | trailing slash stripped                                  |
-| `DATABASE_URL`                      | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                               |
-| `WIKIKIT_KEY_PEPPER`                | dev: `wikikit-local-key-pepper`                                    | **required in production**                               |
-| `WIKIKIT_BOOTSTRAP_API_KEY`         | `` (dev: generated + printed once at boot)                         |                                                          |
-| `ANTHROPIC_API_KEY`                 | `` — the only variable with no default anywhere                    | absent → LLM features answer 503 `llm_not_configured`    |
-| `ANTHROPIC_BASE_URL`                | ``                                                                 | honored by the SDK; test stub target                     |
-| `WIKIKIT_MODEL_SYNTHESIS`           | `claude-sonnet-5`                                                  |                                                          |
-| `WIKIKIT_MODEL_CLASSIFY`            | `claude-haiku-4-5`                                                 |                                                          |
-| `WIKIKIT_MODEL_ANSWER`              | `claude-sonnet-5`                                                  |                                                          |
-| `WIKIKIT_MAX_BODY_BYTES`            | `10485760`                                                         | 1 KiB – 250 MiB                                          |
-| `WIKIKIT_MAX_INGEST_TOKENS`         | `100000`                                                           | chunking threshold                                       |
-| `WIKIKIT_INGEST_CONCURRENCY`        | `2`                                                                | 1–16                                                     |
-| `WIKIKIT_WEBHOOK_POLL_MS`           | `5000` (dev default file: `1000`)                                  |                                                          |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`        | `10000`                                                            |                                                          |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`      | `10`                                                               |                                                          |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD` | `5`                                                                |                                                          |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`     | `!production`                                                      | SSRF guard                                               |
-| `WIKIKIT_TRUST_PROXY`               | `false`                                                            |                                                          |
-| `WIKIKIT_MCP_SESSION_TTL_MS`        | `1800000` (30 min)                                                 |                                                          |
-| `WIKIKIT_MCP_MAX_SESSIONS`          | `200`                                                              |                                                          |
-| `LOG_LEVEL`                         | `info`                                                             | debug/info/warn/error                                    |
-| `NODE_ENV`                          | —                                                                  | `production` activates guards + disables `.env.defaults` |
+| Variable                            | Default                                                            | Notes                                                     |
+| ----------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| `HOST`                              | `127.0.0.1`                                                        |                                                           |
+| `PORT`                              | `4060`                                                             |                                                           |
+| `WIKIKIT_PUBLIC_URL`                | `http://127.0.0.1:4060`                                            | MCP origin allowlist; trailing slash stripped             |
+| `DATABASE_URL`                      | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                |
+| `WIKIKIT_KEY_PEPPER`                | dev: `wikikit-local-key-pepper`                                    | **required in production**                                |
+| `WIKIKIT_BOOTSTRAP_API_KEY`         | `` (dev: generated + printed once at boot)                         |                                                           |
+| `WIKIKIT_LLM_PROVIDER`              | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails |
+| `ANTHROPIC_API_KEY`                 | `` — no default anywhere                                           | read when provider is `anthropic`                         |
+| `OPENAI_API_KEY`                    | `` — no default anywhere                                           | read when provider is `openai`                            |
+| `GOOGLE_GENERATIVE_AI_API_KEY`      | `` — no default anywhere                                           | read when provider is `google`                            |
+| `ANTHROPIC_BASE_URL`                | ``                                                                 | honored when provider is `anthropic`; test stub target    |
+| `WIKIKIT_MODEL_SYNTHESIS`           | `claude-sonnet-5`                                                  |                                                           |
+| `WIKIKIT_MODEL_CLASSIFY`            | `claude-haiku-4-5`                                                 |                                                           |
+| `WIKIKIT_MODEL_ANSWER`              | `claude-sonnet-5`                                                  |                                                           |
+| `WIKIKIT_MAX_BODY_BYTES`            | `10485760`                                                         | 1 KiB – 250 MiB                                           |
+| `WIKIKIT_MAX_INGEST_TOKENS`         | `100000`                                                           | chunking threshold                                        |
+| `WIKIKIT_INGEST_CONCURRENCY`        | `2`                                                                | 1–16                                                      |
+| `WIKIKIT_WEBHOOK_POLL_MS`           | `5000` (dev default file: `1000`)                                  |                                                           |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`        | `10000`                                                            |                                                           |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`      | `10`                                                               |                                                           |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD` | `5`                                                                |                                                           |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`     | `!production`                                                      | SSRF guard                                                |
+| `WIKIKIT_TRUST_PROXY`               | `false`                                                            |                                                           |
+| `WIKIKIT_MCP_SESSION_TTL_MS`        | `1800000` (30 min)                                                 |                                                           |
+| `WIKIKIT_MCP_MAX_SESSIONS`          | `200`                                                              |                                                           |
+| `LOG_LEVEL`                         | `info`                                                             | debug/info/warn/error                                     |
+| `NODE_ENV`                          | —                                                                  | `production` activates guards + disables `.env.defaults`  |
+
+Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
+query answer 503 `llm_not_configured`, naming **that** provider's key, while
+every LLM-free feature keeps working. `NODE_ENV` is read from the process environment only and so has no row in
+`.env.example`.
 
 ---
 

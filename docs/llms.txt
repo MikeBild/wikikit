@@ -18,28 +18,30 @@ summary. For the complete documentation inlined into a single file, see
 ## Start here
 
 - [README](README.md): What WikiKit is (the LLM-wiki loop, curation over collection), zero-config quickstart, standards-only integration, and links to everything else.
+- [Coding-agent integration](docs/coding-agent-integration.md): Use WikiKit from Claude Code or Codex — MCP registration plus SessionStart/SessionEnd hooks that load the concept index into a session and distil what it taught back into a proposal.
 - [Example sources](examples/README.md): Two example source documents to ingest and the concept frontmatter reference for export/import bundles.
 - [Concept frontmatter reference](examples/concept-frontmatter-reference.md): The lossless claims/relations frontmatter format used by `?format=md` bundles.
 
 ## API & usage
 
-- Endpoints: `POST /v1/spaces`, `GET /v1/spaces/{space}`, `POST /v1/spaces/{space}/ingest`, `POST /v1/spaces/{space}/ingest/document`, `GET /v1/ingests/{id}`, `GET /v1/spaces/{space}/sources`, `GET /v1/spaces/{space}/sources/{id}`, `GET /v1/spaces/{space}/decisions`, `GET /v1/spaces/{space}/decisions/{slug}`, `GET /v1/spaces/{space}/concepts`, `GET /v1/spaces/{space}/concepts/{slug}`, `GET /v1/spaces/{space}/concepts/{slug}/history`, `GET /v1/spaces/{space}/search`, `POST /v1/spaces/{space}/query`, `GET /v1/spaces/{space}/proposals`, `POST /v1/spaces/{space}/proposals`, `GET /v1/proposals/{id}`, `POST /v1/proposals/{id}/approve`, `POST /v1/proposals/{id}/reject`, `GET /v1/spaces/{space}/lint`, `GET /v1/spaces/{space}/export`, `POST /v1/spaces/{space}/import`, `GET /v1/spaces/{space}/webhooks`, `POST /v1/spaces/{space}/webhooks`, `GET /v1/spaces/{space}/webhooks/{id}/deliveries`, `POST /v1/api-keys`, `GET /health`, `GET /ready`, `GET /metrics`, `GET /openapi.json`, `GET /llms.txt`, `GET /llms-full.txt`.
+- Endpoints: `POST /v1/spaces`, `GET /v1/spaces/{space}`, `POST /v1/spaces/{space}/ingest`, `POST /v1/spaces/{space}/ingest/document`, `POST /v1/spaces/{space}/agent/sessions`, `GET /v1/ingests/{id}`, `GET /v1/spaces/{space}/sources`, `GET /v1/spaces/{space}/sources/{id}`, `GET /v1/spaces/{space}/decisions`, `GET /v1/spaces/{space}/decisions/{slug}`, `GET /v1/spaces/{space}/concepts`, `GET /v1/spaces/{space}/concepts/{slug}`, `GET /v1/spaces/{space}/concepts/{slug}/history`, `GET /v1/spaces/{space}/search`, `POST /v1/spaces/{space}/query`, `GET /v1/spaces/{space}/proposals`, `POST /v1/spaces/{space}/proposals`, `GET /v1/proposals/{id}`, `POST /v1/proposals/{id}/approve`, `POST /v1/proposals/{id}/reject`, `GET /v1/spaces/{space}/lint`, `GET /v1/spaces/{space}/export`, `POST /v1/spaces/{space}/import`, `GET /v1/spaces/{space}/webhooks`, `POST /v1/spaces/{space}/webhooks`, `GET /v1/spaces/{space}/webhooks/{id}/deliveries`, `POST /v1/api-keys`, `GET /health`, `GET /ready`, `GET /metrics`, `GET /openapi.json`, `GET /llms.txt`, `GET /llms-full.txt`.
 - Ingest is asynchronous: `202` + a `Location` header to poll; the result is a pending ChangeProposal. Approval is a separate, deliberate call.
 - OpenAPI 3.1 is generated live from the route registry — fetch the spec at `/openapi.json`; a committed snapshot lives in [docs/openapi.json](docs/openapi.json).
 - MCP (Streamable HTTP, outside the REST surface): tools `wikikit_search`, `wikikit_read`, `wikikit_sources`, `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`, `wikikit_ingest_status`, `wikikit_propose` — scope-gated visibility, deliberately no approve tool.
+- MCP self-description: `initialize` returns usage `instructions`; `resources/list` + `resources/read` serve this file (`wikikit://docs/llms.txt`) and the full docs (`wikikit://docs/llms-full.txt`) — no HTTP GET required.
 
 ## Operating & deployment
 
 - [Configuration](docs/CONFIGURATION.md): Every environment variable with its default — 12-factor, `WIKIKIT_*` prefix, production guards, zero-config dev defaults.
 - [Deployment](docs/DEPLOYMENT.md): Single self-contained Bun binary, self-migrating boot, systemd, `/health` + `/ready` probes, graceful drain, release pipeline.
 - [Security](SECURITY.md): Reporting vulnerabilities; operator hardening notes (key pepper, scoped keys, webhook signature verification, SSRF guard).
-- [.env.example](.env.example): Annotated template of every configuration variable.
+- [.env.example](.env.example): Annotated template of every configuration variable settable via `.env` (`NODE_ENV` is process-env only).
 
 ## Development
 
 - [Architecture](docs/ARCHITECTURE.md): Request lifecycle, the `src/` module map, the proposal mechanics (staged rows + atomic SQL flip), ingest pipeline, MCP session model, and drift detection.
 - [Interface contracts](docs/CONTRACTS.md): The binding contracts between subsystems — schema, routes, MCP tools, error envelope, state machines.
 - [OKF v0.1 spec](docs/okf-v0.1.md): The vendored Open Knowledge Format specification the OKF export/import conforms to.
-- [Contributing](CONTRIBUTING.md): Dev setup (Bun + Docker), checks, migration workflow, and conventions.
+- [Contributing](CONTRIBUTING.md): Dev setup (Bun + Docker), the `bun run gate` push gate, the five test tiers and which one a change needs, migration workflow, and conventions.
 - [Code of Conduct](CODE_OF_CONDUCT.md): Contributor Covenant v2.1.
 - [Changelog](CHANGELOG.md): Notable changes per release (Keep a Changelog / SemVer).

@@ -91,6 +91,7 @@ function testConfig(): Config {
     bootstrapApiKey: BOOTSTRAP,
     llmProvider: 'anthropic' as const,
     llmApiKey: '',
+    llmApiKeyEnv: 'ANTHROPIC_API_KEY',
     anthropicBaseUrl: '',
     modelSynthesis: 'claude-sonnet-5',
     modelClassify: 'claude-haiku-4-5',

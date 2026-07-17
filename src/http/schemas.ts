@@ -13,6 +13,7 @@
 // the domain shape are identical we alias instead of duplicating, so they can
 // never drift apart.
 import { z } from 'zod'
+import { zCaptureSessionArgs } from '../agent/sessions.ts'
 import { zClaimTriple } from '../domain/claims.ts'
 import { zCreateProposalArgs } from '../domain/proposals.ts'
 import { zIngestInput } from '../ingest/acquire.ts'
@@ -120,6 +121,19 @@ export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z
 export const zIngestDocumentQuery = z.object({
   filename: z.string().min(1).max(500).describe('Original filename incl. extension — selects the extractor'),
   source_kind: z.enum(['meeting', 'article', 'note']).optional(),
+})
+
+// Coding-agent session capture: transcript in, distilled rules staged as a
+// proposal — or, for a routine session, nothing at all.
+export const zCaptureSessionRequest = zCaptureSessionArgs
+
+export const zCaptureSessionResponse = z.object({
+  status: z
+    .enum(['no_learnings', 'queued', 'already_captured'])
+    .describe('no_learnings is the normal outcome — most sessions teach nothing durable'),
+  ingest_id: z.uuid().nullable().describe('Set when status is queued — poll GET /v1/ingests/{id}'),
+  learnings: z.number().int().describe('How many durable rules were distilled'),
+  agent_run_id: z.uuid().describe('The distill call in the audit ledger — present even when nothing was learned'),
 })
 
 export const zIngestStatusResponse = z.object({
@@ -455,6 +469,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestDocumentQuery,
   zIngestAcceptedResponse,
   zIngestStatusResponse,
+  zCaptureSessionRequest,
+  zCaptureSessionResponse,
   zSourceListResponse,
   zSourceResponse,
   zDecisionListResponse,

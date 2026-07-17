@@ -67,11 +67,24 @@ describe('ci.yml', () => {
     expect('pull_request' in ci.on).toBe(true)
   })
 
-  test('runs the full gate: lint, typecheck, unit+contract, integration, binary', () => {
-    expect(Object.keys(ci.jobs).sort()).toEqual(['binary', 'integration', 'lint', 'test', 'typecheck'])
+  test('runs the full gate: lint, typecheck, unit+contract, integration, e2e, binary', () => {
+    expect(Object.keys(ci.jobs).sort()).toEqual(['binary', 'e2e', 'integration', 'lint', 'test', 'typecheck'])
     expect(runs(job(ci, 'lint'))).toContain('bun run lint')
     expect(runs(job(ci, 'typecheck'))).toContain('bun run typecheck')
     expect(runs(job(ci, 'test'))).toContain('bun test test/unit test/contract')
+    expect(runs(job(ci, 'e2e'))).toContain('bun run test:e2e')
+  })
+
+  // CI and the local gate must run the SAME stages, or the hook stops meaning
+  // "CI will pass" and people go back to finding out on the PR.
+  test('CI jobs and the local gate stages are the same list', () => {
+    const gate = readFileSync(new URL('../../scripts/gate.ts', import.meta.url), 'utf8')
+    const stageIds = [...gate.matchAll(/\bid: '([a-z0-9-]+)'/g)].map((match) => match[1]!)
+    expect(stageIds.sort()).toEqual(['e2e', 'integration', 'lint', 'typecheck', 'unit'])
+    // `test` is CI's name for the gate's `unit` stage; `binary` is CI-only
+    // (compiling per-platform artifacts is not something a push should pay for).
+    const ciJobs = Object.keys(ci.jobs).filter((name) => name !== 'binary')
+    expect(ciJobs.map((name) => (name === 'test' ? 'unit' : name)).sort()).toEqual(stageIds.sort())
   })
 
   test('every job installs with a frozen lockfile via setup-bun', () => {
@@ -106,8 +119,13 @@ describe('ci.yml', () => {
     expect(step?.env?.RUN_INTEGRATION).toBe('1')
   })
 
+  test('e2e tests are explicitly opted in via RUN_INTEGRATION=1', () => {
+    const step = (job(ci, 'e2e').steps ?? []).find((s) => s.run === 'bun run test:e2e')
+    expect(step?.env?.RUN_INTEGRATION).toBe('1')
+  })
+
   test('binary job gates on all checks, builds, and sanity-runs --version', () => {
-    expect(job(ci, 'binary').needs?.sort()).toEqual(['integration', 'lint', 'test', 'typecheck'])
+    expect(job(ci, 'binary').needs?.sort()).toEqual(['e2e', 'integration', 'lint', 'test', 'typecheck'])
     expect(runs(job(ci, 'binary'))).toContain('bash build-binary.sh')
     expect(runs(job(ci, 'binary'))).toContain('./dist/wikikit --version')
   })

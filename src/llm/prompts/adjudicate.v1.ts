@@ -8,9 +8,10 @@
 // distinction decides whether wk_apply_proposal marks both claims disputed.
 // Runs on the classify model (cheap, tiny output).
 //
-// NOTE: the LlmProvider interface is fixed at exactly three methods
-// (CONTRACTS.md §3.1), so this prompt ships versioned and golden-tested but
-// unwired; adding an adjudicate() method is a deliberate contract change.
+// NOTE: this prompt ships versioned and golden-tested but UNWIRED — there is
+// no adjudicate() on LlmProvider. Every method on that interface is a
+// deliberate contract change (CONTRACTS.md §3.1), and this one has not been
+// made: the deterministic exact-frame matcher decides disputes today.
 // Do NOT edit this text in place; create adjudicate.v2.ts and bump
 // PROMPT_VERSIONS.
 import type { AdjudicateInput } from '../schemas.ts'

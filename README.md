@@ -32,35 +32,53 @@ self-contained binary.
 ## Quickstart
 
 Requirements: [Bun](https://bun.sh) 1.1+ and Docker Desktop (dev database).
+Prefer a binary? Grab one from [Releases](https://github.com/MikeBild/wikikit/releases)
+and run `./wikikit` — it does everything `bun run dev` does below.
+
+**1. Configure.** Only two things are worth setting before the first start:
 
 ```bash
 git clone https://github.com/MikeBild/wikikit.git
 cd wikikit
 bun install
+
+cat > .env <<'EOF'
+# Turning raw sources into concepts is an LLM job. Without a key, ingest and
+# query answer 503 — every other feature still works. Using openai or google
+# instead? Set WIKIKIT_LLM_PROVIDER and that provider's key. See docs/CONFIGURATION.md.
+ANTHROPIC_API_KEY=sk-ant-...
+# Pin the admin key instead of hunting for the generated one in the log.
+WIKIKIT_BOOTSTRAP_API_KEY=wk_local_dev_key
+EOF
+```
+
+**2. Start.** Zero-config: the first start provisions a dedicated Docker
+PostgreSQL, migrates itself and creates a `default` space.
+
+```bash
 bun run dev
 ```
 
-Zero-config: the first start provisions a dedicated Docker PostgreSQL,
-migrates itself, creates a `default` space and prints a bootstrap API key
-**once**. (A downloaded release binary does the same: just run `./wikikit`.)
-Then run the loop:
+**3. Run the loop.** Every step is a plain curl:
 
 ```bash
-export WK="http://127.0.0.1:4060" KEY="wk_..."   # the printed bootstrap key
+export WK="http://127.0.0.1:4060" KEY="wk_local_dev_key"
 
-# 1. Ingest a note — async: 202 + a Location header to poll
-curl -s -X POST "$WK/v1/spaces/default/ingest" \
+# 1. Ingest a note — async: 202 + a Location header. Keep the ingest_id.
+ING=$(curl -s -X POST "$WK/v1/spaces/default/ingest" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note"}'
+  -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note"}' \
+  | jq -r .ingest_id)
 
-# 2. Poll until done → carries a proposal_id
-curl -s "$WK/v1/ingests/<ingest_id>" -H "Authorization: Bearer $KEY"
+# 2. Poll every few seconds until status is done (or failed); done carries proposal_id.
+#    → {"ingest_id":"...","status":"done","proposal_id":"...","source_id":"...","error":null}
+PROP=$(curl -s "$WK/v1/ingests/$ING" -H "Authorization: Bearer $KEY" | jq -r .proposal_id)
 
 # 3. Review the structured diff (also human-readable via Accept: text/markdown)
-curl -s "$WK/v1/proposals/<proposal_id>" -H "Accept: text/markdown" -H "Authorization: Bearer $KEY"
+curl -s "$WK/v1/proposals/$PROP" -H "Accept: text/markdown" -H "Authorization: Bearer $KEY"
 
 # 4. Approve — the deliberate human act; now (and only now) it is knowledge
-curl -s -X POST "$WK/v1/proposals/<proposal_id>/approve" \
+curl -s -X POST "$WK/v1/proposals/$PROP/approve" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"note":"looks right"}'
 
 # 5. Use it: LLM-free search, or cited Q&A
@@ -70,29 +88,100 @@ curl -s -X POST "$WK/v1/spaces/default/query" \
   -d '{"question":"Is OKF production ready?"}'
 ```
 
-Ingest and query need `ANTHROPIC_API_KEY` (the only setting without a
-default); **everything LLM-free — search, read, history, lint, export,
-import, review — works without it.** Example sources to ingest are in
-[`examples/`](examples/README.md).
+Have a PDF, DOCX or XLSX instead? Send it as the raw body — the extension
+picks the extractor, the rest of the loop is identical:
+
+```bash
+curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
+  -H "Authorization: Bearer $KEY" --data-binary @report.pdf
+```
+
+Example sources to ingest are in [`examples/`](examples/README.md).
+
+### Troubleshooting
+
+| Symptom                                  | Cause and fix                                                                                                                                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `503 llm_not_configured` on ingest/query | No API key for the selected provider. The error names the variable to set (`ANTHROPIC_API_KEY` by default); restart afterwards. LLM-free features are unaffected.                                     |
+| Lost the bootstrap key                   | It is printed **once** and never again while a key exists. Set `WIKIKIT_BOOTSTRAP_API_KEY` in `.env` and restart, or wipe local state with `bun scripts/reset-local.ts` (**deletes all local data**). |
+| Boot fails on the database               | Docker Desktop is not running — WikiKit provisions its Postgres container (port `55442`) at first start. Start Docker, then retry.                                                                    |
+| `409 already_ingested`                   | The identical content is already a source (sha256 dedup). Nothing to do — read the affected concepts instead.                                                                                         |
+| `401` / `403`                            | Key missing, or missing a scope. Bootstrap keys hold `*`; minted keys hold only what you asked for (see [Connect an agent](#connect-an-agent-mcp)).                                                   |
+
+### Glossary
+
+- **Space** — an isolated knowledge base with its own concepts, sources and
+  keys. `default` is created at first start; it is the `{space}` in every path.
+- **Source** — raw material you fed in (note, article, PDF, URL), archived
+  verbatim and never rewritten. Everything else cites it.
+- **Concept** — a maintained wiki page about one thing, synthesized from
+  sources. What you read and search.
+- **Claim** — one `subject / predicate / object` statement on a concept, with
+  confidence and a verbatim quote from a source.
+- **ChangeProposal** — staged changes awaiting review. Invisible to readers
+  until approved; the only way anything becomes knowledge.
+- **Revision** — one approved version of a concept. The history carries which
+  model, prompt version and sources produced it.
+- **OKF** — [Open Knowledge Format](docs/okf-v0.1.md), the portable bundle
+  format for export/import.
 
 ## Connect an agent (MCP)
 
-Register WikiKit in Claude Code / claude.ai as a Streamable-HTTP MCP server:
-URL `http://127.0.0.1:4060/mcp`, header `Authorization: Bearer wk_...` (a key
-with `knowledge:read,knowledge:propose`). The agent gets `wikikit_search`,
-`wikikit_read`, `wikikit_sources`, `wikikit_history`, `wikikit_lint`,
-`wikikit_ingest`, `wikikit_ingest_status` and `wikikit_propose` — and
-deliberately **no approve tool**: agents write into the staging area,
-promotion stays a human act over REST. Ask your agent to "take this article
-into the wiki and check whether it changes our assessment" — it ingests,
-polls, and reports the proposal with any detected contradictions; you approve
-with one curl.
+> Using Claude Code or Codex? **[docs/coding-agent-integration.md](docs/coding-agent-integration.md)**
+> is the 2-minute setup for the full loop: every session starts knowing your
+> conventions, and what you teach it comes back as a proposal.
+
+First mint a key for the agent. Don't hand it your bootstrap key — scopes are
+how you keep approval a human act:
+
+```bash
+curl -s -X POST "$WK/v1/api-keys" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"name":"claude","scopes":["knowledge:read","knowledge:propose"],"space":"default"}'
+# → {"id":"...","key":"wk_...","scopes":[...],"space":"default"}   ← shown once
+```
+
+Then register WikiKit as a Streamable-HTTP MCP server. In Claude Code:
+
+```bash
+claude mcp add --transport http wikikit http://127.0.0.1:4060/mcp \
+  --header "Authorization: Bearer wk_..."
+```
+
+Or in an `mcpServers` config (Claude Desktop, and most other MCP clients):
+
+```json
+{
+  "mcpServers": {
+    "wikikit": {
+      "type": "http",
+      "url": "http://127.0.0.1:4060/mcp",
+      "headers": { "Authorization": "Bearer wk_..." }
+    }
+  }
+}
+```
+
+The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
+`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
+`wikikit_ingest_status` and `wikikit_propose` — and deliberately **no approve
+tool**: agents write into the staging area, promotion stays a human act over
+REST. Tools are scope-gated, so a read-only key simply does not see the write
+tools. The server also hands the agent its own documentation — usage
+instructions on connect, and `llms.txt` / `llms-full.txt` as MCP resources — so
+it does not have to guess the model. Ask your agent to "take this article into
+the wiki and check whether it changes our assessment" — it ingests, polls, and
+reports the proposal with any detected contradictions; you approve with one
+curl.
 
 ## Features
 
 - **Claims, not prose blobs:** every statement is `subject / predicate /
 object` with a confidence, citations (verbatim quote + locator) and a
   lifecycle (`proposed → verified → disputed → deprecated`).
+- **Grounding guard:** a claim survives only if its quote occurs **verbatim**
+  in the source the model read. Paraphrased or invented citations are dropped
+  before they reach the review gate, not argued about afterwards.
 - **Contradiction detection:** same subject+predicate, different object →
   both claims become `disputed`, linked by a `contradicts` relation; `/query`
   reports the dispute with sources instead of picking a winner.
@@ -107,6 +196,10 @@ object` with a confidence, citations (verbatim quote + locator) and a
 - **LLM-free core:** full-text search, lint (contradictions, missing
   citations, stale claims — CI-friendly), export/import all work without any
   LLM configured.
+- **Any of three LLM providers:** Anthropic, OpenAI or Google — one config
+  value (`WIKIKIT_LLM_PROVIDER`), no code change, via the Vercel AI SDK.
+- **Feeds on real documents:** Markdown, text, a URL, or a PDF/DOCX/XLSX/CSV
+  upload — all extracted to Markdown and archived verbatim.
 - **Portable knowledge:** deterministic zip exports as a Markdown tree
   (claims round-trip losslessly via frontmatter, `[[wiki-links]]`,
   Obsidian-friendly) or as an OKF v0.1 bundle; imports pass the review gate.
@@ -152,30 +245,41 @@ from one route registry, so the spec cannot lie. See
 [docs/llms-full.txt](docs/llms-full.txt) for the complete API documentation in
 one agent-readable file (served live at `/llms.txt` and `/llms-full.txt`).
 
+## Documentation
+
+| If you want to…                              | Read                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Try it out                                   | The Quickstart above, then [`examples/`](examples/README.md)                                           |
+| Use it from Claude Code / Codex              | [docs/coding-agent-integration.md](docs/coding-agent-integration.md)                                   |
+| Look up an environment variable              | [docs/CONFIGURATION.md](docs/CONFIGURATION.md)                                                         |
+| Run it in production                         | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) + [SECURITY.md](SECURITY.md)                                  |
+| Drive the API from your own client           | [docs/openapi.json](docs/openapi.json) (live at `/openapi.json`)                                       |
+| Point an agent or crawler at the docs        | [docs/llms.txt](docs/llms.txt), [docs/llms-full.txt](docs/llms-full.txt) (live at `/llms.txt`)         |
+| Understand how it works inside               | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                                           |
+| Know exactly what a subsystem must guarantee | [docs/CONTRACTS.md](docs/CONTRACTS.md)                                                                 |
+| Move knowledge in or out portably            | [docs/okf-v0.1.md](docs/okf-v0.1.md), [concept frontmatter](examples/concept-frontmatter-reference.md) |
+| Contribute                                   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                     |
+| See what changed                             | [CHANGELOG.md](CHANGELOG.md)                                                                           |
+
+Production is one self-contained binary behind a reverse proxy; it migrates its
+own database under an advisory lock at boot.
+
 ## Development
 
 ```bash
-bun run lint
-bun run typecheck
-bun test                    # unit + contract
-bun run test:integration    # real Docker PostgreSQL
-bun run build:binary        # → dist/wikikit
+bun run gate            # everything CI runs, in ~60s (needs Docker)
+bun run hooks:install   # ...and run it automatically on every git push
 ```
+
+The gate is lint → typecheck → unit + contract → integration (real Postgres) →
+e2e (the real AI SDK against a stub endpoint). Individual tiers, benchmarks and
+the rule for which tier a change needs are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 An optional `.env` overrides the committed development defaults
 (`.env.defaults`, never loaded in production). If you change the HTTP API,
 regenerate the OpenAPI snapshot with `bun scripts/gen-openapi-doc.ts`; if you
-add a migration, run `bun run gen:migrations` — drift tests enforce both. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Deployment
-
-Production is one self-contained binary behind a reverse proxy; it migrates
-its own database under an advisory lock at boot. See
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the checklist, systemd unit,
-probes and the release pipeline, and [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
-for every environment variable. Before exposing WikiKit, read
-[SECURITY.md](SECURITY.md).
+add a migration, run `bun run gen:migrations` — drift tests enforce both.
 
 ## Versioning and license
 

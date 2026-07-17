@@ -23,18 +23,60 @@ from the committed `.env.defaults`. Reset all local data with
 
 ## Running checks
 
+One command runs everything CI runs:
+
+```bash
+bun run gate
+```
+
+Install it as a `pre-push` hook once per clone, and you cannot push something
+that CI will reject:
+
+```bash
+bun run hooks:install     # sets core.hooksPath=.githooks
+```
+
+The gate needs Docker (for the integration and e2e tiers) and takes ~60s. If
+Docker is off it **fails loudly** rather than quietly checking less than you
+think. Deliberate bypasses are honoured and printed in the summary:
+
+```bash
+SKIP=integration,e2e bun run gate    # or: SKIP=integration,e2e git push
+git push --no-verify                 # skip the hook entirely
+```
+
+The individual tiers, cheapest first:
+
 ```bash
 bun run lint              # ESLint + Prettier
 bun run typecheck         # tsc --noEmit (strict)
-bun test                  # unit + contract tests (no external services)
-bun run test:integration  # real PostgreSQL via Docker
+bun test                  # unit + contract — no external services
+bun run test:integration  # real PostgreSQL via Docker    (RUN_INTEGRATION=1)
+bun run test:e2e          # real AI SDK → stub endpoint    (RUN_INTEGRATION=1)
+bun run bench             # deterministic benchmarks — reports, never gates
 bun run build:binary      # compile + self-verify dist/wikikit
 ```
 
-Unit and contract tests are fully self-contained. CI runs all tiers on every
-pull request, so a green local `bun run lint && bun run typecheck && bun test`
-is enough to get started. Format your changes with `bun run format` before
-committing.
+Format with `bun run format` before committing.
+
+### Which tier does a change need?
+
+Each tier exists because the one below it cannot see a whole class of bug.
+Write the cheapest test that can actually fail for your change:
+
+| Tier            | Runs against                                      | Catches what nothing else can                                                                  |
+| --------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **unit**        | FakeProvider, no I/O                              | Logic and branches. Also the drift gates: docs, env templates, tool lists, prompt budgets.     |
+| **contract**    | Snapshots of what foreign systems consume         | A silent break in the OpenAPI document, MCP manifest, webhook payloads or OKF bundles.         |
+| **integration** | Real Docker PostgreSQL, FakeProvider              | SQL, constraints, migrations, transactions — everything a fake database cannot be wrong about. |
+| **e2e**         | Real `ai` + `@ai-sdk/anthropic` → a stub endpoint | The vendor edge: request shape, `cache_control` placement, usage mapping, error mapping.       |
+| **bench**       | Nothing — it reports                              | Nothing. It measures; the cost gate that _does_ fail is `test/unit/prompt-budget.test.ts`.     |
+
+The split that matters: **integration** injects `FakeProvider`, so everything
+between our code and the vendor is untested there. **e2e** replaces the vendor's
+HTTP endpoint instead (`config.anthropicBaseUrl` → `test/e2e/llm-stub.ts`), so
+the real SDK code path executes. A dependency bump that breaks prompt caching —
+a 5x bill, and nothing else fails — is only visible in e2e.
 
 ## Conventions
 

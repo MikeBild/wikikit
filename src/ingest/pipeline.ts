@@ -439,9 +439,9 @@ export function createIngestPipeline(
     // event payload, and wk_apply_proposal applies the dispute flip at
     // approval; all three share one rule, so they can never disagree.
     // Haiku adjudication (contradictory vs temporal vs complementary) ships
-    // as adjudicate.v1 but stays unwired: the LlmProvider contract is fixed
-    // at exactly three methods (CONTRACTS §3.1) — wiring it is a deliberate
-    // contract change, not a pipeline patch.
+    // as adjudicate.v1 but stays unwired: every LlmProvider method is a
+    // deliberate contract change (CONTRACTS §3.1) — wiring it is one of those,
+    // not a pipeline patch.
     const contradictions = await findContradictions(db, job.space_id, { claims: allTriples })
 
     // Every staged claim contributed exactly one triple above.
@@ -573,7 +573,7 @@ export function createIngestPipeline(
       // Fail fast instead of queuing a job that can only fail: the 503 must
       // reach the caller synchronously (zero-config principle — LLM-free
       // features work without a key, ingest tells you why it cannot).
-      if (!llm.configured) throw new LlmNotConfiguredError()
+      if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
 
       // Synchronous dedup pre-check for direct bodies (§4.1): the content is
       // in hand, so the 409 must not cost the client an enqueue-poll round

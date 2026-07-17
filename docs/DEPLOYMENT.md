@@ -66,8 +66,10 @@ copy or execute SQL files. A migration failure aborts startup and keeps
 - **SSRF guard on:** leave `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` unset (production
   default `false`) so webhook deliveries cannot reach private/loopback
   targets.
-- **LLM key is optional:** without `ANTHROPIC_API_KEY` the deployment serves
-  every LLM-free feature; ingest/query answer `503 llm_not_configured`.
+- **LLM key is optional:** without the key for the configured
+  `WIKIKIT_LLM_PROVIDER` (default `anthropic` → `ANTHROPIC_API_KEY`) the
+  deployment serves every LLM-free feature; ingest/query answer
+  `503 llm_not_configured`.
 - **Run non-root** as a dedicated service account with systemd hardening.
 
 ## systemd
@@ -124,9 +126,20 @@ your edge exposes it.
 
 ## Release pipeline
 
-CI runs lint → typecheck → unit (incl. drift gates) → contract → integration
-(real Docker PostgreSQL). Pushing a SemVer tag matching `package.json` (e.g.
-`v0.1.0`) builds the per-platform binaries via `build-binary.sh` and publishes
-them with `SHA256SUMS` as a GitHub release. Continuous deployment then ships
-the binary, restarts the unit and runs the smoke + e2e suites against the live
-instance.
+CI runs lint → typecheck → unit (incl. drift gates) + contract → integration
+(real Docker PostgreSQL) → e2e (the real AI SDK against a stub endpoint) →
+binary. The same checks run locally via `bun run gate`, and as a `pre-push`
+hook after `bun run hooks:install` — so a red CI run should be a surprise.
+
+Pushing a SemVer tag matching `package.json` (e.g. `v0.1.0`) builds the
+per-platform binaries via `build-binary.sh` and publishes them with
+`SHA256SUMS` as a GitHub release. Continuous deployment then ships the binary,
+restarts the unit and runs the smoke + e2e suites against the live instance.
+
+That last step is deliberately **pull-based and outside this repo**: a release
+is a published artifact, not a deployment trigger, so WikiKit knows nothing
+about where it runs. A deployer polls releases, compares the tag against the
+version `/ready` reports, and rolls forward on a mismatch — which is why the
+tag → `package.json` → compiled-binary version chain (enforced by
+`verify-tag` in the release workflow) is load-bearing: it is the only thing the
+health gate can match on. Anyone can consume a release the same way.

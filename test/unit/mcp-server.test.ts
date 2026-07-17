@@ -188,6 +188,59 @@ describe('createMcpMount', () => {
     mount.stop()
   })
 
+  // A pure-MCP client cannot reach GET /llms.txt, so initialize + resources are
+  // the ONLY channel through which it learns how this server works.
+  test('initialize advertises resources and returns usage instructions', async () => {
+    const mount = buildMount({ reader: READ_PRINCIPAL })
+    const response = await mount.handler(rpc(INITIALIZE, { authorization: 'Bearer reader' }))
+    const result = (
+      (await response.json()) as {
+        result: { capabilities: Record<string, unknown>; instructions?: string }
+      }
+    ).result
+
+    expect(result.capabilities.resources).toBeDefined()
+    // The load-bearing half of the contract: no approve tool, staging only.
+    expect(result.instructions).toContain('wikikit_search')
+    expect(result.instructions).toContain('NO approve tool')
+    mount.stop()
+  })
+
+  test('resources/list and resources/read serve the embedded docs', async () => {
+    const mount = buildMount({ reader: READ_PRINCIPAL })
+    const session = await initialize(mount, 'reader')
+    const headers = { authorization: 'Bearer reader', 'mcp-session-id': session }
+
+    const list = await mount.handler(rpc({ jsonrpc: '2.0', id: 2, method: 'resources/list' }, headers))
+    const resources = ((await list.json()) as { result: { resources: { uri: string }[] } }).result.resources
+    expect(resources.map((resource) => resource.uri)).toEqual([
+      'wikikit://docs/llms.txt',
+      'wikikit://docs/llms-full.txt',
+    ])
+
+    const read = await mount.handler(
+      rpc({ jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: 'wikikit://docs/llms.txt' } }, headers),
+    )
+    const contents = ((await read.json()) as { result: { contents: { text: string }[] } }).result.contents
+    expect(contents[0]!.text).toContain('# WikiKit Documentation')
+    mount.stop()
+  })
+
+  test('resources/read of an unknown uri errors instead of returning empty content', async () => {
+    const mount = buildMount({ reader: READ_PRINCIPAL })
+    const session = await initialize(mount, 'reader')
+    const read = await mount.handler(
+      rpc(
+        { jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'wikikit://docs/nope.txt' } },
+        { authorization: 'Bearer reader', 'mcp-session-id': session },
+      ),
+    )
+    const body = (await read.json()) as { error?: { message: string }; result?: unknown }
+    expect(body.result).toBeUndefined()
+    expect(body.error?.message).toContain('unknown resource')
+    mount.stop()
+  })
+
   test('unknown session id → 404 with JSON-RPC -32001 (client re-initializes)', async () => {
     const mount = buildMount({ reader: READ_PRINCIPAL })
     const response = await mount.handler(

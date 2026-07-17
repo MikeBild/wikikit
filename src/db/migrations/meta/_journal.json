@@ -13,6 +13,12 @@
       "tag": "0001_wk_search",
       "when": 1784077200000,
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "tag": "0002_wk_distill",
+      "when": 1784080800000,
+      "breakpoints": true
     }
   ]
 }

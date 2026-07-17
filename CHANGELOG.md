@@ -6,6 +6,137 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Coding-agent loop for Claude Code and Codex**
+  ([docs/coding-agent-integration.md](docs/coding-agent-integration.md)): a
+  SessionStart hook injects the space's concept index plus a grounding rule, and
+  a SessionEnd/Stop hook captures what the session taught. Ready-to-use hook
+  scripts in [`examples/agent-hooks/`](examples/agent-hooks) — no CLI, just curl
+  and jq, and every failure path exits silently so a knowledge base being down
+  can never break a session.
+- **Session distillation** (`POST /v1/spaces/{space}/agent/sessions`): post a
+  coding-agent transcript; the server distils **only durable rules a human
+  explicitly taught or corrected** and stages them as one ChangeProposal. A
+  routine session answers `no_learnings` and writes nothing — capture is a
+  filter first, so the review queue stays worth reading. The transcript is
+  distilled and dropped, never archived (transcripts carry secrets; sources are
+  kept forever). Distilled rules flow through the normal ingest pipeline, so
+  they inherit content-hash dedup (re-teaching a rule → `already_captured`, not
+  a duplicate), the grounding guard, and contradiction detection against
+  existing knowledge.
+- **Push gate** (`bun run gate`, `bun run hooks:install`): one command runs
+  every check CI runs — lint, typecheck, unit + contract, integration, e2e —
+  and installs as a `pre-push` hook, so a red CI run should be a surprise. It
+  fails loudly when Docker is missing rather than quietly checking less than
+  you think, and prints any `SKIP=` bypass in the summary.
+- **E2E tier** (`test/e2e`, `bun run test:e2e`): the real `ai` +
+  `@ai-sdk/anthropic` against a stub Anthropic endpoint
+  (`config.anthropicBaseUrl`), so the vendor edge is covered — request shape,
+  `cache_control` placement, usage mapping, error mapping. Every other tier
+  injects `FakeProvider` and is blind to all of it: losing prompt caching
+  multiplies the input-token bill while nothing else fails. No key, no network,
+  no cost.
+- **Benchmarks** (`benchmarks/`, `bun run bench`): deterministic and
+  network-free — prompt rendering, the grounding guard's O(claims × source)
+  normalization, the markdown pipeline, chunking. It reports and never gates
+  (wall-clock assertions are flaky and train people to bypass gates); the cost
+  regression that _does_ gate is the new `test/unit/prompt-budget.test.ts`,
+  which caps system-prompt tokens — a prompt is billed on every call of its
+  kind, forever, and nothing else noticed it growing.
+- **MCP self-description**: the server now advertises a `resources` capability
+  and returns usage `instructions` on `initialize`. `resources/list` /
+  `resources/read` serve `llms.txt` and `llms-full.txt` over MCP, so an
+  agent that can only speak MCP can still read the documentation written for it.
+
+### Changed
+
+- `503 llm_not_configured` now names the key of the **selected** provider — an
+  `openai` deployment is no longer told to set `ANTHROPIC_API_KEY`.
+- The `LlmProvider` interface gains a fourth method, `distill()`.
+
+### Fixed
+
+- Documentation drift across README, CHANGELOG, `docs/CONTRACTS.md` §10,
+  `.env.example` and `.env.defaults`, all of which had gone stale since v0.1.3.
+  Drift tests now cover them, plus the env templates and the CHANGELOG itself —
+  the docs CI checks stayed accurate, the ones it did not check did not.
+- `SECURITY.md` described an Anthropic-only LLM boundary and did not mention
+  that session capture sends whole transcripts to the model provider.
+- Removed `test/evals/`, an empty placeholder referenced by nothing since the
+  initial commit.
+
+## 0.1.6
+
+### Added
+
+- **Document upload** (`POST /v1/spaces/{space}/ingest/document`): send a
+  `pdf`, `docx`, `xlsx`, `md`, `txt` or `csv` file as the raw request body with
+  a `?filename=` query param — the extension selects the extractor. The
+  document is extracted to Markdown and enters the same pipeline as any other
+  source: archived verbatim, deduped by content hash, synthesized, and staged
+  as one pending ChangeProposal.
+
+## 0.1.5
+
+### Changed
+
+- **Verbatim-quote grounding guard**: a synthesized claim is kept only when its
+  supporting quote occurs verbatim in the source the model actually read
+  (whitespace- and case-normalized). The schema always required a non-empty
+  quote but never verified it — a paraphrased or invented quote is an
+  unverifiable citation. Ungrounded claims are dropped and logged with a
+  `dropped`/`kept` count. Benchmarked at 0 false positives across 43 real
+  grounded claims.
+
+## 0.1.4
+
+### Added
+
+- **Multi-provider LLM**: `WIKIKIT_LLM_PROVIDER` selects `anthropic` (default),
+  `openai` or `google`, with `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or
+  `GOOGLE_GENERATIVE_AI_API_KEY` respectively. Switching provider is a config
+  value, not a code change; an invalid value fails the boot.
+
+### Changed
+
+- **LLM calls run on the Vercel AI SDK 7** behind the unchanged three-method
+  `LlmProvider` interface: classify/synthesize/answer are one
+  `generateObject(schema)` call each, constrained to the same Zod objects the
+  rest of the system validates with. Transient failures (429/5xx) are retried
+  with backoff instead of failing an ingest on the first blip.
+- Anthropic prompt caching now measures as intended — the byte-stable system
+  prompt rides as a cache-controlled leading text part, so calls after the
+  first read the cached prefix.
+
+### Removed
+
+- `@anthropic-ai/sdk` and `src/llm/anthropic.ts`, replaced by `ai` +
+  `@ai-sdk/{anthropic,openai,google}`.
+
+## 0.1.3
+
+### Changed
+
+- Documentation presents WikiKit standalone — all references to sibling
+  products removed.
+
+## 0.1.2
+
+### Fixed
+
+- `llms.txt` and `llms-full.txt` are embedded at compile time, so the release
+  binary serves them instead of 404ing outside a source checkout.
+
+## 0.1.1
+
+### Fixed
+
+- The MCP transport is mounted in `createApp`, fixing a `404` on `POST /mcp` in
+  production builds.
+
 ## 0.1.0
 
 Initial release: a headless, AI-native knowledge system for humans and agents.
@@ -34,8 +165,8 @@ Initial release: a headless, AI-native knowledge system for humans and agents.
   retrieved evidence with inline citations, flags disputed claims, and says
   "not in the knowledge base" instead of hallucinating.
 - **MCP server** (Streamable HTTP at `/mcp`): scope-gated tool visibility with
-  `wikikit_search`, `wikikit_read`, `wikikit_sources`, `wikikit_history`,
-  `wikikit_lint`, `wikikit_ingest`, `wikikit_ingest_status`,
+  `wikikit_search`, `wikikit_read`, `wikikit_sources`, `wikikit_decisions`,
+  `wikikit_history`, `wikikit_lint`, `wikikit_ingest`, `wikikit_ingest_status`,
   `wikikit_propose` — deliberately no approve tool; session leases with idle
   TTL, hard cap and hijack guards.
 - **Export/import**: deterministic zip bundles as an Obsidian-friendly

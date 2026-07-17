@@ -1,11 +1,12 @@
-// LLM provider contract — the exactly-three-method interface every consumer
-// (ingest pipeline, query/answer) codes against (CONTRACTS.md §3.1).
+// LLM provider contract — the interface every consumer (ingest pipeline,
+// query/answer, session distillation) codes against (CONTRACTS.md §3.1).
 //
-// WHY an interface + factory instead of calling the Anthropic SDK directly:
+// WHY an interface + factory instead of calling a vendor SDK directly:
 // the ingest pipeline must be testable deterministically offline. The real
-// provider (anthropic.ts) and the FakeProvider (fake.ts) implement the same
-// three methods, so swapping them is a DI decision in the composition root,
-// never a code path change. Every call returns an LlmRunMeta the CALLER
+// provider (aisdk.ts, multi-vendor via the Vercel AI SDK) and the FakeProvider
+// (fake.ts) implement the same methods, so swapping them is a DI decision
+// in the composition root, never a code path change. Every call returns an
+// LlmRunMeta the CALLER
 // persists to wk_agent_runs — the provider computes the audit facts (model,
 // prompt_version, input_hash, usage, duration) but never touches the DB,
 // keeping it transport- and storage-agnostic.
@@ -15,6 +16,8 @@ import type {
   AnswerOutput,
   ClassifyInput,
   ClassifyOutput,
+  DistillInput,
+  DistillOutput,
   SynthesizeInput,
   SynthesizeOutput,
 } from './schemas.ts'
@@ -40,14 +43,26 @@ export interface LlmResult<T> {
 }
 
 export interface LlmProvider {
-  /** False when no ANTHROPIC_API_KEY — callers answer 503 llm_not_configured. FakeProvider: true. */
+  /** False when the selected provider's key is unset — callers answer 503 llm_not_configured. FakeProvider: true. */
   readonly configured: boolean
+  /**
+   * Env var holding the selected provider's key (e.g. OPENAI_API_KEY). Carried
+   * here so callers holding only a provider — not the whole Config — can name
+   * the right key in the 503.
+   */
+  readonly apiKeyEnv: string
   /** Which existing concepts a source affects + which new concepts it warrants. Model: config.modelClassify. */
   classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>>
   /** One call per affected concept: new revision + claims + relations. Model: config.modelSynthesis. */
   synthesize(input: SynthesizeInput): Promise<LlmResult<SynthesizeOutput>>
   /** Grounded Q&A over retrieved evidence with inline citations. Model: config.modelAnswer. */
   answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>>
+  /**
+   * Coding-agent session transcript → the durable rules a human taught in it.
+   * An empty list is the expected result for a routine session. Model:
+   * config.modelClassify (this is a filter, like classify).
+   */
+  distill(input: DistillInput): Promise<LlmResult<DistillOutput>>
 }
 
 // ---------------------------------------------------------------------------
@@ -59,17 +74,22 @@ export interface LlmProvider {
 // the transports map errors by `code`, not by class identity — so any layer
 // that catches these can produce the correct envelope without importing us.
 
-/** 503 llm_not_configured — thrown by every method when no API key is set. */
+/**
+ * 503 llm_not_configured — thrown by every method when no API key is set.
+ * `keyEnv` names the key for the SELECTED provider (WIKIKIT_LLM_PROVIDER), so
+ * an openai/google deployment is never told to set ANTHROPIC_API_KEY.
+ */
 export class LlmNotConfiguredError extends Error {
   readonly code = 'llm_not_configured' as const
   readonly status = 503
-  readonly next_best_actions = [
-    'set ANTHROPIC_API_KEY',
-    'LLM-free endpoints (search, read, lint, export) work without it',
-  ]
-  constructor(message = 'LLM features are not configured: ANTHROPIC_API_KEY is not set') {
+  readonly next_best_actions: string[]
+  constructor(
+    readonly keyEnv: string,
+    message = `LLM features are not configured: ${keyEnv} is not set`,
+  ) {
     super(message)
     this.name = 'LlmNotConfiguredError'
+    this.next_best_actions = [`set ${keyEnv}`, 'LLM-free endpoints (search, read, lint, export) work without it']
   }
 }
 

@@ -1,7 +1,11 @@
-# CI for every push to main and every PR (plan §14: lint → typecheck →
-# unit → contract → integration → build-binary). Fast checks run as parallel
-# jobs; the binary build gates on all of them so a red check can never
-# produce a green "buildable" signal.
+# CI for every push to main and every PR: lint → typecheck → unit + contract →
+# integration → e2e → build-binary. Fast checks run as parallel jobs; the binary
+# build gates on all of them so a red check can never produce a green
+# "buildable" signal.
+#
+# These are the same stages as scripts/gate.ts (`bun run gate`), which runs
+# locally as a pre-push hook — CI is the backstop, not the first place you
+# learn a check exists.
 name: CI
 
 on:
@@ -88,13 +92,43 @@ jobs:
         env:
           RUN_INTEGRATION: '1'
 
+  # The vendor edge. Every other suite injects FakeProvider, so the AI SDK
+  # wiring — structured-output request, cache_control placement, usage mapping,
+  # error mapping — is untested there. This tier points the REAL SDK at a stub
+  # Anthropic endpoint (test/e2e/llm-stub.ts), so a dependency bump that breaks
+  # prompt caching (a 5x bill that fails nothing else) fails the PR instead.
+  # No API key, no network, no cost.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: wikikit-local
+          POSTGRES_DB: wikikit
+        ports:
+          - '55442:5432'
+        options: >-
+          --name wikikit-local-postgres
+          --health-cmd "pg_isready -U postgres -d wikikit"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test:e2e
+        env:
+          RUN_INTEGRATION: '1'
+
   # Compiling the binary in CI keeps plan risk #5 (bun --compile with pg/
   # unified) permanently verified — a dependency that breaks --compile fails
   # the PR that introduces it, not the next release. build-binary.sh already
   # asserts the binary reports the package.json version; the extra --version
   # step proves the artifact executes on a machine with no Bun involvement.
   binary:
-    needs: [lint, typecheck, test, integration]
+    needs: [lint, typecheck, test, integration, e2e]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
