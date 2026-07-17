@@ -88,10 +88,20 @@ full docs as MCP resources, so it needs no further explanation from you.
 
 For ChatGPT Developer mode, create an app with
 `https://wikikit.mikebild.dev/mcp` and choose OAuth. WikiKit performs dynamic
-client registration and the PKCE authorization-code flow. Production uses the
-same Google/Firebase sign-in bridge as SubKit and an explicit WikiKit email
-allow-list; the operator API key is never entered into ChatGPT. ChatGPT
-receives only a scoped short-lived token instead.
+client registration and the PKCE authorization-code flow. Production uses a
+WikiKit-branded Firebase login page, standard OIDC providers (Google,
+Microsoft Entra ID, Okta, Keycloak, …), or a federated provider chooser. Each
+provider has an explicit email allow-list and scope ceiling; the operator API
+key is never entered into ChatGPT. ChatGPT receives only a scoped short-lived
+token instead.
+
+For proposal review, keep the discovered `knowledge:approve` standard scope
+selected in addition to `knowledge:read`, `knowledge:propose` and
+`offline_access`. The server and ChatGPT both require a deliberate confirmation
+for `wikikit_review_proposal`. ChatGPT stores the tools and scopes it scanned
+when the app was created: after a server release adds a tool or scope, recreate
+or rescan/update the app and reconnect rather than expecting an old OAuth grant
+to gain privileges.
 
 ### 3. Wire the hooks
 

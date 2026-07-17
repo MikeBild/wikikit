@@ -149,7 +149,8 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
         'Headless, AI-native knowledge system for humans and agents. ' +
         'Markdown-first knowledge in; structured, cited, review-gated knowledge out. ' +
         'Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. ' +
-        'MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface.',
+        'MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; ' +
+        'remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes.',
     },
     servers: [{ url: '/' }],
     paths,

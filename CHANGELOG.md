@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.15
+
+### Changed
+
+- Public documentation now describes the deployed remote-MCP contract
+  consistently: the WikiKit-branded Firebase relay, multiple OIDC providers,
+  the interactive `knowledge:approve` ceiling, and the separate proposal
+  inspection/review tools.
+- ChatGPT setup documents that an app scans and stores its tool and OAuth-scope
+  contract. Recreate or rescan a connector after adding tools or scopes; do
+  not silently elevate an existing grant.
+
+### Fixed
+
+- `llms.txt` now correctly identifies `wikikit_decisions` as a
+  `knowledge:read` tool; only proposal inspection and final review require
+  `knowledge:approve`.
+
 ## 0.1.14
 
 ### Added

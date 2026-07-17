@@ -55,6 +55,50 @@ instead of producing a half-configured server.
 | `LOG_LEVEL`                          | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
 | `NODE_ENV`                           | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
 
+## Remote MCP identity providers
+
+`WIKIKIT_OAUTH_LOGIN_PROVIDER` selects the browser identity flow used after a
+remote client has completed OAuth discovery and PKCE:
+
+- `api_key` is the local compatibility flow; it is not appropriate for a
+  public ChatGPT connector.
+- `firebase` redirects to the configured, dedicated WikiKit Firebase page.
+  It requires `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`,
+  `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` and `WIKIKIT_OAUTH_ALLOWED_EMAILS`.
+- `oidc` uses the providers in `WIKIKIT_OAUTH_OIDC_PROVIDERS`.
+- `federated` shows a chooser when more than one configured Firebase/OIDC
+  provider is available; with one provider it redirects directly to it.
+
+`WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
+request. It defaults to `knowledge:read,knowledge:propose`. Add
+`knowledge:approve` only for trusted human reviewers; a client must still ask
+for that scope and the consent page displays it. `admin` is never issued to an
+interactive OAuth identity.
+
+`WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array. Each provider requires an HTTPS
+issuer, client id and stable id; `allowed_emails` and `allowed_scopes` override
+the global values when present. `scopes` must include `openid`.
+
+```json
+[
+  {
+    "id": "entra",
+    "label": "Microsoft Entra ID",
+    "issuer": "https://login.microsoftonline.com/<tenant>/v2.0",
+    "client_id": "<public-or-confidential-client-id>",
+    "client_secret": "<optional-confidential-client-secret>",
+    "scopes": "openid profile email",
+    "allowed_emails": ["reviewer@example.com"],
+    "allowed_scopes": ["knowledge:read", "knowledge:propose", "knowledge:approve"]
+  }
+]
+```
+
+Do not put this JSON in version control when it has a `client_secret`; inject
+it through the production secret store. Register
+`${WIKIKIT_PUBLIC_URL}/v1/oauth/oidc/callback` as the provider redirect URI and
+keep `WIKIKIT_PUBLIC_URL` on its canonical HTTPS origin.
+
 ## Zero-config development
 
 `./wikikit` (or `bun run dev`) with **nothing** configured boots a complete

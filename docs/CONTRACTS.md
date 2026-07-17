@@ -1132,25 +1132,32 @@ Remote public clients dynamically register at `POST /v1/oauth/register` (RFC
 7591): at most five safe HTTPS or loopback redirect URIs, no client secret,
 and a bounded per-source-address rate. Authorization is code-only, requires
 PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
-one-time code. In `firebase` mode, the same Firebase/Google sign-in bridge as
-SubKit posts a signed ID token to a fixed WikiKit callback; WikiKit verifies
-Google's RS256 signature, issuer, audience, expiry, verified email and its
-explicit allow-list. The hosted sign-in page is never an arbitrary token relay.
-The consent form has CSRF protection and persists only the provider identity,
-never an API key or an ID token. `api_key` remains the local compatibility
-mode. Either identity can grant only `knowledge:read`, `knowledge:propose`, and
-`offline_access`; no flow turns an operator identity into OAuth admin/approve
-capability.
+one-time code. `WIKIKIT_OAUTH_LOGIN_PROVIDER` selects `firebase`, `oidc`, a
+`federated` chooser, or the local `api_key` compatibility mode. Firebase uses a
+dedicated WikiKit-branded page that posts a signed ID token only to WikiKit's
+fixed callback; WikiKit verifies its signature, issuer, audience, expiry,
+verified email and explicit allow-list. OIDC uses discovery plus Authorization
+Code + PKCE, verifies the identity claims, and applies each provider's explicit
+email allow-list. The hosted page is never an arbitrary token relay.
+
+The consent form has CSRF protection and persists only the minimum provider
+identity, never an API key or an ID token. Interactive OAuth identities can
+receive only `knowledge:read`, `knowledge:propose`, `knowledge:approve` and
+`offline_access`: every requested knowledge scope must be within the global or
+per-provider allowed-scope ceiling, and `knowledge:approve` is never granted
+by default. `admin` is never issued through an interactive OAuth identity.
+Clients retain their issued scope set; adding an MCP tool or scope requires a
+fresh connector scan/reconnect rather than silently elevating an old grant.
 
 `POST /v1/oauth/token` issues one-hour bearer tokens and, when
 `offline_access` is granted, rotating 30-day refresh tokens. A refresh-token
 replay revokes its entire token family. `POST /v1/oauth/revoke` is idempotent;
 revoking a refresh token revokes its family. Every exchange and MCP bearer
-authentication rechecks the source API key or Firebase identity's current
-revocation state. Raw secrets, Firebase ID tokens, authorization codes, access
-tokens and refresh tokens are never stored; only keyed HMAC hashes and the
-minimal identity record are retained. Expired artifacts and unused DCR clients
-are removed by the hourly housekeeping sweep.
+authentication rechecks the source API key or interactive identity's current
+revocation state. Raw secrets, Firebase ID tokens, OIDC assertions,
+authorization codes, access tokens and refresh tokens are never stored; only
+keyed HMAC hashes and the minimal identity record are retained. Expired
+artifacts and unused DCR clients are removed by the hourly housekeeping sweep.
 
 **Self-description (binding)**: capabilities are `{ tools, resources }`, and
 `initialize` returns `instructions` describing the read/write/review split and

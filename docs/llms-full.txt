@@ -104,7 +104,8 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/llms-full.txt`                              | public            | This file |
 
 MCP (Streamable HTTP) is mounted at POST /mcp — intentionally outside the
-REST/OpenAPI surface, behind the same auth (§7).
+REST/OpenAPI surface. Local clients use scoped API keys; remote MCP clients
+use OAuth 2.1 discovery, PKCE and explicitly requested scopes (§7).
 
 ### Conventions
 
@@ -298,6 +299,18 @@ authorization code + PKCE, rotating refresh tokens and Bearer access tokens.
 An unauthenticated `/mcp` response advertises protected-resource metadata via
 `WWW-Authenticate`; OAuth tokens expose only the consented read/propose/approve
 scopes, capped by the configured identity-provider policy.
+
+Remote human login is selected with `WIKIKIT_OAUTH_LOGIN_PROVIDER`:
+`firebase` uses the dedicated WikiKit-branded Firebase page, `oidc` uses the
+explicit provider array in `WIKIKIT_OAUTH_OIDC_PROVIDERS`, and `federated`
+chooses among the configured Firebase/OIDC providers. Firebase and each OIDC
+provider apply an explicit email allow-list. The interactive permission ceiling
+defaults to `knowledge:read,knowledge:propose`; add `knowledge:approve` only
+for trusted human reviewers, and the client must request it explicitly. OAuth
+never issues `admin`. A connector stores the tools and scopes it scanned, so a
+new tool or scope requires a rescan/reconnect rather than silently broadening
+an old token.
+
 Sessions are leases: idle TTL sweep (`WIKIKIT_MCP_SESSION_TTL_MS`), hard cap
 (`WIKIKIT_MCP_MAX_SESSIONS`) with oldest-idle eviction; a different key on a
 known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC
@@ -487,6 +500,13 @@ printed once. Only the provider API keys (`ANTHROPIC_API_KEY`,
 one matching `WIKIKIT_LLM_PROVIDER` is read; without it every LLM-free feature
 still works. In production the behavior flips: no
 auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
+
+For OIDC, `WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array of objects with
+`id`, `label`, HTTPS `issuer`, `client_id`, optional `client_secret`, `scopes`
+(which includes `openid`), and optional `allowed_emails` / `allowed_scopes`
+overrides. Register `${WIKIKIT_PUBLIC_URL}/v1/oauth/oidc/callback` with each
+provider. Keep client secrets in the production secret store, never in the
+repository.
 
 ---
 

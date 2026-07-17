@@ -187,6 +187,16 @@ is entered in ChatGPT or sent to the browser. ChatGPT receives only a scoped,
 short-lived OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base
 URL in production because it is the OAuth issuer and audience.
 
+For a review-capable connector, select the discovered standard scopes
+`knowledge:read`, `knowledge:propose`, `knowledge:approve` and
+`offline_access`; production must also allow `knowledge:approve` through
+`WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that OIDC provider's `allowed_scopes`).
+`wikikit_review_proposal` is deliberately marked as an irreversible write, so
+ChatGPT asks for confirmation before it is called. ChatGPT stores the scanned
+tool and scope contract per connector: after adding a tool or scope, create a
+new connector or use its rescan/update control, then reconnect. Existing OAuth
+tokens retain their original, narrower scopes.
+
 The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
