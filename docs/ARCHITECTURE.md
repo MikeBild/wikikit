@@ -160,8 +160,11 @@ input-token bill multiplies while every other suite stays green.
 
 ## MCP server
 
-Streamable HTTP at `POST /mcp`, deliberately outside ROUTES/OpenAPI, behind
-the same key auth. One SDK server per session; handlers close over the
+Streamable HTTP at `POST /mcp`, deliberately outside ROUTES/OpenAPI. Local
+clients authenticate with a WikiKit API key; public remote clients discover an
+OAuth 2.1 authorization server and exchange an explicitly consented API-key
+grant for a short-lived, revocable bearer token. Both resolve to the same
+least-privilege Principal. One SDK server per session; handlers close over the
 authenticated Principal. Sessions are **leases, not allocations**: idle-TTL
 sweeper, hard cap with oldest-idle eviction, in-flight retain counter; a
 foreign key on a known session id gets 404 (hijack guard), an unknown session
@@ -178,6 +181,15 @@ The server also describes itself: `initialize` carries `instructions`, and a
 routes use — one embedded source, two transports. An MCP-only client has no
 way to issue `GET /llms.txt`, so without this the documentation written for
 agents would be reachable only by humans.
+
+Remote MCP authorization is deliberately a small, isolated raw HTTP surface:
+protected-resource and authorization-server metadata, dynamic public-client
+registration, authorization-code + PKCE S256, rotating refresh families and
+RFC-style token revocation. The server persists only HMAC hashes of codes and
+tokens. It binds every authorization artifact to `/mcp`, rechecks the backing
+WikiKit API key on every exchange and MCP request, and sweeps expired/revoked
+rows hourly. OAuth scopes are capped at `knowledge:read` and
+`knowledge:propose`; the human-only approval boundary remains intact.
 
 ## Database access discipline
 

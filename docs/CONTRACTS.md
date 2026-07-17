@@ -1119,6 +1119,32 @@ the key holds. There is deliberately NO approve tool — approval is REST-only.
 No in-band elicitation. Errors use the §8 envelope serialized into the tool
 result (`isError: true`), never bare strings.
 
+### 7.0 OAuth 2.1 for remote MCP clients
+
+Unauthenticated `/mcp` responses advertise the protected resource through
+`WWW-Authenticate` and `/.well-known/oauth-protected-resource` (including the
+path-qualified variant). The canonical `WIKIKIT_PUBLIC_URL` is the issuer and
+the exact resource audience `${WIKIKIT_PUBLIC_URL}/mcp`. The authorization
+server metadata is at `/.well-known/oauth-authorization-server`.
+
+Remote public clients dynamically register at `POST /v1/oauth/register` (RFC
+7591): at most five safe HTTPS or loopback redirect URIs, no client secret,
+and a bounded per-source-address rate. Authorization is code-only, requires
+PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
+one-time code. The consent page checks an existing WikiKit API key once, uses
+CSRF protection, and stores only the key's HMAC identity. It can grant only
+`knowledge:read`, `knowledge:propose`, and `offline_access`; it never turns an
+operator key into an OAuth admin/approve capability.
+
+`POST /v1/oauth/token` issues one-hour bearer tokens and, when
+`offline_access` is granted, rotating 30-day refresh tokens. A refresh-token
+replay revokes its entire token family. `POST /v1/oauth/revoke` is idempotent;
+revoking a refresh token revokes its family. Every exchange and MCP bearer
+authentication rechecks the source API key's current revocation state. Raw
+secrets, authorization codes, access tokens and refresh tokens are never
+stored; only keyed HMAC hashes are retained. Expired artifacts and unused DCR
+clients are removed by the hourly housekeeping sweep.
+
 **Self-description (binding)**: capabilities are `{ tools, resources }`, and
 `initialize` returns `instructions` describing the read/write split and the
 "no approve tool" rule. `resources/list` exposes `wikikit://docs/llms.txt` and
@@ -1238,37 +1264,41 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                            | Default                                                            | Notes                                                     |
-| ----------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
-| `HOST`                              | `127.0.0.1`                                                        |                                                           |
-| `PORT`                              | `4060`                                                             |                                                           |
-| `WIKIKIT_PUBLIC_URL`                | `http://127.0.0.1:4060`                                            | MCP origin allowlist; trailing slash stripped             |
-| `DATABASE_URL`                      | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                |
-| `WIKIKIT_KEY_PEPPER`                | dev: `wikikit-local-key-pepper`                                    | **required in production**                                |
-| `WIKIKIT_BOOTSTRAP_API_KEY`         | `` (dev: generated + printed once at boot)                         |                                                           |
-| `WIKIKIT_LLM_PROVIDER`              | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails |
-| `ANTHROPIC_API_KEY`                 | `` — no default anywhere                                           | read when provider is `anthropic`                         |
-| `OPENAI_API_KEY`                    | `` — no default anywhere                                           | read when provider is `openai`                            |
-| `GOOGLE_GENERATIVE_AI_API_KEY`      | `` — no default anywhere                                           | read when provider is `google`                            |
-| `ANTHROPIC_BASE_URL`                | ``                                                                 | honored when provider is `anthropic`; test stub target    |
-| `WIKIKIT_MODEL_SYNTHESIS`           | `claude-sonnet-5`                                                  |                                                           |
-| `WIKIKIT_MODEL_CLASSIFY`            | `claude-haiku-4-5`                                                 |                                                           |
-| `WIKIKIT_MODEL_ANSWER`              | `claude-sonnet-5`                                                  |                                                           |
-| `WIKIKIT_MAX_BODY_BYTES`            | `10485760`                                                         | 1 KiB – 250 MiB                                           |
-| `WIKIKIT_MAX_INGEST_TOKENS`         | `100000`                                                           | chunking threshold                                        |
-| `WIKIKIT_INGEST_CONCURRENCY`        | `2`                                                                | 1–16                                                      |
-| `WIKIKIT_INGEST_LEASE_MS`           | `900000`                                                           | 10 s–24 h                                                 |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`       | `30000`                                                            | 1 s–1 h; less than half the lease                         |
-| `WIKIKIT_WEBHOOK_POLL_MS`           | `5000` (dev default file: `1000`)                                  |                                                           |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`        | `10000`                                                            |                                                           |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`      | `10`                                                               |                                                           |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD` | `5`                                                                |                                                           |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`     | `!production`                                                      | SSRF guard                                                |
-| `WIKIKIT_TRUST_PROXY`               | `false`                                                            |                                                           |
-| `WIKIKIT_MCP_SESSION_TTL_MS`        | `1800000` (30 min)                                                 |                                                           |
-| `WIKIKIT_MCP_MAX_SESSIONS`          | `200`                                                              |                                                           |
-| `LOG_LEVEL`                         | `info`                                                             | debug/info/warn/error                                     |
-| `NODE_ENV`                          | —                                                                  | `production` activates guards + disables `.env.defaults`  |
+| Variable                             | Default                                                            | Notes                                                     |
+| ------------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| `HOST`                               | `127.0.0.1`                                                        |                                                           |
+| `PORT`                               | `4060`                                                             |                                                           |
+| `WIKIKIT_PUBLIC_URL`                 | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production   |
+| `DATABASE_URL`                       | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                |
+| `WIKIKIT_KEY_PEPPER`                 | dev: `wikikit-local-key-pepper`                                    | **required in production**                                |
+| `WIKIKIT_BOOTSTRAP_API_KEY`          | `` (dev: generated + printed once at boot)                         |                                                           |
+| `WIKIKIT_LLM_PROVIDER`               | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails |
+| `ANTHROPIC_API_KEY`                  | `` — no default anywhere                                           | read when provider is `anthropic`                         |
+| `OPENAI_API_KEY`                     | `` — no default anywhere                                           | read when provider is `openai`                            |
+| `GOOGLE_GENERATIVE_AI_API_KEY`       | `` — no default anywhere                                           | read when provider is `google`                            |
+| `ANTHROPIC_BASE_URL`                 | ``                                                                 | honored when provider is `anthropic`; test stub target    |
+| `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                           |
+| `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                           |
+| `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                           |
+| `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                           |
+| `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                        |
+| `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                      |
+| `WIKIKIT_INGEST_LEASE_MS`            | `900000`                                                           | 10 s–24 h                                                 |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`        | `30000`                                                            | 1 s–1 h; less than half the lease                         |
+| `WIKIKIT_WEBHOOK_POLL_MS`            | `5000` (dev default file: `1000`)                                  |                                                           |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`         | `10000`                                                            |                                                           |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`       | `10`                                                               |                                                           |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`  | `5`                                                                |                                                           |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`      | `!production`                                                      | SSRF guard                                                |
+| `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                           |
+| `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                           |
+| `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                           |
+| `WIKIKIT_OAUTH_DCR_ENABLED`          | `true`                                                             | RFC 7591 remote-client registration                       |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                  |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                  |
+| `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                     |
+| `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`  |
 
 Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
 query answer 503 `llm_not_configured`, naming **that** provider's key, while

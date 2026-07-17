@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.10
+
+### Added
+
+- OAuth 2.1 authorization for public remote MCP clients such as ChatGPT:
+  protected-resource and authorization-server discovery, safe dynamic public
+  client registration, authorization code + PKCE S256, consent, scoped bearer
+  tokens, rotating refresh tokens and token revocation.
+- Hourly OAuth housekeeping for expired authorization artifacts, revoked token
+  retention and unused dynamically registered clients.
+
+### Security
+
+- OAuth tokens are HMAC-hashed at rest, bound to the canonical `/mcp`
+  resource, and revalidated against the backing WikiKit API key on every
+  exchange and MCP request. Refresh-token replay revokes the whole token
+  family. OAuth grants cannot obtain human-only approval or admin privileges.
+
 ## 0.1.9
 
 ### Added

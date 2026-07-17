@@ -25,6 +25,12 @@
       "tag": "0003_wk_operational_integrity",
       "when": 1784296800000,
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "tag": "0004_wk_mcp_oauth",
+      "when": 1784311200000,
+      "breakpoints": true
     }
   ]
 }

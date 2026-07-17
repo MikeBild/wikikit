@@ -84,6 +84,14 @@ codex mcp add wikikit --url "$WIKIKIT_URL/mcp" --bearer-token-env-var WIKIKIT_AP
 On connect the server hands the agent its own usage instructions and serves the
 full docs as MCP resources, so it needs no further explanation from you.
 
+### ChatGPT.com is OAuth, not an API-key header
+
+For ChatGPT Developer mode, create an app with
+`https://wikikit.mikebild.dev/mcp` and choose OAuth. WikiKit performs dynamic
+client registration and the PKCE authorization-code flow. The consent page
+checks an existing WikiKit operator key once; it never stores that plaintext
+key, and ChatGPT receives a scoped short-lived token instead.
+
 ### 3. Wire the hooks
 
 Copy the two scripts from [`examples/agent-hooks/`](../examples/agent-hooks) and

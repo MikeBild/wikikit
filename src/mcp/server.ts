@@ -269,7 +269,13 @@ function sessionNotFound(): Response {
   return jsonRpcHttpError(404, -32001, 'Session not found')
 }
 
-function errorEnvelopeResponse(error: DomainError, requestId: string): Response {
+function errorEnvelopeResponse(error: DomainError, requestId: string, config?: Config): Response {
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-request-id': requestId }
+  if (error instanceof UnauthorizedError) {
+    headers['www-authenticate'] = config?.publicUrl
+      ? `Bearer resource_metadata="${config.publicUrl}/.well-known/oauth-protected-resource", scope="knowledge:read knowledge:propose"`
+      : 'Bearer scope="knowledge:read knowledge:propose"'
+  }
   return new Response(
     JSON.stringify({
       error: error.message,
@@ -278,7 +284,7 @@ function errorEnvelopeResponse(error: DomainError, requestId: string): Response 
       next_best_actions: error.nextBestActions,
       ...error.details,
     }),
-    { status: error.statusCode, headers: { 'content-type': 'application/json', 'x-request-id': requestId } },
+    { status: error.statusCode, headers },
   )
 }
 
@@ -312,7 +318,7 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
       const requestId = newRequestId()
       const domainError = error instanceof DomainError ? error : new UnauthorizedError('authentication failed')
       logger.debug('mcp request unauthorized', { request_id: requestId })
-      return errorEnvelopeResponse(domainError, requestId)
+      return errorEnvelopeResponse(domainError, requestId, config)
     }
 
     const sessionHeader = req.headers.get('mcp-session-id')

@@ -143,6 +143,7 @@ describe('production guards', () => {
     process.env.NODE_ENV = 'production'
     process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
     process.env.DATABASE_URL = 'postgresql://prod/wikikit'
+    process.env.WIKIKIT_PUBLIC_URL = 'https://wikikit.example.com'
     const config = loadConfig()
     expect(config.production).toBe(true)
     expect(config.keyPepper).toBe('prod-pepper')
@@ -156,6 +157,7 @@ describe('production guards', () => {
     process.env.NODE_ENV = 'production'
     process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
     process.env.DATABASE_URL = 'postgresql://prod/wikikit'
+    process.env.WIKIKIT_PUBLIC_URL = 'https://wikikit.example.com'
     const config = loadConfig()
     expect(config.llmConfigured).toBe(false)
   })

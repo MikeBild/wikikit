@@ -132,6 +132,14 @@ export interface Config {
   readonly trustProxy: boolean
   readonly mcpSessionTtlMs: number
   readonly mcpMaxSessions: number
+  /** OAuth authorization-code lifetime; optional on injected test configs. */
+  readonly oauthAuthorizationCodeTtlMs?: number
+  /** OAuth access-token lifetime; optional on injected test configs. */
+  readonly oauthAccessTokenTtlMs?: number
+  /** OAuth refresh-token lifetime; optional on injected test configs. */
+  readonly oauthRefreshTokenTtlMs?: number
+  /** Allow RFC 7591 dynamic client registration for remote MCP clients. */
+  readonly oauthDynamicRegistrationEnabled?: boolean
   readonly logLevel: string
   readonly version: string
   /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
@@ -214,6 +222,19 @@ export function loadConfig(): Config {
     trustProxy: bool('WIKIKIT_TRUST_PROXY', false),
     mcpSessionTtlMs: integer('WIKIKIT_MCP_SESSION_TTL_MS', 30 * 60 * 1000, { min: 10_000, max: 24 * 3600 * 1000 }),
     mcpMaxSessions: integer('WIKIKIT_MCP_MAX_SESSIONS', 200, { min: 1, max: 10_000 }),
+    oauthAuthorizationCodeTtlMs: integer('WIKIKIT_OAUTH_CODE_TTL_MS', 10 * 60 * 1000, {
+      min: 60_000,
+      max: 15 * 60 * 1000,
+    }),
+    oauthAccessTokenTtlMs: integer('WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS', 60 * 60 * 1000, {
+      min: 5 * 60 * 1000,
+      max: 24 * 60 * 60 * 1000,
+    }),
+    oauthRefreshTokenTtlMs: integer('WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS', 30 * 24 * 60 * 60 * 1000, {
+      min: 60 * 60 * 1000,
+      max: 90 * 24 * 60 * 60 * 1000,
+    }),
+    oauthDynamicRegistrationEnabled: bool('WIKIKIT_OAUTH_DCR_ENABLED', true),
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
@@ -232,6 +253,9 @@ export function loadConfig(): Config {
       .filter(([, value]) => !value)
       .map(([name]) => name)
     if (missing.length) throw new Error(`missing production configuration: ${missing.join(', ')}`)
+    if (new URL(config.publicUrl).protocol !== 'https:') {
+      throw new Error('WIKIKIT_PUBLIC_URL must use https in production (OAuth redirect and issuer security)')
+    }
   }
 
   return config

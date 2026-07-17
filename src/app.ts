@@ -20,6 +20,7 @@ import { createAuth, type Auth } from './http/auth.ts'
 import { createSpace, type HttpDeps } from './http/routes.ts'
 import { createHttpServer, type RawHandler } from './http/server.ts'
 import { createMcpMount, toNodeRawHandler, type McpMount } from './mcp/server.ts'
+import { createOAuthMount } from './oauth/server.ts'
 
 export interface AppDeps {
   logger: Logger
@@ -79,6 +80,23 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger })
   http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
 
+  // ChatGPT and other remote MCP clients discover and complete OAuth without
+  // ever seeing an operator API key. One raw handler owns the OAuth wire
+  // formats (JSON, form posts and the consent HTML); exact mounts keep the
+  // ordinary REST registry and OpenAPI surface unchanged.
+  const oauth = createOAuthMount(config, { db, auth, logger })
+  for (const path of [
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/mcp',
+    '/.well-known/oauth-authorization-server',
+    '/v1/oauth/register',
+    '/v1/oauth/authorize',
+    '/v1/oauth/token',
+    '/v1/oauth/revoke',
+  ]) {
+    http.mountRawHandler(path, oauth.handler)
+  }
+
   let closed = false
   return {
     server: http.server,
@@ -96,6 +114,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       if (closed) return
       closed = true
       state.draining = true
+      oauth.stop()
       mcp.stop() // stop the session sweeper + close live MCP sessions
       outbox.stop()
       await ingest.stop()

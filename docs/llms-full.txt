@@ -291,7 +291,11 @@ actionable envelope — never a bare string:
 ## 7. MCP server
 
 Streamable HTTP at `POST /mcp` (plus GET/DELETE for SSE/session close), built
-on `@modelcontextprotocol/sdk`, behind the same `wk_` key auth as REST.
+on `@modelcontextprotocol/sdk`. Local/operator clients use the same `wk_` key
+auth as REST. Remote clients such as ChatGPT use OAuth 2.1 discovery, DCR,
+authorization code + PKCE, rotating refresh tokens and Bearer access tokens.
+An unauthenticated `/mcp` response advertises protected-resource metadata via
+`WWW-Authenticate`; OAuth tokens expose only the consented read/propose scopes.
 Sessions are leases: idle TTL sweep (`WIKIKIT_MCP_SESSION_TTL_MS`), hard cap
 (`WIKIKIT_MCP_MAX_SESSIONS`) with oldest-idle eviction; a different key on a
 known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC
@@ -434,7 +438,7 @@ Invalid values fail the boot, not the request.
 |----------|---------|---------|
 | `HOST` | bind address | `127.0.0.1` |
 | `PORT` | HTTP listen port | `4060` |
-| `WIKIKIT_PUBLIC_URL` | public base URL (Location headers, MCP origin allowlist) | `http://127.0.0.1:4060` |
+| `WIKIKIT_PUBLIC_URL` | canonical OAuth issuer/resource + MCP origin allowlist; HTTPS in production | `http://127.0.0.1:4060` |
 | `DATABASE_URL` | Postgres connection string; **required in production** | dev: local Docker Postgres |
 | `WIKIKIT_KEY_PEPPER` | HMAC pepper for API-key hashes; **required in production** | dev: committed dev pepper |
 | `WIKIKIT_BOOTSTRAP_API_KEY` | pin the bootstrap admin key | (dev: generated + printed once) |
@@ -459,6 +463,10 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
 | `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
 | `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
+| `WIKIKIT_OAUTH_DCR_ENABLED` | RFC 7591 dynamic registration for remote MCP clients | `true` |
+| `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 

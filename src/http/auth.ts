@@ -83,13 +83,76 @@ interface KeyRow {
   space_id: string | null
 }
 
+interface OAuthTokenRow {
+  id: string
+  client_id: string
+  scopes: string[]
+  principal_name: string
+  principal_space_id: string | null
+  principal_key_id: string
+  principal_key_hash: string
+}
+
 export function createAuth(config: Config, db: Db): Auth {
   const auth: Auth = {
     async authenticate(headerValue) {
       if (!headerValue) throw new UnauthorizedError('missing API key (Authorization: Bearer or X-API-Key)')
       // Accept both `Bearer wk_...` (Authorization) and a bare key (X-API-Key
       // value, or a client that skips the Bearer prefix).
-      const key = headerValue.match(/^Bearer\s+(.+)$/i)?.[1] ?? headerValue
+      const bearer = headerValue.match(/^Bearer\s+(.+)$/i)
+      const key = bearer?.[1] ?? headerValue
+
+      // OAuth access tokens are separate from operator API keys and are
+      // intentionally accepted only through Bearer authentication. They are
+      // short-lived, revocable and carry no admin scope.
+      if (/^wko_[A-Za-z0-9_-]{43}$/.test(key)) {
+        if (!bearer) throw new UnauthorizedError('OAuth access tokens require Authorization: Bearer')
+        if (!config.keyPepper) throw new UnauthorizedError('unknown OAuth access token')
+        const tokenHash = hashApiKey(key, config.keyPepper)
+        const { rows } = await db.query<OAuthTokenRow>(
+          `SELECT t.id, t.client_id, t.scopes, t.principal_name, t.principal_space_id,
+                  t.principal_key_id, t.principal_key_hash
+             FROM wk_oauth_access_tokens t
+             JOIN wk_oauth_clients c ON c.client_id = t.client_id
+            WHERE t.token_hash = $1
+              AND t.resource = $2
+              AND t.revoked_at IS NULL
+              AND t.expires_at > now()
+              AND c.revoked_at IS NULL
+              AND (
+                t.principal_key_id = 'bootstrap'
+                OR EXISTS (
+                  SELECT 1 FROM wk_api_keys k
+                   WHERE k.id::text = t.principal_key_id
+                     AND k.key_hash = t.principal_key_hash
+                     AND k.revoked_at IS NULL
+                )
+              )
+            LIMIT 1`,
+          [tokenHash, `${config.publicUrl}/mcp`],
+        )
+        const row = rows[0]
+        if (!row) throw new UnauthorizedError('unknown or expired OAuth access token')
+        if (
+          row.principal_key_id === 'bootstrap' &&
+          (!config.bootstrapApiKey ||
+            !safeEqual(row.principal_key_hash, hashApiKey(config.bootstrapApiKey, config.keyPepper)))
+        ) {
+          throw new UnauthorizedError('the API key behind this OAuth grant is no longer active')
+        }
+        db.update(
+          'wk_oauth_access_tokens',
+          { id: `eq.${row.id}` },
+          { last_used_at: new Date().toISOString() },
+          { returning: false },
+        ).catch(() => {})
+        return {
+          keyId: `oauth:${row.id}`,
+          scopes: (row.scopes ?? []).filter((scope) => scope !== 'offline_access'),
+          spaceId: row.principal_space_id,
+          name: `oauth:${row.principal_name}`,
+        }
+      }
 
       // Env bootstrap key first: it exists before any DB row does (that is
       // its purpose) and never touches the pool. Constant-time compare — the

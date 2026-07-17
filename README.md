@@ -166,6 +166,25 @@ Or in an `mcpServers` config (Claude Desktop, and most other MCP clients):
 }
 ```
 
+### ChatGPT.com
+
+ChatGPT.com connects to a public MCP server through OAuth 2.1; it must not be
+given a long-lived `wk_` key. WikiKit implements protected-resource discovery,
+dynamic client registration, PKCE (`S256`), consent, rotating refresh tokens
+and revocation at the same `/mcp` endpoint.
+
+In ChatGPT, enable Developer mode, create an app/plugin, and enter:
+
+```text
+https://wikikit.mikebild.dev/mcp
+```
+
+Choose OAuth. On the first connection WikiKit asks once for an existing
+operator API key with the requested `knowledge:read`/`knowledge:propose`
+scopes; it checks but never stores that plaintext key. ChatGPT receives only a
+scoped, short-lived OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical
+HTTPS base URL in production because it is the OAuth issuer and audience.
+
 The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
 `wikikit_ingest_status` and `wikikit_propose` — and deliberately **no approve
