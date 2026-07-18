@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.1
+
+### Fixed
+
+- Ingest status documentation now matches the existing no-review-work contract:
+  `done` always carries the archived `source_id`, while `proposal_id` is null
+  when classification finds no affected or new knowledge. HTTP OpenAPI, MCP
+  tool help, README and LLM documentation now describe the same behavior.
+- Release artifacts once again match the exact documented source revision and
+  self-reported version, replacing the temporary 0.2.0 documentation hotfix.
+
 ## 0.2.0
 
 ### Added
@@ -36,10 +47,6 @@ and this project adheres to
 
 ### Fixed
 
-- Ingest status documentation now matches the existing no-review-work contract:
-  `done` always carries the archived `source_id`, while `proposal_id` is null
-  when classification finds no affected or new knowledge. HTTP OpenAPI, MCP
-  tool help, README and LLM documentation now describe the same behavior.
 - `llms.txt` now correctly identifies `wikikit_decisions` as a
   `knowledge:read` tool; only proposal inspection and final review require
   `knowledge:approve`.
