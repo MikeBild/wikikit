@@ -317,7 +317,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -900,7 +900,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1591,7 +1591,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2277,7 +2277,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or failed (carries error.code/message).",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

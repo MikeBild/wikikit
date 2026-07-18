@@ -368,8 +368,8 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_ingest_status',
     description:
-      'Poll an ingest job started by wikikit_ingest. Terminal states: done (carries proposal_id) or ' +
-      'failed (carries error.code/message).',
+      'Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional ' +
+      'proposal_id; null means no review work) or failed (carries error.code/message).',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,

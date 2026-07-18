@@ -70,8 +70,9 @@ ING=$(curl -s -X POST "$WK/v1/spaces/default/ingest" \
   -d '{"markdown":"# OKF\nOKF is a draft spec for knowledge bundles.","title":"OKF note"}' \
   | jq -r .ingest_id)
 
-# 2. Poll every few seconds until status is done (or failed); done carries proposal_id.
-#    → {"ingest_id":"...","status":"done","proposal_id":"...","source_id":"...","error":null}
+# 2. Poll until done (or failed). Done always carries source_id; proposal_id is
+#    nullable when classification finds no affected/new knowledge to review.
+#    → {"ingest_id":"...","status":"done","proposal_id":null,"source_id":"...","error":null}
 PROP=$(curl -s "$WK/v1/ingests/$ING" -H "Authorization: Bearer $KEY" | jq -r .proposal_id)
 
 # 3. Review the structured diff (also human-readable via Accept: text/markdown)

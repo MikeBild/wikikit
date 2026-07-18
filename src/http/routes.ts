@@ -131,7 +131,7 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/ingests/{id}',
     scope: 'knowledge:propose',
-    summary: 'Ingest job status (queued|running|done|failed) + proposal_id when done',
+    summary: 'Ingest job status; done may carry proposal_id or valid no-review-work result',
     handler: 'getIngestHandler',
     request: { params: 'zIdParams' },
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },

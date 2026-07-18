@@ -36,6 +36,10 @@ and this project adheres to
 
 ### Fixed
 
+- Ingest status documentation now matches the existing no-review-work contract:
+  `done` always carries the archived `source_id`, while `proposal_id` is null
+  when classification finds no affected or new knowledge. HTTP OpenAPI, MCP
+  tool help, README and LLM documentation now describe the same behavior.
 - `llms.txt` now correctly identifies `wikikit_decisions` as a
   `knowledge:read` tool; only proposal inspection and final review require
   `knowledge:approve`.

@@ -193,7 +193,7 @@
     },
     "/v1/ingests/{id}": {
       "get": {
-        "summary": "Ingest job status (queued|running|done|failed) + proposal_id when done",
+        "summary": "Ingest job status; done may carry proposal_id or valid no-review-work result",
         "operationId": "getIngest",
         "responses": {
           "200": {

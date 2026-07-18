@@ -72,7 +72,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
-| GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status (queued\|running\|done\|failed) + proposal_id when done |
+| GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
 | GET    | `/v1/spaces/{space}/decisions`                | knowledge:read    | List decisions (active/superseded), newest first — the decision log |
@@ -134,7 +134,8 @@ Use the existing `/v1/spaces/{space}/lint` resource for current data quality.
   approved knowledge.
 - **Async ingest:** `POST .../ingest` answers `202` with
   `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
-  `done` (carries `proposal_id`) or `failed` (carries `error.code/message`).
+  `done` (carries `source_id`; `proposal_id` is nullable when no affected or new
+  knowledge requires review) or `failed` (carries `error.code/message`).
 
 ### Examples
 
