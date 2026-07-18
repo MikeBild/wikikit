@@ -24,7 +24,7 @@ export interface Metrics {
   /** One terminal ingest job: counter by outcome + duration histogram. */
   ingestJob(status: 'done' | 'failed', durationMs: number): void
   /** One LLM call: call counter + token counters split by direction (cost telemetry from day one). */
-  llmCall(kind: string, model: string, usage: LlmUsageLike): void
+  llmCall(kind: string, model: string, usage: LlmUsageLike, result?: 'success' | 'error', durationMs?: number): void
   /** One webhook delivery outcome (delivered = success, failed = will retry, dead = gave up). */
   webhookDelivery(status: 'delivered' | 'failed' | 'dead'): void
   /** Full Prometheus text exposition (text/plain; version=0.0.4). */
@@ -126,6 +126,11 @@ export function createMetrics(): Metrics {
     series: new Map(),
   }
   const llmCalls: Counter = { help: 'LLM provider calls', series: new Map() }
+  const llmDuration: Histogram = {
+    help: 'LLM provider call duration in seconds',
+    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120],
+    series: new Map(),
+  }
   const llmTokens: Counter = {
     help: 'LLM tokens by direction (type: input|output|cache_read)',
     series: new Map(),
@@ -143,8 +148,9 @@ export function createMetrics(): Metrics {
       observe(ingestDuration, {}, durationMs / 1000)
     },
 
-    llmCall(kind, model, usage) {
-      inc(llmCalls, { kind, model })
+    llmCall(kind, model, usage, result = 'success', durationMs = 0) {
+      inc(llmCalls, { kind, model, result })
+      observe(llmDuration, { kind, model, result }, durationMs / 1000)
       // Zero-token directions are skipped so unused series (e.g. cache_read
       // without prompt caching) never appear in the exposition.
       if (usage.input_tokens) inc(llmTokens, { kind, model, type: 'input' }, usage.input_tokens)
@@ -165,6 +171,7 @@ export function createMetrics(): Metrics {
       renderCounter('wikikit_ingest_jobs_total', ingestJobs, lines)
       renderHistogram('wikikit_ingest_job_duration_seconds', ingestDuration, lines)
       renderCounter('wikikit_llm_calls_total', llmCalls, lines)
+      renderHistogram('wikikit_llm_call_duration_seconds', llmDuration, lines)
       renderCounter('wikikit_llm_tokens_total', llmTokens, lines)
       renderCounter('wikikit_webhook_deliveries_total', webhookDeliveries, lines)
       return `${lines.join('\n')}\n`

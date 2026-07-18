@@ -29,6 +29,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import type { Config } from '../config.ts'
 import type { Logger } from '../logger.ts'
+import type { Metrics } from '../metrics.ts'
 import {
   computeInputHash,
   LlmNotConfiguredError,
@@ -93,7 +94,10 @@ function resolveProvider(config: Config): ResolvedProvider {
   }
 }
 
-export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}): LlmProvider {
+export function createLlmProvider(
+  config: Config,
+  deps: { logger?: Logger; metrics?: Pick<Metrics, 'llmCall'> } = {},
+): LlmProvider {
   const logger = deps.logger
   let resolved: ResolvedProvider | undefined
 
@@ -168,6 +172,7 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
         maxRetries: 2,
       })
     } catch (error) {
+      deps.metrics?.llmCall(args.kind, args.model, {}, 'error', Date.now() - started)
       // The SDK could not produce a schema-valid object (malformed/parse fail):
       // a hard error carrying the cause, mirroring the raw provider's contract.
       if (NoObjectGeneratedError.isInstance(error)) {
@@ -182,11 +187,13 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
 
     // A truncated object is not a partial success; a safety refusal is terminal.
     if (result.finishReason === 'length') {
+      deps.metrics?.llmCall(args.kind, args.model, extractUsage(result.usage), 'error', duration_ms)
       throw new LlmOutputInvalidError(
         `${args.kind}: output truncated at maxOutputTokens — structured output is incomplete`,
       )
     }
     if (result.finishReason === 'content-filter') {
+      deps.metrics?.llmCall(args.kind, args.model, extractUsage(result.usage), 'error', duration_ms)
       throw new LlmRefusedError(`${args.kind}: model refused (finishReason: content-filter)`)
     }
 
@@ -205,6 +212,7 @@ export function createLlmProvider(config: Config, deps: { logger?: Logger } = {}
       duration_ms,
       ...run.usage,
     })
+    deps.metrics?.llmCall(args.kind, run.model, run.usage, 'success', duration_ms)
     return { output: result.object, run }
   }
 

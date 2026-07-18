@@ -30,6 +30,7 @@ bun run dev
 NODE_ENV=production \
 DATABASE_URL=postgresql://wikikit:...@127.0.0.1:5432/wikikit \
 WIKIKIT_KEY_PEPPER=<32+ random bytes> \
+DEPLOYMENT_ENVIRONMENT=production \
 HOST=127.0.0.1 PORT=4060 \
 ./dist/wikikit
 ```
@@ -123,6 +124,11 @@ Structured JSON logs go to stdout (one line per request, with the request id —
 the same id the error envelope carries). API keys are never logged. Prometheus
 metrics are at `/metrics`; it is unauthenticated, so keep it proxy-gated if
 your edge exposes it.
+
+The product analytics routes under `/v1/spaces/{space}/stats/*` use normal,
+space-scoped `knowledge:read` credentials and query WikiKit's PostgreSQL
+database. They can remain origin-private while an internal HTTP connector
+collects them. `/metrics` is unauthenticated and should remain proxy-gated.
 
 ## Release pipeline
 

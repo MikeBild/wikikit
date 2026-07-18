@@ -43,6 +43,12 @@
       "tag": "0006_wk_oauth_federated_identity",
       "when": 1784322000000,
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "tag": "0007_wk_product_stats",
+      "when": 1784358000000,
+      "breakpoints": true
     }
   ]
 }

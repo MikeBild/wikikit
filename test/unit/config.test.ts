@@ -18,6 +18,7 @@ const MANAGED = [
   'DATABASE_URL',
   'WIKIKIT_KEY_PEPPER',
   'WIKIKIT_BOOTSTRAP_API_KEY',
+  'DEPLOYMENT_ENVIRONMENT',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'WIKIKIT_MODEL_SYNTHESIS',
@@ -139,7 +140,7 @@ describe('production guards', () => {
     expect(() => loadConfig()).toThrow(/DATABASE_URL/)
   })
 
-  test('boots in production when both secrets are set; defaults file is ignored', () => {
+  test('boots in production when required secrets are set; defaults file is ignored', () => {
     process.env.NODE_ENV = 'production'
     process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
     process.env.DATABASE_URL = 'postgresql://prod/wikikit'

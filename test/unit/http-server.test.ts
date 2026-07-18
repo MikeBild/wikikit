@@ -89,6 +89,7 @@ function testConfig(): Config {
     databaseUrl: 'postgresql://stub',
     keyPepper: PEPPER,
     bootstrapApiKey: BOOTSTRAP,
+    environment: 'test',
     llmProvider: 'anthropic' as const,
     llmApiKey: '',
     llmApiKeyEnv: 'ANTHROPIC_API_KEY',
@@ -154,6 +155,26 @@ describe('http server', () => {
     const res = await fetch(`${base}/ready`)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ status: 'ready', version: '1.2.3-test' })
+  })
+
+  test('continues W3C trace context with a fresh server span', async () => {
+    const incoming = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+    const res = await fetch(`${base}/health`, { headers: { traceparent: incoming } })
+    expect(res.headers.get('traceparent')).toMatch(/^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$/)
+    expect(res.headers.get('traceparent')).not.toBe(incoming)
+  })
+
+  test('product stats reuse ordinary scoped API authentication', async () => {
+    const url = `${base}/v1/spaces/demo/stats/ingests?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z`
+    expect((await fetch(url)).status).toBe(401)
+    expect((await fetch(url, { headers: auth(WRITER_KEY) })).status).toBe(403)
+    const res = await fetch(url, { headers: auth(READER_KEY) })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      bucket: 'hour',
+      tz: 'UTC',
+      totals: { jobs: { created: 0 } },
+    })
   })
 
   test('unknown route → 404 envelope whose request_id matches the header', async () => {

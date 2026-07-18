@@ -465,6 +465,98 @@ export const zReadyResponse = z.object({
   version: z.string(),
 })
 
+const zStatsBucket = z.enum(['hour', 'day', 'month', 'year'])
+export const zStatsQuery = z.object({
+  bucket: zStatsBucket.optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+  tz: z.literal('UTC').optional(),
+})
+
+const zStatsEnvelope = {
+  bucket: zStatsBucket,
+  tz: z.literal('UTC'),
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+}
+
+const zDurationSeconds = z.strictObject({
+  total: z.number().nonnegative(),
+  count: z.number().int().nonnegative(),
+  avg: z.number().nonnegative(),
+  max: z.number().nonnegative(),
+})
+const zIngestValues = z.strictObject({
+  jobs: z.strictObject({
+    created: z.number().int().nonnegative(),
+    started: z.number().int().nonnegative(),
+    done: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  duration_seconds: zDurationSeconds,
+})
+export const zIngestStatsResponse = z.strictObject({
+  ...zStatsEnvelope,
+  buckets: z.array(zIngestValues.extend({ ts: z.iso.datetime() })),
+  totals: zIngestValues,
+})
+
+const zKnowledgeValues = z.strictObject({
+  sources_created: z.number().int().nonnegative(),
+  concepts_created: z.number().int().nonnegative(),
+  revisions_created: z.number().int().nonnegative(),
+  claims_created: z.number().int().nonnegative(),
+  citations_created: z.number().int().nonnegative(),
+  decisions_created: z.number().int().nonnegative(),
+  proposals_created: z.number().int().nonnegative(),
+  proposals_approved: z.number().int().nonnegative(),
+  proposals_rejected: z.number().int().nonnegative(),
+  proposals_failed: z.number().int().nonnegative(),
+})
+export const zKnowledgeStatsResponse = z.strictObject({
+  ...zStatsEnvelope,
+  buckets: z.array(zKnowledgeValues.extend({ ts: z.iso.datetime() })),
+  totals: zKnowledgeValues,
+})
+
+const zTokenValues = z.strictObject({
+  input: z.number().int().nonnegative(),
+  output: z.number().int().nonnegative(),
+  cache_read: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+})
+const zDurationMs = z.strictObject({
+  total: z.number().nonnegative(),
+  avg: z.number().nonnegative(),
+  max: z.number().nonnegative(),
+})
+const zLlmValues = z.strictObject({
+  calls: z.number().int().nonnegative(),
+  tokens: zTokenValues,
+  duration_ms: zDurationMs,
+  by_kind: z.record(z.string(), z.number().int().nonnegative()),
+  by_model: z.record(z.string(), z.number().int().nonnegative()),
+})
+export const zLlmStatsResponse = z.strictObject({
+  ...zStatsEnvelope,
+  buckets: z.array(zLlmValues.extend({ ts: z.iso.datetime() })),
+  totals: zLlmValues,
+})
+
+const zWebhookValues = z.strictObject({
+  events: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  delivering: z.number().int().nonnegative(),
+  delivered: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  dead: z.number().int().nonnegative(),
+})
+export const zWebhookStatsResponse = z.strictObject({
+  ...zStatsEnvelope,
+  buckets: z.array(zWebhookValues.extend({ ts: z.iso.datetime() })),
+  totals: zWebhookValues,
+})
+
 // ---------------------------------------------------------------------------
 // Name → schema index (introspection surface for openapi.ts + drift tests)
 // ---------------------------------------------------------------------------
@@ -515,4 +607,9 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zApiKeyListResponse,
   zApiKeyRevokedResponse,
   zReadyResponse,
+  zStatsQuery,
+  zIngestStatsResponse,
+  zKnowledgeStatsResponse,
+  zLlmStatsResponse,
+  zWebhookStatsResponse,
 }

@@ -106,6 +106,8 @@ export interface Config {
   readonly databaseUrl: string
   readonly keyPepper: string
   readonly bootstrapApiKey: string
+  /** Deployment identity used in structured telemetry. */
+  readonly environment?: string
   /** LLM provider the AI SDK routes to (WIKIKIT_LLM_PROVIDER). */
   readonly llmProvider: 'anthropic' | 'openai' | 'google'
   /** API key for the selected provider (the ANTHROPIC/OPENAI/GOOGLE key). */
@@ -316,6 +318,7 @@ export function loadConfig(): Config {
     databaseUrl: str('DATABASE_URL'),
     keyPepper: str('WIKIKIT_KEY_PEPPER'),
     bootstrapApiKey: str('WIKIKIT_BOOTSTRAP_API_KEY'),
+    environment: str('DEPLOYMENT_ENVIRONMENT', production ? 'production' : 'development'),
     llmProvider,
     llmApiKey,
     llmApiKeyEnv: LLM_PROVIDER_KEY_ENV[llmProvider],

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.0
+
+### Added
+
+- Space-scoped `/v1/spaces/{space}/stats/*` product analytics for ingest,
+  knowledge growth/review, LLM usage and webhooks. Aggregates are read from
+  WikiKit's PostgreSQL database and reuse existing `knowledge:read` keys.
+- W3C Trace Context continuation and OpenTelemetry-aligned service,
+  deployment, event, trace and span fields in structured runtime logs.
+
+### Changed
+
+- LLM call telemetry now distinguishes successful and failed provider calls;
+  ingest and provider telemetry are wired into the production composition
+  root instead of existing only as metric helpers.
+
 ## 0.1.15
 
 ### Changed

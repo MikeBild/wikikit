@@ -16,6 +16,7 @@ import type { Principal } from './auth.ts'
 import { HANDLERS, ROUTES, type HttpDeps, type RouteDef } from './routes.ts'
 import { SCHEMAS } from './schemas.ts'
 import { ZodError } from 'zod'
+import { createTraceContext } from '../trace-context.ts'
 
 /** Raw mount hook: src/mcp attaches its Streamable-HTTP transport at POST/GET/DELETE /mcp via this. */
 export type RawHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -249,7 +250,9 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
     // correlation key are all the same value.
     const requestId = randomBytes(6).toString('hex')
     const started = Date.now()
+    const trace = createTraceContext(req.headers.traceparent as string | undefined)
     res.setHeader('x-request-id', requestId)
+    res.setHeader('traceparent', trace.traceparent)
     res.on('finish', () => {
       const pathname = (req.url ?? '/').split('?')[0]!
       // Metrics label = the ROUTE TEMPLATE, never the raw URL (bounded
@@ -258,7 +261,11 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
         matchRoute(req.method ?? 'GET', pathname)?.def.path ?? (rawMounts.has(pathname) ? pathname : '(unmatched)')
       deps.metrics.httpRequest(req.method ?? 'GET', route, res.statusCode, Date.now() - started)
       deps.logger.info('request', {
+        'event.name': 'http.server.request',
         request_id: requestId,
+        trace_id: trace.traceId,
+        span_id: trace.spanId,
+        parent_span_id: trace.parentSpanId,
         method: req.method,
         path: route,
         status: res.statusCode,
@@ -272,6 +279,9 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       if (status >= 500) {
         deps.logger.error('request failed', {
           request_id: requestId,
+          trace_id: trace.traceId,
+          span_id: trace.spanId,
+          parent_span_id: trace.parentSpanId,
           status,
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,

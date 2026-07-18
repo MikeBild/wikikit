@@ -38,6 +38,7 @@ import type { IngestPipeline } from '../ingest/pipeline.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 import type { Logger } from '../logger.ts'
 import type { Metrics } from '../metrics.ts'
+import { getIngestStats, getKnowledgeStats, getLlmStats, getWebhookStats, resolveStatsWindow } from '../stats.ts'
 import { answerQuestion } from '../query/answer.ts'
 import { search } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
@@ -375,6 +376,54 @@ export const ROUTES: RouteDef[] = [
     handler: 'revokeApiKeyHandler',
     request: { params: 'zIdParams' },
     responses: { 200: { schema: 'zApiKeyRevokedResponse', type: 'application/json', desc: 'Revocation timestamp' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/ingests',
+    scope: 'knowledge:read',
+    summary: 'Time-bucketed ingest volume, outcomes and processing duration',
+    handler: 'ingestStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zStatsQuery' },
+    responses: {
+      200: { schema: 'zIngestStatsResponse', type: 'application/json', desc: 'Ingest statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid or excessive time window' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/knowledge',
+    scope: 'knowledge:read',
+    summary: 'Time-bucketed growth and review activity for the knowledge graph',
+    handler: 'knowledgeStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zStatsQuery' },
+    responses: {
+      200: { schema: 'zKnowledgeStatsResponse', type: 'application/json', desc: 'Knowledge statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid or excessive time window' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/llm',
+    scope: 'knowledge:read',
+    summary: 'Time-bucketed LLM calls, token usage and duration from the audit ledger',
+    handler: 'llmStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zStatsQuery' },
+    responses: {
+      200: { schema: 'zLlmStatsResponse', type: 'application/json', desc: 'LLM statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid or excessive time window' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/webhooks',
+    scope: 'knowledge:read',
+    summary: 'Time-bucketed webhook events and delivery outcomes',
+    handler: 'webhookStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zStatsQuery' },
+    responses: {
+      200: { schema: 'zWebhookStatsResponse', type: 'application/json', desc: 'Webhook statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid or excessive time window' },
+    },
   },
   {
     method: 'get',
@@ -909,6 +958,30 @@ export const HANDLERS: Record<string, Handler> = {
       text: deps.metrics.render(),
       headers: { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' },
     }
+  },
+
+  async ingestStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveStatsWindow(input.query)
+    return { status: 200, body: await getIngestStats(deps.db, space.id, window) }
+  },
+
+  async knowledgeStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveStatsWindow(input.query)
+    return { status: 200, body: await getKnowledgeStats(deps.db, space.id, window) }
+  },
+
+  async llmStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveStatsWindow(input.query)
+    return { status: 200, body: await getLlmStats(deps.db, space.id, window) }
+  },
+
+  async webhookStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveStatsWindow(input.query)
+    return { status: 200, body: await getWebhookStats(deps.db, space.id, window) }
   },
 
   async openapiHandler(deps) {

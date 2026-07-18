@@ -491,4 +491,38 @@ describe('http surface (integration)', () => {
     const read = await fetch(`${base}/v1/spaces/demo/concepts/to-be-rejected`, { headers: bearer(readerKey) })
     expect(read.status).toBe(404)
   })
+
+  it('product stats aggregate real PostgreSQL rows through the authenticated API', async () => {
+    const now = Date.now()
+    const query = new URLSearchParams({
+      bucket: 'hour',
+      from: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      to: new Date(now + 60 * 60 * 1000).toISOString(),
+      tz: 'UTC',
+    })
+    const responses: Record<string, Record<string, unknown>> = {}
+    for (const resource of ['ingests', 'knowledge', 'llm', 'webhooks']) {
+      const res = await fetch(`${base}/v1/spaces/demo/stats/${resource}?${query}`, { headers: bearer(readerKey) })
+      expect(res.status).toBe(200)
+      responses[resource] = (await res.json()) as Record<string, unknown>
+      expect(responses[resource]!.bucket).toBe('hour')
+      expect(responses[resource]!.tz).toBe('UTC')
+      const serialized = JSON.stringify(responses[resource])
+      expect(serialized).not.toContain(NOTE_MD)
+      expect(serialized).not.toContain(sourceId)
+      expect(serialized).not.toContain(proposalId)
+    }
+
+    const ingestTotals = responses.ingests!.totals as { jobs: Record<string, number> }
+    expect(ingestTotals.jobs.created).toBeGreaterThanOrEqual(3)
+    expect(ingestTotals.jobs.done).toBeGreaterThanOrEqual(3)
+    expect(ingestTotals.jobs.failed).toBe(0)
+    const knowledgeTotals = responses.knowledge!.totals as Record<string, number>
+    expect(knowledgeTotals.sources_created).toBeGreaterThanOrEqual(3)
+    expect(knowledgeTotals.proposals_created).toBeGreaterThanOrEqual(4)
+    expect(knowledgeTotals.proposals_approved).toBeGreaterThanOrEqual(2)
+    expect(knowledgeTotals.proposals_rejected).toBeGreaterThanOrEqual(1)
+    expect((responses.llm!.totals as { calls: number }).calls).toBeGreaterThanOrEqual(7)
+    expect((responses.webhooks!.totals as { events: number }).events).toBeGreaterThanOrEqual(1)
+  })
 })

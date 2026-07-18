@@ -42,6 +42,7 @@ import { createSource, sha256Hex } from '../domain/sources.ts'
 import type { LlmProvider, LlmRunMeta } from '../llm/provider.ts'
 import { PROMPT_VERSIONS } from '../llm/prompts/index.ts'
 import type { Logger } from '../logger.ts'
+import type { Metrics } from '../metrics.ts'
 import { createAcquirer, zIngestInput, type Acquirer, type IngestInput } from './acquire.ts'
 import { fitTokenBudget } from './chunk.ts'
 
@@ -118,6 +119,8 @@ export interface CreateIngestPipelineOptions {
   leaseMs?: number
   /** Test/embedding override; production uses WIKIKIT_INGEST_HEARTBEAT_MS. */
   heartbeatMs?: number
+  /** Aggregate telemetry sink; never receives source/job/space identifiers. */
+  metrics?: Pick<Metrics, 'ingestJob'>
 }
 
 export function createIngestPipeline(
@@ -536,6 +539,7 @@ export function createIngestPipeline(
 
   /** Wraps processJob with lease heartbeat and terminal state handling. */
   async function processClaimed(job: JobRow): Promise<void> {
+    const startedAt = Date.now()
     const stopHeartbeat = startHeartbeat(job)
     const runs: AgentRunDraft[] = []
     let space: { slug: string; predicates: string[] } | null = null
@@ -545,6 +549,7 @@ export function createIngestPipeline(
       const result = await processJob(job, space, runs)
       sourceId = result.sourceId
       await finishJob(job, result, runs)
+      options.metrics?.ingestJob('done', Date.now() - startedAt)
       logger.info('ingest job done', { ingest_id: job.id, proposal_id: result.proposalId, source_id: result.sourceId })
     } catch (error) {
       const code = (error as { code?: string }).code ?? 'ingest_failed'
@@ -554,6 +559,7 @@ export function createIngestPipeline(
       logger.error('ingest job failed', { ingest_id: job.id, code, error: message })
       try {
         await failJob(job, space?.slug ?? '', { code, message }, failedSourceId ?? null, runs)
+        options.metrics?.ingestJob('failed', Date.now() - startedAt)
       } catch (writeError) {
         // The failure write itself failed (DB down?): leave the job 'running'
         // for the reaper — flipping state is better done late than lost.

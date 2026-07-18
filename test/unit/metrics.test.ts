@@ -11,6 +11,7 @@ describe('createMetrics', () => {
     expect(text).toContain('# TYPE wikikit_ingest_jobs_total counter')
     expect(text).toContain('# TYPE wikikit_ingest_job_duration_seconds histogram')
     expect(text).toContain('# TYPE wikikit_llm_calls_total counter')
+    expect(text).toContain('# TYPE wikikit_llm_call_duration_seconds histogram')
     expect(text).toContain('# TYPE wikikit_llm_tokens_total counter')
     expect(text).toContain('# TYPE wikikit_webhook_deliveries_total counter')
     expect(text.endsWith('\n')).toBe(true)
@@ -65,19 +66,28 @@ describe('createMetrics', () => {
 
   test('llm token accounting splits by direction and skips absent/zero directions', () => {
     const metrics = createMetrics()
-    metrics.llmCall('synthesize', 'claude-sonnet-5', { input_tokens: 1000, output_tokens: 250 })
-    metrics.llmCall('synthesize', 'claude-sonnet-5', {
-      input_tokens: 500,
-      output_tokens: 100,
-      cache_read_input_tokens: 900,
-    })
+    metrics.llmCall('synthesize', 'claude-sonnet-5', { input_tokens: 1000, output_tokens: 250 }, 'success', 250)
+    metrics.llmCall(
+      'synthesize',
+      'claude-sonnet-5',
+      {
+        input_tokens: 500,
+        output_tokens: 100,
+        cache_read_input_tokens: 900,
+      },
+      'success',
+      500,
+    )
     metrics.llmCall('classify', 'claude-haiku-4-5', { input_tokens: 0, output_tokens: 10 })
     const text = metrics.render()
-    expect(text).toContain('wikikit_llm_calls_total{kind="synthesize",model="claude-sonnet-5"} 2')
-    expect(text).toContain('wikikit_llm_calls_total{kind="classify",model="claude-haiku-4-5"} 1')
+    expect(text).toContain('wikikit_llm_calls_total{kind="synthesize",model="claude-sonnet-5",result="success"} 2')
+    expect(text).toContain('wikikit_llm_calls_total{kind="classify",model="claude-haiku-4-5",result="success"} 1')
     expect(text).toContain('wikikit_llm_tokens_total{kind="synthesize",model="claude-sonnet-5",type="input"} 1500')
     expect(text).toContain('wikikit_llm_tokens_total{kind="synthesize",model="claude-sonnet-5",type="output"} 350')
     expect(text).toContain('wikikit_llm_tokens_total{kind="synthesize",model="claude-sonnet-5",type="cache_read"} 900')
+    expect(text).toContain(
+      'wikikit_llm_call_duration_seconds_count{kind="synthesize",model="claude-sonnet-5",result="success"} 2',
+    )
     // zero input_tokens for classify → no input series at all
     expect(text).not.toContain('wikikit_llm_tokens_total{kind="classify",model="claude-haiku-4-5",type="input"}')
     expect(text).toContain('wikikit_llm_tokens_total{kind="classify",model="claude-haiku-4-5",type="output"} 10')

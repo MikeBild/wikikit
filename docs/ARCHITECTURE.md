@@ -72,7 +72,7 @@ disputed by `/query` and the MCP read tools.
 
 ```
 client ──▶ src/http/server.ts
-  1. request id (12-hex, echoed as x-request-id) + draining check
+  1. request id + W3C trace context (`trace_id`, new `span_id`, `parent_span_id`, echoed header) + draining check
   2. route match against the ROUTES registry
   3. auth: wk_ key → HMAC(pepper) lookup → Principal {scopes, spaceId}
   4. route-level scope check; body size cap; zod validation (params/query/body)
@@ -101,7 +101,15 @@ pass `space.id` down — every space-scoped SQL query filters by `space_id`.
 | `http/`          | `routes.ts` (ROUTES registry + handlers), `openapi.ts`, `auth.ts`, `jobs.ts`, `server.ts`, `schemas.ts`          |
 | `mcp/`           | Streamable HTTP server, session leases, tool palette, draft-07 schema conversion, error adapter                  |
 | `webhooks.ts`    | Standard-Webhooks outbox worker: backoff, circuit breaker, `v1,<HMAC>` signatures                                |
+| `stats.ts`       | Space-scoped product analytics over WikiKit's own PostgreSQL data; bounded buckets and aggregate-only responses  |
 | `markdown.ts`    | unified/remark frontmatter pipeline (parse/serialize, HTML→Markdown normalization)                               |
+
+Product analytics are derived at read time from WikiKit's durable tables.
+`/v1/spaces/{space}/stats/*` is consumer-neutral and protected by the existing
+space-aware `knowledge:read` authorization. It exposes ingest lifecycle,
+knowledge/review growth, LLM token/duration and webhook aggregates in bounded
+UTC buckets. No content, prompts, identities, secrets or row identifiers are
+returned; external collectors interact only through HTTP, never the database.
 
 ## One registry, many surfaces
 

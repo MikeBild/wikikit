@@ -98,6 +98,12 @@ curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
 
 Example sources to ingest are in [`examples/`](examples/README.md).
 
+Product analytics are available at `/v1/spaces/{space}/stats/*` for ingests,
+knowledge/review activity, LLM usage and webhooks. They query WikiKit's own
+PostgreSQL data, reuse ordinary space-scoped `knowledge:read` keys and return
+only bounded aggregates—never content, prompts, identities, secrets or row
+identifiers. `GET /v1/spaces/{space}/lint` remains the data-quality surface.
+
 ### Troubleshooting
 
 | Symptom                                  | Cause and fix                                                                                                                                                                                         |

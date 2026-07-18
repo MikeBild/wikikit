@@ -96,7 +96,7 @@ describe('buildOpenApi', () => {
     }
   })
 
-  test('security schemes declare Bearer and X-API-Key', () => {
+  test('security schemes declare the existing API credentials', () => {
     expect(Object.keys(doc.components.securitySchemes).sort()).toEqual(['apiKey', 'bearerAuth'])
   })
 })

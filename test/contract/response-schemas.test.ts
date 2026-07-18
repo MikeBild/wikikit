@@ -177,7 +177,7 @@ function stubDb(): Db {
         if (text.includes('FROM wk_sources') && text.includes('ORDER BY created_at DESC')) return [SOURCE_ROW]
 
         // listWebhookDeliveries ----------------------------------------------
-        if (text.includes('FROM wk_webhook_deliveries d')) {
+        if (text.includes('FROM wk_webhook_deliveries d') && text.includes('SELECT d.id')) {
           return [
             {
               id: DELIVERY_ID,
@@ -410,6 +410,7 @@ function testConfig(): Config {
     databaseUrl: 'postgresql://stub',
     keyPepper: 'response-schema-test-pepper',
     bootstrapApiKey: BOOTSTRAP,
+    environment: 'test',
     llmProvider: 'anthropic' as const,
     llmApiKey: '',
     llmApiKeyEnv: 'ANTHROPIC_API_KEY',
@@ -462,6 +463,7 @@ interface RouteCase {
   status: number
   body?: unknown
   rawBody?: Uint8Array
+  authKey?: string
 }
 
 const CASES: RouteCase[] = [
@@ -601,6 +603,12 @@ const CASES: RouteCase[] = [
     url: `/v1/api-keys/${KEY_ID}`,
     status: 200,
   },
+  ...['ingests', 'knowledge', 'llm', 'webhooks'].map((name) => ({
+    template: `/v1/spaces/{space}/stats/${name}`,
+    method: 'get' as const,
+    url: `/v1/spaces/demo/stats/${name}?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z`,
+    status: 200,
+  })),
   { template: '/ready', method: 'get', url: '/ready', status: 200 },
 ]
 
@@ -650,7 +658,7 @@ describe('response-schema contract', () => {
 
       const res = await fetch(`${base}${c.url}`, {
         method: c.method.toUpperCase(),
-        headers: { authorization: `Bearer ${BOOTSTRAP}` },
+        headers: { authorization: `Bearer ${c.authKey ?? BOOTSTRAP}` },
         body: c.rawBody ?? (c.body !== undefined ? JSON.stringify(c.body) : undefined),
       })
       const text = await res.text()

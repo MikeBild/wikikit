@@ -55,17 +55,26 @@ export interface App {
 }
 
 export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> = {}): App {
-  const logger = deps.logger ?? createLogger({ level: config.logLevel })
+  const logger =
+    deps.logger ??
+    createLogger({
+      level: config.logLevel,
+      base: {
+        'service.name': 'wikikit',
+        'service.version': config.version,
+        'deployment.environment.name': config.environment ?? (config.production ? 'production' : 'development'),
+      },
+    })
   const database = deps.database ?? createPostgres(config)
   const db = database.db
   // The provider self-reports configured:false without a key — ingest/query
   // then answer 503 llm_not_configured while every LLM-free route keeps working
   // (zero-config principle). Provider is config-selected (WIKIKIT_LLM_PROVIDER).
-  const llm = deps.llm ?? createLlmProvider(config, { logger })
-  const auth = deps.auth ?? createAuth(config, db)
   const metrics = deps.metrics ?? createMetrics()
+  const llm = deps.llm ?? createLlmProvider(config, { logger, metrics })
+  const auth = deps.auth ?? createAuth(config, db)
   const outbox = deps.outbox ?? createOutboxWorker(config, db, logger, { metrics })
-  const ingest = deps.ingest ?? createIngestPipeline(config, db, llm, logger)
+  const ingest = deps.ingest ?? createIngestPipeline(config, db, llm, logger, { metrics })
   const state = { draining: false }
 
   const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, state }
@@ -159,7 +168,14 @@ async function devBootstrap(app: App): Promise<void> {
 
 /** runMigrations → createApp → dev bootstrap → listen → workers → signal-driven graceful drain. */
 export async function start(config: Config = loadConfig()): Promise<App> {
-  const logger = createLogger({ level: config.logLevel })
+  const logger = createLogger({
+    level: config.logLevel,
+    base: {
+      'service.name': 'wikikit',
+      'service.version': config.version,
+      'deployment.environment.name': config.environment ?? (config.production ? 'production' : 'development'),
+    },
+  })
   // Migrations run BEFORE the app exists (advisory-locked, idempotent): a
   // process that cannot reach its schema must fail its deploy health gate,
   // not serve half-migrated requests.

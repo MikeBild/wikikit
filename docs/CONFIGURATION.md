@@ -21,6 +21,7 @@ instead of producing a half-configured server.
 | `DATABASE_URL`                       | PostgreSQL connection string (tables prefixed `wk_`). **Required in production**                               | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` |
 | `WIKIKIT_KEY_PEPPER`                 | HMAC-SHA256 pepper for hashing `wk_` API keys at rest. **Required in production**                              | dev: `wikikit-local-key-pepper`                                    |
 | `WIKIKIT_BOOTSTRAP_API_KEY`          | Pin the bootstrap admin key (`wk_...`)                                                                         | (empty; dev generates one and prints it once at boot)              |
+| `DEPLOYMENT_ENVIRONMENT`             | Stable deployment identity attached to structured logs                                                         | `production` in production, otherwise `development`                |
 | `WIKIKIT_LLM_PROVIDER`               | LLM provider the AI SDK routes to: `anthropic` \| `openai` \| `google`                                         | `anthropic`                                                        |
 | `ANTHROPIC_API_KEY`                  | Key for `anthropic` provider. Enables LLM features (ingest, query); no default anywhere                        | (unset → ingest/query answer `503 llm_not_configured`)             |
 | `OPENAI_API_KEY`                     | Key for `openai` provider (used when `WIKIKIT_LLM_PROVIDER=openai`)                                            | (unset)                                                            |
@@ -128,6 +129,9 @@ With `NODE_ENV=production` the zero-config behavior flips off:
 - `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS origin. OAuth discovery,
   audience binding and ChatGPT redirects derive from it.
 - `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` defaults to `false` (SSRF guard).
+
+Product stats reuse existing space-scoped `knowledge:read` keys. No additional
+credential or local aggregate checkpoint is required.
 
 `ANTHROPIC_API_KEY` stays deliberately optional in production: LLM-free
 deployments (search/read/lint/export as a knowledge mirror) are first-class.
