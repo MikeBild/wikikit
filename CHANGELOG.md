@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.2
+
+### Added
+
+- Log lines carry sd-daemon priority prefixes (`<3>` error, `<4>` warn) when
+  running under systemd, so `journalctl -p err` surfaces application errors.
+- Ingest jobs that hit provider quota exhaustion are parked in a new
+  `quota_blocked` state with a `resume_at` parsed from the provider message
+  (fallback +6h) and retried automatically, instead of failing permanently.
+
+### Fixed
+
+- OAuth authorize requests without PKCE parameters are rejected with
+  400 `invalid_request` instead of failing with a 500 on the not-null
+  constraint of `code_challenge`.
+- Grounding drops ("quote not verbatim in source") are logged at info
+  instead of warn — they are the validator succeeding, not a problem.
+
 ## 0.2.1
 
 ### Fixed
