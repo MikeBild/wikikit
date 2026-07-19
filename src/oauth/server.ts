@@ -82,6 +82,12 @@ function randomToken(prefix: string): string {
   return `${prefix}${randomBytes(32).toString('base64url')}`
 }
 
+// RFC 7636 §4.2 shape of an S256 code_challenge. Every path that persists a
+// challenge validates against THIS — a non-PKCE client must be answered with
+// invalid_request at the request boundary, never by the NOT NULL constraint
+// on wk_oauth_authorization_codes exploding into a 500 at consent time.
+const PKCE_CHALLENGE = /^[A-Za-z0-9_-]{43,128}$/
+
 function pkceChallenge(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url')
 }
@@ -294,13 +300,13 @@ async function loadAuthorizationRequest(
   config: Config,
   db: Db,
   params: URLSearchParams,
-): Promise<{ client: ClientRow; redirectUri: string; scopes: string[]; resource: string }> {
+): Promise<{ client: ClientRow; redirectUri: string; scopes: string[]; resource: string; codeChallenge: string }> {
   if (params.get('response_type') !== 'code')
     throw new OAuthError('unsupported_response_type', 'response_type must be code')
   const clientId = params.get('client_id') || ''
   const redirectUri = params.get('redirect_uri') || ''
   const challenge = params.get('code_challenge') || ''
-  if (!clientId || !redirectUri || !/^[A-Za-z0-9_-]{43,128}$/.test(challenge)) {
+  if (!clientId || !redirectUri || !PKCE_CHALLENGE.test(challenge)) {
     throw new OAuthError('invalid_request', 'client_id, redirect_uri and a valid PKCE challenge are required')
   }
   if (params.get('code_challenge_method') !== 'S256') {
@@ -313,7 +319,7 @@ async function loadAuthorizationRequest(
   const resource = params.get('resource') || resourceId(config)
   if (resource !== resourceId(config))
     throw new OAuthError('invalid_target', 'resource does not identify this MCP server')
-  return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource }
+  return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource, codeChallenge: challenge }
 }
 
 function firebaseEnabled(config: Config): boolean {
@@ -574,7 +580,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             client_id: loaded.client.client_id,
             redirect_uri: loaded.redirectUri,
             scopes: loaded.scopes,
-            code_challenge: url.searchParams.get('code_challenge')!,
+            code_challenge: loaded.codeChallenge, // validated by loadAuthorizationRequest
             resource: loaded.resource,
             client_state: url.searchParams.get('state'),
             expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
@@ -763,12 +769,12 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           throw new OAuthError('invalid_request', 'consent form CSRF validation failed')
         }
         let loaded: { client: ClientRow; redirectUri: string; scopes: string[]; resource: string }
+        let codeChallenge = ''
         let principal: Principal | null = null
         let principalKeyHash = ''
         let principalKind: 'api_key' | 'firebase' | 'oidc' = 'api_key'
         let identityStateId: string | null = null
         let callbackState: string | undefined = params.get('state') ?? undefined
-        let codeChallenge = params.get('code_challenge') || ''
         if (interactiveLoginEnabled(config)) {
           const loginState = params.get('login_state') || ''
           if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
@@ -812,9 +818,11 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           principalKind = providerId === 'firebase' ? 'firebase' : 'oidc'
           identityStateId = state.id
           callbackState = state.client_state ?? undefined
-          codeChallenge = state.code_challenge
+          codeChallenge = state.code_challenge || ''
         } else {
-          loaded = await loadAuthorizationRequest(config, deps.db, params)
+          const request = await loadAuthorizationRequest(config, deps.db, params)
+          loaded = request
+          codeChallenge = request.codeChallenge
         }
         if (params.get('action') === 'deny') {
           if (identityStateId) {
@@ -856,6 +864,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         for (const scope of loaded.scopes)
           if (scope !== 'offline_access')
             deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve')
+        // Request-boundary PKCE guard for BOTH branches: whether the challenge
+        // came from the consent form (re-validated by loadAuthorizationRequest)
+        // or a stored login state (possibly written by an older binary without
+        // one), an invalid challenge is the CLIENT's error — 400
+        // invalid_request, never a 500 from the codes table's NOT NULL
+        // constraint at consent time.
+        if (!PKCE_CHALLENGE.test(codeChallenge)) {
+          throw new OAuthError('invalid_request', 'a valid S256 PKCE code_challenge is required')
+        }
         const code = randomToken('wka_')
         await deps.db.tx(async (tx) => {
           if (identityStateId) {
