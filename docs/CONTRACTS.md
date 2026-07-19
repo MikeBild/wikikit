@@ -286,7 +286,7 @@ CREATE INDEX wk_webhook_deliveries_due_idx ON wk_webhook_deliveries (next_attemp
 CREATE TABLE wk_ingest_jobs (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   space_id    uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
-  status      text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed')),
+  status      text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed','quota_blocked')),
   input       jsonb NOT NULL,                        -- validated IngestRequest, verbatim
   source_id   uuid REFERENCES wk_sources(id),
   proposal_id uuid REFERENCES wk_change_proposals(id),
@@ -746,7 +746,7 @@ the HTTP 409 path applies when the hash is checked at enqueue time (enqueue MUST
 pre-check the hash for markdown/text bodies so the 409 is synchronous;
 URL acquisition defers the check to the worker). A hash hit only conflicts
 while the archived source is still doing work — a pending/approved proposal
-references it, or a queued/running/done job produced it. Otherwise (the
+references it, or a queued/running/done/quota_blocked job produced it. Otherwise (the
 previous job FAILED after archiving) the re-submit proceeds and the worker
 reuses the archived source row: re-submitting identical content is the §9.1
 recovery path and must not dead-end on its own archive.
@@ -917,7 +917,7 @@ export const zIngestRequest = z
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.string().uuid(), status: z.literal('queued') })
 export const zIngestStatusResponse = z.object({
   ingest_id: z.string().uuid(),
-  status: z.enum(['queued', 'running', 'done', 'failed']),
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']),
   proposal_id: z.string().uuid().nullable(),
   source_id: z.string().uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
@@ -1248,11 +1248,16 @@ export function toToolError(
 ```
 queued ──(worker claims, sets started_at)──▶ running ──▶ done    (proposal_id set; outbox wikikit.proposal.created)
                                                    └────▶ failed  (error set;      outbox wikikit.ingest.failed)
+                                                   └────▶ quota_blocked ──(resume_at passes)──▶ queued
 ```
 
 Terminal: `done`, `failed`. Terminal states never regress (the flips are
 guarded on `status='running'`). No retries in v0.1 — a failed job is
-re-submitted by the client (the archive is reused; see §4.1 dedup). Every
+re-submitted by the client (the archive is reused; see §4.1 dedup).
+`quota_blocked` is NOT terminal and emits no outbox event: provider quota
+exhaustion parks the job with a `resume_at` (parsed from the provider
+message, +6h fallback), the worker stops claiming until then, and parked
+jobs are requeued automatically once `resume_at` passes. Every
 claimed job has a unique lease owner, `heartbeat_at`, and `lease_expires_at`;
 a live worker renews the lease during long LLM calls. Expired leases (worker
 crash) are flipped to `failed` with

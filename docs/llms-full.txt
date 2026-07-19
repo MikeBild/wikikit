@@ -223,7 +223,7 @@ the approve scope to an autonomous agent.
 | Relation | Concept link: `related \| part_of \| depends_on \| contradicts \| supersedes` |
 | Decision | A first-class recorded decision: context, decision, rationale, alternatives (the decision-log pattern; meeting sources are mined for these) |
 | ChangeProposal | The review gate: staged rows in the target tables (never a JSON diff blob) that flip atomically on approve |
-| Ingest job | Async pipeline run: `queued → running → done\|failed` |
+| Ingest job | Async pipeline run: `queued → running → done\|failed\|quota_blocked` |
 | Agent run | LLM audit ledger entry: kind, model, prompt_version, input_hash, usage, duration |
 
 Contradiction handling is deterministic and cardinality-aware: only predicates

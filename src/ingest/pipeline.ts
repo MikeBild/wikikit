@@ -28,6 +28,12 @@
 // path (§9.1), so enqueue proceeds and the worker reuses the archived row
 // instead of dead-ending on the hash.
 //
+// Provider quota exhaustion is NON-terminal: the claimed job parks as
+// quota_blocked (resume_at parsed from the provider message, +6h fallback),
+// this process stops claiming until resume_at, and requeueQuotaBlocked flips
+// parked jobs back to queued once the window reopens — no work is lost and
+// nothing needs a re-submit.
+//
 // Every LLM call is recorded (classify + one synthesize per concept) and the
 // rows are persisted even when the job FAILS afterwards — cost telemetry from
 // day one (plan §15.4) must include the money burned on failed jobs.
@@ -87,6 +93,29 @@ const DEFAULT_HEARTBEAT_MS = 30 * 1000
 
 const DEFAULT_POLL_MS = 1000
 
+// Provider quota exhaustion is a PAUSE, never a failure: the work is intact
+// and the provider names (or implies) when it becomes possible again. A
+// quota-hit job parks as status='quota_blocked' with resume_at; the worker
+// requeues it once resume_at passes and stops claiming until then, so a
+// 20-job backlog costs ONE error line instead of 20 dead jobs.
+const QUOTA_FALLBACK_RESUME_MS = 6 * 60 * 60 * 1000
+
+/** Anthropic's usage-limit message (and generic quota phrasing) — never model refusals or 5xx. */
+function isQuotaExhausted(message: string): boolean {
+  return /reached your specified API usage limits|quota exceeded|exceeded your.*quota/i.test(message)
+}
+
+/**
+ * resume_at from the provider message ("You will regain access on 2026-08-01
+ * at 00:00 UTC"); null when the message names no parseable reset time.
+ */
+export function parseQuotaResumeAt(message: string): string | null {
+  const match = message.match(/regain access on (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}) UTC/)
+  if (!match) return null
+  const parsed = Date.parse(`${match[1]}T${match[2]}:00Z`)
+  return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
+}
+
 // Verbatim-quote fidelity: a claim's quote must occur in the source the model
 // actually read. Normalization (collapse whitespace, case-insensitive) matches
 // the benchmarked check that had 0 false positives on real synthesis while
@@ -136,6 +165,11 @@ export function createIngestPipeline(
   const heartbeatMs = options.heartbeatMs ?? config.ingestHeartbeatMs ?? DEFAULT_HEARTBEAT_MS
 
   let running = false
+  // Set when a claim hits provider quota exhaustion: no claims until it
+  // passes. Process-local on purpose — the durable truth is the parked
+  // quota_blocked rows; a restarted worker re-learns the pause from its
+  // first claim at the cost of one extra LLM call.
+  let quotaPausedUntil = 0
   const loops: Promise<void>[] = []
   // Early-wake sleep: stop() resolves every pending sleep so shutdown never
   // waits out a full poll interval.
@@ -247,10 +281,45 @@ export function createIngestPipeline(
   }
 
   /**
+   * Non-terminal park to quota_blocked + audit rows, atomically. Deliberately
+   * NO outbox event and no finished_at: the job is not failed — it requeues
+   * on its own once resume_at passes (requeueQuotaBlocked), and webhook
+   * consumers only ever learn about real terminal states.
+   */
+  async function quotaBlockJob(
+    job: JobRow,
+    resumeAt: string,
+    error: { code: string; message: string },
+    runs: AgentRunDraft[],
+  ): Promise<void> {
+    await db.tx(async (tx) => {
+      if (runs.length) await tx.insert('wk_agent_runs', agentRunRows(job.space_id, job.id, null, runs))
+      // Same terminal-state guard as finishJob/failJob.
+      const flipped = await tx.update(
+        'wk_ingest_jobs',
+        { id: `eq.${job.id}`, status: 'eq.running', lease_owner: `eq.${job.lease_owner}` },
+        {
+          status: 'quota_blocked',
+          resume_at: resumeAt,
+          error: JSON.stringify(error),
+          lease_owner: null,
+          lease_expires_at: null,
+        },
+      )
+      if (!flipped.length) {
+        logger.warn('ingest job hit the quota after it was already terminal (reaped?) — keeping the terminal state', {
+          ingest_id: job.id,
+        })
+      }
+    })
+  }
+
+  /**
    * True when an archived source must still 409 a re-ingest: a pending or
    * approved proposal references it, or a non-failed job produced it. Failed
    * jobs (and rejected/failed proposals) block nothing — see the module
-   * header's re-submit semantics.
+   * header's re-submit semantics. quota_blocked jobs DO block: they resume
+   * on their own, so a re-submit would only stack duplicate work.
    */
   async function reingestBlocked(checkDb: Db, spaceId: string, sourceId: string): Promise<boolean> {
     const { rows } = await checkDb.query(
@@ -260,7 +329,7 @@ export function createIngestPipeline(
         UNION ALL
        SELECT 1
          FROM wk_ingest_jobs
-        WHERE space_id = $1 AND source_id = $2 AND status IN ('queued', 'running', 'done')
+        WHERE space_id = $1 AND source_id = $2 AND status IN ('queued', 'running', 'done', 'quota_blocked')
         LIMIT 1`,
       [spaceId, sourceId],
     )
@@ -556,6 +625,24 @@ export function createIngestPipeline(
       const message = error instanceof Error ? error.message : String(error)
       const details = (error as { details?: { source_id?: string } }).details
       const failedSourceId = details?.source_id ?? sourceId
+      if (isQuotaExhausted(message)) {
+        // Quota exhaustion parks the job instead of failing it — the work is
+        // intact and resumes automatically. ONE error line for the incident;
+        // the paused claims that follow are silent by design.
+        const resumeAt = parseQuotaResumeAt(message) ?? new Date(Date.now() + QUOTA_FALLBACK_RESUME_MS).toISOString()
+        quotaPausedUntil = Math.max(quotaPausedUntil, Date.parse(resumeAt))
+        logger.error('ingest paused: provider quota exhausted; job parked until resume_at', {
+          ingest_id: job.id,
+          resume_at: resumeAt,
+          error: message,
+        })
+        try {
+          await quotaBlockJob(job, resumeAt, { code: 'quota_blocked', message }, runs)
+        } catch (writeError) {
+          logger.error('ingest quota park could not be persisted', { ingest_id: job.id, error: String(writeError) })
+        }
+        return
+      }
       logger.error('ingest job failed', { ingest_id: job.id, code, error: message })
       try {
         await failJob(job, space?.slug ?? '', { code, message }, failedSourceId ?? null, runs)
@@ -606,7 +693,30 @@ export function createIngestPipeline(
     })
   }
 
+  /**
+   * Flip parked quota_blocked jobs whose resume window passed back to queued.
+   * Runs opportunistically before each claim, like reapStale: cheap (the
+   * partial index covers it) and multi-instance safe — whichever worker
+   * polls first requeues, the claim below arbitrates as usual.
+   */
+  async function requeueQuotaBlocked(): Promise<void> {
+    const { rows } = await db.query<{ id: string }>(
+      `UPDATE wk_ingest_jobs
+          SET status = 'queued', resume_at = null, error = null
+        WHERE status = 'quota_blocked' AND resume_at <= now()
+      RETURNING id`,
+    )
+    if (rows.length) {
+      logger.info('requeued quota-blocked ingest jobs (provider window reopened)', { count: rows.length })
+    }
+  }
+
   async function runOnce(): Promise<boolean> {
+    // Quota pause: claiming into a known-closed provider window would only
+    // turn queued jobs into quota_blocked ones (plus one wasted LLM call
+    // each) — idle instead. The durable state lives in the parked rows.
+    if (Date.now() < quotaPausedUntil) return false
+    await requeueQuotaBlocked()
     await reapStale()
     const leaseOwner = randomUUID()
     // Claim oldest-first with SKIP LOCKED: concurrent workers each grab a

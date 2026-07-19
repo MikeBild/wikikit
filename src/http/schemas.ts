@@ -138,7 +138,9 @@ export const zCaptureSessionResponse = z.object({
 
 export const zIngestStatusResponse = z.object({
   ingest_id: z.uuid(),
-  status: z.enum(['queued', 'running', 'done', 'failed']),
+  // quota_blocked = parked on provider quota exhaustion; the worker requeues
+  // it once the provider window reopens — no client action needed, keep polling.
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']),
   proposal_id: z.uuid().nullable(),
   source_id: z.uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),

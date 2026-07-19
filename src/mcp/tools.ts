@@ -369,7 +369,8 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_ingest_status',
     description:
       'Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional ' +
-      'proposal_id; null means no review work) or failed (carries error.code/message).',
+      'proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked ' +
+      'means the provider quota is exhausted; the job resumes on its own — keep polling.',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,
@@ -378,7 +379,7 @@ export const TOOLS: McpToolDef[] = [
       const [job] = await deps.db.select<{
         id: string
         space_id: string
-        status: 'queued' | 'running' | 'done' | 'failed'
+        status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
         proposal_id: string | null
         source_id: string | null
         error: { code: string; message: string } | null

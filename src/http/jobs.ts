@@ -15,7 +15,7 @@ import { NotFoundError } from '../domain/errors.ts'
 
 export interface IngestJobStatus {
   ingest_id: string
-  status: 'queued' | 'running' | 'done' | 'failed'
+  status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
   proposal_id: string | null
   source_id: string | null
   error: { code: string; message: string } | null
@@ -26,7 +26,7 @@ export interface IngestJobStatus {
 interface JobRow {
   id: string
   space_id: string
-  status: 'queued' | 'running' | 'done' | 'failed'
+  status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
   proposal_id: string | null
   source_id: string | null
   error: { code: string; message: string } | string | null

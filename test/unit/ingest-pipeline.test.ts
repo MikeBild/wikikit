@@ -8,7 +8,7 @@ import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
 import { ConflictError, LlmNotConfiguredError } from '../../src/domain/errors.ts'
 import { computeInputHash } from '../../src/domain/proposals.ts'
 import { sha256Hex } from '../../src/domain/sources.ts'
-import { createIngestPipeline } from '../../src/ingest/pipeline.ts'
+import { createIngestPipeline, parseQuotaResumeAt } from '../../src/ingest/pipeline.ts'
 import { createLogger } from '../../src/logger.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 
@@ -545,6 +545,83 @@ describe('worker — failure paths', () => {
     expect(heartbeats.every((call) => call.values.includes('job-1'))).toBe(true)
     const terminal = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
     expect(terminal.values).toContain('done')
+  })
+})
+
+describe('worker — provider quota exhaustion', () => {
+  const QUOTA_MESSAGE =
+    'You have reached your specified API usage limits. You will regain access on 2026-08-01 at 00:00 UTC.'
+  const quotaProvider = () =>
+    createFakeProvider({
+      classify: () => {
+        throw new Error(QUOTA_MESSAGE)
+      },
+    })
+
+  test('parseQuotaResumeAt reads the provider reset timestamp (null without one)', () => {
+    expect(parseQuotaResumeAt(QUOTA_MESSAGE)).toBe('2026-08-01T00:00:00.000Z')
+    expect(parseQuotaResumeAt('quota exceeded')).toBeNull()
+  })
+
+  test('a quota hit parks the job as quota_blocked with the parsed resume_at — never failed', async () => {
+    const { db, calls } = fakeDb(workerRoutes())
+    const pipeline = createIngestPipeline(config, db, quotaProvider(), logger)
+    await pipeline.runOnce()
+
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(jobUpdate.values).toContain('quota_blocked')
+    expect(jobUpdate.values).toContain('2026-08-01T00:00:00.000Z')
+    expect(jobUpdate.values).not.toContain('failed')
+    const error = JSON.parse(jobUpdate.values.find((v) => String(v).includes('usage limits')) as string)
+    expect(error.code).toBe('quota_blocked')
+    // Non-terminal on purpose: no wikikit.ingest.failed event — the job
+    // requeues on its own once the provider window reopens.
+    expect(calls.some((call) => call.sql.includes('wk_outbox_events'))).toBe(false)
+  })
+
+  test('a quota message without a parseable reset time falls back to +6h', async () => {
+    const { db, calls } = fakeDb(workerRoutes())
+    const llm = createFakeProvider({
+      classify: () => {
+        throw new Error('quota exceeded')
+      },
+    })
+    const before = Date.now()
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    const resumeAt = jobUpdate.values.map((v) => Date.parse(String(v))).find((t) => t > before + 5 * 60 * 60 * 1000)
+    expect(resumeAt).toBeDefined()
+    expect(resumeAt!).toBeLessThanOrEqual(Date.now() + 6 * 60 * 60 * 1000)
+  })
+
+  test('entering quota_blocked emits exactly ONE error line, then claiming pauses silently', async () => {
+    const lines: string[] = []
+    const capturing = createLogger({ write: (line) => void lines.push(line) })
+    const { db, calls } = fakeDb(workerRoutes())
+    const pipeline = createIngestPipeline(config, db, quotaProvider(), capturing)
+
+    await pipeline.runOnce()
+    const errors = lines.map((line) => JSON.parse(line)).filter((entry) => entry.level === 'error')
+    expect(errors.length).toBe(1)
+    expect(errors[0].msg).toContain('quota')
+    expect(errors[0].resume_at).toBe('2026-08-01T00:00:00.000Z')
+
+    // Paused until resume_at: not a single further SQL statement or log line.
+    const sqlBefore = calls.length
+    expect(await pipeline.runOnce()).toBe(false)
+    expect(calls.length).toBe(sqlBefore)
+    expect(lines.map((line) => JSON.parse(line)).filter((entry) => entry.level === 'error').length).toBe(1)
+  })
+
+  test('due quota_blocked jobs are requeued before each claim', async () => {
+    const { db, calls } = fakeDb(workerRoutes())
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.runOnce()
+    const requeue = calls.findIndex((call) => call.sql.includes("status = 'quota_blocked'"))
+    expect(requeue).toBeGreaterThanOrEqual(0)
+    expect(calls[requeue]!.sql).toContain("SET status = 'queued'")
+    expect(requeue).toBeLessThan(calls.findIndex((call) => call.sql.includes('RETURNING id, space_id, input')))
   })
 })
 
