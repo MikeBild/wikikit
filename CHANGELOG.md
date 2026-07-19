@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.2.3
+
+### Fixed
+
+- The test suite strips an ambient `JOURNAL_STREAM` via a bun test preload,
+  so logger tests no longer fail on systemd-launched or journal-forwarded
+  environments (this broke the v0.2.2 release build). No runtime changes
+  beyond 0.2.2.
+
 ## 0.2.2
 
 ### Added
