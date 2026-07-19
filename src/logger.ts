@@ -25,6 +25,12 @@ export interface Logger {
 
 const LEVELS: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 }
 
+// sd-daemon stdout protocol: journald derives PRIORITY from a leading <N> on
+// each line and strips it before storing. Without the prefix EVERY line —
+// including JSON "level":"error" — lands at journald's stream default (info),
+// so `journalctl -p err` and priority-based alerting never fire.
+const SD_PRIORITY: Record<LogLevel, string> = { debug: '<7>', info: '<6>', warn: '<4>', error: '<3>' }
+
 export interface LoggerOptions {
   /** Minimum level to emit. Unknown values fall back to 'info'. */
   level?: string
@@ -32,19 +38,27 @@ export interface LoggerOptions {
   write?: (line: string) => void
   /** Base fields merged into every line (used by child()). */
   base?: LogFields
+  /**
+   * Prefix each line with its <N> syslog priority (sd-daemon protocol).
+   * Defaults to $JOURNAL_STREAM presence — systemd sets it when stdout is
+   * connected to the journal, so terminals and pipes keep bare JSON lines.
+   */
+  sdJournal?: boolean
 }
 
 export function createLogger(options: LoggerOptions = {}): Logger {
   const threshold = LEVELS[options.level as LogLevel] ?? LEVELS.info
   const write = options.write ?? ((line: string) => process.stdout.write(line))
   const base = options.base ?? {}
+  const sdJournal = options.sdJournal ?? !!process.env.JOURNAL_STREAM
 
   function emit(level: LogLevel, msg: string, fields: LogFields = {}): void {
     if (LEVELS[level] < threshold) return
     // ts first, then level/msg, then fields: stable key order keeps `grep | jq`
     // pipelines and human eyeballs happy. Errors in fields are stringified by
     // JSON.stringify to `{}` — callers pass `error: String(err)` per convention.
-    write(`${JSON.stringify({ ts: new Date().toISOString(), level, msg, ...base, ...fields })}\n`)
+    const prefix = sdJournal ? SD_PRIORITY[level] : ''
+    write(`${prefix}${JSON.stringify({ ts: new Date().toISOString(), level, msg, ...base, ...fields })}\n`)
   }
 
   return {
@@ -52,6 +66,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
     info: (msg, fields) => emit('info', msg, fields),
     warn: (msg, fields) => emit('warn', msg, fields),
     error: (msg, fields) => emit('error', msg, fields),
-    child: (fields) => createLogger({ level: options.level, write: options.write, base: { ...base, ...fields } }),
+    child: (fields) =>
+      createLogger({ level: options.level, write: options.write, base: { ...base, ...fields }, sdJournal }),
   }
 }
