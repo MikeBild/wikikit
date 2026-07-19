@@ -1,0 +1,4 @@
+# Test-only preload: strips ambient env (e.g. $JOURNAL_STREAM on systemd-run
+# CI runners) so test defaults are deterministic. See test/preload.ts.
+[test]
+preload = ["./test/preload.ts"]
