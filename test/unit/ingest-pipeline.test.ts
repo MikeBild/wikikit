@@ -556,8 +556,15 @@ describe('worker — failure paths', () => {
 })
 
 describe('worker — provider quota exhaustion', () => {
-  const QUOTA_MESSAGE =
-    'You have reached your specified API usage limits. You will regain access on 2026-08-01 at 00:00 UTC.'
+  // The reset date must stay in the future relative to the test run: the
+  // pause-until-resume_at assertions below would flip once real time passes
+  // a hardcoded date. Mirrors the provider's exact phrasing.
+  const RESET = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const RESET_DATE = `${RESET.getUTCFullYear()}-${pad(RESET.getUTCMonth() + 1)}-${pad(RESET.getUTCDate())}`
+  const RESET_TIME = `${pad(RESET.getUTCHours())}:${pad(RESET.getUTCMinutes())}`
+  const RESET_ISO = `${RESET_DATE}T${RESET_TIME}:00.000Z`
+  const QUOTA_MESSAGE = `You have reached your specified API usage limits. You will regain access on ${RESET_DATE} at ${RESET_TIME} UTC.`
   const quotaProvider = () =>
     createFakeProvider({
       classify: () => {
@@ -566,7 +573,7 @@ describe('worker — provider quota exhaustion', () => {
     })
 
   test('parseQuotaResumeAt reads the provider reset timestamp (null without one)', () => {
-    expect(parseQuotaResumeAt(QUOTA_MESSAGE)).toBe('2026-08-01T00:00:00.000Z')
+    expect(parseQuotaResumeAt(QUOTA_MESSAGE)).toBe(RESET_ISO)
     expect(parseQuotaResumeAt('quota exceeded')).toBeNull()
   })
 
@@ -577,7 +584,7 @@ describe('worker — provider quota exhaustion', () => {
 
     const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
     expect(jobUpdate.values).toContain('quota_blocked')
-    expect(jobUpdate.values).toContain('2026-08-01T00:00:00.000Z')
+    expect(jobUpdate.values).toContain(RESET_ISO)
     expect(jobUpdate.values).not.toContain('failed')
     const error = JSON.parse(jobUpdate.values.find((v) => String(v).includes('usage limits')) as string)
     expect(error.code).toBe('quota_blocked')
@@ -612,7 +619,7 @@ describe('worker — provider quota exhaustion', () => {
     const errors = lines.map((line) => JSON.parse(line)).filter((entry) => entry.level === 'error')
     expect(errors.length).toBe(1)
     expect(errors[0].msg).toContain('quota')
-    expect(errors[0].resume_at).toBe('2026-08-01T00:00:00.000Z')
+    expect(errors[0].resume_at).toBe(RESET_ISO)
 
     // Paused until resume_at: not a single further SQL statement or log line.
     const sqlBefore = calls.length
