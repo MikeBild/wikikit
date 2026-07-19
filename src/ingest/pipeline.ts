@@ -485,7 +485,9 @@ export function createIngestPipeline(
         }))
       const dropped = rawClaims.length - claims.length
       if (dropped > 0) {
-        logger.warn('dropped ungrounded claims (quote not verbatim in source)', {
+        // info, not warn: a drop IS the gate succeeding (routine quality
+        // signal) — as a warn it drowned the log's real anomalies.
+        logger.info('dropped ungrounded claims (quote not verbatim in source)', {
           ingest_id: job.id,
           concept: target.slug,
           dropped,

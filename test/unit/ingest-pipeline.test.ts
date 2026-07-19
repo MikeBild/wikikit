@@ -319,6 +319,8 @@ describe('worker — happy path (new concept from a markdown source)', () => {
   test('ungrounded claims (quote not verbatim in the source) are dropped before staging', async () => {
     // Source is `# OKF\n\nOKF is a draft spec.` — one quote is verbatim, one is
     // invented. Only the grounded claim may reach wk_claims/wk_citations.
+    const lines: string[] = []
+    const capturing = createLogger({ write: (line) => void lines.push(line) })
     const { db, calls } = fakeDb(workerRoutes())
     const llm = createFakeProvider({
       synthesize: () => ({
@@ -339,7 +341,7 @@ describe('worker — happy path (new concept from a markdown source)', () => {
         decisions: [],
       }),
     })
-    const pipeline = createIngestPipeline(config, db, llm, logger)
+    const pipeline = createIngestPipeline(config, db, llm, capturing)
     await pipeline.runOnce()
 
     const staged = calls.flatMap((call) => call.values.map((v) => String(v)))
@@ -349,6 +351,11 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     expect(staged.some((v) => v.includes('OKF is production ready.'))).toBe(false)
     // The proposal still stages (the grounded claim + revision have value).
     expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))).toBe(true)
+    // The drop is the gate SUCCEEDING — logged as routine signal (info), not
+    // as an anomaly (warn).
+    const drop = lines.map((line) => JSON.parse(line)).find((entry) => String(entry.msg).includes('ungrounded'))!
+    expect(drop.level).toBe('info')
+    expect(drop.dropped).toBe(1)
   })
 
   test('hallucinated affected slugs (not in the index) are dropped, not synthesized', async () => {
