@@ -16,6 +16,8 @@ import { createLogger } from '../../src/logger.ts'
 import { createMcpMount, type McpMount } from '../../src/mcp/server.ts'
 import type { Principal } from '../../src/mcp/tools.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
+import { createUsageTelemetry } from '../../src/usage.ts'
+import { getMcpUsageStats, resolveUsageStatsWindow } from '../../src/stats.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
 const it = integration ? test : test.skip
@@ -135,8 +137,12 @@ describe('MCP server (integration)', () => {
       maxBodyBytes: 1024 * 1024,
       maxIngestTokens: 10_000,
       ingestConcurrency: 1,
+      usageTelemetryEnabled: true,
+      usageHmacSecret: 'itest-mcp-usage-secret',
+      usageRetentionDays: 90,
     } as Config
     ingest = createIngestPipeline(config, db, createFakeProvider(), logger)
+    const usage = createUsageTelemetry(config, db, logger)
     mount = createMcpMount(config, {
       config,
       db,
@@ -150,6 +156,7 @@ describe('MCP server (integration)', () => {
         },
       },
       logger,
+      usage,
     })
   })
 
@@ -264,5 +271,32 @@ describe('MCP server (integration)', () => {
     expect(duplicate.isError).toBe(true)
     expect(duplicate.payload.code).toBe('already_ingested')
     expect((duplicate.payload.next_best_actions as string[]).length).toBeGreaterThan(0)
+  })
+
+  it('persists content-free MCP telemetry and returns exact aggregate statistics', async () => {
+    await Bun.sleep(30)
+    const { rows } = await db.query<Record<string, unknown>>(
+      "SELECT * FROM wk_usage_events WHERE surface = 'mcp' ORDER BY created_at",
+    )
+    expect(rows.length).toBeGreaterThan(5)
+    expect(rows.some((row) => row.operation === 'session_initialized')).toBe(true)
+    expect(rows.some((row) => row.tool_name === 'wikikit_search')).toBe(true)
+    expect(rows.every((row) => row.actor_hmac == null || /^[0-9a-f]{64}$/.test(String(row.actor_hmac)))).toBe(true)
+    const serialized = JSON.stringify(rows)
+    expect(serialized).not.toMatch(/portable|Meeting notes|raw-mcp-session|wk_reader_a|open-knowledge-format/)
+
+    const now = Date.now()
+    const window = resolveUsageStatsWindow(
+      {
+        from: new Date(now - 60 * 60 * 1000).toISOString(),
+        to: new Date(now + 60 * 60 * 1000).toISOString(),
+        traffic_class: 'all',
+      },
+      'mcp',
+    )
+    const stats = await getMcpUsageStats(db, window, { dropped_events: 0, retention_days: 90 })
+    expect(stats.schema_version).toBe('wikikit.usage-stats.v1')
+    expect(stats.totals[0]!.metrics.calls.value).toBeGreaterThan(5)
+    expect(stats.quality).toMatchObject({ sampled: false, content_captured: false })
   })
 })

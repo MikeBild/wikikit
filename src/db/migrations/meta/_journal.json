@@ -55,6 +55,12 @@
       "tag": "0008_wk_ingest_quota_backoff",
       "when": 1784455200000,
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "tag": "0009_wk_usage_telemetry",
+      "when": 1784589600000,
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import { HANDLERS, ROUTES, type HttpDeps, type RouteDef } from './routes.ts'
 import { SCHEMAS } from './schemas.ts'
 import { ZodError } from 'zod'
 import { createTraceContext } from '../trace-context.ts'
+import { markUsagePrincipal } from '../usage.ts'
 
 /** Raw mount hook: src/mcp attaches its Streamable-HTTP transport at POST/GET/DELETE /mcp via this. */
 export type RawHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
@@ -134,7 +135,11 @@ export function toErrorPayload(error: unknown, requestId: string): ErrorShape {
 
 function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const text = JSON.stringify(body)
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', ...headers })
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(Buffer.byteLength(text)),
+    ...headers,
+  })
   res.end(text)
 }
 
@@ -190,6 +195,7 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
         (req.headers.authorization as string | undefined) ?? (req.headers['x-api-key'] as string | undefined)
       principal = await deps.auth.authenticate(header)
       deps.auth.requireScope(principal, def.scope)
+      markUsagePrincipal(req, principal)
     }
 
     // Validation, in request order: params → query → body. Schema names come
@@ -260,6 +266,7 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       const route =
         matchRoute(req.method ?? 'GET', pathname)?.def.path ?? (rawMounts.has(pathname) ? pathname : '(unmatched)')
       deps.metrics.httpRequest(req.method ?? 'GET', route, res.statusCode, Date.now() - started)
+      void deps.usage.recordHttp(req, res, { route, durationMs: Date.now() - started })
       deps.logger.info('request', {
         'event.name': 'http.server.request',
         request_id: requestId,

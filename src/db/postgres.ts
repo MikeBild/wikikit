@@ -42,6 +42,7 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_webhook_deliveries',
   'wk_ingest_jobs',
   'wk_agent_runs',
+  'wk_usage_events',
 ])
 
 /** Whitelisted SQL function names — the ONLY write path for review decisions. */

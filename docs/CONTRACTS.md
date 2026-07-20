@@ -872,6 +872,10 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/api-keys`                                | admin             | `listApiKeysHandler`           | —                                                         | 200 `zApiKeyListResponse` (never plaintext/hash)                                         |
 | POST   | `/v1/api-keys`                                | admin             | `createApiKeyHandler`          | body `zCreateApiKeyRequest`                               | 201 `zApiKeyCreatedResponse` (plaintext key shown once)                                  |
 | DELETE | `/v1/api-keys/{id}`                           | admin             | `revokeApiKeyHandler`          | params `zIdParams`                                        | 200 `zApiKeyRevokedResponse` (idempotent)                                                |
+| GET    | `/v1/stats/mcp`                               | admin             | `mcpUsageStatsHandler`         | query `zUsageStatsQuery`                                  | 200 `zUsageStatsResponse`                                                                |
+| GET    | `/v1/spaces/{space}/stats/http`               | knowledge:read    | `httpUsageStatsHandler`        | params `zSpaceParams`; query `zUsageStatsQuery`           | 200 `zUsageStatsResponse`                                                                |
+| GET    | `/v1/spaces/{space}/stats/usage`              | knowledge:read    | `knowledgeUsageStatsHandler`   | params `zSpaceParams`; query `zUsageStatsQuery`           | 200 `zUsageStatsResponse`                                                                |
+| GET    | `/v1/spaces/{space}/stats/reviews`            | knowledge:read    | `reviewUsageStatsHandler`      | params `zSpaceParams`; query `zUsageStatsQuery`           | 200 `zUsageStatsResponse`                                                                |
 | GET    | `/v1/spaces/{space}/stats/ingests`            | knowledge:read    | `ingestStatsHandler`           | params `zSpaceParams`; query `zStatsQuery`                | 200 `zIngestStatsResponse`                                                               |
 | GET    | `/v1/spaces/{space}/stats/knowledge`          | knowledge:read    | `knowledgeStatsHandler`        | params `zSpaceParams`; query `zStatsQuery`                | 200 `zKnowledgeStatsResponse`                                                            |
 | GET    | `/v1/spaces/{space}/stats/llm`                | knowledge:read    | `llmStatsHandler`              | params `zSpaceParams`; query `zStatsQuery`                | 200 `zLlmStatsResponse`                                                                  |
@@ -889,6 +893,25 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 `POST /mcp` (plus `GET`/`DELETE /mcp` for SSE/session-close per Streamable
 HTTP) is intentionally **outside** the ROUTES registry and the OpenAPI surface;
 it shares the auth middleware.
+
+Usage telemetry contract:
+
+- Collection is disabled unless `WIKIKIT_USAGE_TELEMETRY_ENABLED=true` and
+  `WIKIKIT_USAGE_HMAC_SECRET` is present. Raw events expire after
+  `WIKIKIT_USAGE_RETENTION_DAYS`.
+- The append-only `wk_usage_events` row may contain controlled surface,
+  operation, route template, tool name, method/status/outcome, traffic/source,
+  duration/size/count/capacity and product-local HMAC actor/session fields.
+  It MUST NOT contain content, prompts, queries/questions, MCP arguments or
+  results, raw paths/query strings, IP/UA, e-mail, credentials, space slugs or
+  dynamic ids. Anonymous HTTP MUST have null actor/session fields.
+- `wikikit.usage-stats.v1` supports only UTC bounded windows,
+  organic/synthetic/internal/all traffic and no more than two allow-listed
+  dimensions. Totals MUST be queried across the exact full window; bucket
+  uniques/percentiles MUST NOT be summed. Ratio metrics carry numerator and
+  denominator; value state distinguishes zero from missing; `sampled=false`.
+- Actor/session HMAC scope is WikiKit-local. Collectors and Cockpit MUST NOT
+  cross-join identities with another product.
 
 Notes binding all builders:
 
@@ -1312,48 +1335,51 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                             | Default                                                            | Notes                                                      |
-| ------------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------- |
-| `HOST`                               | `127.0.0.1`                                                        |                                                            |
-| `PORT`                               | `4060`                                                             |                                                            |
-| `WIKIKIT_PUBLIC_URL`                 | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production    |
-| `DATABASE_URL`                       | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                 |
-| `WIKIKIT_KEY_PEPPER`                 | dev: `wikikit-local-key-pepper`                                    | **required in production**                                 |
-| `WIKIKIT_BOOTSTRAP_API_KEY`          | `` (dev: generated + printed once at boot)                         |                                                            |
-| `DEPLOYMENT_ENVIRONMENT`             | `development`                                                      | `production` in the production service                     |
-| `WIKIKIT_LLM_PROVIDER`               | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails  |
-| `ANTHROPIC_API_KEY`                  | `` — no default anywhere                                           | read when provider is `anthropic`                          |
-| `OPENAI_API_KEY`                     | `` — no default anywhere                                           | read when provider is `openai`                             |
-| `GOOGLE_GENERATIVE_AI_API_KEY`       | `` — no default anywhere                                           | read when provider is `google`                             |
-| `ANTHROPIC_BASE_URL`                 | ``                                                                 | honored when provider is `anthropic`; test stub target     |
-| `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                            |
-| `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                            |
-| `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                            |
-| `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                            |
-| `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                         |
-| `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                       |
-| `WIKIKIT_INGEST_LEASE_MS`            | `900000`                                                           | 10 s–24 h                                                  |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`        | `30000`                                                            | 1 s–1 h; less than half the lease                          |
-| `WIKIKIT_WEBHOOK_POLL_MS`            | `5000` (dev default file: `1000`)                                  |                                                            |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`         | `10000`                                                            |                                                            |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`       | `10`                                                               |                                                            |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`  | `5`                                                                |                                                            |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`      | `!production`                                                      | SSRF guard                                                 |
-| `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                            |
-| `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                            |
-| `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                            |
-| `WIKIKIT_OAUTH_DCR_ENABLED`          | `true`                                                             | RFC 7591 remote-client registration                        |
-| `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                   |
-| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                 |
-| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                   |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase` \| `oidc` \| `federated`           |
-| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | Firebase project for `firebase`/`federated`                |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | dedicated HTTPS WikiKit Firebase login page                |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated global allow-list                          |
-| `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                    |
-| `WIKIKIT_OAUTH_OIDC_PROVIDERS`       | ``                                                                 | JSON provider array; standard OIDC Authorization Code+PKCE |
-| `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                      |
-| `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`   |
+| Variable                             | Default                                                            | Notes                                                       |
+| ------------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `HOST`                               | `127.0.0.1`                                                        |                                                             |
+| `PORT`                               | `4060`                                                             |                                                             |
+| `WIKIKIT_PUBLIC_URL`                 | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production     |
+| `DATABASE_URL`                       | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                  |
+| `WIKIKIT_KEY_PEPPER`                 | dev: `wikikit-local-key-pepper`                                    | **required in production**                                  |
+| `WIKIKIT_BOOTSTRAP_API_KEY`          | `` (dev: generated + printed once at boot)                         |                                                             |
+| `DEPLOYMENT_ENVIRONMENT`             | `development`                                                      | `production` in the production service                      |
+| `WIKIKIT_LLM_PROVIDER`               | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails   |
+| `ANTHROPIC_API_KEY`                  | `` — no default anywhere                                           | read when provider is `anthropic`                           |
+| `OPENAI_API_KEY`                     | `` — no default anywhere                                           | read when provider is `openai`                              |
+| `GOOGLE_GENERATIVE_AI_API_KEY`       | `` — no default anywhere                                           | read when provider is `google`                              |
+| `ANTHROPIC_BASE_URL`                 | ``                                                                 | honored when provider is `anthropic`; test stub target      |
+| `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                             |
+| `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                             |
+| `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                             |
+| `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                             |
+| `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                          |
+| `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                        |
+| `WIKIKIT_INGEST_LEASE_MS`            | `900000`                                                           | 10 s–24 h                                                   |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`        | `30000`                                                            | 1 s–1 h; less than half the lease                           |
+| `WIKIKIT_WEBHOOK_POLL_MS`            | `5000` (dev default file: `1000`)                                  |                                                             |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`         | `10000`                                                            |                                                             |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`       | `10`                                                               |                                                             |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`  | `5`                                                                |                                                             |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`      | `!production`                                                      | SSRF guard                                                  |
+| `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                             |
+| `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                             |
+| `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                             |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED`    | `false`                                                            | opt-in privacy-bounded usage ledger                         |
+| `WIKIKIT_USAGE_HMAC_SECRET`          | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
+| `WIKIKIT_USAGE_RETENTION_DAYS`       | `90`                                                               | 31–365 days                                                 |
+| `WIKIKIT_OAUTH_DCR_ENABLED`          | `true`                                                             | RFC 7591 remote-client registration                         |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                    |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
+| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase` \| `oidc` \| `federated`            |
+| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | Firebase project for `firebase`/`federated`                 |
+| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | dedicated HTTPS WikiKit Firebase login page                 |
+| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated global allow-list                           |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
+| `WIKIKIT_OAUTH_OIDC_PROVIDERS`       | ``                                                                 | JSON provider array; standard OIDC Authorization Code+PKCE  |
+| `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                       |
+| `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`    |
 
 Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
 query answer 503 `llm_not_configured`, naming **that** provider's key, while

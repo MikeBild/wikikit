@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0
+
+### Added
+
+- Opt-in, append-only, privacy-bounded usage telemetry for HTTP, MCP and the
+  semantic knowledge/review workflows. Product-local HMAC actor/session ids
+  support exact-window adoption without storing content, prompts, queries,
+  tool arguments/results, network identifiers, credentials or dynamic ids.
+- New aggregate resources: global `GET /v1/stats/mcp` and space-scoped
+  `GET /v1/spaces/{space}/stats/http`, `/stats/usage` and `/stats/reviews`.
+  They expose value state/kind, ratio evidence, exact-window uniques,
+  latency/size distributions, traffic classes and quality metadata.
+- Raw usage retention cleanup plus explicit organic/synthetic/internal
+  traffic classification for production canaries and report collectors.
+
+### Security
+
+- Usage collection remains off by default and fails boot when enabled without
+  an independent `WIKIKIT_USAGE_HMAC_SECRET`. Anonymous HTTP traffic is never
+  fingerprinted and reporting/probe traffic is classified as internal.
+
 ## 0.3.2
 
 ### Fixed

@@ -106,6 +106,10 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/api-keys`                                | admin             | List visible API keys without plaintext or hashes |
 | POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
 | DELETE | `/v1/api-keys/{id}`                           | admin             | Revoke a DB-backed API key idempotently |
+| GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
+| GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
+| GET    | `/v1/spaces/{space}/stats/usage`             | knowledge:read    | Cross-transport search/read/query/ingest/proposal behavior |
+| GET    | `/v1/spaces/{space}/stats/reviews`           | knowledge:read    | Cross-transport proposal inspection and review behavior |
 | GET    | `/v1/spaces/{space}/stats/ingests`           | knowledge:read    | Time-bucketed ingest lifecycle and duration aggregates |
 | GET    | `/v1/spaces/{space}/stats/knowledge`         | knowledge:read    | Time-bucketed knowledge growth and review activity |
 | GET    | `/v1/spaces/{space}/stats/llm`               | knowledge:read    | Time-bucketed LLM calls, tokens and duration |
@@ -124,13 +128,31 @@ MCP (Streamable HTTP) is mounted at POST /mcp — intentionally outside the
 REST/OpenAPI surface. Local clients use scoped API keys; remote MCP clients
 use OAuth 2.1 discovery, PKCE and explicitly requested scopes (§7).
 
-The space-scoped stats resources are product analytics, not a
-consumer-specific reporting interface. They query WikiKit's own PostgreSQL
-tables, reuse the normal space-aware `knowledge:read` authorization, default
-to a 24-hour UTC view and support bounded `hour|day|month|year` buckets via
-`?bucket=&from=&to=&tz=UTC`. Responses contain aggregates only: prompts,
-content, identities, secrets, endpoints, hashes and row ids are excluded.
-Use the existing `/v1/spaces/{space}/lint` resource for current data quality.
+The stats resources are product-owned analytics, not a consumer-specific
+reporting interface. The original ingests/knowledge/LLM/webhook readers derive
+operational and growth metrics from durable product tables. The opt-in usage
+ledger additionally measures actual HTTP and MCP connections/calls plus
+search/read/query/ingest/proposal/review behavior. Space readers reuse normal
+space-aware `knowledge:read`; global MCP aggregation requires `admin`.
+
+All usage responses use schema `wikikit.usage-stats.v1`. Query parameters are
+`bucket=hour|day|month|year`, RFC3339 `from`/`to`, `tz=UTC`,
+`traffic_class=organic|synthetic|internal|all`, and at most two comma-separated
+surface-specific `group_by` dimensions. Totals run a separate full-window SQL
+query, so unique actors/sessions and percentiles are exact instead of sums of
+buckets. Metric values declare `value_kind`, `value_state`, sample size and,
+for ratios, numerator/denominator. `quality` declares `sampled:false`, exact
+unique counting, retention/dropped events and `content_captured:false`.
+
+Collection is off by default. Enable `WIKIKIT_USAGE_TELEMETRY_ENABLED` only
+with an independent `WIKIKIT_USAGE_HMAC_SECRET`. Stored events contain
+controlled operation/route/tool names, outcome/status, traffic/source,
+duration/size/count/capacity and product-local HMAC actor/session ids. They
+never contain content, prompts, search/question text, MCP arguments/results,
+raw paths/query strings, IP/UA, credentials, e-mail, space slugs or dynamic
+resource ids. Anonymous HTTP is never fingerprinted; health/docs/stats traffic
+is internal; raw rows expire after `WIKIKIT_USAGE_RETENTION_DAYS`. Cross-product
+actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data quality.
 
 ### Conventions
 
@@ -516,6 +538,9 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
 | `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
 | `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED` | enable privacy-bounded usage collection | `false` |
+| `WIKIKIT_USAGE_HMAC_SECRET` | independent product-local HMAC secret; required when enabled | (unset) |
+| `WIKIKIT_USAGE_RETENTION_DAYS` | raw usage retention (31–365 days) | `90` |
 | `WIKIKIT_OAUTH_DCR_ENABLED` | RFC 7591 dynamic registration for remote MCP clients | `true` |
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |

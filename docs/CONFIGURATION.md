@@ -43,6 +43,9 @@ instead of producing a half-configured server.
 | `WIKIKIT_TRUST_PROXY`                | Trust `X-Forwarded-*` headers (only behind a trusted reverse proxy)                                            | `false`                                                            |
 | `WIKIKIT_MCP_SESSION_TTL_MS`         | Idle TTL for MCP sessions (sessions are leases, swept when idle)                                               | `1800000` (30 min)                                                 |
 | `WIKIKIT_MCP_MAX_SESSIONS`           | MCP session hard cap; oldest-idle sessions are evicted at the cap                                              | `200`                                                              |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED`    | Enable the privacy-bounded product usage ledger                                                                | `false`                                                            |
+| `WIKIKIT_USAGE_HMAC_SECRET`          | Independent secret for product-local actor/session HMACs; required when telemetry is enabled                   | (unset)                                                            |
+| `WIKIKIT_USAGE_RETENTION_DAYS`       | Raw usage event retention (31–365 days)                                                                        | `90`                                                               |
 | `WIKIKIT_OAUTH_DCR_ENABLED`          | Enable RFC 7591 dynamic registration for ChatGPT and other remote MCP clients                                  | `true`                                                             |
 | `WIKIKIT_OAUTH_CODE_TTL_MS`          | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
@@ -99,6 +102,37 @@ Do not put this JSON in version control when it has a `client_secret`; inject
 it through the production secret store. Register
 `${WIKIKIT_PUBLIC_URL}/v1/oauth/oidc/callback` as the provider redirect URI and
 keep `WIKIKIT_PUBLIC_URL` on its canonical HTTPS origin.
+
+## Privacy-safe usage telemetry
+
+Usage telemetry is deliberately opt-in. Set
+`WIKIKIT_USAGE_TELEMETRY_ENABLED=true` and supply a dedicated random
+`WIKIKIT_USAGE_HMAC_SECRET`; do not reuse `WIKIKIT_KEY_PEPPER`. The service
+then writes append-only, product-local events and deletes raw rows after
+`WIKIKIT_USAGE_RETENTION_DAYS` (default 90; allowed 31–365).
+
+The ledger stores only controlled operation/route/tool names, status/outcome,
+traffic and request source, durations, sizes/counts, active MCP capacity and
+product-local HMAC actor/session ids. It never stores source or generated
+content, prompts, search/question text, MCP arguments/results, raw URL paths or
+query strings, IP address, user agent, OAuth/API credentials, e-mail, space
+slug, or dynamic object ids. Anonymous HTTP requests receive neither an actor
+nor session fingerprint. The HMAC scope is WikiKit only; aggregate consumers
+must not join it to actor ids from another product.
+
+Authenticated callers may set `X-WikiKit-Traffic-Class` to `organic`,
+`synthetic`, or `internal`, and `X-WikiKit-Request-Source` to `api`, `gateway`,
+`scheduler`, or `manual`. Unauthenticated values are ignored. Health,
+readiness, metrics, documentation and statistics/report collection routes are
+always `internal`. Optional `X-WikiKit-Session-Id` is HMACed only for an
+authenticated caller.
+
+Usage queries accept `bucket=hour|day|month|year`, RFC 3339 `from`/`to`,
+`tz=UTC`, `traffic_class=organic|synthetic|internal|all`, and at most two
+comma-separated, surface-specific `group_by` dimensions. Each response is
+`wikikit.usage-stats.v1`, reports exact full-window actor/session uniques,
+keeps ratio numerator/denominator evidence, distinguishes zero from missing,
+declares `sampled:false`, and never returns raw events.
 
 ## Zero-config development
 

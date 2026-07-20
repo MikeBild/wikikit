@@ -99,11 +99,23 @@ curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
 
 Example sources to ingest are in [`examples/`](examples/README.md).
 
-Product analytics are available at `/v1/spaces/{space}/stats/*` for ingests,
-knowledge/review activity, LLM usage and webhooks. They query WikiKit's own
-PostgreSQL data, reuse ordinary space-scoped `knowledge:read` keys and return
-only bounded aggregates—never content, prompts, identities, secrets or row
-identifiers. `GET /v1/spaces/{space}/lint` remains the data-quality surface.
+Product analytics are available at `/v1/spaces/{space}/stats/*`. Existing
+resources cover ingest, graph growth, LLM and webhook operations; opt-in usage
+resources add actual HTTP, search/read/query/proposal and review behavior.
+Global MCP sessions/protocol/tool usage is available to admins at
+`GET /v1/stats/mcp`. All readers query WikiKit's own PostgreSQL data and return
+bounded aggregates only. Content, prompts, search/question text, MCP
+arguments/results, raw paths/query strings, network identifiers, credentials
+and dynamic resource ids are never captured.
+
+Enable the usage ledger explicitly with
+`WIKIKIT_USAGE_TELEMETRY_ENABLED=true` and an independent
+`WIKIKIT_USAGE_HMAC_SECRET`; it is off by default. Actor/session ids are
+product-local HMACs, anonymous HTTP is never fingerprinted, raw events expire
+after `WIKIKIT_USAGE_RETENTION_DAYS` (default 90), and the collector can mark
+authenticated canaries with `X-WikiKit-Traffic-Class: synthetic`. See
+[Configuration](docs/CONFIGURATION.md) for the privacy and query contract.
+`GET /v1/spaces/{space}/lint` remains the current data-quality surface.
 
 ### Troubleshooting
 

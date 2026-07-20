@@ -52,6 +52,7 @@ import {
   type SessionManager,
 } from './session-manager.ts'
 import { buildToolManifest, visibleTools, type Principal, type ToolDeps } from './tools.ts'
+import type { TrafficClass, UsageTelemetry } from '../usage.ts'
 
 /**
  * The slice of src/http/auth.ts's Auth that MCP needs (CONTRACTS §5.4) —
@@ -65,6 +66,7 @@ export type McpAuth = Pick<Auth, 'authenticate'>
 export interface McpDeps extends ToolDeps {
   auth: McpAuth
   logger: Logger
+  usage?: UsageTelemetry
 }
 
 // ---------------------------------------------------------------------------
@@ -193,23 +195,34 @@ const DOC_RESOURCES = [
  * pure-MCP client saw the tool list and nothing else. The docs are public
  * anyway (`GET /llms.txt` needs no auth), so they are not scope-gated here.
  */
-export function createSessionServer(config: Config, deps: McpDeps, principal: Principal): Server {
+export function createSessionServer(
+  config: Config,
+  deps: McpDeps,
+  principal: Principal,
+  sessionId: () => string | null = () => null,
+  trafficClass: TrafficClass = 'organic',
+): Server {
   const server = new Server(
     { name: 'wikikit', version: config.version },
     { capabilities: { tools: {}, resources: {} }, instructions: INSTRUCTIONS },
   )
 
-  server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: buildToolManifest(principal.scopes),
-  }))
+  server.setRequestHandler(ListToolsRequestSchema, () => {
+    void deps.usage?.recordMcp({ operation: 'tools_list', principal, sessionId: sessionId(), trafficClass })
+    return { tools: buildToolManifest(principal.scopes) }
+  })
 
-  server.setRequestHandler(ListResourcesRequestSchema, () => ({
-    resources: DOC_RESOURCES.filter((resource) => readDocsFile(config, resource.file) !== null).map(
-      ({ uri, name, description }) => ({ uri, name, description, mimeType: 'text/plain' }),
-    ),
-  }))
+  server.setRequestHandler(ListResourcesRequestSchema, () => {
+    void deps.usage?.recordMcp({ operation: 'resources_list', principal, sessionId: sessionId(), trafficClass })
+    return {
+      resources: DOC_RESOURCES.filter((resource) => readDocsFile(config, resource.file) !== null).map(
+        ({ uri, name, description }) => ({ uri, name, description, mimeType: 'text/plain' }),
+      ),
+    }
+  })
 
   server.setRequestHandler(ReadResourceRequestSchema, (request) => {
+    void deps.usage?.recordMcp({ operation: 'resource_read', principal, sessionId: sessionId(), trafficClass })
     const resource = DOC_RESOURCES.find((candidate) => candidate.uri === request.params.uri)
     const text = resource ? readDocsFile(config, resource.file) : null
     if (!text) {
@@ -223,8 +236,24 @@ export function createSessionServer(config: Config, deps: McpDeps, principal: Pr
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const requestId = newRequestId()
     const name = request.params.name
+    const started = Date.now()
+    const args = request.params.arguments
+    const spaceSlug =
+      args && typeof args === 'object' && typeof (args as Record<string, unknown>).space === 'string'
+        ? String((args as Record<string, unknown>).space)
+        : null
     const tool = visibleTools(principal.scopes).find((candidate) => candidate.name === name)
     if (!tool) {
+      void deps.usage?.recordMcp({
+        operation: 'tool_call',
+        principal,
+        sessionId: sessionId(),
+        spaceSlug: null,
+        toolName: null,
+        outcome: 'client_error',
+        durationMs: Date.now() - started,
+        trafficClass,
+      })
       // Deliberately NOT a JSON-RPC method error: the envelope carries
       // next_best_actions so the agent pivots to tools/list instead of
       // retrying a name it hallucinated (or lacks the scope for).
@@ -239,8 +268,36 @@ export function createSessionServer(config: Config, deps: McpDeps, principal: Pr
       // Tools re-parse through their own zod schema inside execute — the
       // boundary rule holds even if a future caller bypasses dispatch.
       const output = await tool.execute(deps, principal, request.params.arguments ?? {})
+      const resultCount = (() => {
+        if (!output || typeof output !== 'object') return undefined
+        const value = output as Record<string, unknown>
+        for (const key of ['hits', 'items', 'concepts', 'decisions', 'findings', 'proposals']) {
+          if (Array.isArray(value[key])) return value[key].length
+        }
+        return undefined
+      })()
+      void deps.usage?.recordMcp({
+        operation: 'tool_call',
+        principal,
+        sessionId: sessionId(),
+        spaceSlug,
+        toolName: name,
+        resultCount,
+        durationMs: Date.now() - started,
+        trafficClass,
+      })
       return { content: [{ type: 'text', text: JSON.stringify(output) }] }
     } catch (error) {
+      void deps.usage?.recordMcp({
+        operation: 'tool_call',
+        principal,
+        sessionId: sessionId(),
+        spaceSlug,
+        toolName: name,
+        outcome: error instanceof DomainError && error.statusCode < 500 ? 'client_error' : 'server_error',
+        durationMs: Date.now() - started,
+        trafficClass,
+      })
       // Terminal envelope for the agent; full detail in the log keyed by
       // request_id (the envelope never leaks internals — §8.2).
       deps.logger.warn('mcp tool call failed', {
@@ -307,11 +364,20 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
     ttlMs: config.mcpSessionTtlMs,
     maxSessions: config.mcpMaxSessions,
     logger,
+    onEvict: ({ sessionId, reason, activeSessions }) => {
+      void deps.usage?.recordMcp({
+        operation: `session_evicted_${reason}`,
+        sessionId,
+        outcome: reason === 'shutdown' ? 'cancelled' : 'success',
+        activeSessions,
+      })
+    },
   })
 
   async function handler(req: Request): Promise<Response> {
     const guarded = validateMcpRequest(req, config)
     if (!guarded.ok) {
+      void deps.usage?.recordMcp({ operation: 'transport_rejected', outcome: 'rejected' })
       logger.debug('mcp request rejected by transport guard', { reason: guarded.reason })
       return guarded.response
     }
@@ -327,6 +393,7 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
       const requestId = newRequestId()
       const domainError = error instanceof DomainError ? error : new UnauthorizedError('authentication failed')
       logger.debug('mcp request unauthorized', { request_id: requestId })
+      void deps.usage?.recordMcp({ operation: 'authentication_rejected', outcome: 'rejected' })
       return errorEnvelopeResponse(domainError, requestId, config)
     }
 
@@ -342,6 +409,12 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
         logger.debug('unknown mcp session id — client should re-initialize', {
           session_id: sessionHeader,
           key_id: principal.keyId,
+        })
+        void deps.usage?.recordMcp({
+          operation: 'session_not_found',
+          principal,
+          sessionId: sessionHeader,
+          outcome: 'client_error',
         })
         return sessionNotFound()
       }
@@ -365,7 +438,17 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
 
     if (!session) {
       freshSession = true
-      const server = createSessionServer(config, deps, principal)
+      const transportRef: { current?: WebStandardStreamableHTTPServerTransport } = {}
+      const declaredTraffic = req.headers.get('x-wikikit-traffic-class')
+      const trafficClass: TrafficClass =
+        declaredTraffic === 'synthetic' || declaredTraffic === 'internal' ? declaredTraffic : 'organic'
+      const server = createSessionServer(
+        config,
+        deps,
+        principal,
+        () => transportRef.current?.sessionId ?? null,
+        trafficClass,
+      )
       // Holder filled before server.connect — the SDK invokes
       // onsessioninitialized from inside handleRequest, long after this.
       const leaseRef: { current?: McpSession } = {}
@@ -392,6 +475,13 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
             key_id: principal.keyId,
             sessions_open: manager.sessions.size,
           })
+          void deps.usage?.recordMcp({
+            operation: 'session_initialized',
+            principal,
+            sessionId: sid,
+            activeSessions: manager.sessions.size,
+            trafficClass,
+          })
         },
         onsessionclosed: (sid) => {
           // Client sent DELETE /mcp. The SDK closes the transport right after
@@ -399,8 +489,16 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
           manager.sessions.delete(sid)
           if (manager.sessions.size === 0) manager.stopSweeper()
           logger.info('mcp session closed', { session_id: sid, sessions_open: manager.sessions.size })
+          void deps.usage?.recordMcp({
+            operation: 'session_closed',
+            principal,
+            sessionId: sid,
+            activeSessions: manager.sessions.size,
+            trafficClass,
+          })
         },
       })
+      transportRef.current = transport
       transport.onerror = (err: Error) => {
         // A request that skipped the handshake self-rejects with "Server not
         // initialized" — recoverable client churn, not a fault.
@@ -432,11 +530,25 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
     const active = session
     manager.retain(active)
     let streamed = false
+    const transportStarted = Date.now()
+    const transportOperation = ['GET', 'POST', 'DELETE'].includes(req.method)
+      ? `transport_${req.method.toLowerCase()}`
+      : 'transport_other'
 
     try {
       const response = await active.transport.handleRequest(req)
       const body = response.body
-      if (!body || !isEventStream(response)) return response
+      const responseMode = body ? (isEventStream(response) ? 'sse' : 'json') : 'none'
+      void deps.usage?.recordMcp({
+        operation: transportOperation,
+        principal,
+        sessionId: active.transport.sessionId,
+        outcome: response.status >= 500 ? 'server_error' : response.status >= 400 ? 'client_error' : 'success',
+        durationMs: Date.now() - transportStarted,
+        responseMode,
+        activeSessions: manager.sessions.size,
+      })
+      if (!body || responseMode !== 'sse') return response
       streamed = true
       return new Response(
         trackStreamLifetime(body, {
@@ -450,6 +562,16 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
         }),
         { status: response.status, statusText: response.statusText, headers: response.headers },
       )
+    } catch (error) {
+      void deps.usage?.recordMcp({
+        operation: transportOperation,
+        principal,
+        sessionId: active.transport.sessionId,
+        outcome: 'server_error',
+        durationMs: Date.now() - transportStarted,
+        activeSessions: manager.sessions.size,
+      })
+      throw error
     } finally {
       if (!streamed) manager.release(active)
       // The SDK awaits onsessioninitialized inside handleRequest, so

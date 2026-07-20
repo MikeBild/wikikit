@@ -50,6 +50,9 @@ function integrationConfig(databaseUrl: string): Config {
     trustProxy: false,
     mcpSessionTtlMs: 60_000,
     mcpMaxSessions: 10,
+    usageTelemetryEnabled: true,
+    usageHmacSecret: 'itest-http-usage-secret',
+    usageRetentionDays: 90,
     logLevel: 'error',
     version: '0.0.0-itest',
     llmConfigured: false,
@@ -542,6 +545,17 @@ describe('http surface (integration)', () => {
   })
 
   it('product stats aggregate real PostgreSQL rows through the authenticated API', async () => {
+    const synthetic = await fetch(`${base}/v1/spaces/demo/search?q=okf`, {
+      headers: {
+        ...bearer(readerKey),
+        'x-wikikit-traffic-class': 'synthetic',
+        'x-wikikit-request-source': 'manual',
+        'x-wikikit-session-id': 'integration-session',
+      },
+    })
+    expect(synthetic.status).toBe(200)
+    await Bun.sleep(20)
+
     const now = Date.now()
     const query = new URLSearchParams({
       bucket: 'hour',
@@ -573,5 +587,32 @@ describe('http surface (integration)', () => {
     expect(knowledgeTotals.proposals_rejected).toBeGreaterThanOrEqual(1)
     expect((responses.llm!.totals as { calls: number }).calls).toBeGreaterThanOrEqual(7)
     expect((responses.webhooks!.totals as { events: number }).events).toBeGreaterThanOrEqual(1)
+
+    for (const resource of ['http', 'usage', 'reviews']) {
+      const res = await fetch(`${base}/v1/spaces/demo/stats/${resource}?${query}&traffic_class=all`, {
+        headers: bearer(readerKey),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        schema_version: string
+        quality: { sampled: boolean; content_captured: boolean }
+        totals: Array<{ metrics: { calls: { value: number }; unique_actors: { value: number } } }>
+      }
+      expect(body.schema_version).toBe('wikikit.usage-stats.v1')
+      expect(body.quality).toMatchObject({ sampled: false, content_captured: false })
+      expect(body.totals[0]!.metrics.calls.value).toBeGreaterThan(0)
+      expect(JSON.stringify(body)).not.toContain(NOTE_MD)
+      expect(JSON.stringify(body)).not.toContain(sourceId)
+      expect(JSON.stringify(body)).not.toContain(proposalId)
+    }
+
+    const { rows: raw } = await app.database.db.query<Record<string, unknown>>(
+      'SELECT * FROM wk_usage_events ORDER BY created_at',
+    )
+    expect(raw.length).toBeGreaterThan(0)
+    expect(JSON.stringify(raw)).not.toMatch(
+      /integration-session|itest-http-bootstrap|portable knowledge|OKF is a draft/,
+    )
+    expect(raw.some((row) => row.traffic_class === 'synthetic')).toBe(true)
   })
 })

@@ -10,6 +10,39 @@ import { ValidationError } from './domain/errors.ts'
 
 export const STATS_BUCKETS = ['hour', 'day', 'month', 'year'] as const
 export type StatsBucket = (typeof STATS_BUCKETS)[number]
+export const USAGE_TRAFFIC_CLASSES = ['organic', 'synthetic', 'internal', 'all'] as const
+export type UsageTrafficClass = (typeof USAGE_TRAFFIC_CLASSES)[number]
+export type UsageStatsSurface = 'http' | 'mcp' | 'knowledge' | 'review'
+
+const USAGE_GROUPS: Record<UsageStatsSurface, Record<string, string>> = {
+  http: {
+    route: 'route',
+    method: 'method',
+    outcome: 'outcome',
+    status_class: '(status_code / 100)::text',
+    traffic_class: 'traffic_class',
+    request_source: 'request_source',
+  },
+  mcp: {
+    operation: 'operation',
+    tool_name: 'tool_name',
+    outcome: 'outcome',
+    response_mode: 'response_mode',
+    traffic_class: 'traffic_class',
+  },
+  knowledge: {
+    operation: 'operation',
+    outcome: 'outcome',
+    traffic_class: 'traffic_class',
+    request_source: 'request_source',
+  },
+  review: {
+    operation: 'operation',
+    outcome: 'outcome',
+    traffic_class: 'traffic_class',
+    request_source: 'request_source',
+  },
+}
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -25,6 +58,12 @@ export interface StatsWindow {
   from: Date
   to: Date
   tz: 'UTC'
+}
+
+export interface UsageStatsWindow extends StatsWindow {
+  surface: UsageStatsSurface
+  trafficClass: UsageTrafficClass
+  groupBy: string[]
 }
 
 export function resolveStatsWindow(input: Record<string, unknown>, now: Date = new Date()): StatsWindow {
@@ -43,6 +82,30 @@ export function resolveStatsWindow(input: Record<string, unknown>, now: Date = n
     throw new ValidationError(`${bucket} bucket window is too large`)
   }
   return { bucket, from, to, tz: 'UTC' }
+}
+
+export function resolveUsageStatsWindow(
+  input: Record<string, unknown>,
+  surface: UsageStatsSurface,
+  now: Date = new Date(),
+): UsageStatsWindow {
+  const window = resolveStatsWindow(input, now)
+  const trafficClass = String(input.traffic_class ?? 'organic') as UsageTrafficClass
+  if (!USAGE_TRAFFIC_CLASSES.includes(trafficClass)) {
+    throw new ValidationError(`traffic_class must be one of ${USAGE_TRAFFIC_CLASSES.join(', ')}`)
+  }
+  const groupBy = String(input.group_by ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  if (groupBy.length > 2) throw new ValidationError('group_by accepts at most two dimensions')
+  if (new Set(groupBy).size !== groupBy.length) throw new ValidationError('group_by dimensions must be unique')
+  for (const dimension of groupBy) {
+    if (!USAGE_GROUPS[surface][dimension]) {
+      throw new ValidationError(`group_by '${dimension}' is not supported for ${surface}`)
+    }
+  }
+  return { ...window, surface, trafficClass, groupBy }
 }
 
 function floorBucket(date: Date, bucket: StatsBucket): Date {
@@ -333,3 +396,226 @@ export async function getWebhookStats(db: Db, spaceId: string, window: StatsWind
   }, zeroWebhook())
   return envelope(window, buckets, totals)
 }
+
+// ---------------------------------------------------------------------------
+// Privacy-bounded usage telemetry. Bucket rows and totals are queried
+// independently: distinct actors/sessions and percentiles are exact for the
+// requested full window and must never be reconstructed by summing buckets.
+// ---------------------------------------------------------------------------
+
+type ValueKind = 'count' | 'duration' | 'ratio' | 'data-size' | 'gauge'
+type ValueState = 'observed' | 'zero' | 'missing'
+
+function metric(value: number, valueKind: ValueKind, state?: ValueState, sampleSize?: number) {
+  return {
+    value,
+    value_kind: valueKind,
+    value_state: state ?? (value === 0 ? 'zero' : 'observed'),
+    ...(sampleSize === undefined ? {} : { sample_size: sampleSize }),
+  }
+}
+
+function ratio(numerator: number, denominator: number) {
+  return {
+    value: denominator ? numerator / denominator : 0,
+    value_kind: 'ratio' as const,
+    value_state: denominator ? ('observed' as const) : ('missing' as const),
+    numerator,
+    denominator,
+    sample_size: denominator,
+  }
+}
+
+interface UsageRow {
+  ts?: Date | string
+  dimension_1?: unknown
+  dimension_2?: unknown
+  calls?: unknown
+  success?: unknown
+  client_errors?: unknown
+  server_errors?: unknown
+  rejected?: unknown
+  unique_actors?: unknown
+  unique_sessions?: unknown
+  duration_ms_total?: unknown
+  duration_ms_avg?: unknown
+  duration_ms_p50?: unknown
+  duration_ms_p95?: unknown
+  request_size_count?: unknown
+  response_size_count?: unknown
+  request_bytes?: unknown
+  response_bytes?: unknown
+  result_count?: unknown
+  result_count_samples?: unknown
+  active_sessions?: unknown
+}
+
+function usageDimensions(row: UsageRow, groupBy: string[]): Record<string, string | null> {
+  return Object.fromEntries(
+    groupBy.map((name, index) => [name, (row[`dimension_${index + 1}` as keyof UsageRow] ?? null) as string | null]),
+  )
+}
+
+function usageMetrics(row: UsageRow) {
+  const calls = number(row.calls)
+  const success = number(row.success)
+  const clientErrors = number(row.client_errors)
+  const serverErrors = number(row.server_errors)
+  const rejected = number(row.rejected)
+  const durationSamples = calls
+  const requestSamples = number(row.request_size_count)
+  const responseSamples = number(row.response_size_count)
+  const resultSamples = number(row.result_count_samples)
+  return {
+    calls: metric(calls, 'count'),
+    success: metric(success, 'count'),
+    client_errors: metric(clientErrors, 'count'),
+    server_errors: metric(serverErrors, 'count'),
+    rejected: metric(rejected, 'count'),
+    success_ratio: ratio(success, calls),
+    error_ratio: ratio(clientErrors + serverErrors, calls),
+    unique_actors: metric(number(row.unique_actors), 'count'),
+    unique_sessions: metric(number(row.unique_sessions), 'count'),
+    duration_ms_total: metric(
+      number(row.duration_ms_total),
+      'duration',
+      calls ? undefined : 'missing',
+      durationSamples,
+    ),
+    duration_ms_avg: metric(number(row.duration_ms_avg), 'duration', calls ? undefined : 'missing', durationSamples),
+    duration_ms_p50: metric(number(row.duration_ms_p50), 'duration', calls ? undefined : 'missing', durationSamples),
+    duration_ms_p95: metric(number(row.duration_ms_p95), 'duration', calls ? undefined : 'missing', durationSamples),
+    request_bytes: metric(
+      number(row.request_bytes),
+      'data-size',
+      requestSamples ? undefined : 'missing',
+      requestSamples,
+    ),
+    response_bytes: metric(
+      number(row.response_bytes),
+      'data-size',
+      responseSamples ? undefined : 'missing',
+      responseSamples,
+    ),
+    result_count: metric(number(row.result_count), 'count', resultSamples ? undefined : 'missing', resultSamples),
+    active_sessions: metric(number(row.active_sessions), 'gauge', row.active_sessions == null ? 'missing' : undefined),
+  }
+}
+
+const USAGE_SELECT = `count(*)::double precision AS calls,
+  count(*) FILTER (WHERE outcome = 'success')::double precision AS success,
+  count(*) FILTER (WHERE outcome = 'client_error')::double precision AS client_errors,
+  count(*) FILTER (WHERE outcome = 'server_error')::double precision AS server_errors,
+  count(*) FILTER (WHERE outcome = 'rejected')::double precision AS rejected,
+  count(DISTINCT actor_hmac)::double precision AS unique_actors,
+  count(DISTINCT session_hmac)::double precision AS unique_sessions,
+  coalesce(sum(duration_ms), 0)::double precision AS duration_ms_total,
+  avg(duration_ms)::double precision AS duration_ms_avg,
+  percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms)::double precision AS duration_ms_p50,
+  percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::double precision AS duration_ms_p95,
+  count(request_bytes)::double precision AS request_size_count,
+  count(response_bytes)::double precision AS response_size_count,
+  coalesce(sum(request_bytes), 0)::double precision AS request_bytes,
+  coalesce(sum(response_bytes), 0)::double precision AS response_bytes,
+  coalesce(sum(result_count), 0)::double precision AS result_count,
+  count(result_count)::double precision AS result_count_samples,
+  max(active_sessions)::double precision AS active_sessions`
+
+export async function getUsageStats(
+  db: Db,
+  spaceId: string | null,
+  window: UsageStatsWindow,
+  runtimeQuality: Partial<{ dropped_events: number; retention_days: number }> = {},
+) {
+  const groups = window.groupBy.map((dimension) => USAGE_GROUPS[window.surface][dimension]!)
+  const dimensionSelect = groups.map((expression, index) => `${expression} AS dimension_${index + 1}`).join(', ')
+  const dimensionPrefix = dimensionSelect ? `${dimensionSelect}, ` : ''
+  const groupSql = groups.length ? `, ${groups.join(', ')}` : ''
+  const scoped = spaceId !== null
+  const bucketParams: unknown[] = scoped
+    ? [spaceId, window.from, window.to, window.bucket, window.surface, window.trafficClass]
+    : [window.from, window.to, window.bucket, window.surface, window.trafficClass]
+  const totalParams: unknown[] = scoped
+    ? [spaceId, window.from, window.to, window.surface, window.trafficClass]
+    : [window.from, window.to, window.surface, window.trafficClass]
+  const b = scoped
+    ? { space: 'space_id = $1 AND ', from: '$2', to: '$3', bucket: '$4', surface: '$5', traffic: '$6' }
+    : { space: '', from: '$1', to: '$2', bucket: '$3', surface: '$4', traffic: '$5' }
+  const t = scoped
+    ? { space: 'space_id = $1 AND ', from: '$2', to: '$3', surface: '$4', traffic: '$5' }
+    : { space: '', from: '$1', to: '$2', surface: '$3', traffic: '$4' }
+  const bucketWhere = `${b.space}surface = ${b.surface} AND created_at >= ${b.from} AND created_at < ${b.to}
+    AND (${b.traffic} = 'all' OR traffic_class = ${b.traffic})`
+  const totalWhere = `${t.space}surface = ${t.surface} AND created_at >= ${t.from} AND created_at < ${t.to}
+    AND (${t.traffic} = 'all' OR traffic_class = ${t.traffic})`
+  const bucketRows = (
+    await db.query<UsageRow>(
+      `SELECT date_trunc(${b.bucket}::text, created_at) AS ts, ${dimensionPrefix}${USAGE_SELECT}
+         FROM wk_usage_events WHERE ${bucketWhere}
+        GROUP BY date_trunc(${b.bucket}::text, created_at)${groupSql}
+        ORDER BY date_trunc(${b.bucket}::text, created_at)${groupSql}`,
+      bucketParams,
+    )
+  ).rows
+  const totalRows = (
+    await db.query<UsageRow>(
+      `SELECT ${dimensionPrefix}${USAGE_SELECT}
+         FROM wk_usage_events WHERE ${totalWhere}
+        ${groups.length ? `GROUP BY ${groups.join(', ')} ORDER BY ${groups.join(', ')}` : ''}`,
+      totalParams,
+    )
+  ).rows
+  let buckets = bucketRows.map((row) => ({
+    ts: iso(row.ts!),
+    dimensions: usageDimensions(row, window.groupBy),
+    metrics: usageMetrics(row),
+  }))
+  if (!window.groupBy.length) {
+    const byTs = new Map(buckets.map((row) => [row.ts, row]))
+    buckets = bucketKeys(window).map((ts) => byTs.get(ts) ?? { ts, dimensions: {}, metrics: usageMetrics({}) })
+  }
+  const totals = (totalRows.length ? totalRows : [{}]).map((row) => ({
+    dimensions: usageDimensions(row, window.groupBy),
+    metrics: usageMetrics(row),
+  }))
+  return {
+    schema_version: 'wikikit.usage-stats.v1',
+    surface: window.surface,
+    bucket: window.bucket,
+    tz: window.tz,
+    from: window.from.toISOString(),
+    to: window.to.toISOString(),
+    traffic_class: window.trafficClass,
+    group_by: window.groupBy,
+    buckets,
+    totals,
+    quality: {
+      sampled: false,
+      unique_count_method: 'exact_window',
+      actor_scope: 'wikikit_product_local_hmac',
+      content_captured: false,
+      ...runtimeQuality,
+    },
+  }
+}
+
+export const getHttpUsageStats = (
+  db: Db,
+  spaceId: string,
+  window: UsageStatsWindow,
+  quality?: Parameters<typeof getUsageStats>[3],
+) => getUsageStats(db, spaceId, window, quality)
+export const getKnowledgeUsageStats = (
+  db: Db,
+  spaceId: string,
+  window: UsageStatsWindow,
+  quality?: Parameters<typeof getUsageStats>[3],
+) => getUsageStats(db, spaceId, window, quality)
+export const getReviewUsageStats = (
+  db: Db,
+  spaceId: string,
+  window: UsageStatsWindow,
+  quality?: Parameters<typeof getUsageStats>[3],
+) => getUsageStats(db, spaceId, window, quality)
+export const getMcpUsageStats = (db: Db, window: UsageStatsWindow, quality?: Parameters<typeof getUsageStats>[3]) =>
+  getUsageStats(db, null, window, quality)

@@ -37,6 +37,9 @@ const MANAGED = [
   'WIKIKIT_TRUST_PROXY',
   'WIKIKIT_MCP_SESSION_TTL_MS',
   'WIKIKIT_MCP_MAX_SESSIONS',
+  'WIKIKIT_USAGE_TELEMETRY_ENABLED',
+  'WIKIKIT_USAGE_HMAC_SECRET',
+  'WIKIKIT_USAGE_RETENTION_DAYS',
   'LOG_LEVEL',
 ]
 
@@ -85,6 +88,12 @@ describe('zero-config dev defaults', () => {
   test('webhook private targets allowed by default in dev', () => {
     expect(loadConfig().webhookAllowPrivateTargets).toBe(true)
   })
+
+  test('usage telemetry is opt-in with a bounded default retention', () => {
+    const config = loadConfig()
+    expect(config.usageTelemetryEnabled).toBe(false)
+    expect(config.usageRetentionDays).toBe(90)
+  })
 })
 
 describe('precedence', () => {
@@ -106,6 +115,12 @@ describe('precedence', () => {
 })
 
 describe('validation', () => {
+  test('usage telemetry requires its independent HMAC secret when enabled', () => {
+    process.env.WIKIKIT_USAGE_TELEMETRY_ENABLED = 'true'
+    expect(() => loadConfig()).toThrow(/WIKIKIT_USAGE_HMAC_SECRET/)
+    process.env.WIKIKIT_USAGE_HMAC_SECRET = 'local-only-secret'
+    expect(loadConfig().usageTelemetryEnabled).toBe(true)
+  })
   test('rejects out-of-range integers', () => {
     process.env.PORT = '99999'
     expect(() => loadConfig()).toThrow(/PORT must be an integer/)

@@ -79,6 +79,8 @@ client ──▶ src/http/server.ts
   5. handler: resolveSpace(slug) → space-level scope check → domain call
   6. typed domain errors → the terminal error envelope {error, code,
      request_id, next_best_actions}
+  7. finish hook → canonical route/outcome/latency usage event when the
+     opt-in privacy ledger is enabled
 ```
 
 The `{space}` path segment is the space slug; handlers resolve it once and
@@ -102,6 +104,7 @@ pass `space.id` down — every space-scoped SQL query filters by `space_id`.
 | `mcp/`           | Streamable HTTP server, session leases, tool palette, draft-07 schema conversion, error adapter                  |
 | `webhooks.ts`    | Standard-Webhooks outbox worker: backoff, circuit breaker, `v1,<HMAC>` signatures                                |
 | `stats.ts`       | Space-scoped product analytics over WikiKit's own PostgreSQL data; bounded buckets and aggregate-only responses  |
+| `usage.ts`       | Opt-in content-free HTTP/MCP/knowledge/review events, product-local HMAC identities and raw retention cleanup    |
 | `markdown.ts`    | unified/remark frontmatter pipeline (parse/serialize, HTML→Markdown normalization)                               |
 
 Product analytics are derived at read time from WikiKit's durable tables.
@@ -110,6 +113,20 @@ space-aware `knowledge:read` authorization. It exposes ingest lifecycle,
 knowledge/review growth, LLM token/duration and webhook aggregates in bounded
 UTC buckets. No content, prompts, identities, secrets or row identifiers are
 returned; external collectors interact only through HTTP, never the database.
+
+Actual product behavior cannot be reconstructed from graph/job tables, so the
+opt-in `wk_usage_events` ledger adds canonical HTTP route, MCP session/tool and
+semantic knowledge/review events. HTTP and MCP project the same controlled
+operations into `knowledge`/`review`, enabling cross-transport analysis without
+capturing payloads. The raw row intentionally has no content/prompt/query/tool
+payload/raw URL/network/credential/dynamic-id column. Actor and session values
+are WikiKit-local HMACs; anonymous HTTP is null. `/v1/stats/mcp` is globally
+admin-scoped while HTTP/usage/reviews are space-scoped.
+
+`stats.ts` runs separate bucket and total queries. This is load-bearing:
+distinct actors/sessions and percentiles are non-additive. Responses expose
+semantic value kind/state, sample size and ratio evidence so downstream
+ContentKit AST reports can distinguish zero activity from unavailable data.
 
 ## One registry, many surfaces
 

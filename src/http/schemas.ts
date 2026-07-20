@@ -528,6 +528,12 @@ export const zStatsQuery = z.object({
   tz: z.literal('UTC').optional(),
 })
 
+export const zUsageStatsQuery = zStatsQuery.extend({
+  traffic_class: z.enum(['organic', 'synthetic', 'internal', 'all']).optional(),
+  /** Comma-separated allow-listed dimensions; the reader enforces max two per surface. */
+  group_by: z.string().max(200).optional(),
+})
+
 const zStatsEnvelope = {
   bucket: zStatsBucket,
   tz: z.literal('UTC'),
@@ -612,6 +618,55 @@ export const zWebhookStatsResponse = z.strictObject({
   totals: zWebhookValues,
 })
 
+const zMetricValue = z.strictObject({
+  value: z.number().nonnegative(),
+  value_kind: z.enum(['count', 'gauge', 'duration', 'ratio', 'data-size']),
+  value_state: z.enum(['observed', 'zero', 'missing']),
+  sample_size: z.number().int().nonnegative().optional(),
+  numerator: z.number().nonnegative().optional(),
+  denominator: z.number().nonnegative().optional(),
+})
+const zUsageMetrics = z.strictObject({
+  calls: zMetricValue,
+  success: zMetricValue,
+  client_errors: zMetricValue,
+  server_errors: zMetricValue,
+  rejected: zMetricValue,
+  success_ratio: zMetricValue,
+  error_ratio: zMetricValue,
+  unique_actors: zMetricValue,
+  unique_sessions: zMetricValue,
+  duration_ms_total: zMetricValue,
+  duration_ms_avg: zMetricValue,
+  duration_ms_p50: zMetricValue,
+  duration_ms_p95: zMetricValue,
+  request_bytes: zMetricValue,
+  response_bytes: zMetricValue,
+  result_count: zMetricValue,
+  active_sessions: zMetricValue,
+})
+const zUsageValues = z.strictObject({
+  dimensions: z.record(z.string(), z.string().nullable()),
+  metrics: zUsageMetrics,
+})
+export const zUsageStatsResponse = z.strictObject({
+  schema_version: z.literal('wikikit.usage-stats.v1'),
+  surface: z.enum(['http', 'mcp', 'knowledge', 'review']),
+  ...zStatsEnvelope,
+  traffic_class: z.enum(['organic', 'synthetic', 'internal', 'all']),
+  group_by: z.array(z.string()).max(2),
+  buckets: z.array(zUsageValues.extend({ ts: z.iso.datetime() })),
+  totals: z.array(zUsageValues),
+  quality: z.strictObject({
+    sampled: z.literal(false),
+    unique_count_method: z.literal('exact_window'),
+    actor_scope: z.literal('wikikit_product_local_hmac'),
+    content_captured: z.literal(false),
+    dropped_events: z.number().int().nonnegative(),
+    retention_days: z.number().int().min(31).max(365),
+  }),
+})
+
 // ---------------------------------------------------------------------------
 // Name → schema index (introspection surface for openapi.ts + drift tests)
 // ---------------------------------------------------------------------------
@@ -669,8 +724,10 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zApiKeyRevokedResponse,
   zReadyResponse,
   zStatsQuery,
+  zUsageStatsQuery,
   zIngestStatsResponse,
   zKnowledgeStatsResponse,
   zLlmStatsResponse,
   zWebhookStatsResponse,
+  zUsageStatsResponse,
 }

@@ -67,6 +67,8 @@ export interface SessionManagerOptions {
   /** Clock seam: tests install a fake and drive tick() deterministically. */
   now?: () => number
   sweepIntervalMs?: number
+  /** Optional privacy-safe lifecycle observation; never receives the owner credential. */
+  onEvict?: (event: { sessionId: string; reason: 'idle_ttl' | 'capacity' | 'shutdown'; activeSessions: number }) => void
 }
 
 export interface SessionManager {
@@ -101,6 +103,7 @@ export function createSessionManager(options: SessionManagerOptions): SessionMan
     const session = sessions.get(sessionId)
     if (!session) return
     sessions.delete(sessionId)
+    options.onEvict?.({ sessionId, reason, activeSessions: sessions.size })
     logger.info('mcp session evicted', {
       session_id: sessionId,
       reason,

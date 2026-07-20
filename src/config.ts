@@ -134,6 +134,12 @@ export interface Config {
   readonly trustProxy: boolean
   readonly mcpSessionTtlMs: number
   readonly mcpMaxSessions: number
+  /** Privacy-bounded, product-local usage ledger; disabled unless explicitly enabled. */
+  readonly usageTelemetryEnabled?: boolean
+  /** Secret used only for product-local actor/session HMACs; required when telemetry is enabled. */
+  readonly usageHmacSecret?: string
+  /** Raw event retention; aggregate report artifacts may live longer downstream. */
+  readonly usageRetentionDays?: number
   /** OAuth authorization-code lifetime; optional on injected test configs. */
   readonly oauthAuthorizationCodeTtlMs?: number
   /** OAuth access-token lifetime; optional on injected test configs. */
@@ -343,6 +349,9 @@ export function loadConfig(): Config {
     trustProxy: bool('WIKIKIT_TRUST_PROXY', false),
     mcpSessionTtlMs: integer('WIKIKIT_MCP_SESSION_TTL_MS', 30 * 60 * 1000, { min: 10_000, max: 24 * 3600 * 1000 }),
     mcpMaxSessions: integer('WIKIKIT_MCP_MAX_SESSIONS', 200, { min: 1, max: 10_000 }),
+    usageTelemetryEnabled: bool('WIKIKIT_USAGE_TELEMETRY_ENABLED', false),
+    usageHmacSecret: str('WIKIKIT_USAGE_HMAC_SECRET'),
+    usageRetentionDays: integer('WIKIKIT_USAGE_RETENTION_DAYS', 90, { min: 31, max: 365 }),
     oauthAuthorizationCodeTtlMs: integer('WIKIKIT_OAUTH_CODE_TTL_MS', 10 * 60 * 1000, {
       min: 60_000,
       max: 15 * 60 * 1000,
@@ -366,6 +375,10 @@ export function loadConfig(): Config {
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
   })
+
+  if (config.usageTelemetryEnabled && !config.usageHmacSecret) {
+    throw new Error('WIKIKIT_USAGE_HMAC_SECRET is required when usage telemetry is enabled')
+  }
 
   // Production guards (principle: no boot without secrets). Only
   // the two hard secrets are enforced — everything else has a safe default,

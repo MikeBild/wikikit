@@ -651,6 +651,18 @@ const CASES: RouteCase[] = [
     url: `/v1/spaces/demo/stats/${name}?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z`,
     status: 200,
   })),
+  ...['http', 'usage', 'reviews'].map((name) => ({
+    template: `/v1/spaces/{space}/stats/${name}`,
+    method: 'get' as const,
+    url: `/v1/spaces/demo/stats/${name}?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z`,
+    status: 200,
+  })),
+  {
+    template: '/v1/stats/mcp',
+    method: 'get' as const,
+    url: '/v1/stats/mcp?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z',
+    status: 200,
+  },
   { template: '/ready', method: 'get', url: '/ready', status: 200 },
 ]
 

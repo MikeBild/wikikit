@@ -40,7 +40,18 @@ import type { IngestPipeline } from '../ingest/pipeline.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 import type { Logger } from '../logger.ts'
 import type { Metrics } from '../metrics.ts'
-import { getIngestStats, getKnowledgeStats, getLlmStats, getWebhookStats, resolveStatsWindow } from '../stats.ts'
+import {
+  getHttpUsageStats,
+  getIngestStats,
+  getKnowledgeStats,
+  getKnowledgeUsageStats,
+  getLlmStats,
+  getMcpUsageStats,
+  getReviewUsageStats,
+  getWebhookStats,
+  resolveStatsWindow,
+  resolveUsageStatsWindow,
+} from '../stats.ts'
 import { answerQuestion } from '../query/answer.ts'
 import { search } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
@@ -48,6 +59,7 @@ import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
 import { readDocsFile } from './docs-embedded.ts'
+import { markUsageContext, type UsageTelemetry } from '../usage.ts'
 
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
 
@@ -416,6 +428,54 @@ export const ROUTES: RouteDef[] = [
   },
   {
     method: 'get',
+    path: '/v1/stats/mcp',
+    scope: 'admin',
+    summary: 'Global privacy-safe MCP sessions, protocol operations, tools, outcomes and latency',
+    handler: 'mcpUsageStatsHandler',
+    request: { query: 'zUsageStatsQuery' },
+    responses: {
+      200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'Global MCP usage statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/http',
+    scope: 'knowledge:read',
+    summary: 'Privacy-safe HTTP requests, outcomes, exact-window adoption and latency',
+    handler: 'httpUsageStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zUsageStatsQuery' },
+    responses: {
+      200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'HTTP usage statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/usage',
+    scope: 'knowledge:read',
+    summary: 'Cross-transport search, read, query, lint, ingest and proposal usage',
+    handler: 'knowledgeUsageStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zUsageStatsQuery' },
+    responses: {
+      200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'Knowledge usage statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/reviews',
+    scope: 'knowledge:read',
+    summary: 'Cross-transport proposal inspection and human review behavior',
+    handler: 'reviewUsageStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zUsageStatsQuery' },
+    responses: {
+      200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'Review usage statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
     path: '/v1/spaces/{space}/stats/ingests',
     scope: 'knowledge:read',
     summary: 'Time-bucketed ingest volume, outcomes and processing duration',
@@ -641,6 +701,7 @@ export interface HttpDeps {
   llm: LlmProvider
   ingest: IngestPipeline
   metrics: Metrics
+  usage: UsageTelemetry
   state: { draining: boolean }
 }
 
@@ -674,6 +735,7 @@ export type Handler = (deps: HttpDeps, input: HandlerInput) => Promise<HandlerRe
 async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope): Promise<Space> {
   const space = await getSpaceBySlug(deps.db, input.params.space!)
   deps.auth.requireScope(input.principal!, scope, space.id)
+  markUsageContext(input.req, { spaceId: space.id })
   return space
 }
 
@@ -683,6 +745,7 @@ async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope): 
  */
 function requireSpaceAccess(deps: HttpDeps, input: HandlerInput, scope: Scope, spaceId: string): void {
   deps.auth.requireScope(input.principal!, scope, spaceId)
+  markUsageContext(input.req, { spaceId })
 }
 
 /** The §1.14 stamp for human/agent-authored proposals. */
@@ -1099,6 +1162,29 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const window = resolveStatsWindow(input.query)
     return { status: 200, body: await getIngestStats(deps.db, space.id, window) }
+  },
+
+  async mcpUsageStatsHandler(deps, input) {
+    const window = resolveUsageStatsWindow(input.query, 'mcp')
+    return { status: 200, body: await getMcpUsageStats(deps.db, window, deps.usage.quality()) }
+  },
+
+  async httpUsageStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveUsageStatsWindow(input.query, 'http')
+    return { status: 200, body: await getHttpUsageStats(deps.db, space.id, window, deps.usage.quality()) }
+  },
+
+  async knowledgeUsageStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveUsageStatsWindow(input.query, 'knowledge')
+    return { status: 200, body: await getKnowledgeUsageStats(deps.db, space.id, window, deps.usage.quality()) }
+  },
+
+  async reviewUsageStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const window = resolveUsageStatsWindow(input.query, 'review')
+    return { status: 200, body: await getReviewUsageStats(deps.db, space.id, window, deps.usage.quality()) }
   },
 
   async knowledgeStatsHandler(deps, input) {

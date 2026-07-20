@@ -72,6 +72,10 @@ copy or execute SQL files. A migration failure aborts startup and keeps
   deployment serves every LLM-free feature; ingest/query answer
   `503 llm_not_configured`.
 - **Run non-root** as a dedicated service account with systemd hardening.
+- **Usage remains an explicit choice:** to enable it, set
+  `WIKIKIT_USAGE_TELEMETRY_ENABLED=true`, generate a separate
+  `WIKIKIT_USAGE_HMAC_SECRET`, and choose `WIKIKIT_USAGE_RETENTION_DAYS`.
+  Never reuse the API-key pepper or export raw event rows.
 
 ## systemd
 
@@ -126,9 +130,19 @@ metrics are at `/metrics`; it is unauthenticated, so keep it proxy-gated if
 your edge exposes it.
 
 The product analytics routes under `/v1/spaces/{space}/stats/*` use normal,
-space-scoped `knowledge:read` credentials and query WikiKit's PostgreSQL
-database. They can remain origin-private while an internal HTTP connector
-collects them. `/metrics` is unauthenticated and should remain proxy-gated.
+space-scoped `knowledge:read` credentials; global `/v1/stats/mcp` requires an
+admin credential. They can remain origin-private while an internal HTTP
+connector collects bounded aggregates. Mark authenticated production canaries
+with `X-WikiKit-Traffic-Class: synthetic` and collectors with
+`X-WikiKit-Request-Source: scheduler`; stats/probes/docs are always classified
+internal. `/metrics` is unauthenticated and should remain proxy-gated.
+
+After enabling collection, verify: an organic HTTP read; a synthetic MCP
+initialize → tools/list → read/tool call → DELETE; a failed call; and all four
+stats resources. Confirm exact release version, `sampled:false`,
+`content_captured:false`, distinct organic/synthetic/internal totals and null
+identity counts for anonymous traffic. A rollback can disable the ledger
+without dropping its migration or breaking the operational stats APIs.
 
 ## Release pipeline
 

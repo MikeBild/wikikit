@@ -21,6 +21,7 @@ import { createSpace, type HttpDeps } from './http/routes.ts'
 import { createHttpServer, type RawHandler } from './http/server.ts'
 import { createMcpMount, toNodeRawHandler, type McpMount } from './mcp/server.ts'
 import { createOAuthMount } from './oauth/server.ts'
+import { createUsageTelemetry, type UsageTelemetry } from './usage.ts'
 
 export interface AppDeps {
   logger: Logger
@@ -30,6 +31,7 @@ export interface AppDeps {
   metrics: Metrics
   outbox: OutboxWorker
   ingest: IngestPipeline
+  usage: UsageTelemetry
 }
 
 export interface App {
@@ -41,6 +43,7 @@ export interface App {
   auth: Auth
   logger: Logger
   metrics: Metrics
+  usage: UsageTelemetry
   config: Config
   /**
    * MCP mounting hook: src/mcp attaches its Streamable-HTTP transport at
@@ -75,9 +78,10 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const auth = deps.auth ?? createAuth(config, db)
   const outbox = deps.outbox ?? createOutboxWorker(config, db, logger, { metrics })
   const ingest = deps.ingest ?? createIngestPipeline(config, db, llm, logger, { metrics })
+  const usage = deps.usage ?? createUsageTelemetry(config, db, logger)
   const state = { draining: false }
 
-  const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, state }
+  const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, usage, state }
   const http = createHttpServer(httpDeps)
 
   // Mount the MCP Streamable-HTTP transport at /mcp — the composition-root
@@ -86,7 +90,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // tested in isolation: /mcp lives OUTSIDE the ROUTES registry (§5.2), so only
   // this raw mount attaches it. The regression is guarded by an initialize
   // check in test/integration/http.test.ts against the real createApp server.
-  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger })
+  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger, usage })
   http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
 
   // ChatGPT and other remote MCP clients discover and complete OAuth without
@@ -117,6 +121,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     auth,
     logger,
     metrics,
+    usage,
     config,
     mountRawHandler: http.mountRawHandler,
     handle: http.handle,
@@ -126,6 +131,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       state.draining = true
       oauth.stop()
       mcp.stop() // stop the session sweeper + close live MCP sessions
+      usage.stop()
       outbox.stop()
       await ingest.stop()
       // Bounded drain: server.close() alone waits for keep-alive sockets
@@ -194,6 +200,7 @@ export async function start(config: Config = loadConfig()): Promise<App> {
   }
   app.outbox.start()
   app.ingest.start()
+  app.usage.start()
   logger.info('wikikit listening', {
     url: `http://${config.host}:${config.port}`,
     version: config.version,
