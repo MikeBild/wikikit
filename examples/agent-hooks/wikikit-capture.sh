@@ -8,7 +8,7 @@
 #
 # The transcript itself is never archived: it is distilled and dropped.
 #
-# Contract with Claude Code / Codex:
+# Generic lifecycle-hook contract:
 #   - stdin is JSON ({"cwd":..., "session_id":..., "transcript_path":...}).
 #   - exit 0 ALWAYS, print nothing. This fires as the session ends; a hook that
 #     errors or chats there is pure noise. Set WIKIKIT_HOOK_DEBUG=1 to log to
@@ -35,7 +35,7 @@ payload=$(cat 2>/dev/null) || exit 0
 transcript_path=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -n "$transcript_path" ] && [ -r "$transcript_path" ] || { log "no readable transcript_path"; exit 0; }
 
-# Claude Code writes JSONL, one message per line. Flatten to plain text and keep
+# Common agent hosts write JSONL, one message per line. Flatten to plain text and keep
 # the TAIL: corrections skew late ("no — always do X"), so the head is the part
 # safe to drop. The server caps again; this keeps the request small.
 transcript=$(jq -rs '

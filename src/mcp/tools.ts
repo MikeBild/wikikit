@@ -17,6 +17,8 @@
 // principal explicitly granted knowledge:approve can inspect the complete
 // diff and make the irreversible approve/reject decision.
 import { z } from 'zod'
+import { buildAgentBriefing } from '../agent/briefing.ts'
+import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
@@ -33,6 +35,7 @@ import {
 } from '../domain/proposals.ts'
 import { isoString } from '../domain/sources.ts'
 import { zIngestInput, type IngestPipeline } from '../ingest/pipeline.ts'
+import { readDocsFile } from '../http/docs-embedded.ts'
 import { search } from '../query/search.ts'
 import { zodToJsonSchema7 } from './json-schema.ts'
 
@@ -96,6 +99,29 @@ export const zSearchToolInput = z.object({
   limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 20)'),
 })
 
+export const zSpacesToolInput = z.object({})
+
+export const zGuideToolInput = z.object({})
+
+export const zBriefingToolInput = z.object({
+  spaces: z
+    .array(zSpaceSlug)
+    .min(1)
+    .max(10)
+    .describe('Ordered spaces; earlier entries receive briefing priority when the token budget is tight'),
+  budget_tokens: z.number().int().min(500).max(4000).optional().describe('Approximate output token budget'),
+})
+
+export const zContextToolInput = z.object({
+  prompt: z.string().max(12_000).describe('Current user task or prompt used to select relevant spaces'),
+  project_hint: z.string().max(500).optional().describe('Repository name or working-directory hint'),
+  primary_space: zSpaceSlug.optional().describe('Optional project space that stays first'),
+  manual_spaces: z.array(zSpaceSlug).max(20).optional().describe('Explicit spaces; bypasses automatic selection'),
+  exclude_spaces: z.array(zSpaceSlug).max(100).optional().describe('Spaces already active in this session'),
+  max_spaces: z.number().int().min(1).max(10).optional().describe('Maximum spaces returned (default 3)'),
+  budget_tokens: z.number().int().min(500).max(4000).optional().describe('Approximate briefing budget'),
+})
+
 export const zReadToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
 export const zSourcesToolInput = z
@@ -149,8 +175,16 @@ export const zReviewProposalToolInput = z.object({
  * §5.2: a space-scoped key may only touch its own space → 403, not 404 —
  * the space exists, the key just cannot use it.
  */
-async function resolveSpace(db: Db, principal: Principal, slug: string): Promise<{ id: string; slug: string }> {
-  const [space] = await db.select<{ id: string; slug: string }>('wk_spaces', { slug: `eq.${slug}`, limit: 1 })
+interface ResolvedSpace {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  settings: Record<string, unknown>
+}
+
+async function resolveSpace(db: Db, principal: Principal, slug: string): Promise<ResolvedSpace> {
+  const [space] = await db.select<ResolvedSpace>('wk_spaces', { slug: `eq.${slug}`, limit: 1 })
   if (!space) throw new NotFoundError(`space ${slug} not found`)
   if (principal.spaceId && principal.spaceId !== space.id) {
     throw new ForbiddenError(`key is scoped to a different space than ${slug}`)
@@ -213,6 +247,79 @@ const REVIEW_ANNOTATIONS: ToolAnnotations = {
 }
 
 export const TOOLS: McpToolDef[] = [
+  {
+    name: 'wikikit_guide',
+    description:
+      "Read WikiKit's built-in, code-versioned system knowledge: how the product works, how task-dynamic spaces are selected, " +
+      'and how to connect MCP clients by capability without a WikiKit CLI or client-specific plugin. ' +
+      'Use this instead of guessing setup or workflow rules; it is not a mutable user space.',
+    scope: 'knowledge:read',
+    inputSchema: zGuideToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, _principal, input) {
+      zGuideToolInput.parse(input)
+      const markdown = readDocsFile(deps.config, 'agent-guide.md')
+      if (!markdown) throw new NotFoundError('built-in WikiKit agent guide is unavailable')
+      return {
+        scope: 'wikikit://system',
+        resource_uri: 'wikikit://system/agent-guide',
+        public_path: '/agent-guide.md',
+        version: deps.config.version,
+        markdown,
+      }
+    },
+  },
+  {
+    name: 'wikikit_spaces',
+    description:
+      'List the WikiKit spaces visible to this key. Use this for discovery; do not guess or hard-code a project space.',
+    scope: 'knowledge:read',
+    inputSchema: zSpacesToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      zSpacesToolInput.parse(input)
+      const spaces = await deps.db.select<ResolvedSpace>('wk_spaces', { order: 'slug.asc', limit: 500 })
+      return {
+        spaces: spaces
+          .filter((space) => !principal.spaceId || principal.spaceId === space.id)
+          .map(({ id, slug, name, description }) => ({ id, slug, name, description })),
+      }
+    },
+  },
+  {
+    name: 'wikikit_briefing',
+    description:
+      'Build a compact, budgeted session briefing for any ordered set of WikiKit spaces. ' +
+      'The result contains only pinned orientation; search and read full knowledge on demand.',
+    scope: 'knowledge:read',
+    inputSchema: zBriefingToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zBriefingToolInput.parse(input)
+      const spaces = []
+      for (const slug of [...new Set(args.spaces)]) spaces.push(await resolveSpace(deps.db, principal, slug))
+      return buildAgentBriefing(deps.db, spaces, args.budget_tokens)
+    },
+  },
+  {
+    name: 'wikikit_context',
+    description:
+      'Select relevant knowledge spaces from the current task and return a compact briefing. ' +
+      'Use this at the start of a task when no lifecycle hook supplied WikiKit context; pass manual_spaces for an explicit selection.',
+    scope: 'knowledge:read',
+    inputSchema: zContextToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zContextToolInput.parse(input)
+      const spaces = await deps.db.select<ResolvedSpace>('wk_spaces', { order: 'slug.asc', limit: 500 })
+      const visible = spaces.filter((space) => !principal.spaceId || principal.spaceId === space.id)
+      const visibleSlugs = new Set(visible.map((space) => space.slug))
+      for (const slug of [args.primary_space, ...(args.manual_spaces ?? [])].filter(Boolean) as string[]) {
+        if (!visibleSlugs.has(slug)) throw new NotFoundError(`space ${slug} is not visible to this key`)
+      }
+      return buildAgentContext(deps.db, visible, args)
+    },
+  },
   {
     name: 'wikikit_search',
     description:

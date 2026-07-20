@@ -96,8 +96,8 @@ function originOf(raw: string | null | undefined): string | null {
  * rebinding attack the browser sends Origin and Host with the same rebound
  * hostname, so an allowlist containing `new URL(req.url).origin` would admit
  * exactly the attacker it exists to block (the guard would be a no-op).
- * Requests WITHOUT an Origin header pass — non-browser MCP clients (Claude
- * Code, SDK clients) never send one; the header is only meaningful as a
+ * Requests WITHOUT an Origin header pass — non-browser MCP clients generally
+ * do not send one; the header is only meaningful as a
  * DNS-rebinding tell when a browser adds it.
  */
 const LOOPBACK_ORIGIN_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
@@ -151,14 +151,23 @@ function newRequestId(): string {
  */
 const INSTRUCTIONS = `WikiKit is a curated knowledge base: sources are archived verbatim, an LLM synthesizes concept pages whose every claim carries a verbatim quote from a source, and nothing becomes visible knowledge without human approval.
 
-Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. These never invent — if the answer is not in the base, say so rather than filling the gap.
+Context: when a lifecycle hook has not already supplied WikiKit context, call wikikit_context once with the user's current task and, when known, the repository name as project_hint. It selects relevant spaces from their stable purpose metadata and returns a compact briefing. A user can explicitly name any visible spaces; explicit selection wins over automatic selection. Do not dump every space into context.
+
+Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, and wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. Use the spaces selected by wikikit_context and fetch full knowledge only when needed. These tools never invent — if the answer is not in the base, say so rather than filling the gap.
 
 Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:approve can use wikikit_proposals to inspect the full diff, then wikikit_review_proposal to explicitly approve or reject it. The review tool is an irreversible confirmed write: never call it without a human’s explicit decision. Do not tell the user their change is live until approval succeeds.
 
-Only the tools your API key's scopes allow are listed. Read the "wikikit://docs/llms.txt" resource for the full API and data model.`
+Only the tools your API key's scopes allow are listed. WikiKit's immutable, code-bundled system knowledge is available through wikikit_guide and the "wikikit://system/agent-guide" resource; it is separate from user spaces and needs no database seed or review. Read "wikikit://docs/llms.txt" for the full API and data model.`
 
 /** Documentation exposed to MCP clients — the same files the REST surface serves. */
 const DOC_RESOURCES = [
+  {
+    uri: 'wikikit://system/agent-guide',
+    name: 'WikiKit built-in agent guide',
+    description:
+      'Compact, code-versioned system knowledge: operating model, dynamic space routing, and no-CLI setup for major MCP clients.',
+    file: 'agent-guide.md',
+  },
   {
     uri: 'wikikit://docs/llms.txt',
     name: 'WikiKit documentation index',

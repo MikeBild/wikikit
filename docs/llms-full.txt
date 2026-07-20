@@ -10,6 +10,11 @@ verifiable claims and citations, every change passes a human review gate as a
 ChangeProposal, and the knowledge is reachable over HTTP/REST and MCP and
 exportable as Markdown or OKF (Open Knowledge Format) bundles.
 
+WikiKit's own operating and installation knowledge is an immutable built-in
+system scope, shipped with the binary rather than seeded into a mutable user
+space. Read it with `wikikit_guide`, `wikikit://system/agent-guide`, or
+`GET /agent-guide.md`. User spaces remain reviewed, portable tenant data.
+
 The guiding idea is curation over collection: WikiKit is not a dump of
 everything you ever saw, it is a maintained set of concept pages an agent can
 trust — every statement is a claim with a citation, a status and a lifecycle,
@@ -67,8 +72,12 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 
 | Method | Path                                          | Scope             | Purpose |
 |--------|-----------------------------------------------|-------------------|---------|
+| GET    | `/v1/spaces`                                  | knowledge:read    | List spaces visible to the current key |
 | POST   | `/v1/spaces`                                  | admin             | Create a space (workspace scope for all knowledge) |
+| GET    | `/v1/agent/briefing`                          | knowledge:read    | Compact, budgeted briefing for an ordered set of spaces |
+| POST   | `/v1/agent/context`                           | knowledge:read    | Select task-relevant spaces from stable purpose metadata and return a compact briefing |
 | GET    | `/v1/spaces/{space}`                          | knowledge:read    | Read a space (settings, epoch) |
+| POST   | `/v1/spaces/{space}/settings`                 | admin             | Merge or replace stable purpose metadata used for task-context selection |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
@@ -104,8 +113,11 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
 | GET    | `/metrics`                                    | public            | Prometheus metrics |
 | GET    | `/openapi.json`                               | public            | Generated OpenAPI 3.1 spec |
+| GET    | `/agent-guide.md`                             | public            | Built-in agent operating and no-CLI client setup guide |
 | GET    | `/llms.txt`                                   | public            | Documentation index (llmstxt.org format) |
 | GET    | `/llms-full.txt`                              | public            | This file |
+| GET    | `/.well-known/llms.txt`                       | public            | Well-known alias of `/llms.txt` |
+| GET    | `/.well-known/llms-full.txt`                  | public            | Well-known alias of `/llms-full.txt` |
 
 MCP (Streamable HTTP) is mounted at POST /mcp — intentionally outside the
 REST/OpenAPI surface. Local clients use scoped API keys; remote MCP clients
@@ -310,7 +322,7 @@ actionable envelope — never a bare string:
 
 Streamable HTTP at `POST /mcp` (plus GET/DELETE for SSE/session close), built
 on `@modelcontextprotocol/sdk`. Local/operator clients use the same `wk_` key
-auth as REST. Remote clients such as ChatGPT use OAuth 2.1 discovery, DCR,
+auth as REST. Remote interactive clients use OAuth 2.1 discovery, DCR,
 authorization code + PKCE, rotating refresh tokens and Bearer access tokens.
 An unauthenticated `/mcp` response advertises protected-resource metadata via
 `WWW-Authenticate`; OAuth tokens expose only the consented read/propose/approve
@@ -339,8 +351,10 @@ scope the key holds — a `knowledge:read` key sees only the read tools.
 `wikikit_proposals` and `wikikit_review_proposal` require
 `knowledge:approve`; the final review decision is a confirmed MCP write.
 
-**Coding-agent loop** (`docs/coding-agent-integration.md`): a SessionStart hook
-injects the space's concept index + a grounding rule; a SessionEnd/Stop hook
+**Coding-agent loop** (`docs/coding-agent-integration.md`): an optional
+SessionStart hook injects only a compact briefing, and UserPromptSubmit selects
+task-relevant additional spaces from stable space-purpose metadata. A
+SessionEnd/Stop hook
 posts the transcript to `POST /v1/spaces/{space}/agent/sessions`, which distils
 ONLY durable rules a human explicitly taught and stages them as a proposal.
 A routine session answers `no_learnings` and writes nothing; the transcript is
@@ -348,15 +362,21 @@ distilled and dropped, never archived.
 
 **Self-description**: `initialize` returns `instructions` (how the tools fit
 together; the staging-not-publishing rule), and the server advertises a
-`resources` capability. `resources/list` offers this documentation —
-`wikikit://docs/llms.txt` and `wikikit://docs/llms-full.txt` — readable via
+`resources` capability. `wikikit_guide` exposes the compact system guide even
+to tools-only clients. `resources/list` offers the same guide at
+`wikikit://system/agent-guide` plus this documentation at
+`wikikit://docs/llms.txt` and `wikikit://docs/llms-full.txt`, readable via
 `resources/read`, so an MCP-only client never needs an HTTP GET to learn the
-API. Not scope-gated: the same files are public at `/llms.txt`.
+API. Resources are not scope-gated; the same files are public over HTTP.
 
 ### Tools
 
 | Tool | Scope | Behavior | readOnly | destructive | idempotent | openWorld |
 |------|-------|----------|----------|-------------|------------|-----------|
+| `wikikit_guide` | knowledge:read | Read code-versioned system knowledge and no-CLI client setup; no database seed | true | false | true | false |
+| `wikikit_spaces` | knowledge:read | Discover spaces visible to the current key | true | false | true | false |
+| `wikikit_briefing` | knowledge:read | Compact budgeted orientation for an ordered set of spaces | true | false | true | false |
+| `wikikit_context` | knowledge:read | Select relevant spaces from the current task, or honor an explicit manual space list | true | false | true | false |
 | `wikikit_search` | knowledge:read | Ranked FTS hits (raw evidence, no synthesis) | true | false | true | false |
 | `wikikit_read` | knowledge:read | Full concept: markdown + claims + citations + relations + rev | true | false | true | false |
 | `wikikit_sources` | knowledge:read | Provenance chain down to original sources (by concept slug or source_id) | true | false | true | false |
@@ -373,9 +393,8 @@ on the writes because content-hash dedup (ingest) and the pending input-hash
 unique index (propose) make identical retries converge. `openWorldHint: true`
 only on `wikikit_ingest` (a `url` input fetches an external host).
 
-Connect from Claude Code / claude.ai: Streamable HTTP
-`https://<host>/mcp` + Bearer `wk_` key with scopes
-`knowledge:read,knowledge:propose`.
+Connect any MCP host over Streamable HTTP at `https://<host>/mcp`, using OAuth
+or a narrow Bearer `wk_` key with the required knowledge scopes.
 
 ---
 

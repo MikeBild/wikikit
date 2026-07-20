@@ -2,12 +2,44 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
   "paths": {
     "/v1/spaces": {
+      "get": {
+        "summary": "List spaces visible to the current key",
+        "operationId": "listSpaces",
+        "responses": {
+          "200": {
+            "description": "Visible spaces",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpaceListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      },
       "post": {
         "summary": "Create a space (workspace scope for all knowledge)",
         "operationId": "createSpace",
@@ -43,6 +75,92 @@
         },
         "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
+      }
+    },
+    "/v1/agent/briefing": {
+      "get": {
+        "summary": "Build a compact, budgeted coding-agent briefing across spaces",
+        "operationId": "agentBriefing",
+        "responses": {
+          "200": {
+            "description": "Agent briefing",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAgentBriefingResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "spaces",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 640 }
+          },
+          {
+            "name": "budget_tokens",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 500, "maximum": 4000 }
+          }
+        ],
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/agent/context": {
+      "post": {
+        "summary": "Select relevant spaces from task context and build a compact briefing",
+        "operationId": "agentContext",
+        "responses": {
+          "200": {
+            "description": "Selected context",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAgentContextResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAgentContextRequest" } } }
+        },
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
       }
     },
     "/v1/spaces/{space}": {
@@ -85,6 +203,54 @@
         ],
         "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/settings": {
+      "post": {
+        "summary": "Merge or replace stable space metadata used for context discovery",
+        "operationId": "updateSpaceSettings",
+        "responses": {
+          "200": {
+            "description": "Updated space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpaceResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/zUpdateSpaceSettingsRequest" } }
+          }
+        },
+        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
       }
     },
     "/v1/spaces/{space}/ingest": {
@@ -1728,6 +1894,15 @@
         "responses": { "200": { "description": "OpenAPI 3.1 spec", "content": { "application/json": {} } } }
       }
     },
+    "/agent-guide.md": {
+      "get": {
+        "summary": "Built-in system knowledge and no-CLI MCP client setup for AI agents",
+        "operationId": "agentGuide",
+        "responses": {
+          "200": { "description": "WikiKit agent operating and installation guide", "content": { "text/markdown": {} } }
+        }
+      }
+    },
     "/llms.txt": {
       "get": {
         "summary": "LLM docs index (llmstxt.org format)",
@@ -1743,6 +1918,22 @@
         "operationId": "llmsFullTxt",
         "responses": { "200": { "description": "Complete documentation", "content": { "text/plain": {} } } }
       }
+    },
+    "/.well-known/llms.txt": {
+      "get": {
+        "summary": "Well-known alias of the LLM docs index",
+        "operationId": "llmsTxt",
+        "responses": {
+          "200": { "description": "Markdown index of the documentation", "content": { "text/plain": {} } }
+        }
+      }
+    },
+    "/.well-known/llms-full.txt": {
+      "get": {
+        "summary": "Well-known alias of the full LLM documentation",
+        "operationId": "llmsFullTxt",
+        "responses": { "200": { "description": "Complete documentation", "content": { "text/plain": {} } } }
+      }
     }
   },
   "components": {
@@ -1751,6 +1942,45 @@
       "apiKey": { "type": "apiKey", "in": "header", "name": "X-API-Key" }
     },
     "schemas": {
+      "zSpaceListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "slug": { "type": "string" },
+                "name": { "type": "string" },
+                "settings": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+                "epoch": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                "created_at": { "type": "string" },
+                "updated_at": { "type": "string" }
+              },
+              "required": ["id", "slug", "name", "settings", "epoch", "created_at", "updated_at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "zErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string" },
+          "request_id": { "type": "string" },
+          "next_best_actions": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["error", "code", "request_id"],
+        "additionalProperties": {}
+      },
       "zCreateSpaceRequest": {
         "type": "object",
         "properties": {
@@ -1778,16 +2008,83 @@
         "required": ["id", "slug", "name", "settings", "epoch", "created_at", "updated_at"],
         "additionalProperties": false
       },
-      "zErrorEnvelope": {
+      "zAgentBriefingResponse": {
         "type": "object",
         "properties": {
-          "error": { "type": "string" },
-          "code": { "type": "string" },
-          "request_id": { "type": "string" },
-          "next_best_actions": { "type": "array", "items": { "type": "string" } }
+          "markdown": { "type": "string" },
+          "spaces": { "type": "array", "items": { "type": "string" } },
+          "budget_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "used_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "concepts_included": { "type": "array", "items": { "type": "string" } },
+          "concepts_omitted": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
         },
-        "required": ["error", "code", "request_id"],
-        "additionalProperties": {}
+        "required": ["markdown", "spaces", "budget_tokens", "used_tokens", "concepts_included", "concepts_omitted"],
+        "additionalProperties": false
+      },
+      "zAgentContextRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": { "default": "", "type": "string", "maxLength": 12000 },
+          "project_hint": { "type": "string", "maxLength": 500 },
+          "primary_space": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+          "manual_spaces": {
+            "maxItems": 20,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          "exclude_spaces": {
+            "maxItems": 100,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          "max_spaces": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "budget_tokens": { "type": "integer", "minimum": 500, "maximum": 4000 }
+        }
+      },
+      "zAgentContextResponse": {
+        "type": "object",
+        "properties": {
+          "markdown": { "type": "string" },
+          "spaces": { "type": "array", "items": { "type": "string" } },
+          "budget_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "used_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "concepts_included": { "type": "array", "items": { "type": "string" } },
+          "concepts_omitted": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "selection_mode": { "type": "string", "enum": ["manual", "automatic"] },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": { "type": "string" },
+                "name": { "type": "string" },
+                "score": { "type": "number" },
+                "reasons": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["slug", "name", "score", "reasons"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "markdown",
+          "spaces",
+          "budget_tokens",
+          "used_tokens",
+          "concepts_included",
+          "concepts_omitted",
+          "selection_mode",
+          "matches"
+        ],
+        "additionalProperties": false
+      },
+      "zUpdateSpaceSettingsRequest": {
+        "type": "object",
+        "properties": {
+          "settings": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+          "replace": { "default": false, "type": "boolean" }
+        },
+        "required": ["settings"]
       },
       "zIngestRequest": {
         "type": "object",

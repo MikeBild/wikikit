@@ -16,6 +16,8 @@
 // (a space-scoped key touching a foreign space is 403, §5.4).
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { captureSession } from '../agent/sessions.ts'
+import { buildAgentBriefing } from '../agent/briefing.ts'
+import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
@@ -73,6 +75,14 @@ export interface RouteDef {
 // listed here once instead of 25 times in the table.
 export const ROUTES: RouteDef[] = [
   {
+    method: 'get',
+    path: '/v1/spaces',
+    scope: 'knowledge:read',
+    summary: 'List spaces visible to the current key',
+    handler: 'listSpacesHandler',
+    responses: { 200: { schema: 'zSpaceListResponse', type: 'application/json', desc: 'Visible spaces' } },
+  },
+  {
     method: 'post',
     path: '/v1/spaces',
     scope: 'admin',
@@ -83,12 +93,39 @@ export const ROUTES: RouteDef[] = [
   },
   {
     method: 'get',
+    path: '/v1/agent/briefing',
+    scope: 'knowledge:read',
+    summary: 'Build a compact, budgeted coding-agent briefing across spaces',
+    handler: 'agentBriefingHandler',
+    request: { query: 'zAgentBriefingQuery' },
+    responses: { 200: { schema: 'zAgentBriefingResponse', type: 'application/json', desc: 'Agent briefing' } },
+  },
+  {
+    method: 'post',
+    path: '/v1/agent/context',
+    scope: 'knowledge:read',
+    summary: 'Select relevant spaces from task context and build a compact briefing',
+    handler: 'agentContextHandler',
+    request: { body: 'zAgentContextRequest' },
+    responses: { 200: { schema: 'zAgentContextResponse', type: 'application/json', desc: 'Selected context' } },
+  },
+  {
+    method: 'get',
     path: '/v1/spaces/{space}',
     scope: 'knowledge:read',
     summary: 'Read a space (settings, epoch)',
     handler: 'getSpaceHandler',
     request: { params: 'zSpaceParams' },
     responses: { 200: { schema: 'zSpaceResponse', type: 'application/json', desc: 'Space' } },
+  },
+  {
+    method: 'post',
+    path: '/v1/spaces/{space}/settings',
+    scope: 'admin',
+    summary: 'Merge or replace stable space metadata used for context discovery',
+    handler: 'updateSpaceSettingsHandler',
+    request: { params: 'zSpaceParams', body: 'zUpdateSpaceSettingsRequest' },
+    responses: { 200: { schema: 'zSpaceResponse', type: 'application/json', desc: 'Updated space' } },
   },
   {
     method: 'post',
@@ -462,6 +499,14 @@ export const ROUTES: RouteDef[] = [
   },
   {
     method: 'get',
+    path: '/agent-guide.md',
+    scope: null,
+    summary: 'Built-in system knowledge and no-CLI MCP client setup for AI agents',
+    handler: 'agentGuideHandler',
+    responses: { 200: { type: 'text/markdown', desc: 'WikiKit agent operating and installation guide' } },
+  },
+  {
+    method: 'get',
     path: '/llms.txt',
     scope: null,
     summary: 'LLM docs index (llmstxt.org format)',
@@ -473,6 +518,22 @@ export const ROUTES: RouteDef[] = [
     path: '/llms-full.txt',
     scope: null,
     summary: 'Full LLM documentation in one file',
+    handler: 'llmsFullTxtHandler',
+    responses: { 200: { type: 'text/plain', desc: 'Complete documentation' } },
+  },
+  {
+    method: 'get',
+    path: '/.well-known/llms.txt',
+    scope: null,
+    summary: 'Well-known alias of the LLM docs index',
+    handler: 'llmsTxtHandler',
+    responses: { 200: { type: 'text/plain', desc: 'Markdown index of the documentation' } },
+  },
+  {
+    method: 'get',
+    path: '/.well-known/llms-full.txt',
+    scope: null,
+    summary: 'Well-known alias of the full LLM documentation',
     handler: 'llmsFullTxtHandler',
     responses: { 200: { type: 'text/plain', desc: 'Complete documentation' } },
   },
@@ -542,6 +603,29 @@ export async function createSpace(
 export async function getSpaceBySlug(db: Db, slug: string): Promise<Space> {
   const [row] = await db.select<SpaceRow>('wk_spaces', { slug: `eq.${slug}`, limit: 1 })
   if (!row) throw new NotFoundError(`space '${slug}' not found`)
+  return toSpace(row)
+}
+
+export async function listSpaces(db: Db): Promise<Space[]> {
+  const rows = await db.select<SpaceRow>('wk_spaces', { order: 'slug.asc', limit: 500 })
+  return rows.map(toSpace)
+}
+
+export async function updateSpaceSettings(
+  db: Db,
+  space: Space,
+  args: { settings: Record<string, unknown>; replace: boolean },
+): Promise<Space> {
+  const settings = args.replace ? args.settings : { ...space.settings, ...args.settings }
+  const [row] = await db.update<SpaceRow>(
+    'wk_spaces',
+    { id: `eq.${space.id}` },
+    {
+      settings: JSON.stringify(settings),
+      updated_at: new Date(),
+    },
+  )
+  if (!row) throw new NotFoundError(`space '${space.slug}' not found`)
   return toSpace(row)
 }
 
@@ -615,6 +699,12 @@ function proposalWire(detail: ProposalDetail): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 export const HANDLERS: Record<string, Handler> = {
+  async listSpacesHandler(deps, input) {
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    return { status: 200, body: { items: visible } }
+  },
+
   async createSpaceHandler(deps, input) {
     // §5.2: a space-scoped key may only touch ITS space — creating new global
     // spaces is exactly the privilege a delegated key must not have. Mirrors
@@ -630,6 +720,57 @@ export const HANDLERS: Record<string, Handler> = {
   async getSpaceHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     return { status: 200, body: space }
+  },
+
+  async updateSpaceSettingsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'admin')
+    return {
+      status: 200,
+      body: await updateSpaceSettings(
+        deps.db,
+        space,
+        input.body as { settings: Record<string, unknown>; replace: boolean },
+      ),
+    }
+  },
+
+  async agentBriefingHandler(deps, input) {
+    const query = input.query as { spaces: string; budget_tokens?: number }
+    const slugs = [
+      ...new Set(
+        query.spaces
+          .split(',')
+          .map((slug) => slug.trim())
+          .filter(Boolean),
+      ),
+    ]
+    if (slugs.length === 0 || slugs.length > 10) throw new ValidationError('spaces must name between 1 and 10 spaces')
+    const spaces = []
+    for (const slug of slugs) {
+      const space = await getSpaceBySlug(deps.db, slug)
+      deps.auth.requireScope(input.principal!, 'knowledge:read', space.id)
+      spaces.push(space)
+    }
+    return { status: 200, body: await buildAgentBriefing(deps.db, spaces, query.budget_tokens) }
+  },
+
+  async agentContextHandler(deps, input) {
+    const body = input.body as {
+      prompt: string
+      project_hint?: string
+      primary_space?: string
+      manual_spaces?: string[]
+      exclude_spaces?: string[]
+      max_spaces?: number
+      budget_tokens?: number
+    }
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    const visibleSlugs = new Set(visible.map((space) => space.slug))
+    for (const slug of [body.primary_space, ...(body.manual_spaces ?? [])].filter(Boolean) as string[]) {
+      if (!visibleSlugs.has(slug)) throw new ValidationError(`space '${slug}' is not visible to this key`)
+    }
+    return { status: 200, body: await buildAgentContext(deps.db, visible, body) }
   },
 
   async createIngestHandler(deps, input) {
@@ -986,6 +1127,17 @@ export const HANDLERS: Record<string, Handler> = {
 
   async openapiHandler(deps) {
     return { status: 200, body: buildOpenApi(ROUTES, { version: deps.config.version }) }
+  },
+
+  async agentGuideHandler(deps) {
+    const content = readDocsFile(deps.config, 'agent-guide.md')
+    return {
+      status: 200,
+      text:
+        content ??
+        '# WikiKit agent guide\n\n> docs/agent-guide.md is not bundled in this build.\n\nSee /llms.txt for the documentation index.\n',
+      headers: { 'content-type': 'text/markdown; charset=utf-8' },
+    }
   },
 
   async llmsTxtHandler(deps) {

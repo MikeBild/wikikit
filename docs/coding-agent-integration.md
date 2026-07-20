@@ -1,219 +1,108 @@
-# Use WikiKit from Claude Code or Codex
+# Use WikiKit from a coding agent
 
-Your coding agent starts every session knowing nothing about your project's
-conventions. You explain the same rule again next week. WikiKit closes that
-loop: a session **starts** grounded in your reviewed knowledge, and what you
-teach it **flows back** — as a proposal you approve, so the next session already
-knows.
+A coding agent starts a session without your project's conventions. WikiKit
+closes that loop: the session starts grounded in reviewed knowledge, and new
+durable rules the user teaches can return as proposals for human review.
 
-```
-  new session ──▶ briefing hook injects your concept index
-       │                                    ▲
-       ▼                                    │
-  you work; the agent looks things          │
-  up with wikikit_search / wikikit_read     │
-       │                                    │
-       ▼                                    │
-  session ends ──▶ capture hook ──▶ distil ─┘
-                                     │
-                        only rules YOU taught
-                                     │
-                                     ▼
-                          ChangeProposal → you approve
+Nothing becomes knowledge without approval. Capture always produces a
+proposal, never a live change.
+
+## Default setup: MCP only
+
+Connect the agent to WikiKit's Streamable HTTP endpoint:
+
+```text
+https://YOUR-WIKIKIT-HOST/mcp
 ```
 
-Nothing becomes knowledge without your approval. Capture always produces
-_proposals_.
+The built-in [agent guide](agent-guide.md) contains capability-based setup for
+MCP settings screens, TOML configurations, JSON configurations, hosted agents,
+OAuth, and API-key authentication. WikiKit requires no client-specific plugin,
+CLI, copied mega-prompt, repository manifest, or fixed list of spaces.
 
-## Setup (about 2 minutes)
+On connection, the server provides:
 
-You need WikiKit running ([Quickstart](../README.md#quickstart)), plus `curl`
-and `jq`.
+- compact workflow rules in the MCP `initialize` response;
+- immutable system knowledge through `wikikit_guide` and
+  `wikikit://system/agent-guide`;
+- `wikikit_context` for task-dynamic selection across all visible spaces;
+- search, read, provenance, proposal, and permission-gated review tools.
 
-### 1. Mint a key for your agent
+If no lifecycle hook already supplied context, the agent calls
+`wikikit_context` with the current task and optional repository name. Explicit
+`manual_spaces` always wins. Full concepts stay on demand through
+`wikikit_search` and `wikikit_read`.
 
-Not your bootstrap key — scopes are what keep approval a human act:
+## Authentication and scopes
+
+OAuth is the lowest-setup option for an interactive remote client. For local
+or non-interactive clients, mint a narrow key over the REST API:
 
 ```bash
-export WK="http://127.0.0.1:4060" KEY="wk_..."   # your admin/bootstrap key
+export WK="http://127.0.0.1:4060" KEY="wk_..."
 
 curl -s -X POST "$WK/v1/api-keys" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"name":"coding-agent","scopes":["knowledge:read","knowledge:propose"],"space":"default"}'
-# → {"key":"wk_...", ...}   ← shown once
+  -d '{"name":"coding-agent","scopes":["knowledge:read"]}'
 ```
 
-Put it in your shell profile — both the MCP server and the hooks read it:
+Use an unbound read key when task routing may select any visible space. Bind a
+key to one space when the client must never see other knowledge. Add
+`knowledge:propose` only for ingest, explicit proposals, or session capture.
+Keep `knowledge:approve` and `admin` out of routine agent credentials.
 
-```bash
-export WIKIKIT_URL="http://127.0.0.1:4060"
-export WIKIKIT_API_KEY="wk_..."      # the key you just minted
-export WIKIKIT_SPACE="default"
-```
+## Optional lifecycle integration
 
-### 2. Register the MCP server
+Lifecycle hooks are an optimization, not a requirement. Configure equivalent
+events only when the MCP host supports them:
 
-This alone already gives the agent `wikikit_search`, `wikikit_read` and
-`wikikit_propose`. **Claude Code:**
+| Lifecycle moment                 | WikiKit action                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Session start or context restore | Load a compact `GET /v1/agent/briefing`; never preload every concept or space.                 |
+| User prompt submission           | Send the current task to `POST /v1/agent/context`; inject only newly relevant space briefings. |
+| Session end or stop              | Optionally send the normalized transcript to `POST /v1/spaces/{space}/agent/sessions`.         |
 
-```bash
-claude mcp add --transport http --scope user wikikit "$WIKIKIT_URL/mcp" \
-  --header "Authorization: Bearer ${WIKIKIT_API_KEY}"
-```
+The prompt-time action is the important dynamic step. Space choice comes from
+stable `settings.agent_context` metadata, not from incidental facts inside
+concept pages. A user can explicitly request any visible combination, for
+example `space: contentkit+blog-de` or `wikikit: ocpp+slidekit`.
 
-**Codex:**
+Automatically guessed spaces are never capture targets. Capture requires an
+explicitly configured project space because writes must not be routed by a
+guess.
 
-```bash
-codex mcp add wikikit --url "$WIKIKIT_URL/mcp" --bearer-token-env-var WIKIKIT_API_KEY
-```
+### Optional project manifest
 
-**Claude Desktop** (and most other MCP clients) — in the `mcpServers` config:
+A host-side lifecycle adapter may use `.wikikit/agent.json` to pin a stable
+project space and limits:
 
 ```json
 {
-  "mcpServers": {
-    "wikikit": {
-      "type": "http",
-      "url": "http://127.0.0.1:4060/mcp",
-      "headers": { "Authorization": "Bearer wk_..." }
-    }
-  }
+  "schema_version": 1,
+  "primary_space": "contentkit",
+  "budget_tokens": 1200,
+  "max_active_spaces": 6,
+  "capture": true
 }
 ```
 
-On connect the server hands the agent its own usage instructions and serves the
-full docs as MCP resources, so it needs no further explanation from you.
+The manifest is optional and is not consumed by the WikiKit server itself. It
+is a small convention for lifecycle adapters; pure MCP clients do not need it.
 
-### ChatGPT.com is OAuth, not an API-key header
+## Session capture
 
-For ChatGPT Developer mode, create an app with
-`https://wikikit.mikebild.dev/mcp` and choose OAuth. WikiKit performs dynamic
-client registration and the PKCE authorization-code flow. Production uses a
-WikiKit-branded Firebase login page, standard OIDC providers (Google,
-Microsoft Entra ID, Okta, Keycloak, …), or a federated provider chooser. Each
-provider has an explicit email allow-list and scope ceiling; the operator API
-key is never entered into ChatGPT. ChatGPT receives only a scoped short-lived
-token instead.
+The capture endpoint distils only durable rules a human explicitly taught or
+corrected. A routine session correctly returns `no_learnings` and writes
+nothing. The transcript is distilled and dropped rather than archived because
+transcripts often contain secrets and unfinished reasoning.
 
-For proposal review, keep the discovered `knowledge:approve` standard scope
-selected in addition to `knowledge:read`, `knowledge:propose` and
-`offline_access`. The server and ChatGPT both require a deliberate confirmation
-for `wikikit_review_proposal`. ChatGPT stores the tools and scopes it scanned
-when the app was created: after a server release adds a tool or scope, recreate
-or rescan/update the app and reconnect rather than expecting an old OAuth grant
-to gain privileges.
+Captured rules enter the normal ChangeProposal review gate. Re-teaching the
+same rule converges on the same content hash instead of piling up duplicates.
 
-### 3. Wire the hooks
+## Review
 
-Copy the two scripts from [`examples/agent-hooks/`](../examples/agent-hooks) and
-make them executable:
-
-```bash
-mkdir -p ~/.wikikit/hooks
-cp examples/agent-hooks/*.sh ~/.wikikit/hooks/
-chmod +x ~/.wikikit/hooks/*.sh
-```
-
-**Claude Code** — in `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|compact",
-        "hooks": [{ "type": "command", "command": "~/.wikikit/hooks/wikikit-briefing.sh", "timeout": 30 }]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [{ "type": "command", "command": "~/.wikikit/hooks/wikikit-capture.sh", "timeout": 60 }]
-      }
-    ]
-  }
-}
-```
-
-The `compact` matcher re-injects the briefing after context compaction, so a
-long session does not forget your conventions halfway through.
-
-**Codex** — enable hooks in `~/.codex/config.toml`:
-
-```toml
-[features]
-hooks = true
-```
-
-then in `~/.codex/hooks.json` (Codex has no `SessionEnd`; `Stop` fires per turn,
-and repeat captures are cheap — identical rules collapse onto the same content
-hash):
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|compact",
-        "hooks": [{ "type": "command", "command": "~/.wikikit/hooks/wikikit-briefing.sh", "timeout": 30 }]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [{ "type": "command", "command": "~/.wikikit/hooks/wikikit-capture.sh", "timeout": 60 }]
-      }
-    ]
-  }
-}
-```
-
-Hooks need a one-time trust confirmation via `/hooks` in the Codex TUI.
-
-### Verify
-
-```bash
-echo '{}' | ~/.wikikit/hooks/wikikit-briefing.sh
-```
-
-You should see your concept index. **Silence is also correct** — with an empty
-knowledge base there is nothing to brief, and the hook stays quiet by design.
-
-## What each half does
-
-### Loading (SessionStart)
-
-The briefing prints your concept **index** — slug, title, summary — plus the
-rule "look it up, don't guess". Not the pages themselves: the agent fetches
-those on demand with `wikikit_read`, which keeps your context window for your
-actual work.
-
-### Saving (SessionEnd / Stop)
-
-The transcript goes to `POST /v1/spaces/{space}/agent/sessions`, and the server
-distils **only durable rules a human explicitly taught or corrected**:
-
-```
-you:   "no — we never deploy by hand, always let CI do it.
-        manual deploys skip the migration gate."
-       ↓
-       ChangeProposal: concept `ci-cd-deployment-policy`
-       claims: uses GitHub Actions · manual deploys skip the migration gate · …
-       ↓
-you:   curl -X POST "$WK/v1/proposals/<id>/approve" ...
-```
-
-What it will _not_ do:
-
-- Distil what the assistant said on its own — only what you taught.
-- Distil task instructions ("add a test for X"), transient state, or file paths.
-- Capture a routine session at all. A session that taught nothing answers
-  `{"status":"no_learnings"}` and writes nothing.
-- Archive the transcript. It is distilled and dropped — transcripts carry pasted
-  secrets and half-formed thoughts, and WikiKit keeps sources forever.
-
-You can also save mid-session, without any hook: say _"remember that…"_ and the
-agent calls `wikikit_propose`. Same review gate.
-
-### Review
+An agent may stage with `knowledge:propose`, but publishing remains a distinct
+human decision. Review a complete diff before approval:
 
 ```bash
 curl -s "$WK/v1/spaces/default/proposals?status=pending" -H "Authorization: Bearer $KEY"
@@ -222,22 +111,15 @@ curl -s -X POST "$WK/v1/proposals/<id>/approve" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"note":"yes"}'
 ```
 
-Approved knowledge shows up in the very next session's briefing. Re-teaching the
-same rule does not pile up duplicates — identical rules produce the same content
-hash and answer `already_captured`.
+The MCP review tools enforce the same split: inspect first, then approve or
+reject only after an explicit human instruction.
 
 ## Troubleshooting
 
-| Symptom                                | Cause and fix                                                                                                                                                                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The briefing prints nothing            | By design in every failure case — a knowledge base being down must never break your session. Check in order: `WIKIKIT_API_KEY` set? `jq` installed? WikiKit reachable? Any approved concepts yet (proposals are invisible until approved)? |
-| Capture seems to do nothing            | Expected for a routine session. Run with `WIKIKIT_HOOK_DEBUG=1` and read `~/.wikikit/hook.log` — it records the actual answer.                                                                                                             |
-| `{"status":"no_learnings"}` every time | The distiller only takes rules **you** stated. Teach it explicitly ("never do X, always do Y") rather than implying it.                                                                                                                    |
-| `503 llm_not_configured` on capture    | Capture needs the LLM. Set the key for your `WIKIKIT_LLM_PROVIDER` (see [Configuration](CONFIGURATION.md)). Loading keeps working without it.                                                                                              |
-| The agent says knowledge is "saved"    | It is _proposed_, not live. Approve it — nothing enters the knowledge base without that.                                                                                                                                                   |
-
-## Related
-
-- [README](../README.md) — what WikiKit is, and the quickstart.
-- [Configuration](CONFIGURATION.md) — every environment variable.
-- [Architecture](ARCHITECTURE.md) — the knowledge lifecycle these hooks ride on.
+| Symptom                                   | Cause and fix                                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| No context appears                        | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task. |
+| The wrong space activates                 | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.    |
+| Capture does nothing                      | This is expected when the user taught no durable rule or no explicit capture space exists.                  |
+| The agent says knowledge is saved         | It is only proposed until a human approves the ChangeProposal.                                              |
+| A tools-only client cannot read resources | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                 |

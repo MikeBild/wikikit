@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0
+
+### Added
+
+- Dynamic, task-aware multi-space context selection through the
+  `/v1/agent/context` HTTP endpoint and the `wikikit_context` MCP tool, with
+  explicit manual space selection available for every project.
+- Compact session briefings through `/v1/agent/briefing` and
+  `wikikit_briefing`, plus discovery through `/v1/spaces` and
+  `wikikit_spaces`.
+- Per-space routing settings for stable descriptions, activation hints,
+  priorities, and always-on behavior without a fixed primary/secondary
+  taxonomy.
+- WikiKit now ships immutable, code-versioned system knowledge for agents as
+  `wikikit_guide`, `wikikit://system/agent-guide`, and `/agent-guide.md`.
+  It includes dynamic multi-space routing and capability-based no-CLI setup
+  for MCP clients without seeding tenant data.
+- `/.well-known/llms.txt` and `/.well-known/llms-full.txt` mirror the embedded
+  discovery documents for zero-configuration agent and connector discovery.
+
 ## 0.2.3
 
 ### Fixed
@@ -360,7 +380,7 @@ Initial release: a headless, AI-native knowledge system for humans and agents.
   retrieved evidence with inline citations, flags disputed claims, and says
   "not in the knowledge base" instead of hallucinating.
 - **MCP server** (Streamable HTTP at `/mcp`): scope-gated tool visibility with
-  `wikikit_search`, `wikikit_read`, `wikikit_sources`, `wikikit_decisions`,
+  `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`, `wikikit_decisions`,
   `wikikit_history`, `wikikit_lint`, `wikikit_ingest`, `wikikit_ingest_status`,
   `wikikit_propose` — deliberately no approve tool; session leases with idle
   TTL, hard cap and hijack guards.

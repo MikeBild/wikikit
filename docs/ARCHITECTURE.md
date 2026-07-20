@@ -184,10 +184,12 @@ tool. Scope-gating is tool _visibility_: agents stage with `knowledge:propose`,
 while `knowledge:approve` exposes the full review diff and the explicit,
 confirmed approve/reject decision.
 
-The server also describes itself: `initialize` carries `instructions`, and a
-`resources` capability serves `wikikit://docs/llms.txt` and
-`wikikit://docs/llms-full.txt` through the same `readDocsFile` the REST docs
-routes use — one embedded source, two transports. An MCP-only client has no
+The server also describes itself: `initialize` carries `instructions`; the
+read-only `wikikit_guide` tool serves tools-only clients; and a `resources`
+capability serves the immutable `wikikit://system/agent-guide` plus
+`wikikit://docs/llms.txt` and `wikikit://docs/llms-full.txt` through the same
+`readDocsFile` the HTTP docs routes use — one embedded source, three access
+paths. An MCP-only client has no
 way to issue `GET /llms.txt`, so without this the documentation written for
 agents would be reachable only by humans.
 

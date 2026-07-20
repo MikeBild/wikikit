@@ -13,8 +13,12 @@ import { SCHEMAS } from '../../src/http/schemas.ts'
 // The §5.2 binding table (method + path + scope). Editing this list is a
 // deliberate API change: update CONTRACTS.md first, then this pin.
 const CONTRACT_TABLE: [string, string, string | null][] = [
+  ['get', '/v1/spaces', 'knowledge:read'],
   ['post', '/v1/spaces', 'admin'],
+  ['get', '/v1/agent/briefing', 'knowledge:read'],
+  ['post', '/v1/agent/context', 'knowledge:read'],
   ['get', '/v1/spaces/{space}', 'knowledge:read'],
+  ['post', '/v1/spaces/{space}/settings', 'admin'],
   ['post', '/v1/spaces/{space}/ingest', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/ingest/document', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/agent/sessions', 'knowledge:propose'],
@@ -50,8 +54,11 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/ready', null],
   ['get', '/metrics', null],
   ['get', '/openapi.json', null],
+  ['get', '/agent-guide.md', null],
   ['get', '/llms.txt', null],
   ['get', '/llms-full.txt', null],
+  ['get', '/.well-known/llms.txt', null],
+  ['get', '/.well-known/llms-full.txt', null],
 ]
 
 describe('ROUTES registry', () => {

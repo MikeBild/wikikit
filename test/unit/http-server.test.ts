@@ -306,11 +306,17 @@ describe('http server', () => {
     expect(text).toContain('route="/v1/spaces/{space}"')
   })
 
-  test('llms.txt endpoints always answer 200 text/plain', async () => {
-    for (const path of ['/llms.txt', '/llms-full.txt']) {
+  test('agent-facing documentation endpoints always answer 200 text', async () => {
+    for (const path of [
+      '/agent-guide.md',
+      '/llms.txt',
+      '/llms-full.txt',
+      '/.well-known/llms.txt',
+      '/.well-known/llms-full.txt',
+    ]) {
       const res = await fetch(`${base}${path}`)
       expect(res.status, path).toBe(200)
-      expect(res.headers.get('content-type')).toContain('text/plain')
+      expect(res.headers.get('content-type')).toContain('text/')
       expect((await res.text()).length).toBeGreaterThan(0)
     }
   })

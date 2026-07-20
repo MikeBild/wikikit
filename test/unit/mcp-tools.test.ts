@@ -22,6 +22,10 @@ import {
 } from '../../src/mcp/tools.ts'
 
 const READ_TOOLS = [
+  'wikikit_guide',
+  'wikikit_spaces',
+  'wikikit_briefing',
+  'wikikit_context',
   'wikikit_search',
   'wikikit_read',
   'wikikit_sources',
@@ -76,7 +80,7 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
 }
 
 describe('tool palette shape (binding contract §7.1)', () => {
-  test('exactly the eleven contracted tools — review is explicitly scoped', () => {
+  test('exactly the fifteen contracted tools — review is explicitly scoped', () => {
     expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...READ_TOOLS, ...PROPOSE_TOOLS, ...REVIEW_TOOLS].sort())
     expect(TOOLS.some((tool) => tool.name === 'wikikit_review_proposal')).toBe(true)
   })
@@ -135,10 +139,10 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:approve; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(9)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(13)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
-    expect(visibleTools(['admin'])).toHaveLength(11) // admin implies knowledge scopes (§5.2)
-    expect(visibleTools(['*'])).toHaveLength(11)
+    expect(visibleTools(['admin'])).toHaveLength(15) // admin implies knowledge scopes (§5.2)
+    expect(visibleTools(['*'])).toHaveLength(15)
     expect(visibleTools([])).toHaveLength(0)
   })
 
@@ -205,6 +209,18 @@ describe('input schemas (shared zod objects)', () => {
 
 describe('execute — transport duties', () => {
   const byName = Object.fromEntries(TOOLS.map((tool) => [tool.name, tool]))
+
+  test('wikikit_guide returns the embedded, code-versioned system scope without a database lookup', async () => {
+    const result = (await byName.wikikit_guide!.execute(
+      deps({ config: { root: import.meta.dir, version: '1.2.3-test' } as Config }),
+      principal(),
+      {},
+    )) as { scope: string; resource_uri: string; version: string; markdown: string }
+    expect(result.scope).toBe('wikikit://system')
+    expect(result.resource_uri).toBe('wikikit://system/agent-guide')
+    expect(result.version).toBe('1.2.3-test')
+    expect(result.markdown).toContain('# WikiKit agent guide')
+  })
 
   test('unknown space → not_found', async () => {
     expect(byName.wikikit_search!.execute(deps(), principal(), { space: 'nope', q: 'x' })).rejects.toBeInstanceOf(

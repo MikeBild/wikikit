@@ -392,7 +392,16 @@ function stubDb(): Db {
       return rows as R[]
     },
 
-    async update<R>(): Promise<R[]> {
+    async update<R>(table: string, _filters: Record<string, unknown>, body: Record<string, unknown>): Promise<R[]> {
+      if (table === 'wk_spaces') {
+        return [
+          {
+            ...SPACE,
+            settings: JSON.parse(String(body.settings)),
+            updated_at: body.updated_at,
+          },
+        ] as R[]
+      }
       return []
     },
     async remove(): Promise<void> {},
@@ -467,8 +476,29 @@ interface RouteCase {
 }
 
 const CASES: RouteCase[] = [
+  { template: '/v1/spaces', method: 'get', url: '/v1/spaces', status: 200 },
   { template: '/v1/spaces', method: 'post', url: '/v1/spaces', status: 201, body: { slug: 'fresh', name: 'Fresh' } },
+  {
+    template: '/v1/agent/briefing',
+    method: 'get',
+    url: '/v1/agent/briefing?spaces=demo&budget_tokens=500',
+    status: 200,
+  },
+  {
+    template: '/v1/agent/context',
+    method: 'post',
+    url: '/v1/agent/context',
+    status: 200,
+    body: { prompt: 'unrelated task', max_spaces: 3, budget_tokens: 500 },
+  },
   { template: '/v1/spaces/{space}', method: 'get', url: '/v1/spaces/demo', status: 200 },
+  {
+    template: '/v1/spaces/{space}/settings',
+    method: 'post',
+    url: '/v1/spaces/demo/settings',
+    status: 200,
+    body: { settings: { agent_context: { keywords: ['demo'] } } },
+  },
   {
     template: '/v1/spaces/{space}/ingest',
     method: 'post',

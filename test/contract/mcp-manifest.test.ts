@@ -1,6 +1,6 @@
 // MCP manifest contract (plan §14.2): the FULL tools/list manifest — names,
 // descriptions, draft-7 input schemas, all four annotations — snapshotted PER
-// SCOPE. Federated clients (Claude Code, claude.ai, any MCP federation)
+// SCOPE. Federated and local MCP clients
 // build against exactly these shapes; a diff in the snapshot file is a
 // visible, deliberate API change that requires a snapshot commit.
 //
@@ -36,9 +36,13 @@ describe('MCP manifest contract', () => {
     })
   }
 
-  test('the full palette is exactly the eleven §7.1 tools, including gated review', () => {
+  test('the full palette is exactly the fifteen §7.1 tools, including built-in guidance and gated review', () => {
     const names = buildToolManifest(['*']).map((entry) => entry.name)
     expect(names).toEqual([
+      'wikikit_guide',
+      'wikikit_spaces',
+      'wikikit_briefing',
+      'wikikit_context',
       'wikikit_search',
       'wikikit_read',
       'wikikit_sources',

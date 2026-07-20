@@ -9,6 +9,174 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
+    "description": "Read WikiKit's built-in, code-versioned system knowledge: how the product works, how task-dynamic spaces are selected, and how to connect MCP clients by capability without a WikiKit CLI or client-specific plugin. Use this instead of guessing setup or workflow rules; it is not a mutable user space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_guide",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List the WikiKit spaces visible to this key. Use this for discovery; do not guess or hard-code a project space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_spaces",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Build a compact, budgeted session briefing for any ordered set of WikiKit spaces. The result contains only pinned orientation; search and read full knowledge on demand.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate output token budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "spaces": {
+          "description": "Ordered spaces; earlier entries receive briefing priority when the token budget is tight",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "spaces",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_briefing",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Select relevant knowledge spaces from the current task and return a compact briefing. Use this at the start of a task when no lifecycle hook supplied WikiKit context; pass manual_spaces for an explicit selection.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate briefing budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "exclude_spaces": {
+          "description": "Spaces already active in this session",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 100,
+          "type": "array",
+        },
+        "manual_spaces": {
+          "description": "Explicit spaces; bypasses automatic selection",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "max_spaces": {
+          "description": "Maximum spaces returned (default 3)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "primary_space": {
+          "description": "Optional project space that stays first",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "project_hint": {
+          "description": "Repository name or working-directory hint",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "prompt": {
+          "description": "Current user task or prompt used to select relevant spaces",
+          "maxLength": 12000,
+          "type": "string",
+        },
+      },
+      "required": [
+        "prompt",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_context",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
     "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
@@ -590,6 +758,174 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
 
 exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
 [
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read WikiKit's built-in, code-versioned system knowledge: how the product works, how task-dynamic spaces are selected, and how to connect MCP clients by capability without a WikiKit CLI or client-specific plugin. Use this instead of guessing setup or workflow rules; it is not a mutable user space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_guide",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List the WikiKit spaces visible to this key. Use this for discovery; do not guess or hard-code a project space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_spaces",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Build a compact, budgeted session briefing for any ordered set of WikiKit spaces. The result contains only pinned orientation; search and read full knowledge on demand.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate output token budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "spaces": {
+          "description": "Ordered spaces; earlier entries receive briefing priority when the token budget is tight",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "spaces",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_briefing",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Select relevant knowledge spaces from the current task and return a compact briefing. Use this at the start of a task when no lifecycle hook supplied WikiKit context; pass manual_spaces for an explicit selection.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate briefing budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "exclude_spaces": {
+          "description": "Spaces already active in this session",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 100,
+          "type": "array",
+        },
+        "manual_spaces": {
+          "description": "Explicit spaces; bypasses automatic selection",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "max_spaces": {
+          "description": "Maximum spaces returned (default 3)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "primary_space": {
+          "description": "Optional project space that stays first",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "project_hint": {
+          "description": "Repository name or working-directory hint",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "prompt": {
+          "description": "Current user task or prompt used to select relevant spaces",
+          "maxLength": 12000,
+          "type": "string",
+        },
+      },
+      "required": [
+        "prompt",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_context",
+  },
   {
     "annotations": {
       "destructiveHint": false,
@@ -1288,6 +1624,174 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
+    "description": "Read WikiKit's built-in, code-versioned system knowledge: how the product works, how task-dynamic spaces are selected, and how to connect MCP clients by capability without a WikiKit CLI or client-specific plugin. Use this instead of guessing setup or workflow rules; it is not a mutable user space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_guide",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List the WikiKit spaces visible to this key. Use this for discovery; do not guess or hard-code a project space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_spaces",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Build a compact, budgeted session briefing for any ordered set of WikiKit spaces. The result contains only pinned orientation; search and read full knowledge on demand.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate output token budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "spaces": {
+          "description": "Ordered spaces; earlier entries receive briefing priority when the token budget is tight",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "spaces",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_briefing",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Select relevant knowledge spaces from the current task and return a compact briefing. Use this at the start of a task when no lifecycle hook supplied WikiKit context; pass manual_spaces for an explicit selection.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate briefing budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "exclude_spaces": {
+          "description": "Spaces already active in this session",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 100,
+          "type": "array",
+        },
+        "manual_spaces": {
+          "description": "Explicit spaces; bypasses automatic selection",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "max_spaces": {
+          "description": "Maximum spaces returned (default 3)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "primary_space": {
+          "description": "Optional project space that stays first",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "project_hint": {
+          "description": "Repository name or working-directory hint",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "prompt": {
+          "description": "Current user task or prompt used to select relevant spaces",
+          "maxLength": 12000,
+          "type": "string",
+        },
+      },
+      "required": [
+        "prompt",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_context",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
     "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
@@ -1967,6 +2471,174 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
 
 exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
 [
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read WikiKit's built-in, code-versioned system knowledge: how the product works, how task-dynamic spaces are selected, and how to connect MCP clients by capability without a WikiKit CLI or client-specific plugin. Use this instead of guessing setup or workflow rules; it is not a mutable user space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_guide",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List the WikiKit spaces visible to this key. Use this for discovery; do not guess or hard-code a project space.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_spaces",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Build a compact, budgeted session briefing for any ordered set of WikiKit spaces. The result contains only pinned orientation; search and read full knowledge on demand.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate output token budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "spaces": {
+          "description": "Ordered spaces; earlier entries receive briefing priority when the token budget is tight",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
+        },
+      },
+      "required": [
+        "spaces",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_briefing",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Select relevant knowledge spaces from the current task and return a compact briefing. Use this at the start of a task when no lifecycle hook supplied WikiKit context; pass manual_spaces for an explicit selection.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "budget_tokens": {
+          "description": "Approximate briefing budget",
+          "maximum": 4000,
+          "minimum": 500,
+          "type": "integer",
+        },
+        "exclude_spaces": {
+          "description": "Spaces already active in this session",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 100,
+          "type": "array",
+        },
+        "manual_spaces": {
+          "description": "Explicit spaces; bypasses automatic selection",
+          "items": {
+            "description": "Space slug the key is working in",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string",
+          },
+          "maxItems": 20,
+          "type": "array",
+        },
+        "max_spaces": {
+          "description": "Maximum spaces returned (default 3)",
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "primary_space": {
+          "description": "Optional project space that stays first",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "project_hint": {
+          "description": "Repository name or working-directory hint",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "prompt": {
+          "description": "Current user task or prompt used to select relevant spaces",
+          "maxLength": 12000,
+          "type": "string",
+        },
+      },
+      "required": [
+        "prompt",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_context",
+  },
   {
     "annotations": {
       "destructiveHint": false,

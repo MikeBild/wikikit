@@ -83,6 +83,21 @@ export const zProposalListQuery = z.object({
 
 export const zExportQuery = z.object({ format: z.enum(['md', 'okf']).default('md') })
 
+export const zAgentBriefingQuery = z.object({
+  spaces: z.string().min(1).max(640),
+  budget_tokens: z.coerce.number().int().min(500).max(4000).optional(),
+})
+
+export const zAgentContextRequest = z.object({
+  prompt: z.string().max(12_000).default(''),
+  project_hint: z.string().max(500).optional(),
+  primary_space: z.string().regex(SPACE_SLUG).optional(),
+  manual_spaces: z.array(z.string().regex(SPACE_SLUG)).max(20).optional(),
+  exclude_spaces: z.array(z.string().regex(SPACE_SLUG)).max(100).optional(),
+  max_spaces: z.number().int().min(1).max(10).optional(),
+  budget_tokens: z.number().int().min(500).max(4000).optional(),
+})
+
 // ---------------------------------------------------------------------------
 // Spaces
 // ---------------------------------------------------------------------------
@@ -93,6 +108,11 @@ export const zCreateSpaceRequest = z.object({
   settings: z.record(z.string(), z.unknown()).optional(),
 })
 
+export const zUpdateSpaceSettingsRequest = z.object({
+  settings: z.record(z.string(), z.unknown()),
+  replace: z.boolean().default(false),
+})
+
 export const zSpaceResponse = z.object({
   id: z.uuid(),
   slug: z.string(),
@@ -101,6 +121,29 @@ export const zSpaceResponse = z.object({
   epoch: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
+})
+
+export const zSpaceListResponse = z.object({ items: z.array(zSpaceResponse) })
+
+export const zAgentBriefingResponse = z.object({
+  markdown: z.string(),
+  spaces: z.array(z.string()),
+  budget_tokens: z.number().int(),
+  used_tokens: z.number().int(),
+  concepts_included: z.array(z.string()),
+  concepts_omitted: z.number().int(),
+})
+
+export const zAgentContextResponse = zAgentBriefingResponse.extend({
+  selection_mode: z.enum(['manual', 'automatic']),
+  matches: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      score: z.number(),
+      reasons: z.array(z.string()),
+    }),
+  ),
 })
 
 // ---------------------------------------------------------------------------
@@ -574,8 +617,14 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zSearchQuery,
   zProposalListQuery,
   zExportQuery,
+  zAgentBriefingQuery,
+  zAgentContextRequest,
   zCreateSpaceRequest,
+  zUpdateSpaceSettingsRequest,
   zSpaceResponse,
+  zSpaceListResponse,
+  zAgentBriefingResponse,
+  zAgentContextResponse,
   zIngestRequest,
   zIngestDocumentQuery,
   zIngestAcceptedResponse,

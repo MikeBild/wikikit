@@ -134,9 +134,9 @@ identifiers. `GET /v1/spaces/{space}/lint` remains the data-quality surface.
 
 ## Connect an agent (MCP)
 
-> Using Claude Code or Codex? **[docs/coding-agent-integration.md](docs/coding-agent-integration.md)**
-> is the 2-minute setup for the full loop: every session starts knowing your
-> conventions, and what you teach it comes back as a proposal.
+The built-in **[agent guide](docs/agent-guide.md)** explains setup by MCP
+capability instead of by client brand. For the optional session lifecycle, see
+**[coding-agent integration](docs/coding-agent-integration.md)**.
 
 First mint a key for the agent. Don't hand it your bootstrap key — scopes are
 how you keep approval a human act:
@@ -144,7 +144,7 @@ how you keep approval a human act:
 ```bash
 curl -s -X POST "$WK/v1/api-keys" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  -d '{"name":"claude","scopes":["knowledge:read","knowledge:propose"],"space":"default"}'
+  -d '{"name":"agent","scopes":["knowledge:read","knowledge:propose"],"space":"default"}'
 # → {"id":"...","key":"wk_...","scopes":[...],"space":"default"}   ← shown once
 
 # Inventory never exposes plaintext keys or hashes; revocation is idempotent.
@@ -152,14 +152,8 @@ curl -s "$WK/v1/api-keys" -H "Authorization: Bearer $KEY"
 curl -s -X DELETE "$WK/v1/api-keys/$KEY_ID" -H "Authorization: Bearer $KEY"
 ```
 
-Then register WikiKit as a Streamable-HTTP MCP server. In Claude Code:
-
-```bash
-claude mcp add --transport http wikikit http://127.0.0.1:4060/mcp \
-  --header "Authorization: Bearer wk_..."
-```
-
-Or in an `mcpServers` config (Claude Desktop, and most other MCP clients):
+Then register WikiKit as a Streamable-HTTP MCP server. For a JSON-based MCP
+configuration:
 
 ```json
 {
@@ -173,45 +167,42 @@ Or in an `mcpServers` config (Claude Desktop, and most other MCP clients):
 }
 ```
 
-### ChatGPT.com
+### Remote interactive clients
 
-ChatGPT.com connects to a public MCP server through OAuth 2.1; it must not be
-given a long-lived `wk_` key. WikiKit implements protected-resource discovery,
-dynamic client registration, PKCE (`S256`), consent, rotating refresh tokens
-and revocation at the same `/mcp` endpoint.
-
-In ChatGPT, enable Developer mode, create an app/plugin, and enter:
+Remote interactive clients should use OAuth 2.1 instead of receiving a
+long-lived `wk_` key. WikiKit implements protected-resource discovery, dynamic
+client registration, PKCE (`S256`), consent, rotating refresh tokens and
+revocation at the same `/mcp` endpoint. Enter:
 
 ```text
 https://wikikit.mikebild.dev/mcp
 ```
 
-Choose OAuth. In production WikiKit has its own branded sign-in page and can
-use Firebase or one or more standard OIDC providers (for example Google,
-Microsoft Entra ID, Okta or Keycloak). WikiKit verifies the provider identity
-and admits only the explicit provider/email allow-list. No WikiKit operator key
-is entered in ChatGPT or sent to the browser. ChatGPT receives only a scoped,
-short-lived OAuth token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base
-URL in production because it is the OAuth issuer and audience.
+Choose OAuth. WikiKit verifies the configured identity provider and admits only
+the explicit provider/email allow-list. No operator key is entered in the
+client or sent to the browser. The client receives only a scoped, short-lived
+token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base URL in production
+because it is the OAuth issuer and audience.
 
 For a review-capable connector, select the discovered standard scopes
 `knowledge:read`, `knowledge:propose`, `knowledge:approve` and
 `offline_access`; production must also allow `knowledge:approve` through
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that OIDC provider's `allowed_scopes`).
 `wikikit_review_proposal` is deliberately marked as an irreversible write, so
-ChatGPT asks for confirmation before it is called. ChatGPT stores the scanned
-tool and scope contract per connector: after adding a tool or scope, create a
-new connector or use its rescan/update control, then reconnect. Existing OAuth
+the host can ask for confirmation before it is called. MCP hosts may cache the
+scanned tool and scope contract: after adding a tool or scope, rescan or
+reconnect instead of expecting an old grant to gain privileges. Existing OAuth
 tokens retain their original, narrower scopes.
 
-The agent gets `wikikit_search`, `wikikit_read`, `wikikit_sources`,
+The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
 `wikikit_review_proposal`. The two review tools are visible only with
 `knowledge:approve`; the final approve/reject call is an explicitly marked,
 confirmed MCP write. Tools are scope-gated, so a read-only key simply does not
 see write or review tools. The server also hands the agent its own documentation — usage
-instructions on connect, and `llms.txt` / `llms-full.txt` as MCP resources — so
+instructions on connect, a code-bundled system guide (also available as a tool
+for tools-only clients), and `llms.txt` / `llms-full.txt` as MCP resources — so
 it does not have to guess the model. Ask your agent to "take this article into
 the wiki and check whether it changes our assessment" — it ingests, polls, and
 reports the proposal with any detected contradictions; review and approve it
@@ -291,19 +282,20 @@ one agent-readable file (served live at `/llms.txt` and `/llms-full.txt`).
 
 ## Documentation
 
-| If you want to…                              | Read                                                                                                   |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Try it out                                   | The Quickstart above, then [`examples/`](examples/README.md)                                           |
-| Use it from Claude Code / Codex              | [docs/coding-agent-integration.md](docs/coding-agent-integration.md)                                   |
-| Look up an environment variable              | [docs/CONFIGURATION.md](docs/CONFIGURATION.md)                                                         |
-| Run it in production                         | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) + [SECURITY.md](SECURITY.md)                                  |
-| Drive the API from your own client           | [docs/openapi.json](docs/openapi.json) (live at `/openapi.json`)                                       |
-| Point an agent or crawler at the docs        | [docs/llms.txt](docs/llms.txt), [docs/llms-full.txt](docs/llms-full.txt) (live at `/llms.txt`)         |
-| Understand how it works inside               | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                                           |
-| Know exactly what a subsystem must guarantee | [docs/CONTRACTS.md](docs/CONTRACTS.md)                                                                 |
-| Move knowledge in or out portably            | [docs/okf-v0.1.md](docs/okf-v0.1.md), [concept frontmatter](examples/concept-frontmatter-reference.md) |
-| Contribute                                   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                     |
-| See what changed                             | [CHANGELOG.md](CHANGELOG.md)                                                                           |
+| If you want to…                                | Read                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Try it out                                     | The Quickstart above, then [`examples/`](examples/README.md)                                           |
+| Connect any AI agent without a WikiKit CLI     | [docs/agent-guide.md](docs/agent-guide.md) (live at `/agent-guide.md`)                                 |
+| Add an optional dynamic coding-agent lifecycle | [docs/coding-agent-integration.md](docs/coding-agent-integration.md)                                   |
+| Look up an environment variable                | [docs/CONFIGURATION.md](docs/CONFIGURATION.md)                                                         |
+| Run it in production                           | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) + [SECURITY.md](SECURITY.md)                                  |
+| Drive the API from your own client             | [docs/openapi.json](docs/openapi.json) (live at `/openapi.json`)                                       |
+| Point an agent or crawler at the docs          | [docs/llms.txt](docs/llms.txt), [docs/llms-full.txt](docs/llms-full.txt) (live at `/llms.txt`)         |
+| Understand how it works inside                 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                                           |
+| Know exactly what a subsystem must guarantee   | [docs/CONTRACTS.md](docs/CONTRACTS.md)                                                                 |
+| Move knowledge in or out portably              | [docs/okf-v0.1.md](docs/okf-v0.1.md), [concept frontmatter](examples/concept-frontmatter-reference.md) |
+| Contribute                                     | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                     |
+| See what changed                               | [CHANGELOG.md](CHANGELOG.md)                                                                           |
 
 Production is one self-contained binary behind a reverse proxy; it migrates its
 own database under an advisory lock at boot.

@@ -163,6 +163,10 @@ describe('createMcpMount', () => {
     )
     const readTools = ((await readList.json()) as { result: { tools: { name: string }[] } }).result.tools
     expect(readTools.map((tool) => tool.name)).toEqual([
+      'wikikit_guide',
+      'wikikit_spaces',
+      'wikikit_briefing',
+      'wikikit_context',
       'wikikit_search',
       'wikikit_read',
       'wikikit_sources',
@@ -215,6 +219,7 @@ describe('createMcpMount', () => {
     const list = await mount.handler(rpc({ jsonrpc: '2.0', id: 2, method: 'resources/list' }, headers))
     const resources = ((await list.json()) as { result: { resources: { uri: string }[] } }).result.resources
     expect(resources.map((resource) => resource.uri)).toEqual([
+      'wikikit://system/agent-guide',
       'wikikit://docs/llms.txt',
       'wikikit://docs/llms-full.txt',
     ])
@@ -224,6 +229,15 @@ describe('createMcpMount', () => {
     )
     const contents = ((await read.json()) as { result: { contents: { text: string }[] } }).result.contents
     expect(contents[0]!.text).toContain('# WikiKit Documentation')
+
+    const guide = await mount.handler(
+      rpc(
+        { jsonrpc: '2.0', id: 4, method: 'resources/read', params: { uri: 'wikikit://system/agent-guide' } },
+        headers,
+      ),
+    )
+    const guideContents = ((await guide.json()) as { result: { contents: { text: string }[] } }).result.contents
+    expect(guideContents[0]!.text).toContain('# WikiKit agent guide')
     mount.stop()
   })
 
@@ -393,7 +407,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
       })
       expect(list.status).toBe(200)
       const tools = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools
-      expect(tools).toHaveLength(6) // knowledge:read palette
+      expect(tools).toHaveLength(10) // knowledge:read palette, including built-in system guidance
     } finally {
       mount.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))
