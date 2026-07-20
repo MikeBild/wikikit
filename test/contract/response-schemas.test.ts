@@ -144,6 +144,18 @@ function stubDb(): Db {
           ]
         }
         if (text.includes('FROM wk_relations rel') && text.includes('rel.proposal_id = $1')) return []
+        if (text.includes('FROM wk_decisions') && text.includes('proposal_id = $1')) {
+          return [
+            {
+              slug: 'no-direct-mqtt',
+              title: 'No direct MQTT integration',
+              context: 'Evaluated broker coupling',
+              decision: 'Communicate over standard webhooks only',
+              rationale: 'Loose coupling wins',
+              alternatives: [{ option: 'direct MQTT', reason_rejected: 'tight coupling' }],
+            },
+          ]
+        }
 
         // getConcept relations (active only) --------------------------------
         if (text.includes('FROM wk_relations rel') && text.includes("rel.status = 'active'")) {

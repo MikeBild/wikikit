@@ -36,6 +36,12 @@ let spaceId: string
 const KEYS: Record<string, Principal> = {
   wk_reader_a: { keyId: 'key-a', scopes: ['knowledge:read', 'knowledge:propose'], spaceId: null, name: 'agent-a' },
   wk_reader_b: { keyId: 'key-b', scopes: ['knowledge:read', 'knowledge:propose'], spaceId: null, name: 'agent-b' },
+  wk_reviewer: {
+    keyId: 'key-reviewer',
+    scopes: ['knowledge:read', 'knowledge:approve'],
+    spaceId: null,
+    name: 'reviewer',
+  },
 }
 
 function rpc(body: Record<string, unknown>, token: string, sessionId?: string): Request {
@@ -211,6 +217,7 @@ describe('MCP server (integration)', () => {
       space: 'brain',
       markdown: '# Meeting notes\n\nWe decided to keep MCP approval on REST.',
       title: 'Meeting notes',
+      source_kind: 'meeting',
     })
     expect(ack.isError).toBeFalsy()
     expect(ack.payload.status).toBe('running')
@@ -226,6 +233,27 @@ describe('MCP server (integration)', () => {
     const done = await callTool('wk_reader_a', sessionId, 'wikikit_ingest_status', { ingest_id: ingestId })
     expect(done.payload.status).toBe('done')
     expect(done.payload.proposal_id).toBeTruthy()
+
+    // The review-capable MCP surface must expose every staged decision before
+    // a human can call wikikit_review_proposal. Its public payload is the same
+    // wire projection REST serves and therefore omits the internal space_id.
+    const reviewerSession = await initialize('wk_reviewer')
+    const review = await callTool('wk_reviewer', reviewerSession, 'wikikit_proposals', {
+      space: 'brain',
+      proposal_id: done.payload.proposal_id,
+    })
+    expect(review.isError).toBeFalsy()
+    expect(review.payload.space_id).toBeUndefined()
+    expect(review.payload.decisions).toEqual([
+      {
+        slug: 'meeting-notes-decision',
+        title: 'Decision on Meeting notes',
+        context: '# Meeting notes',
+        decision: '# Meeting notes',
+        rationale: '',
+        alternatives: [],
+      },
+    ])
 
     // Idempotency: re-ingesting identical content is a terminal conflict.
     const duplicate = await callTool('wk_reader_a', sessionId, 'wikikit_ingest', {

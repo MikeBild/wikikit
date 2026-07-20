@@ -176,6 +176,14 @@ describe('http surface (integration)', () => {
       status: string
       space_id?: unknown
       concepts: { slug: string; is_new: boolean; old_markdown: string | null; claims_added: unknown[] }[]
+      decisions: {
+        slug: string
+        title: string
+        context: string
+        decision: string
+        rationale: string
+        alternatives: unknown[]
+      }[]
       source_ids: string[]
     }
     expect(detail.space).toBe('demo')
@@ -185,6 +193,7 @@ describe('http surface (integration)', () => {
     expect(detail.concepts).toHaveLength(1)
     expect(detail.concepts[0]!.is_new).toBe(true)
     expect(detail.concepts[0]!.claims_added.length).toBeGreaterThan(0)
+    expect(detail.decisions).toEqual([])
 
     const md = await fetch(`${base}/v1/proposals/${proposalId}`, {
       headers: { ...bearer(readerKey), accept: 'text/markdown' },
@@ -312,12 +321,52 @@ describe('http surface (integration)', () => {
     }
     expect(done.status).toBe('done')
 
+    const proposalJson = await fetch(`${base}/v1/proposals/${done.proposal_id}`, { headers: bearer(readerKey) })
+    expect(proposalJson.status).toBe(200)
+    const proposal = (await proposalJson.json()) as {
+      space_id?: unknown
+      decisions: {
+        slug: string
+        title: string
+        context: string
+        decision: string
+        rationale: string
+        alternatives: unknown[]
+      }[]
+    }
+    expect(proposal.space_id).toBeUndefined()
+    expect(proposal.decisions).toEqual([
+      {
+        slug: 'architecture-sync-decision',
+        title: 'Decision on Architecture sync',
+        context: '# Sync',
+        decision: '# Sync',
+        rationale: '',
+        alternatives: [],
+      },
+    ])
+
+    const proposalMarkdown = await fetch(`${base}/v1/proposals/${done.proposal_id}`, {
+      headers: { ...bearer(readerKey), accept: 'text/markdown' },
+    })
+    expect(proposalMarkdown.status).toBe(200)
+    const markdown = await proposalMarkdown.text()
+    expect(markdown).toContain('## Decision `architecture-sync-decision` — Decision on Architecture sync')
+    expect(markdown).toContain('### Context\n\n# Sync')
+    expect(markdown).toContain('### Decision\n\n# Sync')
+    expect(markdown).toContain('### Rationale\n\n_None provided._')
+    expect(markdown).toContain('### Alternatives\n\n```json\n[]\n```')
+
     // Before approval the decision is staged (proposed) → not readable.
     const beforeList = await fetch(`${base}/v1/spaces/demo/decisions`, { headers: bearer(readerKey) })
     const before = (await beforeList.json()) as { items: { slug: string }[] }
     expect(before.items.length).toBe(0)
 
-    await fetch(`${base}/v1/proposals/${done.proposal_id}/approve`, { method: 'POST', headers: json(approverKey) })
+    const approved = await fetch(`${base}/v1/proposals/${done.proposal_id}/approve`, {
+      method: 'POST',
+      headers: json(approverKey),
+    })
+    expect(approved.status).toBe(200)
 
     // After approval the decision log lists it and the detail carries the full record.
     const list = await fetch(`${base}/v1/spaces/demo/decisions`, { headers: bearer(readerKey) })

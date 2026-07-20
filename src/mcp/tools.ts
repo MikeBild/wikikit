@@ -31,6 +31,7 @@ import {
   getProposal,
   listProposals,
   rejectProposal,
+  toProposalWire,
   zCreateProposalArgs,
 } from '../domain/proposals.ts'
 import { isoString } from '../domain/sources.ts'
@@ -533,7 +534,7 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_proposals',
     description:
       'Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, ' +
-      'including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.',
+      'including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:approve.',
     scope: 'knowledge:approve',
     inputSchema: zProposalsToolInput,
     annotations: READ_ANNOTATIONS,
@@ -545,7 +546,7 @@ export const TOOLS: McpToolDef[] = [
       }
       const proposal = await getProposal(deps.db, { id: args.proposal_id })
       if (proposal.space_id !== space.id) throw new ForbiddenError('proposal belongs to a different space')
-      return proposal
+      return toProposalWire(proposal)
     },
   },
   {

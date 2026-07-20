@@ -30,7 +30,7 @@ import {
   listProposals,
   rejectProposal,
   renderProposalMarkdown,
-  type ProposalDetail,
+  toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { getSource, isoString, listSources } from '../domain/sources.ts'
@@ -688,12 +688,6 @@ function requireSpaceAccess(deps: HttpDeps, input: HandlerInput, scope: Scope, s
 /** The §1.14 stamp for human/agent-authored proposals. */
 const MANUAL_AGENT_META = { model: 'manual', prompt_version: 'manual' }
 
-function proposalWire(detail: ProposalDetail): Record<string, unknown> {
-  // space_id is the transport's scoping handle (§4 ⚠) — never on the wire.
-  const { space_id: _spaceId, ...wire } = detail
-  return wire
-}
-
 // ---------------------------------------------------------------------------
 // Handlers (name → implementation; drift-tested against ROUTES)
 // ---------------------------------------------------------------------------
@@ -931,7 +925,7 @@ export const HANDLERS: Record<string, Handler> = {
         headers: { 'content-type': 'text/markdown; charset=utf-8' },
       }
     }
-    return { status: 200, body: proposalWire(detail) }
+    return { status: 200, body: toProposalWire(detail) }
   },
 
   async approveProposalHandler(deps, input) {

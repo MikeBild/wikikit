@@ -307,6 +307,19 @@ describe('getProposal — structured diff', () => {
       },
       { match: /AS collides/, rows: claimRows },
       { match: /AS to_slug/, rows: [{ from_concept_id: 'con-1', to_slug: 'graph-store', kind: 'related' }] },
+      {
+        match: /FROM wk_decisions/,
+        rows: [
+          {
+            slug: 'standard-webhooks',
+            title: 'Use standard webhooks',
+            context: 'Choose an integration boundary.',
+            decision: 'Integrate through standard webhooks.',
+            rationale: 'Keep consumers loosely coupled.',
+            alternatives: [{ option: 'direct database access', reason_rejected: 'tight coupling' }],
+          },
+        ],
+      },
     ]
   }
 
@@ -331,6 +344,16 @@ describe('getProposal — structured diff', () => {
     expect(concept.claims_disputed).toEqual([{ subject: 'okf', predicate: 'has_status', object: 'draft' }])
     expect(concept.claims_deprecated).toEqual([])
     expect(concept.relations_added).toEqual([{ to_slug: 'graph-store', kind: 'related' }])
+    expect(detail.decisions).toEqual([
+      {
+        slug: 'standard-webhooks',
+        title: 'Use standard webhooks',
+        context: 'Choose an integration boundary.',
+        decision: 'Integrate through standard webhooks.',
+        rationale: 'Keep consumers loosely coupled.',
+        alternatives: [{ option: 'direct database access', reason_rejected: 'tight coupling' }],
+      },
+    ])
   })
 
   test('approved: disputed group is the PERSISTED status, not the collision flag', async () => {
@@ -371,6 +394,24 @@ describe('renderProposalMarkdown', () => {
         relations_added: [{ to_slug: 'graph-store', kind: 'related' }],
       },
     ],
+    decisions: [
+      {
+        slug: 'standard-webhooks',
+        title: 'Use standard webhooks',
+        context: 'Choose an integration boundary.',
+        decision: 'Integrate through standard webhooks.',
+        rationale: 'Keep consumers loosely coupled.',
+        alternatives: [{ option: 'direct database access', reason_rejected: 'tight coupling' }],
+      },
+      {
+        slug: 'no-rationale',
+        title: 'No recorded rationale',
+        context: 'A decision was recorded without supporting rationale.',
+        decision: 'Keep the recorded choice.',
+        rationale: '',
+        alternatives: [],
+      },
+    ],
   }
 
   test('carries the whole review decision as readable markdown', () => {
@@ -387,6 +428,14 @@ describe('renderProposalMarkdown', () => {
     expect(markdown).toContain('### Claims disputed (1) ⚠')
     expect(markdown).toContain('- okf **has_status** draft-v0.1')
     expect(markdown).toContain('- related → [[graph-store]]')
+    expect(markdown).toContain('## Decision `standard-webhooks` — Use standard webhooks')
+    expect(markdown).toContain('### Context\n\nChoose an integration boundary.')
+    expect(markdown).toContain('### Decision\n\nIntegrate through standard webhooks.')
+    expect(markdown).toContain('### Rationale\n\nKeep consumers loosely coupled.')
+    expect(markdown).toContain('"reason_rejected": "tight coupling"')
+    expect(markdown).toContain('## Decision `no-rationale` — No recorded rationale')
+    expect(markdown).toContain('_None provided._')
+    expect(markdown).toContain('```json\n[]\n```')
     // Deterministic: same input, same output (it is served with an ETag-able body).
     expect(renderProposalMarkdown(detail)).toBe(markdown)
   })

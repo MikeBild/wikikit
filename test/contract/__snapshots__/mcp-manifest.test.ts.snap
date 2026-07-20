@@ -1516,7 +1516,7 @@ exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:approve.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2370,7 +2370,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:approve.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3224,7 +3224,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, sources and prior review metadata. Requires knowledge:approve.",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:approve.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

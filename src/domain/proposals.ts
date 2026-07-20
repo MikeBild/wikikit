@@ -46,6 +46,16 @@ export interface ConceptDiff {
   relations_added: { to_slug: string; kind: string }[]
 }
 
+/** One staged decision as exposed in the human review diff. */
+export interface DecisionDiff {
+  slug: string
+  title: string
+  context: string
+  decision: string
+  rationale: string
+  alternatives: unknown[]
+}
+
 export interface ProposalDetail {
   id: string
   /** Space slug — what the wire shape carries. */
@@ -62,7 +72,11 @@ export interface ProposalDetail {
   source_ids: string[]
   agent_meta: Record<string, unknown>
   concepts: ConceptDiff[]
+  decisions: DecisionDiff[]
 }
+
+/** Public REST/MCP shape; space_id is only an authorization handle. */
+export type ProposalWireDetail = Omit<ProposalDetail, 'space_id'>
 
 export interface ApplyResult {
   proposal_id: string
@@ -562,6 +576,19 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     [args.id],
   )
 
+  // Decisions are real staged rows just like revisions, claims and relations.
+  // Load them for every proposal status: approval activates them, rejection
+  // deliberately keeps them proposed for the audit trail, and both states
+  // must remain reviewable after the fact. Slug ordering keeps JSON/Markdown
+  // stable across calls and transports.
+  const decisions = await db.query<DecisionDiff>(
+    `SELECT slug, title, context, decision, rationale, alternatives
+       FROM wk_decisions
+      WHERE proposal_id = $1
+      ORDER BY slug ASC`,
+    [args.id],
+  )
+
   const pending = proposal.status === 'pending'
   const concepts: ConceptDiff[] = revisions.rows.map((revision) => {
     const own = claims.rows.filter((claim) => claim.concept_id === revision.concept_id)
@@ -598,7 +625,21 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     source_ids: proposal.source_ids ?? [],
     agent_meta: proposal.agent_meta ?? {},
     concepts,
+    decisions: decisions.rows.map((decision) => ({
+      slug: decision.slug,
+      title: decision.title,
+      context: decision.context,
+      decision: decision.decision,
+      rationale: decision.rationale,
+      alternatives: Array.isArray(decision.alternatives) ? decision.alternatives : [],
+    })),
   }
+}
+
+/** Canonical public projection shared by REST and MCP. */
+export function toProposalWire(detail: ProposalDetail): ProposalWireDetail {
+  const { space_id: _spaceId, ...wire } = detail
+  return wire
 }
 
 /**
@@ -670,6 +711,29 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
       lines.push('')
       for (const relation of concept.relations_added) lines.push(`- ${relation.kind} → [[${relation.to_slug}]]`)
     }
+  }
+
+  for (const decision of detail.decisions) {
+    lines.push('')
+    lines.push(`## Decision \`${decision.slug}\` — ${decision.title}`)
+    lines.push('')
+    lines.push('### Context')
+    lines.push('')
+    lines.push(decision.context)
+    lines.push('')
+    lines.push('### Decision')
+    lines.push('')
+    lines.push(decision.decision)
+    lines.push('')
+    lines.push('### Rationale')
+    lines.push('')
+    lines.push(decision.rationale || '_None provided._')
+    lines.push('')
+    lines.push('### Alternatives')
+    lines.push('')
+    lines.push('```json')
+    lines.push(JSON.stringify(decision.alternatives, null, 2))
+    lines.push('```')
   }
   lines.push('')
   return lines.join('\n')

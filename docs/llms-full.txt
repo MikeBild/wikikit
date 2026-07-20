@@ -57,7 +57,8 @@ Key invariants:
   can be disputed and deprecated like any other statement.
 - **Approval remains a human decision, now available over MCP.** Agents stage
   with ingest/propose; a principal with `knowledge:approve` reads the complete
-  diff through `wikikit_proposals` and makes an explicit confirmed
+  diff — including every staged decision with its context, rationale and
+  alternatives — through `wikikit_proposals` and makes an explicit confirmed
   approve/reject call through `wikikit_review_proposal`.
 
 ---

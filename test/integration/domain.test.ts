@@ -365,6 +365,13 @@ describe('domain modules (integration)', () => {
       concepts: [],
       decisions: [decision],
     })
+    // The reviewer must see every row approval/rejection would act on before
+    // making that irreversible choice.
+    const pendingRejectedDetail = await getProposal(db, { id: rejected.proposal_id })
+    expect(pendingRejectedDetail.decisions).toEqual([decision])
+    expect(renderProposalMarkdown(pendingRejectedDetail)).toContain(
+      '## Decision `no-direct-mqtt` — No direct MQTT integration',
+    )
     await rejectProposal(db, { id: rejected.proposal_id, reviewer: 'mike', note: 'needs discussion' })
     expect(await listDecisions(db, space.id)).toEqual([])
     await expect(getDecision(db, space.id, { slug: 'no-direct-mqtt' })).rejects.toBeInstanceOf(NotFoundError)
@@ -372,6 +379,7 @@ describe('domain modules (integration)', () => {
     // The rejected proposal keeps its audit trail.
     const rejectedDetail = await getProposal(db, { id: rejected.proposal_id })
     expect(rejectedDetail).toMatchObject({ status: 'rejected', reviewer: 'mike', review_note: 'needs discussion' })
+    expect(rejectedDetail.decisions).toEqual([decision])
 
     // Second attempt under a different slug (unique(space_id, slug) keeps the
     // rejected row as audit), approved this time.
@@ -383,6 +391,8 @@ describe('domain modules (integration)', () => {
       concepts: [],
       decisions: [{ ...decision, slug: 'no-direct-mqtt-v2' }],
     })
+    const pendingApprovedDetail = await getProposal(db, { id: approved.proposal_id })
+    expect(pendingApprovedDetail.decisions).toEqual([{ ...decision, slug: 'no-direct-mqtt-v2' }])
     await approveProposal(db, { id: approved.proposal_id, reviewer: 'mike' })
     const visible = await getDecision(db, space.id, { slug: 'no-direct-mqtt-v2' })
     expect(visible).toMatchObject({ status: 'active', decision: 'Communicate over standard webhooks only' })

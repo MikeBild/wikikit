@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.2
+
+### Fixed
+
+- Proposal review details now expose every staged decision — including its
+  context, decision, rationale and alternatives — consistently through HTTP
+  JSON, human-readable Markdown and MCP, so reviewers see all rows an approval
+  would activate.
+
 ## 0.3.1
 
 ### Fixed

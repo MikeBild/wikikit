@@ -997,6 +997,16 @@ export const zProposalDetailResponse = z.object({
       relations_added: z.array(z.object({ to_slug: z.string(), kind: z.string() })),
     }),
   ),
+  decisions: z.array(
+    z.object({
+      slug: z.string(),
+      title: z.string(),
+      context: z.string(),
+      decision: z.string(),
+      rationale: z.string(),
+      alternatives: z.array(z.unknown()),
+    }),
+  ),
 })
 ```
 
@@ -1198,7 +1208,7 @@ audience they are written for.
 | `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                                    | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks) | `false`  | `true`      | `true`     | `true`    |
 | `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                                            | `zIngestStatusResponse` shape (§5.3)                                                              | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                         | `{ proposal_id, status: 'pending' }`                                                              | `false`  | `true`      | `true`     | `false`   |
-| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                           | summaries, or one complete `ProposalDetail` diff                                                  | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                           | summaries, or one complete public proposal diff including staged decisions                        | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_review_proposal` | knowledge:approve | `{ proposal_id: uuid, decision: 'approve'\|'reject', note?: string }`                                     | approved apply result or `{ proposal_id, status: 'rejected' }`                                    | `false`  | `true`      | `false`    | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`

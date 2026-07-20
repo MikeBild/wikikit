@@ -378,6 +378,16 @@ export const zProposalDetailResponse = z.object({
       relations_added: z.array(z.object({ to_slug: z.string(), kind: z.string() })),
     }),
   ),
+  decisions: z.array(
+    z.object({
+      slug: z.string(),
+      title: z.string(),
+      context: z.string(),
+      decision: z.string(),
+      rationale: z.string(),
+      alternatives: z.array(z.unknown()),
+    }),
+  ),
 })
 
 export const zReviewRequest = z.object({ note: z.string().max(2000).optional() }).default({})
