@@ -26,6 +26,12 @@ const spaces = [
     name: 'OCPP',
     settings: { description: 'OCPP charging protocol reference' },
   },
+  {
+    id: '4',
+    slug: 'music',
+    name: 'Music coaching',
+    settings: { description: 'Music theory, coaching, operations and knowledge' },
+  },
 ]
 
 describe('agent context selection', () => {
@@ -34,7 +40,15 @@ describe('agent context selection', () => {
       prompt: 'Schreibe einen deutschen Blogartikel in Mike Bilds Autorenstimme',
     })
     expect(result.spaces[0]).toBe('blog-de')
+    expect(result.spaces).not.toContain('music')
     expect(result.matches[0]!.reasons).toContain('blogartikel')
+  })
+
+  test('does not select a space from one generic description word', async () => {
+    const result = await buildAgentContext(db, spaces, {
+      prompt: 'Entwirf eine Semantic Publishing API',
+    })
+    expect(result.spaces).toEqual(['contentkit'])
   })
 
   test('does not treat an occasional workflow detail as a permanent activator', async () => {

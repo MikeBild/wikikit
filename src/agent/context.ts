@@ -111,22 +111,24 @@ function profile(space: BriefingSpace): { identity: Set<string>; description: Se
 
 function rank(space: BriefingSpace, prompt: string, projectHint = ''): SpaceMatch {
   const candidate = profile(space)
-  const promptWords = words(prompt)
-  const projectWords = words(projectHint)
+  const promptWords = new Set(words(prompt))
+  const projectWords = new Set(words(projectHint))
   let score = 0
   const reasons = new Set<string>()
   for (const word of promptWords) {
+    let bestMatch = 0
     for (const variant of variants(word)) {
       if (candidate.keywords.has(variant)) {
-        score += variant === word ? 12 : 6
-        reasons.add(word)
+        bestMatch = Math.max(bestMatch, variant === word ? 12 : 6)
       } else if (candidate.identity.has(variant)) {
-        score += variant === word ? 9 : 5
-        reasons.add(word)
+        bestMatch = Math.max(bestMatch, variant === word ? 9 : 5)
       } else if (candidate.description.has(variant)) {
-        score += variant === word ? 4 : 2
-        reasons.add(word)
+        bestMatch = Math.max(bestMatch, variant === word ? 4 : 2)
       }
+    }
+    if (bestMatch > 0) {
+      score += bestMatch
+      reasons.add(word)
     }
   }
   for (const word of projectWords) {
