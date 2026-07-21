@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.6.0
+
+### Added
+
+- Structured hand-off for MCP clients without native form elicitation:
+  `wikikit_review_proposal` now returns
+  `outcome: "human_review_required"` with explicit agent instructions instead
+  of an error. The proposal stays pending; a human reviews it out-of-band and
+  the agent polls `wikikit_proposals` for the result. The hand-off is counted
+  as its own content-free usage outcome (`handoff`).
+- New scope `knowledge:review` gating `wikikit_proposals` and
+  `wikikit_review_proposal`. `knowledge:approve` implies it, so existing keys
+  keep working unchanged; the reverse never holds. The REST approve/reject
+  endpoints still require `knowledge:approve`, which becomes the
+  human-operator credential — agent keys minted with `knowledge:review` can
+  never approve over HTTP.
+- Documented per-client review journeys (native-form client, non-form client,
+  human operator over REST) with the explicitly forbidden moves: collecting
+  approve/reject in chat, passing the decision as tool input, and calling the
+  REST review endpoints on the human's behalf.
+
+### Changed
+
+- Passing `decision`/`note` to `wikikit_review_proposal` is refused with a
+  targeted `approval_requires_human` error before schema validation or any
+  database access, replacing the generic strict-schema rejection.
+- `elicitation_not_supported` is now a fail-closed backstop for mid-review
+  capability loss; its guidance no longer points agents at the REST
+  approve/reject endpoints.
+
 ## 0.5.0
 
 ### Added
