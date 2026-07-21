@@ -445,13 +445,33 @@ describe('execute — transport duties', () => {
         review_url: `https://wikikit.test/review/${proposalId}`,
         poll_with: 'wikikit_proposals',
       })
-      const instructions = (result as { agent_instructions: string }).agent_instructions
-      expect(instructions).toContain(`https://wikikit.test/review/${proposalId}`)
-      expect(instructions).toContain('Do not ask for the decision in chat')
-      expect(instructions).toContain('Check wikikit_proposals later')
+      expect((result as { agent_instructions: string }).agent_instructions).toContain(
+        `https://wikikit.test/review/${proposalId}`,
+      )
     }
-    // No execution context at all (a future non-MCP caller).
-    expectHandoff(await byName.wikikit_review_proposal!.execute(deps({ db }), principal(), { proposal_id: proposalId }))
+    // A review-only key gets the strict hands-off journey (no context at all —
+    // a future non-MCP caller — takes the same branch).
+    const strict = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal({ scopes: ['knowledge:review'] }),
+      { proposal_id: proposalId },
+    )
+    expectHandoff(strict)
+    const strictInstructions = (strict as { agent_instructions: string }).agent_instructions
+    expect(strictInstructions).toContain('Do not ask for the decision in chat')
+    expect(strictInstructions).toContain('Check wikikit_proposals later')
+    expect(strictInstructions).not.toContain('/approve')
+    // knowledge:approve is the operator opt-in: the agent may execute the
+    // user's EXPLICIT chat instruction over REST — and never decide itself.
+    const sanctioned = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal({ scopes: ['knowledge:approve'] }),
+      { proposal_id: proposalId },
+    )
+    expectHandoff(sanctioned)
+    const sanctionedInstructions = (sanctioned as { agent_instructions: string }).agent_instructions
+    expect(sanctionedInstructions).toContain(`/v1/proposals/${proposalId}/approve`)
+    expect(sanctionedInstructions).toContain('Never decide, suggest, or default yourself')
     // A live context whose client does not advertise elicitation.form: the
     // hand-off must be returned WITHOUT attempting the form bridge.
     let outcome = ''

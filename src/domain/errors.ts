@@ -117,9 +117,9 @@ export class HumanDecisionRequiredError extends DomainError {
       400,
       {
         nextBestActions: [
-          'call wikikit_review_proposal again with only { proposal_id } and nothing else',
-          'the decision travels only through WikiKit’s native review form or an out-of-band review the human performs themselves — never collect approve/reject in chat and never submit it through any tool, REST call, or connector on the human’s behalf',
-          'if this client cannot show the review form, tell the user the proposal stays pending until a human reviews it, and check wikikit_proposals later',
+          'call wikikit_review_proposal again with only { proposal_id } and nothing else — its result tells you what this key may do next',
+          'the decision belongs to the human: it travels through WikiKit’s native review form, the review_url page, or — only when this key holds knowledge:approve (the operator’s opt-in) — a REST call executing the user’s explicit chat instruction; never decide or default yourself',
+          'if this client cannot show the review form, relay the review_url from the hand-off and check wikikit_proposals later',
         ],
       },
     )

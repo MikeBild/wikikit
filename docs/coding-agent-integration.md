@@ -128,9 +128,12 @@ On a client without form elicitation the tool returns
 `outcome: "human_review_required"` with a `review_url` instead: the proposal
 stays pending, the agent gives the user that link — WikiKit's embedded review
 page, where the human decides with their own reviewer key — and checks
-`wikikit_proposals` later for the outcome. The agent never collects the
-decision in chat and never calls the REST review endpoints on the human's
-behalf.
+`wikikit_proposals` later for the outcome. With a review-scoped key the agent
+never collects the decision in chat and never calls the REST review endpoints
+on the human's behalf. Only a key the operator deliberately granted
+`knowledge:approve` sanctions executing the user's explicit chat instruction
+over REST (quoted in the audit note) — the hand-off instructions state this
+per key.
 
 For Codex, keep elicitation routed to the person:
 

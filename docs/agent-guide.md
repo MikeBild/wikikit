@@ -150,8 +150,8 @@ and, if the user wants, start the review again later.
 
 The MCP session needs `knowledge:review` (implied by `knowledge:approve`),
 but scope alone is not a human decision. Keep routine autonomous-agent
-credentials read/propose-only, and keep `knowledge:approve` off agent-held
-keys entirely.
+credentials read/propose-only. Grant `knowledge:approve` to an agent-held
+key only as the deliberate chat-execution opt-in described below.
 
 For Codex, route MCP elicitations to the user:
 
@@ -176,16 +176,25 @@ proposal still pending and a `review_url`. The correct journey is:
    REST endpoints work too — the link is simply the shortest path.)
 2. Check `wikikit_proposals` later and report the outcome.
 
-Three moves are forbidden and will never work:
+With a `knowledge:review` key, three moves are forbidden and will never
+work:
 
 - Asking for approve/reject in chat and acting on the answer. A chat reply is
   not a review; WikiKit accepts the decision only from the human directly.
 - Passing `decision` or `note` to any tool. The review tool takes only
   `proposal_id` and refuses those fields with `approval_requires_human`.
 - Calling the REST approve/reject endpoints — or having any connector,
-  workflow, or automation call them — with a credential the agent holds. Those
-  endpoints exist for a human operator acting as themselves, never for
-  software executing a human's reported answer.
+  workflow, or automation call them — with a credential the agent holds. A
+  review-scoped key cannot call them at all.
+
+**Operator opt-in — chat-relayed execution.** Granting an agent-held key
+`knowledge:approve` is the operator's deliberate decision to trust this
+conversation channel: with that key the hand-off instructs the agent that it
+may execute the user's clearly stated approve/reject instruction over REST,
+quoting the user's words in the audit note. The agent still never decides,
+suggests, or defaults on its own; audits record the key name and
+`review_channel: "rest"`. Do not grant this scope to connectors whose
+conversations you do not fully control.
 
 ### Journey 3 — human operator over REST
 

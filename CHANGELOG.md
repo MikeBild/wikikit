@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.0
+
+### Added
+
+- Scope-matched hand-off instructions: the key is the policy. On a client
+  without form elicitation, `wikikit_review_proposal` still returns the
+  `human_review_required` hand-off with the `review_url`, but a key the
+  operator deliberately granted `knowledge:approve` is now instructed that it
+  may execute the user's clearly stated approve/reject instruction from the
+  conversation over REST, quoting the user's words in the audit note. A
+  `knowledge:review` key keeps the strict hands-off journey unchanged. Audits
+  record the key name and `review_channel: "rest"`.
+
 ## 0.7.0
 
 ### Added

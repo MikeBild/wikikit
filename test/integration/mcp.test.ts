@@ -391,7 +391,11 @@ describe('MCP server (integration)', () => {
       })
       expect(String(payload.review_url)).toContain(`/review/${unsupported.proposal_id}`)
       expect(String(payload.agent_instructions)).toContain(String(payload.review_url))
-      expect(String(payload.agent_instructions)).toContain('Do not ask for the decision in chat')
+      // wk_reviewer holds knowledge:approve — the operator opt-in text applies:
+      // the agent may execute the user's EXPLICIT chat instruction over REST.
+      expect(String(payload.agent_instructions)).toContain('explicit')
+      expect(String(payload.agent_instructions)).toContain(`/v1/proposals/${unsupported.proposal_id}/approve`)
+      expect(String(payload.agent_instructions)).toContain('Never decide, suggest, or default yourself')
     } finally {
       await legacyClient.close()
     }
@@ -440,7 +444,7 @@ describe('MCP server (integration)', () => {
       expect(payload.code).toBe('approval_requires_human')
       const actions = (payload.next_best_actions as string[]).join(' ')
       expect(actions).toContain('only { proposal_id }')
-      expect(actions).toContain('never collect approve/reject in chat')
+      expect(actions).toContain('never decide or default yourself')
       // The refusal happened before any form was sent or any row was touched.
       expect(formRequests).toBe(0)
     } finally {

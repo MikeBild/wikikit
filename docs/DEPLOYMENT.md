@@ -166,8 +166,9 @@ Gate MCP HITL support per deployed client, not by product name alone:
 
 The server must never mutate for an unsupported client: the review answers
 `human_review_required` and the proposal stays pending. REST remains the
-fallback for a trusted human acting as themselves — never for an agent or a
-connector holding the agent's credential. Rollback to v0.4 remains schema-compatible because the
+fallback for a trusted human acting as themselves; an agent-held credential
+may execute the human's explicit chat instruction only when the operator
+deliberately granted it `knowledge:approve`. Rollback to v0.4 remains schema-compatible because the
 new review column is nullable and the public SQL functions retain their
 three-argument call shape through defaults; v0.4 simply does not populate the
 new provenance field.

@@ -30,8 +30,9 @@ Only the latest release receives security fixes.
   contains no tool through which an agent can supply the approve/reject
   decision: `wikikit_review_proposal` (scope `knowledge:review`) collects it
   from the human via native form elicitation, and the REST approve/reject
-  endpoints require `knowledge:approve` — a scope agent keys should never
-  hold.
+  endpoints require `knowledge:approve` — granting that scope to an agent key
+  is the operator's deliberate opt-in to executing the human's explicit chat
+  instruction; review-scoped agent keys cannot approve through any channel.
 - **Ingested URLs are fetched by the server.** Treat the `knowledge:propose`
   scope accordingly: a proposer can make WikiKit issue outbound HTTP requests
   to arbitrary hosts (the acquired content still only lands in the staging
@@ -61,10 +62,11 @@ Only the latest release receives security fixes.
 - Keep the service bound to localhost (`HOST=127.0.0.1`) behind a reverse
   proxy (Caddy, nginx) that terminates TLS; set `WIKIKIT_TRUST_PROXY=1` only
   behind a trusted proxy.
-- Mint scoped, space-scoped keys instead of sharing the bootstrap `*` key;
-  never give the `knowledge:approve` scope to an autonomous agent — use
-  `knowledge:review` when it should inspect proposals and start the
-  human-decided MCP review.
+- Mint scoped, space-scoped keys instead of sharing the bootstrap `*` key.
+  Give agents `knowledge:review` when they should inspect proposals and start
+  the human-decided MCP review; grant an agent key `knowledge:approve` only
+  as a deliberate opt-in to executing the human's explicit chat instruction,
+  and only for conversation channels you fully control.
 - Verify the Standard Webhooks signature (`webhook-signature: v1,<HMAC>` over
   `id.timestamp.body`, plus a timestamp window) at every receiver. Accepting
   unsigned deliveries is not acceptable.

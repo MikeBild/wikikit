@@ -397,11 +397,14 @@ On a client without `capabilities.elicitation.form` the tool performs no
 mutation and returns a hand-off instead of an error:
 `{proposal_id, status:"pending", outcome:"human_review_required",
 review_url, mutation_applied:false, poll_with:"wikikit_proposals",
-agent_instructions}`. The agent gives the user the `review_url` — the
-embedded review page at `GET /review/{id}`, where the human authenticates
-with their own reviewer key and decides — and polls `wikikit_proposals` for
-the result. It never collects approve/reject in chat and never calls the REST
-review endpoints on the human's behalf.
+agent_instructions}`. The `agent_instructions` are scope-matched. A
+review-scoped key hands the user the `review_url` — the embedded review page
+at `GET /review/{id}`, where the human authenticates with their own reviewer
+key and decides — and polls `wikikit_proposals`; it never collects
+approve/reject in chat and never calls the REST review endpoints on the
+human's behalf. A key the operator deliberately granted `knowledge:approve`
+is additionally instructed that it may execute the user's clearly stated
+approve/reject instruction over REST, quoting it in the audit note.
 
 Elicitation is synchronous and bounded by
 `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. The pending proposal is already the

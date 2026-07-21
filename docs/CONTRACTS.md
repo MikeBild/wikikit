@@ -1199,7 +1199,10 @@ cannot provide or infer the decision. A client that does not advertise
 `{ proposal_id, status:'pending', outcome:'human_review_required',
 review_url, mutation_applied:false, poll_with:'wikikit_proposals',
 agent_instructions }` — `review_url` is the public `/review/{id}` page where
-the human decides with their own credential — and the proposal stays pending
+the human decides with their own credential, and `agent_instructions` are
+scope-matched: strict hands-off for `knowledge:review` keys, while
+`knowledge:approve` (the operator's opt-in) permits executing the human's
+explicit chat instruction over REST — and the proposal stays pending
 for an out-of-band human review
 (`elicitation_not_supported` remains the fail-closed backstop if the
 capability disappears mid-flight). Decline, cancel, timeout, invalid data and

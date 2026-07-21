@@ -239,7 +239,10 @@ elicitation, `wikikit_review_proposal` performs no mutation, answers
 `human_review_required` with a `review_url`, and leaves the proposal pending.
 The human opens that link — WikiKit's embedded review page at
 `GET /review/{id}` — and approves or rejects there with their own credential;
-the agent reports the outcome from `wikikit_proposals`. The REST review endpoints are for that human
+the agent reports the outcome from `wikikit_proposals`. Operators who trust a
+connector's conversation channel can instead grant its key
+`knowledge:approve`: the hand-off then sanctions executing the user's
+explicit chat instruction over REST, quoted in the audit note. The REST review endpoints are for that human
 operator directly, never for the agent or a connector acting for it.
 
 ## Features

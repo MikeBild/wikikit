@@ -582,10 +582,11 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_review_proposal',
     description:
       'Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. ' +
-      'The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through ' +
-      'WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. ' +
+      'The approve/reject decision and the optional audit note belong to the reviewing human and are collected through ' +
+      'WikiKit’s native elicitation form — never through tool arguments. ' +
       'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" ' +
-      'with a review_url: give that link to the user so they decide themselves, and check wikikit_proposals later. ' +
+      'with a review_url and instructions matched to this key’s scope: a knowledge:review key hands the link to the user, ' +
+      'while knowledge:approve (the operator’s opt-in) additionally allows executing the user’s explicit chat decision over REST. ' +
       'Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
     scope: 'knowledge:review',
     inputSchema: zReviewProposalToolInput,
@@ -611,9 +612,13 @@ export const TOOLS: McpToolDef[] = [
         // Hand-off, not an error: the pending proposal is the durable workflow
         // object, and an error frame invites the agent to "fix" the call. The
         // review page is the human's one-click path on exactly these clients.
+        // The KEY is the policy: knowledge:approve on an agent-held key is the
+        // operator's explicit opt-in to executing the human's chat decision
+        // over REST; a review-only key stays strictly hands-off.
         context?.setSpaceSlug(proposal.space)
         context?.setOutcome('handoff')
         const reviewUrl = `${deps.config.publicUrl}/review/${proposal.id}`
+        const chatDecisionSanctioned = holdsScope(principal.scopes, 'knowledge:approve')
         return {
           proposal_id: proposal.id,
           status: 'pending',
@@ -621,12 +626,18 @@ export const TOOLS: McpToolDef[] = [
           mutation_applied: false,
           review_url: reviewUrl,
           poll_with: 'wikikit_proposals',
-          agent_instructions:
-            'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
-            `The proposal stays pending. Give the user this link so they can review and decide themselves: ${reviewUrl} ` +
-            'Do not ask for the decision in chat, do not pass a decision to any tool, ' +
-            'and do not call the REST approve/reject endpoints on the human’s behalf. ' +
-            'Check wikikit_proposals later to see whether the human has decided.',
+          agent_instructions: chatDecisionSanctioned
+            ? 'This MCP client cannot present WikiKit’s native review form. This key holds knowledge:approve — the operator’s ' +
+              'explicit opt-in for executing the human’s decision from this conversation. If the user has clearly and explicitly ' +
+              'instructed approve or reject for exactly this proposal, execute that instruction via REST ' +
+              `(POST ${deps.config.publicUrl}/v1/proposals/${proposal.id}/approve or …/reject), quoting the user’s words in the note. ` +
+              'Never decide, suggest, or default yourself. Without an explicit instruction, give the user this link so they decide ' +
+              `directly: ${reviewUrl} Confirm the recorded outcome via wikikit_proposals afterwards.`
+            : 'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
+              `The proposal stays pending. Give the user this link so they can review and decide themselves: ${reviewUrl} ` +
+              'Do not ask for the decision in chat, do not pass a decision to any tool, ' +
+              'and do not call the REST approve/reject endpoints on the human’s behalf. ' +
+              'Check wikikit_proposals later to see whether the human has decided.',
         }
       }
       context.setSpaceSlug(proposal.space)

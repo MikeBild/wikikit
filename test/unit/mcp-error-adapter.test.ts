@@ -59,7 +59,7 @@ describe('toToolError', () => {
     expect(String(envelope.error)).toContain('only { proposal_id }')
     const actions = (envelope.next_best_actions as string[]).join(' ')
     expect(actions).toContain('only { proposal_id }')
-    expect(actions).toContain('never collect approve/reject in chat')
+    expect(actions).toContain('never decide or default yourself')
   })
 
   test('zod errors become bad_request with a per-field summary', () => {
