@@ -59,6 +59,7 @@ import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
 import { readDocsFile } from './docs-embedded.ts'
+import { renderReviewPage, REVIEW_PAGE_CSP } from './review-page.ts'
 import { markUsageContext, type UsageTelemetry } from '../usage.ts'
 
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
@@ -556,6 +557,16 @@ export const ROUTES: RouteDef[] = [
     summary: 'This OpenAPI 3.1 document (generated live from the ROUTES registry)',
     handler: 'openapiHandler',
     responses: { 200: { type: 'application/json', desc: 'OpenAPI 3.1 spec' } },
+  },
+  {
+    method: 'get',
+    path: '/review/{id}',
+    scope: null,
+    summary:
+      'Human review page for one ChangeProposal — the out-of-band surface for MCP clients without form elicitation. Public content-free shell; the proposal itself loads with the reviewer’s own credential.',
+    handler: 'reviewPageHandler',
+    request: { params: 'zIdParams' },
+    responses: { 200: { type: 'text/html', desc: 'Self-contained review page' } },
   },
   {
     method: 'get',
@@ -1217,6 +1228,20 @@ export const HANDLERS: Record<string, Handler> = {
 
   async openapiHandler(deps) {
     return { status: 200, body: buildOpenApi(ROUTES, { version: deps.config.version }) }
+  },
+
+  async reviewPageHandler(_deps, input) {
+    return {
+      status: 200,
+      text: renderReviewPage(input.params.id!),
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-security-policy': REVIEW_PAGE_CSP,
+        'referrer-policy': 'no-referrer',
+        'x-content-type-options': 'nosniff',
+      },
+    }
   },
 
   async agentGuideHandler(deps) {

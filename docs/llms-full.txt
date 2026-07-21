@@ -119,6 +119,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
 | GET    | `/metrics`                                    | public            | Prometheus metrics |
 | GET    | `/openapi.json`                               | public            | Generated OpenAPI 3.1 spec |
+| GET    | `/review/{id}`                                | public            | Human review page for one proposal (content-free shell; data loads with the reviewer's key) |
 | GET    | `/agent-guide.md`                             | public            | Built-in agent operating and no-CLI client setup guide |
 | GET    | `/llms.txt`                                   | public            | Documentation index (llmstxt.org format) |
 | GET    | `/llms-full.txt`                              | public            | This file |
@@ -395,10 +396,11 @@ tool call is in flight.
 On a client without `capabilities.elicitation.form` the tool performs no
 mutation and returns a hand-off instead of an error:
 `{proposal_id, status:"pending", outcome:"human_review_required",
-mutation_applied:false, poll_with:"wikikit_proposals", agent_instructions}`.
-The agent relays that a human must review out-of-band (from a form-capable
-client, or over REST as themselves) and polls `wikikit_proposals` for the
-result. It never collects approve/reject in chat and never calls the REST
+review_url, mutation_applied:false, poll_with:"wikikit_proposals",
+agent_instructions}`. The agent gives the user the `review_url` — the
+embedded review page at `GET /review/{id}`, where the human authenticates
+with their own reviewer key and decides — and polls `wikikit_proposals` for
+the result. It never collects approve/reject in chat and never calls the REST
 review endpoints on the human's behalf.
 
 Elicitation is synchronous and bounded by
@@ -442,7 +444,7 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
 | `wikikit_proposals` | knowledge:review | List proposals or inspect one complete structured diff | true | false | true | false |
-| `wikikit_review_proposal` | knowledge:review | Input `{proposal_id}` only; native human form owns the decision; accepted review writes, decline/cancel are no-ops; no form capability → `human_review_required` hand-off; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
+| `wikikit_review_proposal` | knowledge:review | Input `{proposal_id}` only; native human form owns the decision; accepted review writes, decline/cancel are no-ops; no form capability → `human_review_required` hand-off with `review_url`; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
 
 Annotation rationale (fixed): writes are `destructiveHint: true` even though
 they only stage content — an honest write is a write. `idempotentHint: true`
@@ -458,9 +460,9 @@ For Codex, set
 `approvals_reviewer = "user"`. Claude Code requires 2.1.76 or newer. ChatGPT
 review support is conditional on the active connector advertising native form
 elicitation; reconnect and run a canary after deployment. Without that
-capability the review hands off (`human_review_required`): a human reviews
-out-of-band as themselves, and the agent reports the outcome from
-`wikikit_proposals`.
+capability the review hands off (`human_review_required` with a
+`review_url`): the human opens the review page and decides there as
+themselves, and the agent reports the outcome from `wikikit_proposals`.
 
 ---
 
@@ -684,10 +686,10 @@ becomes a citable source.
 - **MCP client loops on session errors** — re-initialize on JSON-RPC `-32001`;
   sessions expire after `WIKIKIT_MCP_SESSION_TTL_MS` idle.
 - **MCP review returns `human_review_required`** — the client cannot show the
-  native review form. The proposal stays pending; a human reviews it
-  out-of-band as themselves (form-capable client or REST); the agent polls
-  `wikikit_proposals`. Never approve via chat, tool arguments, or REST calls
-  made on the human's behalf.
+  native review form. The proposal stays pending; the agent gives the user
+  the returned `review_url` (the `GET /review/{id}` page) where the human
+  decides as themselves; the agent polls `wikikit_proposals`. Never approve
+  via chat, tool arguments, or REST calls made on the human's behalf.
 - **MCP review returns `approval_requires_human`** — the agent passed
   `decision`/`note` as tool input. The tool takes only `proposal_id`; WikiKit
   collects the decision from the human, never from the agent.

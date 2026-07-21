@@ -584,8 +584,8 @@ export const TOOLS: McpToolDef[] = [
       'Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. ' +
       'The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through ' +
       'WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. ' +
-      'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": ' +
-      'relay that to the user and check wikikit_proposals later. ' +
+      'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" ' +
+      'with a review_url: give that link to the user so they decide themselves, and check wikikit_proposals later. ' +
       'Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
     scope: 'knowledge:review',
     inputSchema: zReviewProposalToolInput,
@@ -609,19 +609,22 @@ export const TOOLS: McpToolDef[] = [
       }
       if (!context || !context.formElicitationSupported) {
         // Hand-off, not an error: the pending proposal is the durable workflow
-        // object, and an error frame invites the agent to "fix" the call.
+        // object, and an error frame invites the agent to "fix" the call. The
+        // review page is the human's one-click path on exactly these clients.
         context?.setSpaceSlug(proposal.space)
         context?.setOutcome('handoff')
+        const reviewUrl = `${deps.config.publicUrl}/review/${proposal.id}`
         return {
           proposal_id: proposal.id,
           status: 'pending',
           outcome: 'human_review_required',
           mutation_applied: false,
+          review_url: reviewUrl,
           poll_with: 'wikikit_proposals',
           agent_instructions:
             'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
-            'The proposal stays pending. Tell the user that a human must review it themselves — from an elicitation-capable MCP client, ' +
-            'or directly against WikiKit as themselves. Do not ask for the decision in chat, do not pass a decision to any tool, ' +
+            `The proposal stays pending. Give the user this link so they can review and decide themselves: ${reviewUrl} ` +
+            'Do not ask for the decision in chat, do not pass a decision to any tool, ' +
             'and do not call the REST approve/reject endpoints on the human’s behalf. ' +
             'Check wikikit_proposals later to see whether the human has decided.',
         }

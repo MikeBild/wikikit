@@ -389,6 +389,8 @@ describe('MCP server (integration)', () => {
         mutation_applied: false,
         poll_with: 'wikikit_proposals',
       })
+      expect(String(payload.review_url)).toContain(`/review/${unsupported.proposal_id}`)
+      expect(String(payload.agent_instructions)).toContain(String(payload.review_url))
       expect(String(payload.agent_instructions)).toContain('Do not ask for the decision in chat')
     } finally {
       await legacyClient.close()

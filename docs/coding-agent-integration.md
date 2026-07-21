@@ -125,9 +125,9 @@ decision — `decision`/`note` as tool input are refused with
 leaves the proposal pending.
 
 On a client without form elicitation the tool returns
-`outcome: "human_review_required"` instead: the proposal stays pending, the
-agent tells the user that a human must review it out-of-band (from a
-form-capable client or over REST as themselves), and checks
+`outcome: "human_review_required"` with a `review_url` instead: the proposal
+stays pending, the agent gives the user that link — WikiKit's embedded review
+page, where the human decides with their own reviewer key — and checks
 `wikikit_proposals` later for the outcome. The agent never collects the
 decision in chat and never calls the REST review endpoints on the human's
 behalf.
@@ -147,12 +147,12 @@ Successful audits distinguish `mcp_elicitation` from `rest` in
 
 ## Troubleshooting
 
-| Symptom                                   | Cause and fix                                                                                                                                                                                         |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No context appears                        | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task.                                                                                           |
-| The wrong space activates                 | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.                                                                                              |
-| Capture does nothing                      | This is expected when the user taught no durable rule or no explicit capture space exists.                                                                                                            |
-| The agent says knowledge is saved         | It is only proposed until a human approves the ChangeProposal.                                                                                                                                        |
-| A tools-only client cannot read resources | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                                                                                                           |
-| Review returns `human_review_required`    | The client cannot show the native review form. The proposal stays pending; a human reviews it out-of-band; the agent polls `wikikit_proposals`. Never approve via chat or REST on the human's behalf. |
-| Review returns `approval_requires_human`  | The agent passed `decision`/`note` as tool input. The tool takes only `proposal_id`; the decision is collected from the human by WikiKit, never by the agent.                                         |
+| Symptom                                   | Cause and fix                                                                                                                                                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No context appears                        | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task.                                                                                                                                      |
+| The wrong space activates                 | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.                                                                                                                                         |
+| Capture does nothing                      | This is expected when the user taught no durable rule or no explicit capture space exists.                                                                                                                                                       |
+| The agent says knowledge is saved         | It is only proposed until a human approves the ChangeProposal.                                                                                                                                                                                   |
+| A tools-only client cannot read resources | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                                                                                                                                                      |
+| Review returns `human_review_required`    | The client cannot show the native review form. The proposal stays pending; give the user the returned `review_url` so they decide on the review page; the agent polls `wikikit_proposals`. Never approve via chat or REST on the human's behalf. |
+| Review returns `approval_requires_human`  | The agent passed `decision`/`note` as tool input. The tool takes only `proposal_id`; the decision is collected from the human by WikiKit, never by the agent.                                                                                    |

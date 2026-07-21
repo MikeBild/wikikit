@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.7.0
+
+### Added
+
+- Embedded human review page at `GET /review/{id}` — the one-click
+  out-of-band surface for MCP clients without native form elicitation
+  (ChatGPT connectors). The public shell is content-free; the proposal diff
+  loads in the browser with the reviewer's own `knowledge:approve`
+  credential, and approve/reject record `review_channel: "rest"`.
+- The `human_review_required` hand-off from `wikikit_review_proposal` now
+  carries a ready-to-share `review_url`, and the agent instructions tell the
+  agent to hand exactly that link to the user.
+
 ## 0.6.0
 
 ### Added

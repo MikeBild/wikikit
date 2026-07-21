@@ -29,8 +29,8 @@ Keep these boundaries clear:
   `wikikit_review_proposal` with only the proposal id; WikiKit itself asks the
   human for approve/reject and an optional note. Never invent, pre-fill or
   infer that decision. On a client that cannot show the native form the tool
-  returns `outcome: "human_review_required"` and the proposal stays pending
-  until a human reviews it out-of-band.
+  returns `outcome: "human_review_required"` plus a `review_url`; give that
+  link to the user — the proposal stays pending until a human decides there.
 - If reviewed knowledge does not answer a question, say that the knowledge is
   missing instead of filling the gap from memory.
 
@@ -168,12 +168,12 @@ after upgrades and test the capability.
 
 If the client does not advertise `elicitation.form`, `wikikit_review_proposal`
 performs no mutation and returns `outcome: "human_review_required"` with the
-proposal still pending. The correct journey is:
+proposal still pending and a `review_url`. The correct journey is:
 
-1. Tell the user that WikiKit requires a human to review the proposal
-   out-of-band: the user (or another trusted reviewer) opens the diff and
-   approves or rejects it themselves — from an elicitation-capable MCP client,
-   or directly against WikiKit with their own reviewer credential.
+1. Give the user the `review_url`. It opens WikiKit's embedded review page,
+   where they inspect the change and approve or reject it themselves with
+   their own reviewer credential. (An elicitation-capable MCP client or the
+   REST endpoints work too — the link is simply the shortest path.)
 2. Check `wikikit_proposals` later and report the outcome.
 
 Three moves are forbidden and will never work:

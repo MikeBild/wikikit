@@ -73,7 +73,7 @@ function stubDb(tables: Record<string, Record<string, unknown>[]>): Db {
 
 function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
   return {
-    config: { llmConfigured: true } as Config,
+    config: { llmConfigured: true, publicUrl: 'https://wikikit.test' } as Config,
     db: stubDb({ wk_spaces: [{ id: 'space-1', slug: 'main' }] }),
     ingest: {
       enqueue: async () => ({ ingest_id: '11111111-1111-4111-8111-111111111111' }),
@@ -442,9 +442,11 @@ describe('execute — transport duties', () => {
         status: 'pending',
         outcome: 'human_review_required',
         mutation_applied: false,
+        review_url: `https://wikikit.test/review/${proposalId}`,
         poll_with: 'wikikit_proposals',
       })
       const instructions = (result as { agent_instructions: string }).agent_instructions
+      expect(instructions).toContain(`https://wikikit.test/review/${proposalId}`)
       expect(instructions).toContain('Do not ask for the decision in chat')
       expect(instructions).toContain('Check wikikit_proposals later')
     }

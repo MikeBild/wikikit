@@ -206,8 +206,9 @@ optional note directly from the human through MCP form elicitation, and
 refuses agent-supplied `decision`/`note` input with `approval_requires_human`.
 Decline, cancel, timeout or invalid form data performs no mutation. A client
 without form support receives a pending `human_review_required` hand-off
-instead of a review — the pending proposal is the durable workflow object, and
-a human completes the review out-of-band.
+carrying a `review_url` instead of a review — the pending proposal is the
+durable workflow object, and a human completes the review on the embedded
+`/review/{id}` page (or any other out-of-band surface).
 
 Form elicitation is synchronous and bounded by
 `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. WikiKit does not introduce MCP tasks,

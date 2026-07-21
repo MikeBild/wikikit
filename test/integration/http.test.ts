@@ -167,6 +167,19 @@ describe('http surface (integration)', () => {
     expect(body.source_id).toBe(sourceId)
   })
 
+  it('review page: public content-free HTML shell for one proposal', async () => {
+    const page = await fetch(`${base}/review/${proposalId}`)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('content-type')).toContain('text/html')
+    expect(page.headers.get('content-security-policy')).toContain("connect-src 'self'")
+    const html = await page.text()
+    expect(html).toContain(proposalId)
+    // Content-free shell: nothing from the proposal itself is embedded.
+    expect(html).not.toContain('Open Knowledge Format')
+    const invalid = await fetch(`${base}/review/not-a-uuid`)
+    expect(invalid.status).toBe(400)
+  })
+
   it('proposal diff: JSON structure and text/markdown via Accept', async () => {
     const list = await fetch(`${base}/v1/spaces/demo/proposals?status=pending`, { headers: bearer(readerKey) })
     const { items } = (await list.json()) as { items: { id: string }[] }

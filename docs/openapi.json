@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2190,6 +2190,25 @@
         "summary": "This OpenAPI 3.1 document (generated live from the ROUTES registry)",
         "operationId": "openapi",
         "responses": { "200": { "description": "OpenAPI 3.1 spec", "content": { "application/json": {} } } }
+      }
+    },
+    "/review/{id}": {
+      "get": {
+        "summary": "Human review page for one ChangeProposal — the out-of-band surface for MCP clients without form elicitation. Public content-free shell; the proposal itself loads with the reviewer’s own credential.",
+        "operationId": "reviewPage",
+        "responses": { "200": { "description": "Self-contained review page", "content": { "text/html": {} } } },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ]
       }
     },
     "/agent-guide.md": {

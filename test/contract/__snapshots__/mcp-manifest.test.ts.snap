@@ -1571,7 +1571,7 @@ exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": relay that to the user and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
+    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" with a review_url: give that link to the user so they decide themselves, and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2411,7 +2411,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": relay that to the user and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
+    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" with a review_url: give that link to the user so they decide themselves, and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3251,7 +3251,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": relay that to the user and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
+    "description": "Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" with a review_url: give that link to the user so they decide themselves, and check wikikit_proposals later. Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

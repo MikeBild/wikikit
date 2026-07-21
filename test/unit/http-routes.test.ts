@@ -58,6 +58,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/ready', null],
   ['get', '/metrics', null],
   ['get', '/openapi.json', null],
+  ['get', '/review/{id}', null],
   ['get', '/agent-guide.md', null],
   ['get', '/llms.txt', null],
   ['get', '/llms-full.txt', null],
@@ -187,6 +188,34 @@ function handlerDeps(db: unknown): HttpDeps {
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   } as unknown as HttpDeps
 }
+
+describe('reviewPageHandler — the out-of-band human review surface', () => {
+  test('serves a self-contained HTML shell without auth and without touching the database', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const throwingDb = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('db must not be touched')
+        },
+      },
+    )
+    const result = await HANDLERS.reviewPageHandler!(
+      handlerDeps(throwingDb),
+      handlerInput({ params: { id: proposalId } }),
+    )
+    expect(result!.status).toBe(200)
+    expect(result!.headers!['content-type']).toContain('text/html')
+    // Locked down: no external sources, network only back to WikiKit itself.
+    expect(result!.headers!['content-security-policy']).toContain("connect-src 'self'")
+    expect(result!.headers!['content-security-policy']).toContain("default-src 'none'")
+    const html = String(result!.text)
+    expect(html).toContain(JSON.stringify(proposalId))
+    // The shell is content-free: the proposal loads with the REVIEWER's key.
+    expect(html).toContain('knowledge:approve')
+    expect(html).toContain(`/v1/proposals/`)
+  })
+})
 
 describe('createSpaceHandler — space-binding guard (§5.2)', () => {
   test('a space-scoped admin key cannot create spaces (403, nothing written)', async () => {

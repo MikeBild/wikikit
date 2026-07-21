@@ -82,8 +82,8 @@ trusted human reviewers who may also use the REST approve/reject endpoints; a
 client must still ask for a scope and the consent page displays it. Scope
 merely exposes the MCP review tool: WikiKit still collects the actual decision
 from a human through native form elicitation. A client that cannot show the form gets a pending
-`human_review_required` hand-off instead of a review; REST reviews remain a
-fallback for a human operator acting as themselves. `admin` is never issued
+`human_review_required` hand-off with a `review_url`; the human decides on
+that embedded review page (or over REST) as themselves. `admin` is never issued
 to an interactive OAuth identity.
 
 `WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array. Each provider requires an HTTPS

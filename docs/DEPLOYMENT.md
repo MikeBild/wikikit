@@ -127,9 +127,10 @@ MCP initialize. For this release, also run a native review-form canary against
 a disposable pending proposal: inspect the full diff, cancel once and prove it
 remains pending, then accept once and prove the proposal plus webhook payload
 record `review_channel: "mcp_elicitation"`. A client without form capability
-must receive `outcome: "human_review_required"` and perform no mutation, and
-`decision`/`note` passed as tool input must be refused with
-`approval_requires_human`.
+must receive `outcome: "human_review_required"` with a working `review_url`
+(the `/review/{id}` page loads and, with a reviewer key, shows the diff) and
+perform no mutation, and `decision`/`note` passed as tool input must be
+refused with `approval_requires_human`.
 
 ## Logging & metrics
 
