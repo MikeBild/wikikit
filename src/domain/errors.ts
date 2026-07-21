@@ -89,6 +89,45 @@ export class RateLimitError extends DomainError {
   }
 }
 
+/** 409 — the connected MCP client cannot present the required native form. */
+export class ElicitationNotSupportedError extends DomainError {
+  constructor() {
+    super('elicitation_not_supported', 'the connected MCP client does not support form elicitation', 409, {
+      nextBestActions: [
+        'use an MCP client that advertises elicitation.form and retry the review',
+        'or have a human reviewer use the existing REST approve/reject endpoint',
+      ],
+    })
+  }
+}
+
+/** 408 — a human did not complete the MCP form within the configured window. */
+export class ElicitationTimeoutError extends DomainError {
+  constructor() {
+    super('elicitation_timeout', 'the MCP review form timed out before the human completed it', 408, {
+      nextBestActions: ['confirm the proposal is still pending, then start the review again'],
+    })
+  }
+}
+
+/** 400 — the client accepted a form but returned content outside its schema. */
+export class InvalidElicitationResponseError extends DomainError {
+  constructor() {
+    super('invalid_elicitation_response', 'the MCP client returned an invalid review form response', 400, {
+      nextBestActions: ['update or reconnect the MCP client, then start the review again'],
+    })
+  }
+}
+
+/** 502 — the elicitation transport failed; the protected write never ran. */
+export class ElicitationFailedError extends DomainError {
+  constructor() {
+    super('elicitation_failed', 'the MCP review form could not be completed', 502, {
+      nextBestActions: ['reconnect the MCP client, confirm the proposal is still pending, and retry'],
+    })
+  }
+}
+
 /**
  * 503 llm_not_configured — LLM-free features keep working without a key.
  * `keyEnv` is the key of the SELECTED provider (config.llmApiKeyEnv /

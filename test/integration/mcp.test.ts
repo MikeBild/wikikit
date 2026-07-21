@@ -4,7 +4,10 @@
 // ingest ack + status poll. Gated behind RUN_INTEGRATION=1;
 // scripts/start-local.ts provisions the container.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
+import { createServer, type Server as NodeServer } from 'node:http'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { ElicitRequestSchema, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
@@ -13,11 +16,12 @@ import { approveProposal, computeInputHash, createProposal } from '../../src/dom
 import { createIngestPipeline, type IngestPipeline } from '../../src/ingest/pipeline.ts'
 import { createFakeProvider } from '../../src/llm/fake.ts'
 import { createLogger } from '../../src/logger.ts'
-import { createMcpMount, type McpMount } from '../../src/mcp/server.ts'
+import { createMcpMount, toNodeRawHandler, type McpMount } from '../../src/mcp/server.ts'
 import type { Principal } from '../../src/mcp/tools.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createUsageTelemetry } from '../../src/usage.ts'
 import { getMcpUsageStats, resolveUsageStatsWindow } from '../../src/stats.ts'
+import { readMcpJson } from '../helpers/mcp.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
 const it = integration ? test : test.skip
@@ -32,6 +36,8 @@ let db: Db
 let ingest: IngestPipeline
 let mount: McpMount
 let spaceId: string
+let nodeServer: NodeServer
+let liveMcpUrl: string
 
 // Two VALID credentials with identical scopes — the hijack guard must reject
 // key B on key A's session even though B could open its own session freely.
@@ -70,9 +76,9 @@ async function callTool(
     rpc({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } }, token, sessionId),
   )
   expect(response.status).toBe(200)
-  const body = (await response.json()) as {
+  const body = await readMcpJson<{
     result: { isError?: boolean; content: [{ type: string; text: string }] }
-  }
+  }>(response)
   return { isError: body.result.isError, payload: JSON.parse(body.result.content[0].text) as Record<string, unknown> }
 }
 
@@ -93,7 +99,7 @@ async function initialize(token: string): Promise<string> {
     ),
   )
   expect(response.status).toBe(200)
-  const result = ((await response.json()) as { result: { serverInfo: { name: string } } }).result
+  const result = (await readMcpJson<{ result: { serverInfo: { name: string } } }>(response)).result
   expect(result.serverInfo.name).toBe('wikikit')
   const sessionId = response.headers.get('mcp-session-id')
   expect(sessionId).toBeTruthy()
@@ -158,11 +164,16 @@ describe('MCP server (integration)', () => {
       logger,
       usage,
     })
+    nodeServer = createServer((req, res) => void toNodeRawHandler(mount)(req, res))
+    await new Promise<void>((resolve) => nodeServer.listen(0, '127.0.0.1', resolve))
+    const address = nodeServer.address() as { port: number }
+    liveMcpUrl = `http://127.0.0.1:${address.port}/mcp`
   })
 
   afterAll(async () => {
     if (!integration) return
     mount.stop()
+    await new Promise<void>((resolve) => nodeServer.close(() => resolve()))
     await database.close()
   })
 
@@ -271,6 +282,113 @@ describe('MCP server (integration)', () => {
     expect(duplicate.isError).toBe(true)
     expect(duplicate.payload.code).toBe('already_ingested')
     expect((duplicate.payload.next_best_actions as string[]).length).toBeGreaterThan(0)
+  })
+
+  it('native form elicitation owns the decision; missing capability fails closed', async () => {
+    const staged = await createProposal(db, spaceId, {
+      title: 'Native MCP review integration',
+      input_hash: computeInputHash(['native-mcp-review'], 'manual'),
+      agent_meta: { model: 'manual', prompt_version: 'manual' },
+      concepts: [
+        {
+          slug: 'native-mcp-review',
+          title: 'Native MCP review',
+          summary: 'Integration-only knowledge.',
+          markdown: '# Native MCP review\n\nA human supplied the final decision through MCP elicitation.',
+          claims: [],
+          relations: [],
+        },
+      ],
+    })
+
+    const client = new Client(
+      { name: 'wikikit-elicitation-itest', version: '1' },
+      { capabilities: { elicitation: { form: {} } } },
+    )
+    let formRequests = 0
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      formRequests += 1
+      expect(request.params.mode).toBe('form')
+      if (request.params.mode !== 'form') return { action: 'cancel' }
+      expect(request.params.requestedSchema.required).toEqual(['decision'])
+      expect(request.params.message).toContain(staged.proposal_id)
+      return { action: 'accept', content: { decision: 'approve', note: 'Approved through native MCP.' } }
+    })
+    const transport = new StreamableHTTPClientTransport(new URL(liveMcpUrl), {
+      requestInit: {
+        headers: { authorization: 'Bearer wk_reviewer', 'x-wikikit-traffic-class': 'synthetic' },
+      },
+    })
+    await client.connect(transport)
+    try {
+      await client.callTool({
+        name: 'wikikit_proposals',
+        arguments: { space: 'brain', proposal_id: staged.proposal_id },
+      })
+      const result = (await client.callTool({
+        name: 'wikikit_review_proposal',
+        arguments: { proposal_id: staged.proposal_id },
+      })) as { isError?: boolean; content: { type: string; text?: string }[] }
+      const content = result.content.find((entry) => entry.type === 'text')
+      expect(content?.type).toBe('text')
+      const payload = JSON.parse(content?.type === 'text' ? (content.text ?? '{}') : '{}') as Record<string, unknown>
+      expect(payload).toMatchObject({
+        proposal_id: staged.proposal_id,
+        status: 'approved',
+        review_channel: 'mcp_elicitation',
+      })
+      expect(formRequests).toBe(1)
+    } finally {
+      await client.close()
+    }
+
+    const [reviewed] = await db.select<{ status: string; reviewer: string; review_channel: string }>(
+      'wk_change_proposals',
+      { id: `eq.${staged.proposal_id}`, limit: 1 },
+    )
+    expect(reviewed).toMatchObject({ status: 'approved', reviewer: 'reviewer', review_channel: 'mcp_elicitation' })
+    const event = await db.query<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM wk_outbox_events
+        WHERE event_type = 'wikikit.proposal.approved' AND payload->>'proposal_id' = $1`,
+      [staged.proposal_id],
+    )
+    expect(event.rows[0]!.payload.review_channel).toBe('mcp_elicitation')
+
+    const unsupported = await createProposal(db, spaceId, {
+      title: 'Fail-closed integration',
+      input_hash: computeInputHash(['native-mcp-unsupported'], 'manual'),
+      agent_meta: { model: 'manual', prompt_version: 'manual' },
+      decisions: [
+        {
+          slug: 'native-mcp-unsupported',
+          title: 'Fail closed',
+          context: 'The client has no elicitation capability.',
+          decision: 'Do not mutate.',
+        },
+      ],
+    })
+    const legacyClient = new Client({ name: 'wikikit-no-elicitation-itest', version: '1' }, { capabilities: {} })
+    const legacyTransport = new StreamableHTTPClientTransport(new URL(liveMcpUrl), {
+      requestInit: { headers: { authorization: 'Bearer wk_reviewer' } },
+    })
+    await legacyClient.connect(legacyTransport)
+    try {
+      const result = (await legacyClient.callTool({
+        name: 'wikikit_review_proposal',
+        arguments: { proposal_id: unsupported.proposal_id },
+      })) as { isError?: boolean; content: { type: string; text?: string }[] }
+      expect(result.isError).toBe(true)
+      const content = result.content.find((entry) => entry.type === 'text')
+      const payload = JSON.parse(content?.type === 'text' ? (content.text ?? '{}') : '{}') as Record<string, unknown>
+      expect(payload.code).toBe('elicitation_not_supported')
+    } finally {
+      await legacyClient.close()
+    }
+    const [stillPending] = await db.select<{ status: string; review_channel: string | null }>('wk_change_proposals', {
+      id: `eq.${unsupported.proposal_id}`,
+      limit: 1,
+    })
+    expect(stillPending).toMatchObject({ status: 'pending', review_channel: null })
   })
 
   it('persists content-free MCP telemetry and returns exact aggregate statistics', async () => {

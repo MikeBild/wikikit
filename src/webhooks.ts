@@ -30,6 +30,7 @@ import type { Db, WebhookEventType } from './db/postgres.ts'
 import type { Logger } from './logger.ts'
 import type { Metrics } from './metrics.ts'
 import { NotFoundError, ValidationError } from './domain/errors.ts'
+import { REVIEW_CHANNELS } from './domain/proposals.ts'
 import { assertDeliverableUrl, decryptSecret, encryptSecret, generateWebhookSecret } from './secrets.ts'
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,7 @@ export const zProposalApprovedData = z.object({
   space: z.string(),
   reviewer: z.string(),
   note: z.string().nullable(),
+  review_channel: z.enum(REVIEW_CHANNELS),
   concepts: z.array(z.string()),
 })
 
@@ -69,6 +71,7 @@ export const zProposalRejectedData = z.object({
   space: z.string(),
   reviewer: z.string(),
   note: z.string().nullable(),
+  review_channel: z.enum(REVIEW_CHANNELS),
 })
 
 export const zConceptUpdatedData = z.object({

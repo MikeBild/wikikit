@@ -200,18 +200,21 @@ For a review-capable connector, select the discovered standard scopes
 `knowledge:read`, `knowledge:propose`, `knowledge:approve` and
 `offline_access`; production must also allow `knowledge:approve` through
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that OIDC provider's `allowed_scopes`).
-`wikikit_review_proposal` is deliberately marked as an irreversible write, so
-the host can ask for confirmation before it is called. MCP hosts may cache the
-scanned tool and scope contract: after adding a tool or scope, rescan or
-reconnect instead of expecting an old grant to gain privileges. Existing OAuth
-tokens retain their original, narrower scopes.
+`wikikit_review_proposal` accepts only a proposal id and then opens a native
+MCP form. The human — not the agent — selects approve or reject and enters the
+optional audit note. The tool remains marked as destructive because accepting
+the form performs the irreversible review write. Decline, cancel, timeout,
+invalid response or a client without `elicitation.form` leaves the proposal
+unchanged. MCP hosts may cache the scanned tool and scope contract: after this
+tool change or a scope change, rescan or reconnect. Existing OAuth tokens
+retain their original, narrower scopes.
 
 The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
 `wikikit_review_proposal`. The two review tools are visible only with
-`knowledge:approve`; the final approve/reject call is an explicitly marked,
-confirmed MCP write. Tools are scope-gated, so a read-only key simply does not
+`knowledge:approve`; the final decision is collected with native form
+elicitation inside the tool call. Tools are scope-gated, so a read-only key simply does not
 see write or review tools. The server also hands the agent its own documentation — usage
 instructions on connect, a code-bundled system guide (also available as a tool
 for tools-only clients), and `llms.txt` / `llms-full.txt` as MCP resources — so
@@ -219,6 +222,18 @@ it does not have to guess the model. Ask your agent to "take this article into
 the wiki and check whether it changes our assessment" — it ingests, polls, and
 reports the proposal with any detected contradictions; review and approve it
 in the same MCP conversation.
+
+For Codex, keep MCP elicitation interactive and routed to the person:
+
+```toml
+approval_policy = { granular = { mcp_elicitations = true } }
+approvals_reviewer = "user"
+```
+
+Claude Code supports form elicitation from 2.1.76. ChatGPT connectors must be
+reconnected and capability-checked; if ChatGPT does not advertise form
+elicitation, WikiKit deliberately refuses the MCP mutation. A trusted human
+operator can still use the existing REST approve/reject endpoints.
 
 ## Features
 
@@ -234,7 +249,7 @@ object` with a confidence, citations (verbatim quote + locator) and a
   Undeclared predicates are multi-valued, so complementary facts stay verified.
 - **Review gate:** all writes — LLM ingest, agent proposals, bundle imports —
   stage as ChangeProposals; approval is an atomic SQL flip with stale-base
-  protection and a full audit trail (reviewer, note, timestamp).
+  protection and a full audit trail (reviewer, note, channel, timestamp).
 - **Provenance everywhere:** revision history answers "which model, which
   prompt version, which sources, who approved" — decisions survive chat
   sessions and model swaps.

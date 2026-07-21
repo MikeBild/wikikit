@@ -58,8 +58,9 @@ Key invariants:
 - **Approval remains a human decision, now available over MCP.** Agents stage
   with ingest/propose; a principal with `knowledge:approve` reads the complete
   diff — including every staged decision with its context, rationale and
-  alternatives — through `wikikit_proposals` and makes an explicit confirmed
-  approve/reject call through `wikikit_review_proposal`.
+  alternatives — through `wikikit_proposals`. The agent passes only the
+  proposal id to `wikikit_review_proposal`; WikiKit then asks the human for
+  approve/reject and an optional note through native MCP form elicitation.
 
 ---
 
@@ -333,6 +334,10 @@ actionable envelope — never a bare string:
 | `already_ingested` | 409 | content-hash hit; envelope carries `source_id` |
 | `proposal_not_pending` | 409 | proposal already reviewed |
 | `stale_base` | 409 | concept changed since the proposal was synthesized |
+| `elicitation_not_supported` | 409 | MCP client did not advertise native form elicitation; proposal is unchanged |
+| `invalid_elicitation_response` | 400 | human form remained invalid after one bounded retry; proposal is unchanged |
+| `elicitation_timeout` | 408 | human form timed out; proposal is unchanged |
+| `elicitation_failed` | 502 | client or transport failed before a valid human decision; proposal is unchanged |
 | `body_too_large` | 413 | body exceeds `WIKIKIT_MAX_BODY_BYTES` |
 | `rate_limited` | 429 | slow down |
 | `internal_error` | 500 | unexpected failure (message never leaks internals) |
@@ -372,7 +377,18 @@ supported versions.
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose
 scope the key holds — a `knowledge:read` key sees only the read tools.
 `wikikit_proposals` and `wikikit_review_proposal` require
-`knowledge:approve`; the final review decision is a confirmed MCP write.
+`knowledge:approve`. The review tool accepts only `{proposal_id}` and issues a
+native `elicitation/create` form for the human-owned `decision` and optional
+`note`. Accepted forms perform the atomic write and persist
+`review_channel:"mcp_elicitation"`; decline, cancel, timeout, invalid data,
+transport failure or missing `capabilities.elicitation.form` performs no
+mutation. The POST response stays on the event-stream transport so the server
+can originate the form request while the tool call is in flight.
+
+Elicitation is synchronous and bounded by
+`WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. The pending proposal is already the
+durable workflow object, so WikiKit deliberately adds no MCP task, external
+elicitation URL or dialog lease. A reviewer can retry later.
 
 **Coding-agent loop** (`docs/coding-agent-integration.md`): an optional
 SessionStart hook injects only a compact briefing, and UserPromptSubmit selects
@@ -409,6 +425,8 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | true |
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
+| `wikikit_proposals` | knowledge:approve | List proposals or inspect one complete structured diff | true | false | true | false |
+| `wikikit_review_proposal` | knowledge:approve | Input `{proposal_id}`; native human form owns decision/note; accepted review writes, decline/cancel are no-ops | false | true | false | false |
 
 Annotation rationale (fixed): writes are `destructiveHint: true` even though
 they only stage content — an honest write is a write. `idempotentHint: true`
@@ -418,6 +436,13 @@ only on `wikikit_ingest` (a `url` input fetches an external host).
 
 Connect any MCP host over Streamable HTTP at `https://<host>/mcp`, using OAuth
 or a narrow Bearer `wk_` key with the required knowledge scopes.
+
+For Codex, set
+`approval_policy = { granular = { mcp_elicitations = true } }` and
+`approvals_reviewer = "user"`. Claude Code requires 2.1.76 or newer. ChatGPT
+review support is conditional on the active connector advertising native form
+elicitation; reconnect and run a canary after deployment. WikiKit fails closed
+when support is absent, and a trusted human can use REST instead.
 
 ---
 
@@ -433,8 +458,8 @@ Events:
 
 ```
 wikikit.proposal.created    {proposal_id, space, title, source_ids, concepts, claims_count, contradictions_count}
-wikikit.proposal.approved   {proposal_id, space, reviewer, note, concepts}
-wikikit.proposal.rejected   {proposal_id, space, reviewer, note}
+wikikit.proposal.approved   {proposal_id, space, reviewer, note, review_channel, concepts}
+wikikit.proposal.rejected   {proposal_id, space, reviewer, note, review_channel}
 wikikit.concept.updated     {space, slug, rev, proposal_id}
 wikikit.ingest.failed       {ingest_id, space, error: {code, message}}
 ```
@@ -460,7 +485,7 @@ order).
 
 ```
 index.md               TOC with [[slug]] wiki links (derived, regenerated)
-log.md                 audit narrative: proposal, reviewer, model (derived)
+log.md                 audit narrative: proposal, reviewer, review channel, model (derived)
 concepts/<slug>.md     claims + relations in YAML frontmatter, body = markdown
 decisions/<slug>.md    context/decision/rationale/alternatives in frontmatter
 sources/<hash>.md      kind/url/title in frontmatter, body = raw verbatim
@@ -538,6 +563,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_TRUST_PROXY` | trust `X-Forwarded-*` (behind Caddy/nginx) | `false` |
 | `WIKIKIT_MCP_SESSION_TTL_MS` | MCP idle session TTL | `1800000` (30 min) |
 | `WIKIKIT_MCP_MAX_SESSIONS` | MCP session hard cap (oldest-idle eviction) | `200` |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` | native human review-form timeout; fails closed (10 s–30 min) | `300000` (5 min) |
 | `WIKIKIT_USAGE_TELEMETRY_ENABLED` | enable privacy-bounded usage collection | `false` |
 | `WIKIKIT_USAGE_HMAC_SECRET` | independent product-local HMAC secret; required when enabled | (unset) |
 | `WIKIKIT_USAGE_RETENTION_DAYS` | raw usage retention (31–365 days) | `90` |
@@ -639,3 +665,6 @@ becomes a citable source.
   breaker pauses the endpoint for 15 minutes.
 - **MCP client loops on session errors** — re-initialize on JSON-RPC `-32001`;
   sessions expire after `WIKIKIT_MCP_SESSION_TTL_MS` idle.
+- **MCP review returns `elicitation_not_supported`** — upgrade/reconnect the
+  client and verify native form support, or have a trusted human review over
+  REST. Do not move the decision back into agent-provided tool arguments.

@@ -23,6 +23,8 @@ import { RELATION_KINDS, type RelationKind } from './relations.ts'
 import { clampLimit, isoString, sha256Hex } from './sources.ts'
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed'
+export const REVIEW_CHANNELS = ['rest', 'mcp_elicitation'] as const
+export type ReviewChannel = (typeof REVIEW_CHANNELS)[number]
 
 export interface ProposalSummary {
   id: string
@@ -31,6 +33,7 @@ export interface ProposalSummary {
   summary: string
   created_at: string
   reviewer: string | null
+  review_channel: ReviewChannel | null
   reviewed_at: string | null
 }
 
@@ -68,6 +71,7 @@ export interface ProposalDetail {
   created_at: string
   reviewer: string | null
   review_note: string | null
+  review_channel: ReviewChannel | null
   reviewed_at: string | null
   source_ids: string[]
   agent_meta: Record<string, unknown>
@@ -84,11 +88,13 @@ export interface ApplyResult {
   concepts: string[]
   claims_verified: number
   claims_disputed: number
+  review_channel: ReviewChannel
 }
 
 export interface RejectResult {
   proposal_id: string
   status: 'rejected'
+  review_channel: ReviewChannel
 }
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,126}$/
@@ -199,6 +205,7 @@ export async function listProposals(
     summary: string
     created_at: Date | string
     reviewer: string | null
+    review_channel: ReviewChannel | null
     reviewed_at: Date | string | null
   }>('wk_change_proposals', {
     space_id: `eq.${spaceId}`,
@@ -213,6 +220,7 @@ export async function listProposals(
     summary: row.summary,
     created_at: isoString(row.created_at),
     reviewer: row.reviewer,
+    review_channel: row.review_channel,
     reviewed_at: row.reviewed_at === null ? null : isoString(row.reviewed_at),
   }))
 }
@@ -505,6 +513,7 @@ interface ProposalRow {
   agent_meta: Record<string, unknown>
   reviewer: string | null
   review_note: string | null
+  review_channel: ReviewChannel | null
   reviewed_at: Date | string | null
   created_at: Date | string
 }
@@ -621,6 +630,7 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     created_at: isoString(proposal.created_at),
     reviewer: proposal.reviewer,
     review_note: proposal.review_note,
+    review_channel: proposal.review_channel,
     reviewed_at: proposal.reviewed_at === null ? null : isoString(proposal.reviewed_at),
     source_ids: proposal.source_ids ?? [],
     agent_meta: proposal.agent_meta ?? {},
@@ -659,6 +669,7 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
   if (detail.reviewer) {
     lines.push(`- **reviewer:** ${detail.reviewer}${detail.reviewed_at ? ` (${detail.reviewed_at})` : ''}`)
   }
+  if (detail.review_channel) lines.push(`- **review channel:** ${detail.review_channel}`)
   if (detail.review_note) lines.push(`- **review note:** ${detail.review_note}`)
   if (detail.source_ids.length) lines.push(`- **sources:** ${detail.source_ids.join(', ')}`)
   const meta = detail.agent_meta as { model?: unknown; prompt_version?: unknown }
@@ -772,11 +783,17 @@ function mapReviewError(error: unknown): never {
  */
 export async function approveProposal(
   db: Db,
-  args: { id: string; reviewer: string; note?: string },
+  args: { id: string; reviewer: string; note?: string; reviewChannel?: ReviewChannel },
 ): Promise<ApplyResult> {
   if (!args.reviewer) throw new ValidationError('reviewer is required')
+  const reviewChannel = args.reviewChannel ?? 'rest'
   try {
-    const [result] = await db.call<ApplyResult>('wk_apply_proposal', [args.id, args.reviewer, args.note ?? null])
+    const [result] = await db.call<ApplyResult>('wk_apply_proposal', [
+      args.id,
+      args.reviewer,
+      args.note ?? null,
+      reviewChannel,
+    ])
     return result!
   } catch (error) {
     if (error instanceof Error && error.message === 'stale_base') {
@@ -790,6 +807,7 @@ export async function approveProposal(
             status: 'failed',
             reviewer: args.reviewer,
             review_note: args.note ?? 'stale_base: concept moved on since synthesis',
+            review_channel: reviewChannel,
             reviewed_at: new Date().toISOString(),
           },
           { returning: false },
@@ -803,11 +821,17 @@ export async function approveProposal(
 /** ⚠ Global-id wrapper over db.call('wk_reject_proposal'). */
 export async function rejectProposal(
   db: Db,
-  args: { id: string; reviewer: string; note?: string },
+  args: { id: string; reviewer: string; note?: string; reviewChannel?: ReviewChannel },
 ): Promise<RejectResult> {
   if (!args.reviewer) throw new ValidationError('reviewer is required')
+  const reviewChannel = args.reviewChannel ?? 'rest'
   try {
-    const [result] = await db.call<RejectResult>('wk_reject_proposal', [args.id, args.reviewer, args.note ?? null])
+    const [result] = await db.call<RejectResult>('wk_reject_proposal', [
+      args.id,
+      args.reviewer,
+      args.note ?? null,
+      reviewChannel,
+    ])
     return result!
   } catch (error) {
     mapReviewError(error)

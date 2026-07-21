@@ -10,6 +10,7 @@ import type { IngestPipeline } from '../../src/ingest/pipeline.ts'
 import { createLogger } from '../../src/logger.ts'
 import { createMcpMount, toNodeRawHandler, validateMcpRequest, type McpDeps } from '../../src/mcp/server.ts'
 import type { Principal } from '../../src/mcp/tools.ts'
+import { readMcpJson } from '../helpers/mcp.ts'
 
 const BASE = 'http://127.0.0.1:4060'
 const logger = createLogger({ level: 'error', write: () => {} })
@@ -161,7 +162,7 @@ describe('createMcpMount', () => {
         { authorization: 'Bearer reader', 'mcp-session-id': readSession },
       ),
     )
-    const readTools = ((await readList.json()) as { result: { tools: { name: string }[] } }).result.tools
+    const readTools = (await readMcpJson<{ result: { tools: { name: string }[] } }>(readList)).result.tools
     expect(readTools.map((tool) => tool.name)).toEqual([
       'wikikit_guide',
       'wikikit_spaces',
@@ -182,7 +183,7 @@ describe('createMcpMount', () => {
         { authorization: 'Bearer proposer', 'mcp-session-id': proposeSession },
       ),
     )
-    const proposeTools = ((await proposeList.json()) as { result: { tools: { name: string }[] } }).result.tools
+    const proposeTools = (await readMcpJson<{ result: { tools: { name: string }[] } }>(proposeList)).result.tools
     expect(proposeTools.map((tool) => tool.name)).toEqual([
       'wikikit_ingest',
       'wikikit_ingest_status',
@@ -198,16 +199,17 @@ describe('createMcpMount', () => {
     const mount = buildMount({ reader: READ_PRINCIPAL })
     const response = await mount.handler(rpc(INITIALIZE, { authorization: 'Bearer reader' }))
     const result = (
-      (await response.json()) as {
+      (await readMcpJson(response)) as {
         result: { capabilities: Record<string, unknown>; instructions?: string }
       }
     ).result
 
     expect(result.capabilities.resources).toBeDefined()
-    // The load-bearing half of the contract: review is explicit and confirmed.
+    // The load-bearing half of the contract: the agent cannot own the review decision.
     expect(result.instructions).toContain('wikikit_search')
     expect(result.instructions).toContain('wikikit_review_proposal')
-    expect(result.instructions).toContain('never call it without a human')
+    expect(result.instructions).toContain('the agent must never supply or infer that decision')
+    expect(result.instructions).toContain('leaves the proposal pending')
     mount.stop()
   })
 
@@ -217,7 +219,7 @@ describe('createMcpMount', () => {
     const headers = { authorization: 'Bearer reader', 'mcp-session-id': session }
 
     const list = await mount.handler(rpc({ jsonrpc: '2.0', id: 2, method: 'resources/list' }, headers))
-    const resources = ((await list.json()) as { result: { resources: { uri: string }[] } }).result.resources
+    const resources = (await readMcpJson<{ result: { resources: { uri: string }[] } }>(list)).result.resources
     expect(resources.map((resource) => resource.uri)).toEqual([
       'wikikit://system/agent-guide',
       'wikikit://docs/llms.txt',
@@ -227,7 +229,7 @@ describe('createMcpMount', () => {
     const read = await mount.handler(
       rpc({ jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: 'wikikit://docs/llms.txt' } }, headers),
     )
-    const contents = ((await read.json()) as { result: { contents: { text: string }[] } }).result.contents
+    const contents = (await readMcpJson<{ result: { contents: { text: string }[] } }>(read)).result.contents
     expect(contents[0]!.text).toContain('# WikiKit Documentation')
 
     const guide = await mount.handler(
@@ -236,7 +238,7 @@ describe('createMcpMount', () => {
         headers,
       ),
     )
-    const guideContents = ((await guide.json()) as { result: { contents: { text: string }[] } }).result.contents
+    const guideContents = (await readMcpJson<{ result: { contents: { text: string }[] } }>(guide)).result.contents
     expect(guideContents[0]!.text).toContain('# WikiKit agent guide')
     mount.stop()
   })
@@ -250,7 +252,7 @@ describe('createMcpMount', () => {
         { authorization: 'Bearer reader', 'mcp-session-id': session },
       ),
     )
-    const body = (await read.json()) as { error?: { message: string }; result?: unknown }
+    const body = await readMcpJson<{ error?: { message: string }; result?: unknown }>(read)
     expect(body.result).toBeUndefined()
     expect(body.error?.message).toContain('unknown resource')
     mount.stop()
@@ -305,7 +307,7 @@ describe('createMcpMount', () => {
           { authorization: 'Bearer reader', 'mcp-session-id': sessionId },
         ),
       )
-      const body = (await response.json()) as {
+      const body = (await readMcpJson(response)) as {
         result: { isError: boolean; content: [{ text: string }] }
       }
       expect(body.result.isError).toBe(true)
@@ -335,7 +337,7 @@ describe('createMcpMount', () => {
         { authorization: 'Bearer reader', 'mcp-session-id': sessionId },
       ),
     )
-    const body = (await response.json()) as { result: { isError: boolean; content: [{ text: string }] } }
+    const body = await readMcpJson<{ result: { isError: boolean; content: [{ text: string }] } }>(response)
     expect(body.result.isError).toBe(true)
     const envelope = JSON.parse(body.result.content[0].text) as Record<string, unknown>
     expect(envelope.code).toBe('bad_request')
@@ -392,7 +394,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
       expect(init.status).toBe(200)
       const sessionId = init.headers.get('mcp-session-id')
       expect(sessionId).toBeTruthy()
-      const initBody = (await init.json()) as { result: { serverInfo: { name: string } } }
+      const initBody = await readMcpJson<{ result: { serverInfo: { name: string } } }>(init)
       expect(initBody.result.serverInfo.name).toBe('wikikit')
 
       const list = await fetch(`${base}/mcp`, {
@@ -406,7 +408,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
       })
       expect(list.status).toBe(200)
-      const tools = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools
+      const tools = (await readMcpJson<{ result: { tools: { name: string }[] } }>(list)).result.tools
       expect(tools).toHaveLength(10) // knowledge:read palette, including built-in system guidance
     } finally {
       mount.stop()

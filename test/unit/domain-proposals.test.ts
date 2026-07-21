@@ -291,6 +291,7 @@ describe('getProposal — structured diff', () => {
     agent_meta: { model: 'claude-sonnet-5', prompt_version: 'synthesize.v1' },
     reviewer: null,
     review_note: null,
+    review_channel: null,
     reviewed_at: null,
     created_at: new Date('2026-07-01T10:00:00Z'),
   })
@@ -379,6 +380,7 @@ describe('renderProposalMarkdown', () => {
     created_at: '2026-07-01T10:00:00.000Z',
     reviewer: null,
     review_note: null,
+    review_channel: null,
     reviewed_at: null,
     source_ids: ['src-1'],
     agent_meta: { model: 'claude-sonnet-5', prompt_version: 'synthesize.v1' },
@@ -471,7 +473,7 @@ describe('approve/reject — whitelisted RPC wrappers with error mapping', () =>
     ])
     const result = await approveProposal(db, { id: 'prop-1', reviewer: 'mike', note: 'lgtm' })
     expect(result).toMatchObject({ status: 'approved', claims_verified: 2 })
-    expect(calls[0]!.values).toEqual(['prop-1', 'mike', 'lgtm'])
+    expect(calls[0]!.values).toEqual(['prop-1', 'mike', 'lgtm', 'rest'])
   })
 
   test('maps the SQL error codes onto typed domain errors', async () => {
@@ -520,10 +522,13 @@ describe('approve/reject — whitelisted RPC wrappers with error mapping', () =>
 
   test('reject wraps wk_reject_proposal', async () => {
     const { db, calls } = fakeDb([
-      { match: /wk_reject_proposal/, rows: [{ result: { proposal_id: 'prop-1', status: 'rejected' } }] },
+      {
+        match: /wk_reject_proposal/,
+        rows: [{ result: { proposal_id: 'prop-1', status: 'rejected', review_channel: 'rest' } }],
+      },
     ])
     const result = await rejectProposal(db, { id: 'prop-1', reviewer: 'mike' })
-    expect(result).toEqual({ proposal_id: 'prop-1', status: 'rejected' })
+    expect(result).toEqual({ proposal_id: 'prop-1', status: 'rejected', review_channel: 'rest' })
     expect(calls[0]!.sql).toContain('wk_reject_proposal')
   })
 })

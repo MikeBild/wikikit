@@ -111,6 +111,13 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
               "type": "string",
             },
+            "review_channel": {
+              "enum": [
+                "rest",
+                "mcp_elicitation",
+              ],
+              "type": "string",
+            },
             "reviewer": {
               "type": "string",
             },
@@ -123,6 +130,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
             "space",
             "reviewer",
             "note",
+            "review_channel",
             "concepts",
           ],
           "type": "object",
@@ -165,6 +173,13 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
               "type": "string",
             },
+            "review_channel": {
+              "enum": [
+                "rest",
+                "mcp_elicitation",
+              ],
+              "type": "string",
+            },
             "reviewer": {
               "type": "string",
             },
@@ -177,6 +192,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
             "space",
             "reviewer",
             "note",
+            "review_channel",
           ],
           "type": "object",
         },
@@ -402,6 +418,13 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.approved
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
       "type": "string",
     },
+    "review_channel": {
+      "enum": [
+        "rest",
+        "mcp_elicitation",
+      ],
+      "type": "string",
+    },
     "reviewer": {
       "type": "string",
     },
@@ -414,6 +437,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.approved
     "space",
     "reviewer",
     "note",
+    "review_channel",
     "concepts",
   ],
   "type": "object",
@@ -449,6 +473,13 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.rejected
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
       "type": "string",
     },
+    "review_channel": {
+      "enum": [
+        "rest",
+        "mcp_elicitation",
+      ],
+      "type": "string",
+    },
     "reviewer": {
       "type": "string",
     },
@@ -461,6 +492,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.rejected
     "space",
     "reviewer",
     "note",
+    "review_channel",
   ],
   "type": "object",
   "~standard": {

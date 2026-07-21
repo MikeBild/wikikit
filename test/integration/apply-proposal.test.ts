@@ -341,7 +341,7 @@ describe('wk_apply_proposal / wk_reject_proposal (integration)', () => {
     })
 
     const [result] = await db.call('wk_reject_proposal', [staged.proposalId, 'mike', 'not convincing'])
-    expect(result).toEqual({ proposal_id: staged.proposalId, status: 'rejected' })
+    expect(result).toEqual({ proposal_id: staged.proposalId, status: 'rejected', review_channel: 'rest' })
 
     const [revision] = await db.select<{ status: string }>('wk_concept_revisions', { id: `eq.${staged.revisionId}` })
     expect(revision!.status).toBe('rejected')
@@ -355,11 +355,15 @@ describe('wk_apply_proposal / wk_reject_proposal (integration)', () => {
       id: `eq.${staged.conceptId}`,
     })
     expect(concept!.current_revision_id).toBeNull()
-    const [proposal] = await db.select<{ status: string; review_note: string }>('wk_change_proposals', {
-      id: `eq.${staged.proposalId}`,
-    })
+    const [proposal] = await db.select<{ status: string; review_note: string; review_channel: string }>(
+      'wk_change_proposals',
+      {
+        id: `eq.${staged.proposalId}`,
+      },
+    )
     expect(proposal!.status).toBe('rejected')
     expect(proposal!.review_note).toBe('not convincing')
+    expect(proposal!.review_channel).toBe('rest')
 
     // No epoch bump, but a rejected outbox event in the same tx.
     const [spaceRow] = await db.select<{ epoch: string | number }>('wk_spaces', { id: `eq.${space.id}` })
@@ -369,6 +373,9 @@ describe('wk_apply_proposal / wk_reject_proposal (integration)', () => {
     })
     expect(events.map((event) => event.event_type)).toContain('wikikit.proposal.rejected')
     for (const event of events) expectContractPayload(event)
+    expect(events.find((event) => event.event_type === 'wikikit.proposal.rejected')!.payload.review_channel).toBe(
+      'rest',
+    )
 
     // Terminal: a rejected proposal cannot be approved afterwards.
     await expect(db.call('wk_apply_proposal', [staged.proposalId, 'mike'])).rejects.toThrow('proposal_not_pending')

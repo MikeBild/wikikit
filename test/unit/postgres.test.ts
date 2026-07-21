@@ -189,16 +189,16 @@ describe('call() — whitelisted SQL functions', () => {
   test('wk_apply_proposal pins statement, pads note, unwraps jsonb result', async () => {
     const { db, calls } = makeFixture([{ result: { proposal_id: 'p1', status: 'approved' } }])
     const rows = await db.call('wk_apply_proposal', ['p1', 'mike'])
-    expect(calls[0]!.sql).toBe('SELECT public.wk_apply_proposal($1, $2, $3) AS result')
-    expect(calls[0]!.values).toEqual(['p1', 'mike', null])
+    expect(calls[0]!.sql).toBe('SELECT public.wk_apply_proposal($1, $2, $3, $4) AS result')
+    expect(calls[0]!.values).toEqual(['p1', 'mike', null, 'rest'])
     expect(rows).toEqual([{ proposal_id: 'p1', status: 'approved' }])
   })
 
   test('wk_reject_proposal passes the note through', async () => {
     const { db, calls } = makeFixture([{ result: { proposal_id: 'p1', status: 'rejected' } }])
     await db.call('wk_reject_proposal', ['p1', 'mike', 'stale source'])
-    expect(calls[0]!.sql).toBe('SELECT public.wk_reject_proposal($1, $2, $3) AS result')
-    expect(calls[0]!.values).toEqual(['p1', 'mike', 'stale source'])
+    expect(calls[0]!.sql).toBe('SELECT public.wk_reject_proposal($1, $2, $3, $4) AS result')
+    expect(calls[0]!.values).toEqual(['p1', 'mike', 'stale source', 'rest'])
   })
 
   test('wk_search fills kind=null and limit=20 defaults (never LIMIT NULL)', async () => {

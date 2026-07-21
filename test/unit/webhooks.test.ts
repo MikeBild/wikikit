@@ -175,6 +175,7 @@ async function seedEvent(db: FakeDb, type = 'wikikit.proposal.rejected'): Promis
     space: 'demo',
     reviewer: 'mike',
     note: null,
+    review_channel: 'rest',
   })
 }
 

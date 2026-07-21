@@ -33,9 +33,11 @@ HTTP/REST and MCP — no CLI (ops flags only), no web UI.
    different `object` → flagged in the proposal.
 6. **Propose**: one transaction inserts the revisions, claims, citations,
    relations, decisions and the ChangeProposal, plus an outbox event.
-7. **Review**: a human (or governed workflow) reads the structured diff
-   (`GET /v1/proposals/{id}`, also as `text/markdown` via Accept) and calls
-   approve or reject — a deliberate, separate act.
+7. **Review**: a human reads the structured diff (`GET /v1/proposals/{id}`,
+   also as `text/markdown` via Accept) and chooses approve or reject — through
+   REST or a native MCP form, but always as a deliberate, separate act. The
+   durable proposal and webhook audit records `review_channel` as `rest` or
+   `mcp_elicitation`.
 8. **Apply** is a single SQL function (`wk_apply_proposal`): old revision →
    `superseded`, proposed → `current`, pointer repointed, claims →
    `verified` (contradicting pairs → both `disputed` + a `contradicts`
@@ -101,7 +103,7 @@ pass `space.id` down — every space-scoped SQL query filters by `space_id`.
 | `query/`         | `search.ts` (LLM-free FTS) and `answer.ts` (grounded Q&A with citations)                                         |
 | `export/`        | Markdown tree + OKF bundle adapters behind one `BundleFormatAdapter`; import stages ONE proposal                 |
 | `http/`          | `routes.ts` (ROUTES registry + handlers), `openapi.ts`, `auth.ts`, `jobs.ts`, `server.ts`, `schemas.ts`          |
-| `mcp/`           | Streamable HTTP server, session leases, tool palette, draft-07 schema conversion, error adapter                  |
+| `mcp/`           | Streamable HTTP server, session leases, tool palette, native form elicitation, draft-07 schemas, error adapter   |
 | `webhooks.ts`    | Standard-Webhooks outbox worker: backoff, circuit breaker, `v1,<HMAC>` signatures                                |
 | `stats.ts`       | Space-scoped product analytics over WikiKit's own PostgreSQL data; bounded buckets and aggregate-only responses  |
 | `usage.ts`       | Opt-in content-free HTTP/MCP/knowledge/review events, product-local HMAC identities and raw retention cleanup    |
@@ -198,8 +200,16 @@ against DNS rebinding. Tool input schemas are the same zod objects REST
 validates with, converted to draft-07 JSON Schema with
 `additionalProperties: false`; all four annotations are explicit on every
 tool. Scope-gating is tool _visibility_: agents stage with `knowledge:propose`,
-while `knowledge:approve` exposes the full review diff and the explicit,
-confirmed approve/reject decision.
+while `knowledge:approve` exposes the full review diff and review tool. That
+tool accepts only a proposal id; the server obtains approve/reject and an
+optional note directly from the human through MCP form elicitation. The client
+must advertise form support. Decline, cancel, timeout, invalid form data or a
+client without that capability fails closed before any proposal mutation.
+
+Form elicitation is synchronous and bounded by
+`WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. WikiKit does not introduce MCP tasks,
+out-of-band elicitation URLs or durable dialog leases: the pending proposal is
+already the durable workflow object, and review can simply be retried.
 
 The server also describes itself: `initialize` carries `instructions`; the
 read-only `wikikit_guide` tool serves tools-only clients; and a `resources`
@@ -216,8 +226,10 @@ registration, authorization-code + PKCE S256, rotating refresh families and
 RFC-style token revocation. The server persists only HMAC hashes of codes and
 tokens. It binds every authorization artifact to `/mcp`, rechecks the backing
 WikiKit API key on every exchange and MCP request, and sweeps expired/revoked
-rows hourly. OAuth scopes are capped at `knowledge:read` and
-`knowledge:propose`; the human-only approval boundary remains intact.
+rows hourly. OAuth scopes are capped by explicit operator/provider policy. The
+default is `knowledge:read,knowledge:propose`; `knowledge:approve` requires
+explicit policy, client request and human consent, and the native review form
+still owns the final decision. Interactive identities never receive `admin`.
 
 ## Database access discipline
 
@@ -225,7 +237,9 @@ rows hourly. OAuth scopes are capped at `knowledge:read` and
 exclusively through `db.call` with a three-function whitelist
 (`wk_apply_proposal`, `wk_reject_proposal`, `wk_search`). Outbox events are
 inserted via `db.emitEvent` on a transaction-bound handle, so an event can
-only exist for a state change that actually committed.
+only exist for a state change that actually committed. The review SQL wrappers
+persist reviewer, note and `review_channel` in the same transaction and copy
+the channel into approved/rejected webhook payloads.
 
 ## Binary packaging
 

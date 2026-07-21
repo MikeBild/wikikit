@@ -25,8 +25,10 @@ Keep these boundaries clear:
 
 - Reading tools return approved knowledge and provenance.
 - Ingest and proposal tools stage changes; they do not make knowledge live.
-- Approval is a separate, explicit human decision. Never approve or reject a
-  proposal without the user's direct instruction.
+- Approval is a separate, explicit human decision. For MCP review, call
+  `wikikit_review_proposal` with only the proposal id; WikiKit itself asks the
+  human for approve/reject and an optional note. Never invent, pre-fill or
+  infer that decision.
 - If reviewed knowledge does not answer a question, say that the knowledge is
   missing instead of filling the gap from memory.
 
@@ -125,6 +127,30 @@ supports protected-resource discovery and PKCE. Otherwise send either
 `Authorization: Bearer wk_...` or `X-API-Key: wk_...`. A client that supports
 MCP resources should read `wikikit://system/agent-guide`; a tools-only client
 should call `wikikit_guide` once when it needs the operating model.
+
+## Interactive human review over MCP
+
+Before review, use `wikikit_proposals` with `proposal_id` to inspect the full
+structured diff. Then call `wikikit_review_proposal` with that id only. WikiKit
+opens a native MCP form in which the human owns `decision` and optional `note`.
+Accept applies the review atomically; decline, cancel, timeout, invalid data or
+missing form support leaves the proposal pending. A successful audit record
+uses `review_channel: "mcp_elicitation"`.
+
+The reviewing identity needs `knowledge:approve`, but scope alone is not a
+human decision. Keep routine autonomous-agent credentials read/propose-only.
+For Codex, route MCP elicitations to the user:
+
+```toml
+approval_policy = { granular = { mcp_elicitations = true } }
+approvals_reviewer = "user"
+```
+
+Claude Code must be 2.1.76 or newer. ChatGPT connectors are supported only
+when the active connector advertises native form elicitation; reconnect after
+upgrades and test the capability. WikiKit fails closed when it is absent. In
+that case, a trusted human can inspect the same diff and use the REST
+approve/reject endpoint; REST reviews record `review_channel: "rest"`.
 
 ## Space design and routing
 

@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.5.0
+
+### Added
+
+- Native MCP form elicitation for ChangeProposal review. The agent supplies
+  only the proposal id; the human chooses approve or reject and writes the
+  optional review note inside the connected client.
+- Durable `review_channel` provenance (`rest` or `mcp_elicitation`) on proposal
+  responses, Markdown/OKF audit logs and approved/rejected webhooks.
+- Configurable `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` and content-free outcome
+  telemetry for accepted, declined, cancelled, timed-out and unsupported
+  review attempts.
+
+### Changed
+
+- `wikikit_review_proposal` now accepts only `{proposal_id}`. MCP POSTs use SSE
+  so `elicitation/create` and its response remain associated with the original
+  tool call. Clients must reconnect/rescan the changed tool contract.
+
+### Security
+
+- MCP review fails closed when the client lacks form elicitation, returns an
+  invalid response, declines, cancels or times out. None of those paths invokes
+  the protected SQL review functions, and form contents are excluded from
+  logs and usage telemetry.
+
 ## 0.4.0
 
 ### Added

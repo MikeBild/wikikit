@@ -6,6 +6,7 @@ import type { Config } from '../../src/config.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { ConflictError, ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../../src/domain/errors.ts'
 import type { IngestPipeline } from '../../src/ingest/pipeline.ts'
+import { ElicitationNotSupportedError } from '../../src/domain/errors.ts'
 import {
   buildToolManifest,
   holdsScope,
@@ -156,7 +157,13 @@ describe('scope-gated visibility', () => {
 
   test('review input rejects a decision without a valid proposal id', () => {
     expect(() => zProposalsToolInput.parse({ space: 'main', proposal_id: 'not-a-uuid' })).toThrow()
-    expect(() => zReviewProposalToolInput.parse({ proposal_id: 'not-a-uuid', decision: 'approve' })).toThrow()
+    expect(() => zReviewProposalToolInput.parse({ proposal_id: 'not-a-uuid' })).toThrow()
+    expect(() =>
+      zReviewProposalToolInput.parse({
+        proposal_id: '11111111-1111-4111-8111-111111111111',
+        decision: 'approve',
+      }),
+    ).toThrow()
   })
 
   test('manifest entries carry name, description, draft-7 schema and annotations', () => {
@@ -276,6 +283,104 @@ describe('execute — transport duties', () => {
       ingest_id: '11111111-1111-4111-8111-111111111111',
       poll_with: 'wikikit_ingest_status',
     })
+  })
+
+  test('wikikit_review_proposal takes decision and note only from native elicitation', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: 'One bounded change.',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let callArgs: unknown[] = []
+    db.call = async (_fn, args) => {
+      callArgs = args
+      return [{ proposal_id: proposalId, status: 'rejected', review_channel: 'mcp_elicitation' }] as never
+    }
+    let spaceSlug = ''
+    let outcome = ''
+    const result = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal({ name: 'human-reviewer' }),
+      { proposal_id: proposalId },
+      {
+        elicitForm: async () => ({ action: 'accept', content: { decision: 'reject', note: 'Not ready.' } }),
+        setOutcome: (value) => {
+          outcome = value
+        },
+        setSpaceSlug: (value) => {
+          spaceSlug = value
+        },
+      },
+    )
+    expect(result).toEqual({ proposal_id: proposalId, status: 'rejected', review_channel: 'mcp_elicitation' })
+    expect(callArgs).toEqual([proposalId, 'human-reviewer', 'Not ready.', 'mcp_elicitation'])
+    expect(spaceSlug).toBe('main')
+    expect(outcome).toBe('') // accepted writes use the default success outcome
+  })
+
+  test('wikikit_review_proposal declines without a write and fails closed without a form bridge', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: '',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let writes = 0
+    db.call = async () => {
+      writes += 1
+      return []
+    }
+    let outcome = ''
+    const noOp = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal(),
+      { proposal_id: proposalId },
+      {
+        elicitForm: async () => ({ action: 'decline' }),
+        setOutcome: (value) => {
+          outcome = value
+        },
+        setSpaceSlug: () => {},
+      },
+    )
+    expect(noOp).toEqual({ proposal_id: proposalId, outcome: 'decline', mutation_applied: false })
+    expect(outcome).toBe('rejected')
+    expect(writes).toBe(0)
+    await expect(
+      byName.wikikit_review_proposal!.execute(deps({ db }), principal(), { proposal_id: proposalId }),
+    ).rejects.toBeInstanceOf(ElicitationNotSupportedError)
+    expect(writes).toBe(0)
   })
 
   test('wikikit_ingest surfaces the dedup conflict from enqueue', async () => {

@@ -111,15 +111,33 @@ curl -s -X POST "$WK/v1/proposals/<id>/approve" \
   -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"note":"yes"}'
 ```
 
-The MCP review tools enforce the same split: inspect first, then approve or
-reject only after an explicit human instruction.
+The MCP review tools enforce the boundary directly. First inspect the complete
+diff with `wikikit_proposals`, then call `wikikit_review_proposal` with only
+`proposal_id`. WikiKit opens a native form; the human selects approve/reject
+and may add the audit note. The agent cannot pass the decision. Decline,
+cancel, timeout, invalid form data or a client without form elicitation leaves
+the proposal pending.
+
+For Codex, keep elicitation routed to the person:
+
+```toml
+approval_policy = { granular = { mcp_elicitations = true } }
+approvals_reviewer = "user"
+```
+
+Claude Code 2.1.76+ is a supported review host. Treat ChatGPT as conditional:
+reconnect the connector and run a form-capability canary; WikiKit fails closed
+if the active connector does not advertise native form elicitation. A trusted
+human may use the REST endpoints as the fallback. Successful audits distinguish
+`mcp_elicitation` from `rest` in `review_channel`.
 
 ## Troubleshooting
 
-| Symptom                                   | Cause and fix                                                                                               |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| No context appears                        | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task. |
-| The wrong space activates                 | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.    |
-| Capture does nothing                      | This is expected when the user taught no durable rule or no explicit capture space exists.                  |
-| The agent says knowledge is saved         | It is only proposed until a human approves the ChangeProposal.                                              |
-| A tools-only client cannot read resources | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                 |
+| Symptom                                        | Cause and fix                                                                                               |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| No context appears                             | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task. |
+| The wrong space activates                      | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.    |
+| Capture does nothing                           | This is expected when the user taught no durable rule or no explicit capture space exists.                  |
+| The agent says knowledge is saved              | It is only proposed until a human approves the ChangeProposal.                                              |
+| A tools-only client cannot read resources      | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                 |
+| MCP review reports `elicitation_not_supported` | Upgrade/reconnect the MCP host and verify native form support, or have a trusted human review over REST.    |

@@ -41,10 +41,22 @@ describe('migrations (integration)', () => {
     for (const expected of ['wk_spaces', 'wk_concept_revisions', 'wk_change_proposals', 'wk_outbox_events']) {
       expect(names).toContain(expected)
     }
-    const fns = await client.query(
-      `SELECT proname FROM pg_proc JOIN pg_namespace n ON n.oid = pronamespace WHERE n.nspname = 'public' AND proname IN ('wk_apply_proposal','wk_reject_proposal','wk_search')`,
+    const fns = await client.query<{ proname: string; pronargs: number; pronargdefaults: number }>(
+      `SELECT proname, pronargs, pronargdefaults
+         FROM pg_proc JOIN pg_namespace n ON n.oid = pronamespace
+        WHERE n.nspname = 'public'
+          AND proname IN ('wk_apply_proposal','wk_reject_proposal','wk_search')`,
     )
     expect(fns.rows.length).toBe(3)
+    for (const reviewFn of fns.rows.filter((row) => row.proname !== 'wk_search')) {
+      expect(Number(reviewFn.pronargs)).toBe(4)
+      expect(Number(reviewFn.pronargdefaults)).toBe(2) // v0.4 three-argument calls remain valid
+    }
+    const reviewChannel = await client.query(
+      `SELECT is_nullable FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'wk_change_proposals' AND column_name = 'review_channel'`,
+    )
+    expect(reviewChannel.rows[0]?.is_nullable).toBe('YES') // historical reviews stay unknown/null
   })
 
   it('is idempotent — a second run skips everything', async () => {

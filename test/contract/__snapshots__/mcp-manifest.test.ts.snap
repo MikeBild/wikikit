@@ -1571,23 +1571,10 @@ exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "description": "Start a native MCP human review for one pending ChangeProposal after inspecting it with wikikit_proposals. The human chooses approve or reject and writes the optional audit note in the elicitation form; the agent cannot supply either. Requires knowledge:approve and an elicitation.form-capable client. Decline, cancel, timeout, or missing capability never mutate knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "decision": {
-          "description": "The human reviewer’s final decision",
-          "enum": [
-            "approve",
-            "reject",
-          ],
-          "type": "string",
-        },
-        "note": {
-          "description": "Optional auditable review rationale",
-          "maxLength": 4000,
-          "type": "string",
-        },
         "proposal_id": {
           "description": "Pending proposal id returned by wikikit_proposals",
           "format": "uuid",
@@ -1597,7 +1584,6 @@ exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
       },
       "required": [
         "proposal_id",
-        "decision",
       ],
       "type": "object",
       "~standard": {
@@ -2425,23 +2411,10 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "description": "Start a native MCP human review for one pending ChangeProposal after inspecting it with wikikit_proposals. The human chooses approve or reject and writes the optional audit note in the elicitation form; the agent cannot supply either. Requires knowledge:approve and an elicitation.form-capable client. Decline, cancel, timeout, or missing capability never mutate knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "decision": {
-          "description": "The human reviewer’s final decision",
-          "enum": [
-            "approve",
-            "reject",
-          ],
-          "type": "string",
-        },
-        "note": {
-          "description": "Optional auditable review rationale",
-          "maxLength": 4000,
-          "type": "string",
-        },
         "proposal_id": {
           "description": "Pending proposal id returned by wikikit_proposals",
           "format": "uuid",
@@ -2451,7 +2424,6 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       },
       "required": [
         "proposal_id",
-        "decision",
       ],
       "type": "object",
       "~standard": {
@@ -3279,23 +3251,10 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.",
+    "description": "Start a native MCP human review for one pending ChangeProposal after inspecting it with wikikit_proposals. The human chooses approve or reject and writes the optional audit note in the elicitation form; the agent cannot supply either. Requires knowledge:approve and an elicitation.form-capable client. Decline, cancel, timeout, or missing capability never mutate knowledge.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "decision": {
-          "description": "The human reviewer’s final decision",
-          "enum": [
-            "approve",
-            "reject",
-          ],
-          "type": "string",
-        },
-        "note": {
-          "description": "Optional auditable review rationale",
-          "maxLength": 4000,
-          "type": "string",
-        },
         "proposal_id": {
           "description": "Pending proposal id returned by wikikit_proposals",
           "format": "uuid",
@@ -3305,7 +3264,6 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
       "required": [
         "proposal_id",
-        "decision",
       ],
       "type": "object",
       "~standard": {

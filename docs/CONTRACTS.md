@@ -198,6 +198,7 @@ CREATE TABLE wk_change_proposals (
   agent_meta   jsonb NOT NULL DEFAULT '{}',
   reviewer     text,
   review_note  text,
+  review_channel text CHECK (review_channel IN ('rest','mcp_elicitation')),
   reviewed_at  timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
@@ -350,19 +351,29 @@ Callable exclusively through the RPC whitelist in `src/db/postgres.ts` (§2.1).
 --    collisions on settings.functional_predicates → both 'disputed' + ensure
 --    a 'contradicts' relation; undeclared predicates remain multi-valued;
 --    relations/decisions proposed → 'active'.
--- 4. Proposal → 'approved' (reviewer, note, reviewed_at); space epoch += 1;
+-- 4. Proposal → 'approved' (reviewer, note, review_channel, reviewed_at); space epoch += 1;
 --    outbox events 'wikikit.proposal.approved' + 'wikikit.concept.updated' per concept.
 -- Errors: 'proposal_not_found', 'proposal_not_pending', 'stale_base'.
-CREATE FUNCTION wk_apply_proposal(p_proposal_id uuid, p_reviewer text, p_note text DEFAULT NULL)
-RETURNS jsonb;  -- {proposal_id, status:'approved', concepts:[slug,...], claims_verified:int, claims_disputed:int}
+CREATE FUNCTION wk_apply_proposal(
+  p_proposal_id uuid,
+  p_reviewer text,
+  p_note text DEFAULT NULL,
+  p_review_channel text DEFAULT 'rest'
+)
+RETURNS jsonb;  -- {proposal_id, status:'approved', review_channel, concepts:[slug,...], claims_verified:int, claims_disputed:int}
 
 -- Atomic reject. Proposed rows KEEP their rows (audit) but flip:
 -- revisions → 'rejected', claims stay 'proposed' pinned to the rejected proposal
 -- (invisible everywhere: readers filter on verified/disputed/deprecated),
 -- relations → 'removed', decisions stay 'proposed'. Proposal → 'rejected';
 -- outbox 'wikikit.proposal.rejected'.
-CREATE FUNCTION wk_reject_proposal(p_proposal_id uuid, p_reviewer text, p_note text DEFAULT NULL)
-RETURNS jsonb;  -- {proposal_id, status:'rejected'}
+CREATE FUNCTION wk_reject_proposal(
+  p_proposal_id uuid,
+  p_reviewer text,
+  p_note text DEFAULT NULL,
+  p_review_channel text DEFAULT 'rest'
+)
+RETURNS jsonb;  -- {proposal_id, status:'rejected', review_channel}
 
 -- FTS over current revisions + visible claims. Proposed content is invisible
 -- BY CONSTRUCTION: the revision join goes through wk_concepts.current_revision_id.
@@ -659,8 +670,15 @@ export function createProposal(
   spaceId: string,
   args: CreateProposalArgs,
 ): Promise<{ proposal_id: string; status: 'pending' }>
-export function approveProposal(db: Db, args: { id: string; reviewer: string; note?: string }): Promise<ApplyResult> // ⚠ wraps db.call('wk_apply_proposal')
-export function rejectProposal(db: Db, args: { id: string; reviewer: string; note?: string }): Promise<RejectResult> // ⚠ wraps db.call('wk_reject_proposal')
+export type ReviewChannel = 'rest' | 'mcp_elicitation'
+export function approveProposal(
+  db: Db,
+  args: { id: string; reviewer: string; note?: string; reviewChannel?: ReviewChannel },
+): Promise<ApplyResult> // ⚠ wraps db.call('wk_apply_proposal')
+export function rejectProposal(
+  db: Db,
+  args: { id: string; reviewer: string; note?: string; reviewChannel?: ReviewChannel },
+): Promise<RejectResult> // ⚠ wraps db.call('wk_reject_proposal')
 
 // CreateProposalArgs — the staging write used by ingest, import, and manual POST .../proposals.
 // Inserts proposal + proposed revisions/claims/citations/relations/decisions + outbox event in ONE db.tx.
@@ -1005,6 +1023,7 @@ export const zProposalDetailResponse = z.object({
   created_at: z.string(),
   reviewer: z.string().nullable(),
   review_note: z.string().nullable(),
+  review_channel: z.enum(['rest', 'mcp_elicitation']).nullable(),
   reviewed_at: z.string().nullable(),
   source_ids: z.array(z.string().uuid()),
   agent_meta: z.record(z.string(), z.unknown()),
@@ -1133,8 +1152,8 @@ Body (`zWebhookEnvelope`):
 | Event                       | `data` shape                                                                                                                              |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `wikikit.proposal.created`  | `{ proposal_id, space, title, source_ids: string[], concepts: string[] /* slugs */, claims_count: number, contradictions_count: number }` |
-| `wikikit.proposal.approved` | `{ proposal_id, space, reviewer, note: string \| null, concepts: string[] }`                                                              |
-| `wikikit.proposal.rejected` | `{ proposal_id, space, reviewer, note: string \| null }`                                                                                  |
+| `wikikit.proposal.approved` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation', concepts: string[] }`                 |
+| `wikikit.proposal.rejected` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation' }`                                     |
 | `wikikit.concept.updated`   | `{ space, slug, rev: number, proposal_id }`                                                                                               |
 | `wikikit.ingest.failed`     | `{ ingest_id, space, error: { code, message } }`                                                                                          |
 
@@ -1148,7 +1167,9 @@ endpoint `disabled_until = now() + 15min`.
 
 ## 7. MCP server (`src/mcp/`)
 
-Streamable HTTP at `/mcp`, `@modelcontextprotocol/sdk` ^1.29. One SDK `Server`
+Streamable HTTP at `/mcp`, `@modelcontextprotocol/sdk` ^1.29. MCP POST
+responses use the event-stream transport so the server can issue a native
+`elicitation/create` request while a review tool call is in flight. One SDK `Server`
 per session; handlers close over the `Principal`. Sessions are leases:
 idle TTL sweep (`mcpSessionTtlMs`), hard cap (`mcpMaxSessions`) with
 oldest-idle eviction, in-flight retain counter; session owner =
@@ -1159,9 +1180,13 @@ SAME zod objects as REST (via `toJsonSchemaCompat` → draft-07 with
 `additionalProperties: false`).
 
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose scope
-the key holds. `knowledge:approve` exposes proposal review plus an explicitly
-destructive, non-idempotent approve/reject tool; MCP hosts must confirm that
-write. Errors use the §8 envelope serialized into the tool
+the key holds. `knowledge:approve` exposes proposal inspection and the
+destructive, non-idempotent review tool. The tool input contains only the
+proposal id; WikiKit requests `decision` and optional `note` from the human in
+a native MCP form. The agent cannot provide or infer the decision. The client
+must advertise `capabilities.elicitation.form`; otherwise WikiKit fails closed.
+Decline, cancel, timeout, invalid data and transport failure leave the proposal
+pending. Errors use the §8 envelope serialized into the tool
 result (`isError: true`), never bare strings.
 
 ### 7.0 OAuth 2.1 for remote MCP clients
@@ -1205,7 +1230,7 @@ artifacts and unused DCR clients are removed by the hourly housekeeping sweep.
 
 **Self-description (binding)**: capabilities are `{ tools, resources }`, and
 `initialize` returns `instructions` describing the read/write/review split and
-the explicit human-decision rule. WikiKit's immutable, code-bundled system
+the native human-form decision rule. WikiKit's immutable, code-bundled system
 scope is available through the `wikikit_guide` tool and
 `wikikit://system/agent-guide`. `resources/list` also exposes
 `wikikit://docs/llms.txt` and `wikikit://docs/llms-full.txt`; all are read via
@@ -1216,23 +1241,23 @@ audience they are written for.
 
 ### 7.1 Tool table (binding — names, schemas, outputs, scopes, all four annotations)
 
-| Tool                      | Scope             | Input schema (zod, in `src/mcp/tools.ts`)                                                                 | Output (JSON in content)                                                                          | readOnly | destructive | idempotent | openWorld |
-| ------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------- | ----------- | ---------- | --------- |
-| `wikikit_guide`           | knowledge:read    | `{}`                                                                                                      | `{ scope, resource_uri, public_path, version, markdown }`                                         | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_spaces`          | knowledge:read    | `{}`                                                                                                      | `{ spaces: { id, slug, name, description }[] }`                                                   | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_briefing`        | knowledge:read    | `{ spaces: string[] (1-10), budget_tokens?: number (500-4000) }`                                          | `{ markdown, spaces, budget_tokens, used_tokens, concepts_included, concepts_omitted }`           | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_context`         | knowledge:read    | `{ prompt, project_hint?, primary_space?, manual_spaces?, exclude_spaces?, max_spaces?, budget_tokens? }` | compact briefing plus selection mode and scored space matches                                     | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_search`          | knowledge:read    | `{ space: string, q: string, kind?: 'concept'\|'claim', limit?: number (1-50, default 20) }`              | `{ hits: SearchHit[] }` (§4.2)                                                                    | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_read`            | knowledge:read    | `{ space: string, slug: string }`                                                                         | `zConceptResponse` shape (§5.3)                                                                   | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_sources`         | knowledge:read    | `{ space: string, slug?: string, source_id?: string }` (exactly one of slug/source_id)                    | `{ sources: { id, kind, url, title, content_hash, created_at, cited_by_claims: number }[] }`      | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_decisions`       | knowledge:read    | `{ space: string, slug?: string }` (omit slug → list)                                                     | slug → one decision; else `{ decisions: { slug, title, status, created_at }[] }`                  | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_history`         | knowledge:read    | `{ space: string, slug: string }`                                                                         | `{ revisions: { rev, status, created_at, agent_meta }[] }`                                        | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_lint`            | knowledge:read    | `{ space: string }`                                                                                       | `LintReport` (§4)                                                                                 | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                                    | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks) | `false`  | `true`      | `true`     | `true`    |
-| `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                                            | `zIngestStatusResponse` shape (§5.3)                                                              | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                         | `{ proposal_id, status: 'pending' }`                                                              | `false`  | `true`      | `true`     | `false`   |
-| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                           | summaries, or one complete public proposal diff including staged decisions                        | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_review_proposal` | knowledge:approve | `{ proposal_id: uuid, decision: 'approve'\|'reject', note?: string }`                                     | approved apply result or `{ proposal_id, status: 'rejected' }`                                    | `false`  | `true`      | `false`    | `false`   |
+| Tool                      | Scope             | Input schema (zod, in `src/mcp/tools.ts`)                                                                 | Output (JSON in content)                                                                                                                           | readOnly | destructive | idempotent | openWorld |
+| ------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------- | ---------- | --------- |
+| `wikikit_guide`           | knowledge:read    | `{}`                                                                                                      | `{ scope, resource_uri, public_path, version, markdown }`                                                                                          | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_spaces`          | knowledge:read    | `{}`                                                                                                      | `{ spaces: { id, slug, name, description }[] }`                                                                                                    | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_briefing`        | knowledge:read    | `{ spaces: string[] (1-10), budget_tokens?: number (500-4000) }`                                          | `{ markdown, spaces, budget_tokens, used_tokens, concepts_included, concepts_omitted }`                                                            | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_context`         | knowledge:read    | `{ prompt, project_hint?, primary_space?, manual_spaces?, exclude_spaces?, max_spaces?, budget_tokens? }` | compact briefing plus selection mode and scored space matches                                                                                      | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_search`          | knowledge:read    | `{ space: string, q: string, kind?: 'concept'\|'claim', limit?: number (1-50, default 20) }`              | `{ hits: SearchHit[] }` (§4.2)                                                                                                                     | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_read`            | knowledge:read    | `{ space: string, slug: string }`                                                                         | `zConceptResponse` shape (§5.3)                                                                                                                    | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_sources`         | knowledge:read    | `{ space: string, slug?: string, source_id?: string }` (exactly one of slug/source_id)                    | `{ sources: { id, kind, url, title, content_hash, created_at, cited_by_claims: number }[] }`                                                       | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_decisions`       | knowledge:read    | `{ space: string, slug?: string }` (omit slug → list)                                                     | slug → one decision; else `{ decisions: { slug, title, status, created_at }[] }`                                                                   | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_history`         | knowledge:read    | `{ space: string, slug: string }`                                                                         | `{ revisions: { rev, status, created_at, agent_meta }[] }`                                                                                         | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_lint`            | knowledge:read    | `{ space: string }`                                                                                       | `LintReport` (§4)                                                                                                                                  | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                                    | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks)                                                  | `false`  | `true`      | `true`     | `true`    |
+| `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                                            | `zIngestStatusResponse` shape (§5.3)                                                                                                               | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                         | `{ proposal_id, status: 'pending' }`                                                                                                               | `false`  | `true`      | `true`     | `false`   |
+| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                           | summaries, or one complete public proposal diff including staged decisions                                                                         | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_review_proposal` | knowledge:approve | `{ proposal_id: uuid }`; decision + optional note are human form fields                                   | accepted: approved/rejected result with `review_channel:'mcp_elicitation'`; declined/cancelled: `{ proposal_id, outcome, mutation_applied:false }` | `false`  | `true`      | `false`    | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
 per the hard-won MCP rule ("never destructiveHint:false on real writes") even though
@@ -1270,20 +1295,24 @@ export function toToolError(
 
 ### 8.2 Canonical codes ↔ HTTP status (typed errors in `src/domain/errors.ts`)
 
-| Code                                                                                               | HTTP | Thrown as               |
-| -------------------------------------------------------------------------------------------------- | ---- | ----------------------- |
-| `bad_request` (zod details in `error`)                                                             | 400  | `ValidationError`       |
-| `unauthorized`                                                                                     | 401  | `UnauthorizedError`     |
-| `insufficient_scope`                                                                               | 403  | `ForbiddenError`        |
-| `not_found`                                                                                        | 404  | `NotFoundError`         |
-| `already_ingested` (envelope carries `source_id`)                                                  | 409  | `ConflictError`         |
-| `proposal_not_pending`                                                                             | 409  | `ConflictError`         |
-| `stale_base`                                                                                       | 409  | `ConflictError`         |
-| `body_too_large`                                                                                   | 413  | `PayloadTooLargeError`  |
-| `rate_limited`                                                                                     | 429  | `RateLimitError`        |
-| `internal_error` (message NEVER leaks internals)                                                   | 500  | anything unrecognized   |
-| `llm_not_configured` (`next_best_actions: ["set <the selected provider's key> and restart", ...]`) | 503  | `LlmNotConfiguredError` |
-| `draining`                                                                                         | 503  | shutdown state          |
+| Code                                                                                               | HTTP | Thrown as                         |
+| -------------------------------------------------------------------------------------------------- | ---- | --------------------------------- |
+| `bad_request` (zod details in `error`)                                                             | 400  | `ValidationError`                 |
+| `unauthorized`                                                                                     | 401  | `UnauthorizedError`               |
+| `insufficient_scope`                                                                               | 403  | `ForbiddenError`                  |
+| `not_found`                                                                                        | 404  | `NotFoundError`                   |
+| `already_ingested` (envelope carries `source_id`)                                                  | 409  | `ConflictError`                   |
+| `proposal_not_pending`                                                                             | 409  | `ConflictError`                   |
+| `stale_base`                                                                                       | 409  | `ConflictError`                   |
+| `elicitation_not_supported` (client did not advertise native form elicitation)                     | 409  | `ElicitationNotSupportedError`    |
+| `invalid_elicitation_response` (form remained invalid after one bounded retry)                     | 400  | `InvalidElicitationResponseError` |
+| `elicitation_timeout`                                                                              | 408  | `ElicitationTimeoutError`         |
+| `elicitation_failed` (client/transport failed before a valid human decision)                       | 502  | `ElicitationFailedError`          |
+| `body_too_large`                                                                                   | 413  | `PayloadTooLargeError`            |
+| `rate_limited`                                                                                     | 429  | `RateLimitError`                  |
+| `internal_error` (message NEVER leaks internals)                                                   | 500  | anything unrecognized             |
+| `llm_not_configured` (`next_best_actions: ["set <the selected provider's key> and restart", ...]`) | 503  | `LlmNotConfiguredError`           |
+| `draining`                                                                                         | 503  | shutdown state                    |
 
 ---
 
@@ -1365,6 +1394,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_TRUST_PROXY`                | `false`                                                            |                                                             |
 | `WIKIKIT_MCP_SESSION_TTL_MS`         | `1800000` (30 min)                                                 |                                                             |
 | `WIKIKIT_MCP_MAX_SESSIONS`           | `200`                                                              |                                                             |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` | `300000` (5 min)                                                   | 10 s–30 min; no mutation after timeout                      |
 | `WIKIKIT_USAGE_TELEMETRY_ENABLED`    | `false`                                                            | opt-in privacy-bounded usage ledger                         |
 | `WIKIKIT_USAGE_HMAC_SECRET`          | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
 | `WIKIKIT_USAGE_RETENTION_DAYS`       | `90`                                                               | 31–365 days                                                 |

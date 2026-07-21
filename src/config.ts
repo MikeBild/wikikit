@@ -134,6 +134,8 @@ export interface Config {
   readonly trustProxy: boolean
   readonly mcpSessionTtlMs: number
   readonly mcpMaxSessions: number
+  /** Maximum time a synchronous native MCP review form may remain open. */
+  readonly mcpElicitationTimeoutMs?: number
   /** Privacy-bounded, product-local usage ledger; disabled unless explicitly enabled. */
   readonly usageTelemetryEnabled?: boolean
   /** Secret used only for product-local actor/session HMACs; required when telemetry is enabled. */
@@ -349,6 +351,10 @@ export function loadConfig(): Config {
     trustProxy: bool('WIKIKIT_TRUST_PROXY', false),
     mcpSessionTtlMs: integer('WIKIKIT_MCP_SESSION_TTL_MS', 30 * 60 * 1000, { min: 10_000, max: 24 * 3600 * 1000 }),
     mcpMaxSessions: integer('WIKIKIT_MCP_MAX_SESSIONS', 200, { min: 1, max: 10_000 }),
+    mcpElicitationTimeoutMs: integer('WIKIKIT_MCP_ELICITATION_TIMEOUT_MS', 5 * 60 * 1000, {
+      min: 10_000,
+      max: 30 * 60 * 1000,
+    }),
     usageTelemetryEnabled: bool('WIKIKIT_USAGE_TELEMETRY_ENABLED', false),
     usageHmacSecret: str('WIKIKIT_USAGE_HMAC_SECRET'),
     usageRetentionDays: integer('WIKIKIT_USAGE_RETENTION_DAYS', 90, { min: 31, max: 365 }),

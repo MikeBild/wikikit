@@ -32,6 +32,7 @@
 //     stability contract.
 import type { Db } from '../db/postgres.ts'
 import { NotFoundError, ValidationError } from '../domain/errors.ts'
+import type { ReviewChannel } from '../domain/proposals.ts'
 import { RELATION_KINDS, type RelationKind } from '../domain/relations.ts'
 import { isoString } from '../domain/sources.ts'
 import { extractTitle, parseFrontmatter, serializeFrontmatter } from '../markdown.ts'
@@ -98,6 +99,7 @@ export interface SnapshotLogEntry {
   action: 'Approved' | 'Rejected'
   title: string
   reviewer: string | null
+  review_channel: ReviewChannel | null
   model: string | null
   concepts: string[]
 }
@@ -331,6 +333,7 @@ function renderLog(snapshot: SpaceSnapshot): string {
     }
     const parts = [`- **${entry.action}**: ${entry.title}`]
     if (entry.reviewer) parts.push(`reviewer: ${entry.reviewer}`)
+    if (entry.review_channel) parts.push(`channel: ${entry.review_channel}`)
     if (entry.model) parts.push(`model: ${entry.model}`)
     if (entry.concepts.length) parts.push(`concepts: ${entry.concepts.map((slug) => `[[${slug}]]`).join(', ')}`)
     lines.push(parts.join(' — '))
@@ -512,10 +515,11 @@ export async function loadSpaceSnapshot(db: Db, spaceId: string): Promise<SpaceS
     status: 'approved' | 'rejected'
     title: string
     reviewer: string | null
+    review_channel: ReviewChannel | null
     reviewed_at: Date | string
     agent_meta: Record<string, unknown> | null
   }>(
-    `SELECT id, status, title, reviewer, reviewed_at, agent_meta
+    `SELECT id, status, title, reviewer, review_channel, reviewed_at, agent_meta
        FROM wk_change_proposals
       WHERE space_id = $1 AND status IN ('approved', 'rejected') AND reviewed_at IS NOT NULL
       ORDER BY reviewed_at DESC, id ASC`,
@@ -578,6 +582,7 @@ export async function loadSpaceSnapshot(db: Db, spaceId: string): Promise<SpaceS
       action: review.status === 'approved' ? ('Approved' as const) : ('Rejected' as const),
       title: review.title,
       reviewer: review.reviewer,
+      review_channel: review.review_channel,
       model: typeof review.agent_meta?.model === 'string' ? review.agent_meta.model : null,
       concepts: slugsByProposal.get(review.id) ?? [],
     })),

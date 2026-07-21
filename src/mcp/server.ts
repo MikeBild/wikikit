@@ -16,29 +16,32 @@
 //   - Guards before auth: Origin allowlist (DNS-rebinding defense) and
 //     mcp-protocol-version against the SDK's SUPPORTED_PROTOCOL_VERSIONS.
 //
-// WHY enableJsonResponse: true (a deliberate divergence from the usual MCP
-// setup): keeping every POST on an SSE stream is only needed when tools raise
-// mid-call elicitation (server→client requests need the originating POST's
-// stream). WikiKit has NO in-band elicitation BY DESIGN — the hard-won rule
-// is that approval elicitation gets ignored/auto-declined, so
-// approval lives on REST and every tool answers terminally. Long work is an
-// async-ack (wikikit_ingest → poll). With no server→client requests in a tool
-// call, buffered JSON responses are strictly simpler and bound every POST's
-// lifecycle. The standalone GET notification channel still streams and is
-// retain-tracked.
+// WHY enableJsonResponse is false: wikikit_review_proposal raises a native
+// elicitation/create request while its tools/call POST is in flight. MCP
+// requires that server→client request and the client's response to travel on
+// the originating SSE stream. Long ingest work remains async-ack + polling;
+// only the bounded human review keeps a tool call open.
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import {
   CallToolRequestSchema,
+  ErrorCode,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
+  McpError,
   ReadResourceRequestSchema,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { Config } from '../config.ts'
-import { DomainError, UnauthorizedError } from '../domain/errors.ts'
+import {
+  DomainError,
+  ElicitationFailedError,
+  ElicitationNotSupportedError,
+  ElicitationTimeoutError,
+  UnauthorizedError,
+} from '../domain/errors.ts'
 import type { Auth } from '../http/auth.ts'
 import { readDocsFile } from '../http/docs-embedded.ts'
 import type { RawHandler } from '../http/server.ts'
@@ -51,8 +54,14 @@ import {
   type McpSession,
   type SessionManager,
 } from './session-manager.ts'
-import { buildToolManifest, visibleTools, type Principal, type ToolDeps } from './tools.ts'
-import type { TrafficClass, UsageTelemetry } from '../usage.ts'
+import {
+  buildToolManifest,
+  visibleTools,
+  type McpToolExecutionContext,
+  type Principal,
+  type ToolDeps,
+} from './tools.ts'
+import type { TrafficClass, UsageOutcome, UsageTelemetry } from '../usage.ts'
 
 /**
  * The slice of src/http/auth.ts's Auth that MCP needs (CONTRACTS §5.4) —
@@ -157,7 +166,7 @@ Context: when a lifecycle hook has not already supplied WikiKit context, call wi
 
 Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, and wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. Use the spaces selected by wikikit_context and fetch full knowledge only when needed. These tools never invent — if the answer is not in the base, say so rather than filling the gap.
 
-Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:approve can use wikikit_proposals to inspect the full diff, then wikikit_review_proposal to explicitly approve or reject it. The review tool is an irreversible confirmed write: never call it without a human’s explicit decision. Do not tell the user their change is live until approval succeeds.
+Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:approve can use wikikit_proposals to inspect the full diff, then call wikikit_review_proposal with only the proposal id. WikiKit asks the human for approve/reject and an optional note through native MCP form elicitation; the agent must never supply or infer that decision. Decline, cancel, timeout, invalid form data, or a client without form elicitation leaves the proposal pending. Do not tell the user their change is live until approval succeeds.
 
 Only the tools your API key's scopes allow are listed. WikiKit's immutable, code-bundled system knowledge is available through wikikit_guide and the "wikikit://system/agent-guide" resource; it is separate from user spaces and needs no database seed or review. Read "wikikit://docs/llms.txt" for the full API and data model.`
 
@@ -233,15 +242,16 @@ export function createSessionServer(
     return { contents: [{ uri: resource!.uri, mimeType: 'text/plain', text }] }
   })
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const requestId = newRequestId()
     const name = request.params.name
     const started = Date.now()
     const args = request.params.arguments
-    const spaceSlug =
+    let spaceSlug =
       args && typeof args === 'object' && typeof (args as Record<string, unknown>).space === 'string'
         ? String((args as Record<string, unknown>).space)
         : null
+    let usageOutcome: UsageOutcome = 'success'
     const tool = visibleTools(principal.scopes).find((candidate) => candidate.name === name)
     if (!tool) {
       void deps.usage?.recordMcp({
@@ -265,9 +275,52 @@ export function createSessionServer(
       )
     }
     try {
+      const context: McpToolExecutionContext = {
+        async elicitForm(params) {
+          if (!server.getClientCapabilities()?.elicitation?.form) throw new ElicitationNotSupportedError()
+          const client = server.getClientVersion()
+          deps.logger.info('mcp form elicitation requested', {
+            tool: name,
+            request_id: requestId,
+            key_id: principal.keyId,
+            client_name: client?.name ?? null,
+            client_version: client?.version ?? null,
+          })
+          try {
+            const result = await server.elicitInput(params, {
+              relatedRequestId: extra.requestId,
+              signal: extra.signal,
+              timeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
+              maxTotalTimeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
+            })
+            deps.logger.info('mcp form elicitation completed', {
+              tool: name,
+              request_id: requestId,
+              key_id: principal.keyId,
+              action: result.action,
+            })
+            return result
+          } catch (error) {
+            // InvalidParams is handled by the review helper, which asks once
+            // more before producing a terminal invalid-response error.
+            if (error instanceof McpError && error.code === ErrorCode.InvalidParams) throw error
+            if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+              throw new ElicitationTimeoutError()
+            }
+            if (error instanceof DomainError) throw error
+            throw new ElicitationFailedError()
+          }
+        },
+        setOutcome(outcome) {
+          usageOutcome = outcome
+        },
+        setSpaceSlug(value) {
+          spaceSlug = value
+        },
+      }
       // Tools re-parse through their own zod schema inside execute — the
       // boundary rule holds even if a future caller bypasses dispatch.
-      const output = await tool.execute(deps, principal, request.params.arguments ?? {})
+      const output = await tool.execute(deps, principal, request.params.arguments ?? {}, context)
       const resultCount = (() => {
         if (!output || typeof output !== 'object') return undefined
         const value = output as Record<string, unknown>
@@ -282,6 +335,7 @@ export function createSessionServer(
         sessionId: sessionId(),
         spaceSlug,
         toolName: name,
+        outcome: usageOutcome,
         resultCount,
         durationMs: Date.now() - started,
         trafficClass,
@@ -294,7 +348,12 @@ export function createSessionServer(
         sessionId: sessionId(),
         spaceSlug,
         toolName: name,
-        outcome: error instanceof DomainError && error.statusCode < 500 ? 'client_error' : 'server_error',
+        outcome:
+          error instanceof DomainError && error.code === 'elicitation_timeout'
+            ? 'timeout'
+            : error instanceof DomainError && error.statusCode < 500
+              ? 'client_error'
+              : 'server_error',
         durationMs: Date.now() - started,
         trafficClass,
       })
@@ -454,8 +513,8 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
       const leaseRef: { current?: McpSession } = {}
       const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        // See header WHY — no in-band elicitation, so buffered JSON is safe.
-        enableJsonResponse: true,
+        // See header WHY — the review form needs the originating POST stream.
+        enableJsonResponse: false,
         onsessioninitialized: (sid) => {
           if (!leaseRef.current) {
             // Unreachable given the SDK's call order; fail closed (the

@@ -11,6 +11,7 @@ import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { cleanupOAuthRows } from '../../src/oauth/cleanup.ts'
 import { hashApiKey } from '../../src/http/auth.ts'
+import { readMcpJson } from '../helpers/mcp.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
 const it = integration ? test : test.skip
@@ -221,7 +222,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       }),
     })
     expect(initialized.status).toBe(200)
-    expect(((await initialized.json()) as { result: { serverInfo: { name: string } } }).result.serverInfo.name).toBe(
+    expect((await readMcpJson<{ result: { serverInfo: { name: string } } }>(initialized)).result.serverInfo.name).toBe(
       'wikikit',
     )
 

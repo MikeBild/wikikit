@@ -90,6 +90,7 @@ const PROPOSAL_ROW = {
   agent_meta: AGENT_META,
   reviewer: null,
   review_note: null,
+  review_channel: null,
   reviewed_at: null,
   created_at: NOW,
 }
@@ -236,10 +237,13 @@ function stubDb(): Db {
             concepts: ['wikikit'],
             claims_verified: 1,
             claims_disputed: 0,
+            review_channel: 'rest',
           },
         ] as R[]
       }
-      if (fn === 'wk_reject_proposal') return [{ proposal_id: PROPOSAL_ID, status: 'rejected' }] as R[]
+      if (fn === 'wk_reject_proposal') {
+        return [{ proposal_id: PROPOSAL_ID, status: 'rejected', review_channel: 'rest' }] as R[]
+      }
       throw new Error(`unexpected db.call(${fn})`)
     },
 

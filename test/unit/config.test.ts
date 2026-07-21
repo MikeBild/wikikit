@@ -37,6 +37,7 @@ const MANAGED = [
   'WIKIKIT_TRUST_PROXY',
   'WIKIKIT_MCP_SESSION_TTL_MS',
   'WIKIKIT_MCP_MAX_SESSIONS',
+  'WIKIKIT_MCP_ELICITATION_TIMEOUT_MS',
   'WIKIKIT_USAGE_TELEMETRY_ENABLED',
   'WIKIKIT_USAGE_HMAC_SECRET',
   'WIKIKIT_USAGE_RETENTION_DAYS',
@@ -93,6 +94,7 @@ describe('zero-config dev defaults', () => {
     const config = loadConfig()
     expect(config.usageTelemetryEnabled).toBe(false)
     expect(config.usageRetentionDays).toBe(90)
+    expect(config.mcpElicitationTimeoutMs).toBe(300_000)
   })
 })
 
@@ -129,6 +131,13 @@ describe('validation', () => {
   test('rejects non-numeric integers', () => {
     process.env.WIKIKIT_MAX_BODY_BYTES = 'lots'
     expect(() => loadConfig()).toThrow(/WIKIKIT_MAX_BODY_BYTES/)
+  })
+
+  test('bounds the MCP human review window', () => {
+    process.env.WIKIKIT_MCP_ELICITATION_TIMEOUT_MS = '45000'
+    expect(loadConfig().mcpElicitationTimeoutMs).toBe(45_000)
+    process.env.WIKIKIT_MCP_ELICITATION_TIMEOUT_MS = '9999'
+    expect(() => loadConfig()).toThrow(/WIKIKIT_MCP_ELICITATION_TIMEOUT_MS/)
   })
 
   test('requires enough lease headroom for two heartbeat intervals', () => {

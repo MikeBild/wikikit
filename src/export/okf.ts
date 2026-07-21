@@ -176,6 +176,7 @@ function renderOkfLog(snapshot: SpaceSnapshot): string {
     const links = entry.concepts.map((slug) => `[${slug}](/concepts/${slug}.md)`).join(', ')
     const parts = [`* **${entry.action}**: ${entry.title}`]
     if (entry.reviewer) parts.push(`reviewer ${entry.reviewer}`)
+    if (entry.review_channel) parts.push(`channel ${entry.review_channel}`)
     if (entry.model) parts.push(`model ${entry.model}`)
     if (links) parts.push(`concepts ${links}`)
     lines.push(parts.join(' — '))

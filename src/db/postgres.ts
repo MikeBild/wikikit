@@ -81,20 +81,20 @@ interface FnSpec {
 }
 
 function reviewArgs(fn: string, args: unknown[]): unknown[] {
-  if (args.length < 2 || args.length > 3) {
-    throw new Error(`${fn} expects [proposal_id, reviewer, note?] — got ${args.length} args`)
+  if (args.length < 2 || args.length > 4) {
+    throw new Error(`${fn} expects [proposal_id, reviewer, note?, review_channel?] — got ${args.length} args`)
   }
-  return [args[0], args[1], args[2] ?? null]
+  return [args[0], args[1], args[2] ?? null, args[3] ?? 'rest']
 }
 
 const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
   wk_apply_proposal: {
-    sql: 'SELECT public.wk_apply_proposal($1, $2, $3) AS result',
+    sql: 'SELECT public.wk_apply_proposal($1, $2, $3, $4) AS result',
     normalize: (args) => reviewArgs('wk_apply_proposal', args),
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },
   wk_reject_proposal: {
-    sql: 'SELECT public.wk_reject_proposal($1, $2, $3) AS result',
+    sql: 'SELECT public.wk_reject_proposal($1, $2, $3, $4) AS result',
     normalize: (args) => reviewArgs('wk_reject_proposal', args),
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },

@@ -63,7 +63,10 @@ copy or execute SQL files. A migration failure aborts startup and keeps
   origin (it feeds the MCP Origin allowlist).
 - **Scoped keys, not the bootstrap key:** mint separate `knowledge:read`,
   `knowledge:propose` and `knowledge:approve` keys via `POST /v1/api-keys`;
-  never hand the approve scope to an autonomous agent.
+  never hand the approve scope to an autonomous agent. A review host must
+  support native MCP form elicitation; set
+  `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` only when the five-minute default is
+  unsuitable.
 - **SSRF guard on:** leave `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` unset (production
   default `false`) so webhook deliveries cannot reach private/loopback
   targets.
@@ -120,7 +123,11 @@ into place atomically (keep a `.prev` for rollback), restart the unit, then
 gate on `/ready` returning `ready` **and** the new version within 90 s —
 otherwise restore `.prev` and restart. Smoke-test `/health`, `/ready`,
 `/openapi.json`, `/llms.txt`, a 401-without-key, an authenticated read and an
-MCP initialize.
+MCP initialize. For this release, also run a native review-form canary against
+a disposable pending proposal: inspect the full diff, cancel once and prove it
+remains pending, then accept once and prove the proposal plus webhook payload
+record `review_channel: "mcp_elicitation"`. A client without form capability
+must receive `elicitation_not_supported` and perform no mutation.
 
 ## Logging & metrics
 
@@ -144,6 +151,22 @@ stats resources. Confirm exact release version, `sampled:false`,
 identity counts for anonymous traffic. A rollback can disable the ledger
 without dropping its migration or breaking the operational stats APIs.
 
+### Interactive-review compatibility canary
+
+Gate MCP HITL support per deployed client, not by product name alone:
+
+- Codex: configure `approval_policy = { granular = { mcp_elicitations = true } }`
+  and `approvals_reviewer = "user"`; run cancel and accept canaries.
+- Claude Code: require 2.1.76 or newer; run the same canaries.
+- ChatGPT: reconnect/rescan after deployment and treat support as conditional
+  until the connector advertises form elicitation and passes the canaries.
+
+The server must remain fail-closed for every unsupported client. REST is the
+trusted-human fallback. Rollback to v0.4 remains schema-compatible because the
+new review column is nullable and the public SQL functions retain their
+three-argument call shape through defaults; v0.4 simply does not populate the
+new provenance field.
+
 ## Release pipeline
 
 CI runs lint → typecheck → unit (incl. drift gates) + contract → integration
@@ -151,7 +174,7 @@ CI runs lint → typecheck → unit (incl. drift gates) + contract → integrati
 binary. The same checks run locally via `bun run gate`, and as a `pre-push`
 hook after `bun run hooks:install` — so a red CI run should be a surprise.
 
-Pushing a SemVer tag matching `package.json` (e.g. `v0.1.0`) builds the
+Pushing a SemVer tag matching `package.json` (for this change, `v0.5.0`) builds the
 per-platform binaries via `build-binary.sh` and publishes them with
 `SHA256SUMS` as a GitHub release. Continuous deployment then ships the binary,
 restarts the unit and runs the smoke + e2e suites against the live instance.
@@ -163,3 +186,9 @@ version `/ready` reports, and rolls forward on a mismatch — which is why the
 tag → `package.json` → compiled-binary version chain (enforced by
 `verify-tag` in the release workflow) is load-bearing: it is the only thing the
 health gate can match on. Anyone can consume a release the same way.
+
+The v0.5.0 release is complete only after the pull-based production deployer
+reports `/ready` version `0.5.0` and the review compatibility canaries above
+pass in production. Record client/version, capability result, cancel result,
+accepted proposal id, persisted `review_channel`, webhook evidence, timestamp
+and operator. A published tag alone is not production verification.

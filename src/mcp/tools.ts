@@ -22,7 +22,13 @@ import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
-import { ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../domain/errors.ts'
+import {
+  ConflictError,
+  ElicitationNotSupportedError,
+  ForbiddenError,
+  LlmNotConfiguredError,
+  NotFoundError,
+} from '../domain/errors.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { lintSpace } from '../domain/lint.ts'
 import {
@@ -39,6 +45,8 @@ import { zIngestInput, type IngestPipeline } from '../ingest/pipeline.ts'
 import { readDocsFile } from '../http/docs-embedded.ts'
 import { search } from '../query/search.ts'
 import { zodToJsonSchema7 } from './json-schema.ts'
+import { elicitProposalReview, type ElicitForm } from './elicitation.ts'
+import type { UsageOutcome } from '../usage.ts'
 
 /**
  * The Principal resolved by src/http/auth.ts (CONTRACTS §5.4) — re-exported
@@ -75,13 +83,20 @@ export interface ToolDeps {
   ingest: IngestPipeline
 }
 
+/** Request-local MCP features supplied by server.ts. Ordinary tools ignore it. */
+export interface McpToolExecutionContext {
+  elicitForm: ElicitForm
+  setOutcome(outcome: UsageOutcome): void
+  setSpaceSlug(spaceSlug: string): void
+}
+
 export interface McpToolDef {
   name: string
   description: string
   scope: ToolScope
   inputSchema: z.ZodType
   annotations: ToolAnnotations
-  execute(deps: ToolDeps, principal: Principal, input: unknown): Promise<unknown>
+  execute(deps: ToolDeps, principal: Principal, input: unknown, context?: McpToolExecutionContext): Promise<unknown>
 }
 
 // ---------------------------------------------------------------------------
@@ -161,12 +176,12 @@ export const zProposalsToolInput = z.object({
   limit: z.number().int().min(1).max(200).optional().describe('Max summaries when proposal_id is omitted'),
 })
 
-/** A review decision is intentionally explicit and must follow a full diff read. */
-export const zReviewProposalToolInput = z.object({
-  proposal_id: z.uuid().describe('Pending proposal id returned by wikikit_proposals'),
-  decision: z.enum(['approve', 'reject']).describe('The human reviewer’s final decision'),
-  note: z.string().max(4000).optional().describe('Optional auditable review rationale'),
-})
+/** The agent selects the proposal; only native elicitation may supply the decision. */
+export const zReviewProposalToolInput = z
+  .object({
+    proposal_id: z.uuid().describe('Pending proposal id returned by wikikit_proposals'),
+  })
+  .strict()
 
 // ---------------------------------------------------------------------------
 
@@ -552,21 +567,42 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_review_proposal',
     description:
-      'Irreversibly approve or reject one pending ChangeProposal after the human has reviewed it with wikikit_proposals. ' +
-      'Requires knowledge:approve and triggers an MCP write confirmation. Never call this without an explicit human decision.',
+      'Start a native MCP human review for one pending ChangeProposal after inspecting it with wikikit_proposals. ' +
+      'The human chooses approve or reject and writes the optional audit note in the elicitation form; the agent cannot supply either. ' +
+      'Requires knowledge:approve and an elicitation.form-capable client. Decline, cancel, timeout, or missing capability never mutate knowledge.',
     scope: 'knowledge:approve',
     inputSchema: zReviewProposalToolInput,
     annotations: REVIEW_ANNOTATIONS,
-    async execute(deps, principal, input) {
+    async execute(deps, principal, input, context) {
       const args = zReviewProposalToolInput.parse(input)
       const proposal = await getProposal(deps.db, { id: args.proposal_id })
       if (principal.spaceId && principal.spaceId !== proposal.space_id) {
         throw new ForbiddenError('proposal belongs to a different space')
       }
-      if (args.decision === 'approve') {
-        return approveProposal(deps.db, { id: args.proposal_id, reviewer: principal.name, note: args.note })
+      if (proposal.status !== 'pending') {
+        throw new ConflictError('proposal_not_pending', 'proposal has already been reviewed', {
+          nextBestActions: ['call wikikit_proposals with proposal_id to inspect its terminal status'],
+        })
       }
-      return rejectProposal(deps.db, { id: args.proposal_id, reviewer: principal.name, note: args.note })
+      if (!context) throw new ElicitationNotSupportedError()
+      context.setSpaceSlug(proposal.space)
+
+      const review = await elicitProposalReview(context.elicitForm, toProposalWire(proposal))
+      if (review.action !== 'accept') {
+        context.setOutcome(review.action === 'decline' ? 'rejected' : 'cancelled')
+        return { proposal_id: proposal.id, outcome: review.action, mutation_applied: false }
+      }
+
+      const common = {
+        id: proposal.id,
+        reviewer: principal.name,
+        note: review.content.note,
+        reviewChannel: 'mcp_elicitation' as const,
+      }
+      if (review.content.decision === 'approve') {
+        return approveProposal(deps.db, common)
+      }
+      return rejectProposal(deps.db, common)
     },
   },
 ]

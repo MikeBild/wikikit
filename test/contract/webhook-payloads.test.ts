@@ -62,6 +62,7 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     space: 'demo',
     reviewer: 'mike',
     note: 'source is newer',
+    review_channel: 'mcp_elicitation',
     concepts: ['open-knowledge-format'],
   },
   'wikikit.proposal.rejected': {
@@ -69,6 +70,7 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     space: 'demo',
     reviewer: 'mike',
     note: null,
+    review_channel: 'rest',
   },
   'wikikit.concept.updated': {
     space: 'demo',
@@ -120,6 +122,10 @@ describe('example payloads conform', () => {
 //     shipping a silently-drifted wire payload.
 
 const MIGRATION_SQL = readFileSync(new URL('../../src/db/migrations/0000_wk_baseline.sql', import.meta.url), 'utf8')
+const REVIEW_CHANNEL_SQL = readFileSync(
+  new URL('../../src/db/migrations/0010_wk_review_channel.sql', import.meta.url),
+  'utf8',
+)
 
 /** Keys of the FIRST jsonb_build_object following the event-type literal. */
 function sqlPayloadKeys(eventType: string): string[] {
@@ -142,7 +148,15 @@ function sqlPayloadKeys(eventType: string): string[] {
   if (end < 0) throw new Error(`unbalanced jsonb_build_object after ${eventType}`)
   // Keys are the quoted-identifier-comma pairs; values are columns/params and
   // never match this pattern.
-  return [...MIGRATION_SQL.slice(start, end).matchAll(/'([a-z_]+)'\s*,/g)].map((match) => match[1]!).sort()
+  const keys = new Set([...MIGRATION_SQL.slice(start, end).matchAll(/'([a-z_]+)'\s*,/g)].map((match) => match[1]!))
+  if (
+    (eventType === 'wikikit.proposal.approved' || eventType === 'wikikit.proposal.rejected') &&
+    REVIEW_CHANNEL_SQL.includes(`event_type = '${eventType}'`) &&
+    REVIEW_CHANNEL_SQL.includes("jsonb_build_object('review_channel'")
+  ) {
+    keys.add('review_channel')
+  }
+  return [...keys].sort()
 }
 
 describe('SQL-built outbox payloads match the zod contracts (key drift check)', () => {

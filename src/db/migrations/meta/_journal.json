@@ -61,6 +61,12 @@
       "tag": "0009_wk_usage_telemetry",
       "when": 1784589600000,
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "tag": "0010_wk_review_channel",
+      "when": 1784616713000,
+      "breakpoints": true
     }
   ]
 }

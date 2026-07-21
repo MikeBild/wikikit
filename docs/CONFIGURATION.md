@@ -43,6 +43,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_TRUST_PROXY`                | Trust `X-Forwarded-*` headers (only behind a trusted reverse proxy)                                            | `false`                                                            |
 | `WIKIKIT_MCP_SESSION_TTL_MS`         | Idle TTL for MCP sessions (sessions are leases, swept when idle)                                               | `1800000` (30 min)                                                 |
 | `WIKIKIT_MCP_MAX_SESSIONS`           | MCP session hard cap; oldest-idle sessions are evicted at the cap                                              | `200`                                                              |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` | Maximum native MCP review-form wait; timeout fails closed before mutation (10 s–30 min)                        | `300000` (5 min)                                                   |
 | `WIKIKIT_USAGE_TELEMETRY_ENABLED`    | Enable the privacy-bounded product usage ledger                                                                | `false`                                                            |
 | `WIKIKIT_USAGE_HMAC_SECRET`          | Independent secret for product-local actor/session HMACs; required when telemetry is enabled                   | (unset)                                                            |
 | `WIKIKIT_USAGE_RETENTION_DAYS`       | Raw usage event retention (31–365 days)                                                                        | `90`                                                               |
@@ -76,8 +77,11 @@ remote client has completed OAuth discovery and PKCE:
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
 request. It defaults to `knowledge:read,knowledge:propose`. Add
 `knowledge:approve` only for trusted human reviewers; a client must still ask
-for that scope and the consent page displays it. `admin` is never issued to an
-interactive OAuth identity.
+for that scope and the consent page displays it. Scope merely exposes the MCP
+review tool: WikiKit still collects the actual decision from a human through
+native form elicitation and fails closed if the client cannot do so. REST
+reviews remain an explicit human-operated fallback. `admin` is never issued
+to an interactive OAuth identity.
 
 `WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array. Each provider requires an HTTPS
 issuer, client id and stable id; `allowed_emails` and `allowed_scopes` override

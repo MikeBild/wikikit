@@ -997,7 +997,12 @@ export const HANDLERS: Record<string, Handler> = {
     const note = (input.body as { note?: string } | undefined)?.note
     // Reviewer identity = the key's name: the audit trail names WHO approved,
     // and the key name is the only identity a headless system has.
-    const result = await approveProposal(deps.db, { id: detail.id, reviewer: input.principal!.name, note })
+    const result = await approveProposal(deps.db, {
+      id: detail.id,
+      reviewer: input.principal!.name,
+      note,
+      reviewChannel: 'rest',
+    })
     return { status: 200, body: result }
   },
 
@@ -1005,7 +1010,12 @@ export const HANDLERS: Record<string, Handler> = {
     const detail = await getProposal(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
     const note = (input.body as { note?: string } | undefined)?.note
-    const result = await rejectProposal(deps.db, { id: detail.id, reviewer: input.principal!.name, note })
+    const result = await rejectProposal(deps.db, {
+      id: detail.id,
+      reviewer: input.principal!.name,
+      note,
+      reviewChannel: 'rest',
+    })
     return { status: 200, body: result }
   },
 

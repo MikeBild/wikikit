@@ -84,10 +84,19 @@ function richSnapshot(): SpaceSnapshot {
         action: 'Approved',
         title: 'Import bundle',
         reviewer: 'mike',
+        review_channel: 'rest',
         model: 'claude-sonnet-5',
         concepts: ['okf'],
       },
-      { date: '2026-07-01', action: 'Rejected', title: 'Stale note', reviewer: null, model: null, concepts: [] },
+      {
+        date: '2026-07-01',
+        action: 'Rejected',
+        title: 'Stale note',
+        reviewer: null,
+        review_channel: null,
+        model: null,
+        concepts: [],
+      },
     ],
   }
 }

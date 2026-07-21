@@ -15,7 +15,7 @@
 import { z } from 'zod'
 import { zCaptureSessionArgs } from '../agent/sessions.ts'
 import { zClaimTriple } from '../domain/claims.ts'
-import { zCreateProposalArgs } from '../domain/proposals.ts'
+import { REVIEW_CHANNELS, zCreateProposalArgs } from '../domain/proposals.ts'
 import { zIngestInput } from '../ingest/acquire.ts'
 import { WEBHOOK_EVENT_TYPES } from '../webhooks.ts'
 
@@ -328,6 +328,8 @@ export const zQueryResponse = z.object({
 // Proposals
 // ---------------------------------------------------------------------------
 
+export const zReviewChannel = z.enum(REVIEW_CHANNELS)
+
 export const zProposalListResponse = z.object({
   items: z.array(
     z.object({
@@ -337,6 +339,7 @@ export const zProposalListResponse = z.object({
       summary: z.string(),
       created_at: z.string(),
       reviewer: z.string().nullable(),
+      review_channel: zReviewChannel.nullable(),
       reviewed_at: z.string().nullable(),
     }),
   ),
@@ -363,6 +366,7 @@ export const zProposalDetailResponse = z.object({
   created_at: z.string(),
   reviewer: z.string().nullable(),
   review_note: z.string().nullable(),
+  review_channel: zReviewChannel.nullable(),
   reviewed_at: z.string().nullable(),
   source_ids: z.array(z.uuid()),
   agent_meta: z.record(z.string(), z.unknown()),
@@ -399,8 +403,9 @@ export const zProposalReviewResponse = z.discriminatedUnion('status', [
     concepts: z.array(z.string()),
     claims_verified: z.number().int(),
     claims_disputed: z.number().int(),
+    review_channel: zReviewChannel,
   }),
-  z.object({ proposal_id: z.uuid(), status: z.literal('rejected') }),
+  z.object({ proposal_id: z.uuid(), status: z.literal('rejected'), review_channel: zReviewChannel }),
 ])
 
 // ---------------------------------------------------------------------------

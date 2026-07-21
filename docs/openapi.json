@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:approve | admin. MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2824,9 +2824,21 @@
                 "summary": { "type": "string" },
                 "created_at": { "type": "string" },
                 "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "review_channel": {
+                  "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation"] }, { "type": "null" }]
+                },
                 "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
               },
-              "required": ["id", "status", "title", "summary", "created_at", "reviewer", "reviewed_at"],
+              "required": [
+                "id",
+                "status",
+                "title",
+                "summary",
+                "created_at",
+                "reviewer",
+                "review_channel",
+                "reviewed_at"
+              ],
               "additionalProperties": false
             }
           }
@@ -2973,6 +2985,9 @@
           "created_at": { "type": "string" },
           "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "review_note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "review_channel": {
+            "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation"] }, { "type": "null" }]
+          },
           "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "source_ids": {
             "type": "array",
@@ -3080,6 +3095,7 @@
           "created_at",
           "reviewer",
           "review_note",
+          "review_channel",
           "reviewed_at",
           "source_ids",
           "agent_meta",
@@ -3106,9 +3122,10 @@
               "status": { "type": "string", "const": "approved" },
               "concepts": { "type": "array", "items": { "type": "string" } },
               "claims_verified": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-              "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+              "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
             },
-            "required": ["proposal_id", "status", "concepts", "claims_verified", "claims_disputed"],
+            "required": ["proposal_id", "status", "concepts", "claims_verified", "claims_disputed", "review_channel"],
             "additionalProperties": false
           },
           {
@@ -3119,9 +3136,10 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
-              "status": { "type": "string", "const": "rejected" }
+              "status": { "type": "string", "const": "rejected" },
+              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
             },
-            "required": ["proposal_id", "status"],
+            "required": ["proposal_id", "status", "review_channel"],
             "additionalProperties": false
           }
         ]

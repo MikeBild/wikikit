@@ -57,7 +57,15 @@ function demoSnapshot(): SpaceSnapshot {
       },
     ],
     log: [
-      { date: '2026-07-01', action: 'Approved', title: 'Import', reviewer: 'mike', model: null, concepts: ['okf'] },
+      {
+        date: '2026-07-01',
+        action: 'Approved',
+        title: 'Import',
+        reviewer: 'mike',
+        review_channel: 'rest',
+        model: null,
+        concepts: ['okf'],
+      },
     ],
   }
 }
