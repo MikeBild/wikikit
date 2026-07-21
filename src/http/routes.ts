@@ -61,7 +61,7 @@ import { buildOpenApi } from './openapi.ts'
 import { readDocsFile } from './docs-embedded.ts'
 import { markUsageContext, type UsageTelemetry } from '../usage.ts'
 
-export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
+export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
 
 export interface RouteDef {
   method: 'get' | 'post' | 'delete'

@@ -14,7 +14,13 @@ import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
 import { verifyFirebaseIdToken } from './firebase.ts'
 import { finishOidcLogin, startOidcLogin } from './oidc.ts'
 
-const OAUTH_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:approve', 'offline_access'] as const
+const OAUTH_SCOPES = [
+  'knowledge:read',
+  'knowledge:propose',
+  'knowledge:review',
+  'knowledge:approve',
+  'offline_access',
+] as const
 // A client must opt in to the review right. Adding support must never silently
 // turn existing read/propose integrations into approvers on reconnect.
 const DEFAULT_SCOPE = 'knowledge:read knowledge:propose offline_access'
@@ -848,7 +854,10 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             if (principal.keyId.startsWith('oauth:')) throw new Error('an operator API key is required')
             for (const scope of loaded.scopes) {
               if (scope !== 'offline_access')
-                deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve')
+                deps.auth.requireScope(
+                  principal,
+                  scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve',
+                )
             }
           } catch {
             return consentPage({
@@ -863,7 +872,10 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         }
         for (const scope of loaded.scopes)
           if (scope !== 'offline_access')
-            deps.auth.requireScope(principal, scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve')
+            deps.auth.requireScope(
+              principal,
+              scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve',
+            )
         // Request-boundary PKCE guard for BOTH branches: whether the challenge
         // came from the consent form (re-validated by loadAuthorizationRequest)
         // or a stored login state (possibly written by an older binary without

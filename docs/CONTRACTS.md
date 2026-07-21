@@ -226,7 +226,7 @@ CREATE TABLE wk_api_keys (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name         text NOT NULL,
   key_hash     text NOT NULL UNIQUE,                 -- hex HMAC-SHA256(pepper, full key string)
-  scopes       text[] NOT NULL,                      -- subset of {'knowledge:read','knowledge:propose','knowledge:approve','admin','*'}
+  scopes       text[] NOT NULL,                      -- subset of {'knowledge:read','knowledge:propose','knowledge:review','knowledge:approve','admin','*'}
   space_id     uuid REFERENCES wk_spaces(id) ON DELETE CASCADE,  -- NULL = all spaces
   created_at   timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
@@ -834,7 +834,7 @@ Single source of truth — handlers, OpenAPI, drift tests and llms.txt all deriv
 from this array.
 
 ```ts
-export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve' | 'admin'
+export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
 
 export interface RouteDef {
   method: 'get' | 'post'
@@ -937,7 +937,10 @@ Notes binding all builders:
   via `getSpaceBySlug` and pass `space.id` down as `spaceId`.
 - A space-scoped key (`wk_api_keys.space_id` set) may only touch that space →
   otherwise 403 `insufficient_scope`. `'*'` and `admin` scopes imply all
-  knowledge scopes; `admin` does not imply `'*'`.
+  knowledge scopes; `admin` does not imply `'*'`. `knowledge:approve` implies
+  `knowledge:review` (the inspect/start-review subset); the reverse never
+  holds — `knowledge:approve` stays the human-operator credential for the
+  REST approve/reject endpoints.
 - Request IDs: 12-hex `x-request-id` response header on every response; the
   same id appears in the error envelope and logs.
 - Pagination is keyset: `?limit=&after=` (opaque cursor), response carries
@@ -978,7 +981,9 @@ export const zQueryRequest = z.object({
 export const zReviewRequest = z.object({ note: z.string().max(2000).optional() }).default({})
 export const zCreateApiKeyRequest = z.object({
   name: z.string().min(1).max(200),
-  scopes: z.array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:approve', 'admin'])).min(1),
+  scopes: z
+    .array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve', 'admin']))
+    .min(1),
   space: z.string().optional(), // space slug; omitted = all spaces
 })
 ```
@@ -1180,8 +1185,11 @@ SAME zod objects as REST (via `toJsonSchemaCompat` → draft-07 with
 `additionalProperties: false`).
 
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose scope
-the key holds. `knowledge:approve` exposes proposal inspection and the
-destructive, non-idempotent review tool. The tool input contains only the
+the key holds. `knowledge:review` (implied by `knowledge:approve`) exposes
+proposal inspection and the destructive, non-idempotent review tool; the REST
+approve/reject endpoints still demand `knowledge:approve`, so an agent key
+minted with `knowledge:review` can start the MCP review (where the human owns
+the decision) but cannot approve over HTTP. The tool input contains only the
 proposal id; agent-supplied `decision`/`note` input is refused with
 `approval_requires_human` before schema validation. WikiKit requests the
 decision and optional note from the human in a native MCP form. The agent
@@ -1217,10 +1225,10 @@ email allow-list. The hosted page is never an arbitrary token relay.
 
 The consent form has CSRF protection and persists only the minimum provider
 identity, never an API key or an ID token. Interactive OAuth identities can
-receive only `knowledge:read`, `knowledge:propose`, `knowledge:approve` and
-`offline_access`: every requested knowledge scope must be within the global or
-per-provider allowed-scope ceiling, and `knowledge:approve` is never granted
-by default. `admin` is never issued through an interactive OAuth identity.
+receive only `knowledge:read`, `knowledge:propose`, `knowledge:review`,
+`knowledge:approve` and `offline_access`: every requested knowledge scope must
+be within the global or per-provider allowed-scope ceiling, and
+`knowledge:approve` is never granted by default. `admin` is never issued through an interactive OAuth identity.
 Clients retain their issued scope set; adding an MCP tool or scope requires a
 fresh connector scan/reconnect rather than silently elevating an old grant.
 
@@ -1262,8 +1270,8 @@ audience they are written for.
 | `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                                                               | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks)                                                                                                                                                                                                                       | `false`  | `true`      | `true`     | `true`    |
 | `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                                                                       | `zIngestStatusResponse` shape (§5.3)                                                                                                                                                                                                                                                                                    | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                                                    | `{ proposal_id, status: 'pending' }`                                                                                                                                                                                                                                                                                    | `false`  | `true`      | `true`     | `false`   |
-| `wikikit_proposals`       | knowledge:approve | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                                                      | summaries, or one complete public proposal diff including staged decisions                                                                                                                                                                                                                                              | `true`   | `false`     | `true`     | `false`   |
-| `wikikit_review_proposal` | knowledge:approve | `{ proposal_id: uuid }` only; decision + optional note are human form fields; `decision`/`note` as input → `approval_requires_human` | accepted: approved/rejected result with `review_channel:'mcp_elicitation'`; declined/cancelled: `{ proposal_id, outcome, mutation_applied:false }`; no form capability: `{ proposal_id, status:'pending', outcome:'human_review_required', mutation_applied:false, poll_with:'wikikit_proposals', agent_instructions }` | `false`  | `true`      | `false`    | `false`   |
+| `wikikit_proposals`       | knowledge:review  | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                                                      | summaries, or one complete public proposal diff including staged decisions                                                                                                                                                                                                                                              | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_review_proposal` | knowledge:review  | `{ proposal_id: uuid }` only; decision + optional note are human form fields; `decision`/`note` as input → `approval_requires_human` | accepted: approved/rejected result with `review_channel:'mcp_elicitation'`; declined/cancelled: `{ proposal_id, outcome, mutation_applied:false }`; no form capability: `{ proposal_id, status:'pending', outcome:'human_review_required', mutation_applied:false, poll_with:'wikikit_proposals', agent_instructions }` | `false`  | `true`      | `false`    | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
 per the hard-won MCP rule ("never destructiveHint:false on real writes") even though

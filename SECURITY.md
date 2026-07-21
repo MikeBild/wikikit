@@ -26,8 +26,12 @@ Only the latest release receives security fixes.
   modes by design.
 - **The review gate is the safety boundary for agent writes.** Keys with
   `knowledge:propose` can only _stage_ content; nothing becomes visible
-  knowledge without a `knowledge:approve` action. The MCP tool palette
-  deliberately contains no approve tool.
+  knowledge without a human review. The MCP tool palette deliberately
+  contains no tool through which an agent can supply the approve/reject
+  decision: `wikikit_review_proposal` (scope `knowledge:review`) collects it
+  from the human via native form elicitation, and the REST approve/reject
+  endpoints require `knowledge:approve` — a scope agent keys should never
+  hold.
 - **Ingested URLs are fetched by the server.** Treat the `knowledge:propose`
   scope accordingly: a proposer can make WikiKit issue outbound HTTP requests
   to arbitrary hosts (the acquired content still only lands in the staging
@@ -58,7 +62,9 @@ Only the latest release receives security fixes.
   proxy (Caddy, nginx) that terminates TLS; set `WIKIKIT_TRUST_PROXY=1` only
   behind a trusted proxy.
 - Mint scoped, space-scoped keys instead of sharing the bootstrap `*` key;
-  never give the `knowledge:approve` scope to an autonomous agent.
+  never give the `knowledge:approve` scope to an autonomous agent — use
+  `knowledge:review` when it should inspect proposals and start the
+  human-decided MCP review.
 - Verify the Standard Webhooks signature (`webhook-signature: v1,<HMAC>` over
   `id.timestamp.body`, plus a timestamp window) at every receiver. Accepting
   unsigned deliveries is not acceptable.

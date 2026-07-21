@@ -71,6 +71,7 @@ export function generateApiKey(): string {
 const VALID_SCOPES: ReadonlySet<string> = new Set([
   'knowledge:read',
   'knowledge:propose',
+  'knowledge:review',
   'knowledge:approve',
   'admin',
   '*',
@@ -228,8 +229,13 @@ export function createAuth(config: Config, db: Db): Auth {
       const scopes = principal.scopes
       // '*' implies everything. 'admin' implies all knowledge scopes but NOT
       // '*' (§5.2 note) — the distinction only matters for future scopes, but
-      // encoding it now keeps the rule honest.
-      const has = scopes.includes('*') || scopes.includes(scope) || (scope !== 'admin' && scopes.includes('admin'))
+      // encoding it now keeps the rule honest. 'knowledge:approve' implies
+      // 'knowledge:review' (review is the inspect subset of approve).
+      const has =
+        scopes.includes('*') ||
+        scopes.includes(scope) ||
+        (scope !== 'admin' && scopes.includes('admin')) ||
+        (scope === 'knowledge:review' && scopes.includes('knowledge:approve'))
       if (!has) throw new ForbiddenError(`this key lacks the ${scope} scope`)
       if (spaceId && principal.spaceId && principal.spaceId !== spaceId) {
         throw new ForbiddenError('this key is scoped to a different space')

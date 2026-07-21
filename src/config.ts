@@ -159,7 +159,7 @@ export interface Config {
   /** Explicit global allow-list; a configured identity provider alone never grants WikiKit access. */
   readonly oauthAllowedEmails?: string[]
   /** Maximum permissions that an interactive identity can receive. */
-  readonly oauthAllowedScopes?: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'>
+  readonly oauthAllowedScopes?: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
   /** Independently configured standard OIDC providers (Google, Microsoft, Okta, Keycloak, …). */
   readonly oauthOidcProviders?: OidcProviderConfig[]
   readonly logLevel: string
@@ -179,10 +179,10 @@ export interface OidcProviderConfig {
   readonly clientSecret?: string
   readonly scopes: string
   readonly allowedEmails: string[]
-  readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'>
+  readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
 }
 
-const IDENTITY_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:approve'] as const
+const IDENTITY_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'] as const
 type IdentityScope = (typeof IDENTITY_SCOPES)[number]
 
 function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[]): IdentityScope[] {

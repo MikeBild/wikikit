@@ -112,6 +112,12 @@ describe('http auth', () => {
     expect(() => auth.requireScope(p(['knowledge:read']), 'knowledge:read')).not.toThrow()
     expect(() => auth.requireScope(p(['knowledge:read']), 'knowledge:propose')).toThrow(ForbiddenError)
     expect(() => auth.requireScope(p(['knowledge:approve']), 'admin')).toThrow(ForbiddenError)
+    // approve implies review (inspect/start-review subset); never the reverse —
+    // a review-only agent key cannot use the REST approve/reject endpoints.
+    expect(() => auth.requireScope(p(['knowledge:approve']), 'knowledge:review')).not.toThrow()
+    expect(() => auth.requireScope(p(['knowledge:review']), 'knowledge:review')).not.toThrow()
+    expect(() => auth.requireScope(p(['knowledge:review']), 'knowledge:approve')).toThrow(ForbiddenError)
+    expect(() => auth.requireScope(p(['admin']), 'knowledge:review')).not.toThrow()
   })
 
   test('requireScope: space-scoped key on a foreign space → 403 insufficient_scope', () => {

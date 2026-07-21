@@ -56,7 +56,7 @@ Key invariants:
   categorizations are claims with a source, a status and a lifecycle — they
   can be disputed and deprecated like any other statement.
 - **Approval remains a human decision, now available over MCP.** Agents stage
-  with ingest/propose; a principal with `knowledge:approve` reads the complete
+  with ingest/propose; a principal with `knowledge:review` reads the complete
   diff — including every staged decision with its context, rationale and
   alternatives — through `wikikit_proposals`. The agent passes only the
   proposal id to `wikikit_review_proposal`; WikiKit then asks the human for
@@ -229,7 +229,8 @@ Scopes:
 |---------------------|--------|
 | `knowledge:read`    | spaces, sources, concepts, history, search, query, proposals (read), lint, export |
 | `knowledge:propose` | ingest + ingest status, manual proposals, import |
-| `knowledge:approve` | approve/reject proposals — the review gate |
+| `knowledge:review` | inspect proposals and start the MCP review where the human decides (implied by `knowledge:approve`) |
+| `knowledge:approve` | approve/reject proposals over REST — the human-operator review credential; implies `knowledge:review` |
 | `admin`             | spaces (create), webhooks, api-keys; implies all knowledge scopes |
 | `*`                 | bootstrap key — everything |
 
@@ -362,7 +363,8 @@ Remote human login is selected with `WIKIKIT_OAUTH_LOGIN_PROVIDER`:
 explicit provider array in `WIKIKIT_OAUTH_OIDC_PROVIDERS`, and `federated`
 chooses among the configured Firebase/OIDC providers. Firebase and each OIDC
 provider apply an explicit email allow-list. The interactive permission ceiling
-defaults to `knowledge:read,knowledge:propose`; add `knowledge:approve` only
+defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
+review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
 never issues `admin`. A connector stores the tools and scopes it scanned, so a
 new tool or scope requires a rescan/reconnect rather than silently broadening
@@ -377,8 +379,10 @@ supported versions.
 
 **Scope-gating = tool visibility**: `tools/list` returns only tools whose
 scope the key holds — a `knowledge:read` key sees only the read tools.
-`wikikit_proposals` and `wikikit_review_proposal` require
-`knowledge:approve`. The review tool accepts only `{proposal_id}` — passing
+`wikikit_proposals` and `wikikit_review_proposal` require `knowledge:review`
+(implied by `knowledge:approve`); the REST approve/reject endpoints still
+demand `knowledge:approve`, so a review-scoped agent key can never approve
+over HTTP. The review tool accepts only `{proposal_id}` — passing
 `decision` or `note` as arguments is refused with `approval_requires_human`
 before anything else happens. On a form-capable client it issues a native
 `elicitation/create` form for the human-owned decision and optional note.
@@ -437,8 +441,8 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | true |
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
-| `wikikit_proposals` | knowledge:approve | List proposals or inspect one complete structured diff | true | false | true | false |
-| `wikikit_review_proposal` | knowledge:approve | Input `{proposal_id}` only; native human form owns the decision; accepted review writes, decline/cancel are no-ops; no form capability → `human_review_required` hand-off; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
+| `wikikit_proposals` | knowledge:review | List proposals or inspect one complete structured diff | true | false | true | false |
+| `wikikit_review_proposal` | knowledge:review | Input `{proposal_id}` only; native human form owns the decision; accepted review writes, decline/cancel are no-ops; no form capability → `human_review_required` hand-off; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
 
 Annotation rationale (fixed): writes are `destructiveHint: true` even though
 they only stage content — an honest write is a write. `idempotentHint: true`

@@ -76,10 +76,12 @@ remote client has completed OAuth discovery and PKCE:
 
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
 request. It defaults to `knowledge:read,knowledge:propose`. Add
-`knowledge:approve` only for trusted human reviewers; a client must still ask
-for that scope and the consent page displays it. Scope merely exposes the MCP
-review tool: WikiKit still collects the actual decision from a human through
-native form elicitation. A client that cannot show the form gets a pending
+`knowledge:review` for identities that inspect proposals and start the MCP
+review, and `knowledge:approve` (which implies `knowledge:review`) only for
+trusted human reviewers who may also use the REST approve/reject endpoints; a
+client must still ask for a scope and the consent page displays it. Scope
+merely exposes the MCP review tool: WikiKit still collects the actual decision
+from a human through native form elicitation. A client that cannot show the form gets a pending
 `human_review_required` hand-off instead of a review; REST reviews remain a
 fallback for a human operator acting as themselves. `admin` is never issued
 to an interactive OAuth identity.
@@ -98,7 +100,7 @@ the global values when present. `scopes` must include `openid`.
     "client_secret": "<optional-confidential-client-secret>",
     "scopes": "openid profile email",
     "allowed_emails": ["reviewer@example.com"],
-    "allowed_scopes": ["knowledge:read", "knowledge:propose", "knowledge:approve"]
+    "allowed_scopes": ["knowledge:read", "knowledge:propose", "knowledge:review", "knowledge:approve"]
   }
 ]
 ```

@@ -57,15 +57,24 @@ export type { Principal } from '../http/auth.ts'
 import type { Principal } from '../http/auth.ts'
 
 /** The only scopes MCP tools may require. */
-export type ToolScope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:approve'
+export type ToolScope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'
 
 /**
  * Scope semantics per CONTRACTS §5.2: `*` and `admin` imply all knowledge
  * scopes (admin does not imply `*`, but every MCP tool scope IS a knowledge
- * scope, so both grant full tool visibility).
+ * scope, so both grant full tool visibility). `knowledge:approve` implies
+ * `knowledge:review` — review is the inspect/start-review subset of approve,
+ * so every existing approve key keeps working unchanged. The reverse does NOT
+ * hold: a review-only key cannot use the REST approve/reject endpoints, which
+ * is the point — agents get review, human operators get approve.
  */
 export function holdsScope(scopes: string[], scope: ToolScope): boolean {
-  return scopes.includes(scope) || scopes.includes('*') || scopes.includes('admin')
+  return (
+    scopes.includes(scope) ||
+    scopes.includes('*') ||
+    scopes.includes('admin') ||
+    (scope === 'knowledge:review' && scopes.includes('knowledge:approve'))
+  )
 }
 
 /** All four MCP spec annotations, EXPLICIT — strict clients treat an absent
@@ -530,7 +539,7 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_propose',
     description:
       'Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into ' +
-      'the review gate. Nothing becomes visible until a reviewer with knowledge:approve explicitly approves it.',
+      'the review gate. Nothing becomes visible until a human reviewer explicitly approves it.',
     scope: 'knowledge:propose',
     inputSchema: zProposeToolInput,
     annotations: {
@@ -553,8 +562,9 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_proposals',
     description:
       'Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, ' +
-      'including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:approve.',
-    scope: 'knowledge:approve',
+      'including old/new revisions, claims, relations, decisions, sources and prior review metadata. ' +
+      'Requires knowledge:review (implied by knowledge:approve).',
+    scope: 'knowledge:review',
     inputSchema: zProposalsToolInput,
     annotations: READ_ANNOTATIONS,
     async execute(deps, principal, input) {
@@ -576,8 +586,8 @@ export const TOOLS: McpToolDef[] = [
       'WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. ' +
       'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": ' +
       'relay that to the user and check wikikit_proposals later. ' +
-      'Requires knowledge:approve. Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
-    scope: 'knowledge:approve',
+      'Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
+    scope: 'knowledge:review',
     inputSchema: zReviewProposalToolInput,
     annotations: REVIEW_ANNOTATIONS,
     async execute(deps, principal, input, context) {

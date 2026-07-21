@@ -482,7 +482,9 @@ export const zDeliveryListResponse = z.object({
 
 export const zCreateApiKeyRequest = z.object({
   name: z.string().min(1).max(200),
-  scopes: z.array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:approve', 'admin'])).min(1),
+  scopes: z
+    .array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve', 'admin']))
+    .min(1),
   /** Space slug; omitted = key valid for all spaces. */
   space: z.string().regex(SPACE_SLUG).optional(),
 })

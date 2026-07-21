@@ -144,8 +144,9 @@ describe('scope-gated visibility', () => {
     expect(visibleTools(['knowledge:propose']).map((tool) => tool.name)).toEqual(PROPOSE_TOOLS)
   })
 
-  test('review tools require knowledge:approve; admin and * see the full palette', () => {
+  test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
     expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(13)
+    expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['admin'])).toHaveLength(15) // admin implies knowledge scopes (§5.2)
     expect(visibleTools(['*'])).toHaveLength(15)
@@ -156,6 +157,10 @@ describe('scope-gated visibility', () => {
     expect(holdsScope(['knowledge:read'], 'knowledge:read')).toBe(true)
     expect(holdsScope(['knowledge:read'], 'knowledge:propose')).toBe(false)
     expect(holdsScope(['knowledge:approve'], 'knowledge:approve')).toBe(true)
+    // approve implies review; review does NOT imply approve.
+    expect(holdsScope(['knowledge:approve'], 'knowledge:review')).toBe(true)
+    expect(holdsScope(['knowledge:review'], 'knowledge:review')).toBe(true)
+    expect(holdsScope(['knowledge:review'], 'knowledge:approve')).toBe(false)
     expect(holdsScope(['admin'], 'knowledge:propose')).toBe(true)
     expect(holdsScope(['*'], 'knowledge:read')).toBe(true)
   })

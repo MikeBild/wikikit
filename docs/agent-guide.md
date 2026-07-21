@@ -71,7 +71,10 @@ OAuth or **Authenticate** in the client, and complete the browser login. For a
 local or non-interactive deployment, use a narrowly scoped WikiKit API key in
 an environment variable. A routine knowledge client normally needs
 `knowledge:read`; add `knowledge:propose` only when it should ingest or stage
-changes. Do not give routine agents `knowledge:approve` or `admin`.
+changes. Give an agent that inspects or starts reviews `knowledge:review`.
+Do not give routine agents `knowledge:approve` or `admin`: `knowledge:approve`
+is the human-operator credential for the REST approve/reject endpoints, and
+`knowledge:review` deliberately cannot use them.
 
 ### Clients with an MCP settings screen
 
@@ -145,8 +148,11 @@ atomically and records `review_channel: "mcp_elicitation"`. Decline, cancel,
 timeout, or invalid form data leaves the proposal pending; report that plainly
 and, if the user wants, start the review again later.
 
-The reviewing identity needs `knowledge:approve`, but scope alone is not a
-human decision. Keep routine autonomous-agent credentials read/propose-only.
+The MCP session needs `knowledge:review` (implied by `knowledge:approve`),
+but scope alone is not a human decision. Keep routine autonomous-agent
+credentials read/propose-only, and keep `knowledge:approve` off agent-held
+keys entirely.
+
 For Codex, route MCP elicitations to the user:
 
 ```toml

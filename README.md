@@ -197,8 +197,9 @@ token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base URL in production
 because it is the OAuth issuer and audience.
 
 For a review-capable connector, select the discovered standard scopes
-`knowledge:read`, `knowledge:propose`, `knowledge:approve` and
-`offline_access`; production must also allow `knowledge:approve` through
+`knowledge:read`, `knowledge:propose`, `knowledge:review`,
+`knowledge:approve` and `offline_access`; production must also allow
+`knowledge:approve` through
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that OIDC provider's `allowed_scopes`).
 `wikikit_review_proposal` accepts only a proposal id and then opens a native
 MCP form. The human — not the agent — selects approve or reject and enters the
@@ -213,8 +214,10 @@ The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_c
 `wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
 `wikikit_review_proposal`. The two review tools are visible only with
-`knowledge:approve`; the final decision is collected with native form
-elicitation inside the tool call. Tools are scope-gated, so a read-only key simply does not
+`knowledge:review` (implied by `knowledge:approve`); the final decision is
+collected with native form elicitation inside the tool call, while the REST
+approve/reject endpoints still require `knowledge:approve` — mint agent keys
+with `knowledge:review` so they can never approve over HTTP. Tools are scope-gated, so a read-only key simply does not
 see write or review tools. The server also hands the agent its own documentation — usage
 instructions on connect, a code-bundled system guide (also available as a tool
 for tools-only clients), and `llms.txt` / `llms-full.txt` as MCP resources — so

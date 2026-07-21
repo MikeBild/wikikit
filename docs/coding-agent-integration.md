@@ -49,7 +49,10 @@ curl -s -X POST "$WK/v1/api-keys" \
 Use an unbound read key when task routing may select any visible space. Bind a
 key to one space when the client must never see other knowledge. Add
 `knowledge:propose` only for ingest, explicit proposals, or session capture.
-Keep `knowledge:approve` and `admin` out of routine agent credentials.
+Add `knowledge:review` when the agent should inspect proposals and start the
+human review. Keep `knowledge:approve` and `admin` out of agent credentials
+entirely — `knowledge:approve` is the human-operator scope for the REST
+approve/reject endpoints, which agent-held keys must never be able to call.
 
 ## Optional lifecycle integration
 
