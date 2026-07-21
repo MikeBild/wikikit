@@ -8,7 +8,8 @@ import type { Logger } from './logger.ts'
 export type TrafficClass = 'organic' | 'synthetic' | 'internal'
 export type RequestSource = 'api' | 'gateway' | 'scheduler' | 'manual' | 'mcp'
 export type UsageSurface = 'http' | 'mcp' | 'knowledge' | 'review'
-export type UsageOutcome = 'success' | 'client_error' | 'server_error' | 'rejected' | 'timeout' | 'cancelled'
+export type UsageOutcome =
+  'success' | 'client_error' | 'server_error' | 'rejected' | 'timeout' | 'cancelled' | 'handoff'
 
 interface UsageContext {
   spaceId?: string

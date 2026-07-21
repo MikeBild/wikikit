@@ -127,7 +127,9 @@ MCP initialize. For this release, also run a native review-form canary against
 a disposable pending proposal: inspect the full diff, cancel once and prove it
 remains pending, then accept once and prove the proposal plus webhook payload
 record `review_channel: "mcp_elicitation"`. A client without form capability
-must receive `elicitation_not_supported` and perform no mutation.
+must receive `outcome: "human_review_required"` and perform no mutation, and
+`decision`/`note` passed as tool input must be refused with
+`approval_requires_human`.
 
 ## Logging & metrics
 
@@ -161,8 +163,10 @@ Gate MCP HITL support per deployed client, not by product name alone:
 - ChatGPT: reconnect/rescan after deployment and treat support as conditional
   until the connector advertises form elicitation and passes the canaries.
 
-The server must remain fail-closed for every unsupported client. REST is the
-trusted-human fallback. Rollback to v0.4 remains schema-compatible because the
+The server must never mutate for an unsupported client: the review answers
+`human_review_required` and the proposal stays pending. REST remains the
+fallback for a trusted human acting as themselves — never for an agent or a
+connector holding the agent's credential. Rollback to v0.4 remains schema-compatible because the
 new review column is nullable and the public SQL functions retain their
 three-argument call shape through defaults; v0.4 simply does not populate the
 new provenance field.

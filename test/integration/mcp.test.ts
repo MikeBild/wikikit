@@ -284,7 +284,7 @@ describe('MCP server (integration)', () => {
     expect((duplicate.payload.next_best_actions as string[]).length).toBeGreaterThan(0)
   })
 
-  it('native form elicitation owns the decision; missing capability fails closed', async () => {
+  it('native form elicitation owns the decision; missing capability hands off to out-of-band human review', async () => {
     const staged = await createProposal(db, spaceId, {
       title: 'Native MCP review integration',
       input_hash: computeInputHash(['native-mcp-review'], 'manual'),
@@ -377,10 +377,19 @@ describe('MCP server (integration)', () => {
         name: 'wikikit_review_proposal',
         arguments: { proposal_id: unsupported.proposal_id },
       })) as { isError?: boolean; content: { type: string; text?: string }[] }
-      expect(result.isError).toBe(true)
+      // A success frame, not an error: the proposal stays pending and the
+      // agent is told to hand the review to a human and poll wikikit_proposals.
+      expect(result.isError).toBeFalsy()
       const content = result.content.find((entry) => entry.type === 'text')
       const payload = JSON.parse(content?.type === 'text' ? (content.text ?? '{}') : '{}') as Record<string, unknown>
-      expect(payload.code).toBe('elicitation_not_supported')
+      expect(payload).toMatchObject({
+        proposal_id: unsupported.proposal_id,
+        status: 'pending',
+        outcome: 'human_review_required',
+        mutation_applied: false,
+        poll_with: 'wikikit_proposals',
+      })
+      expect(String(payload.agent_instructions)).toContain('Do not ask for the decision in chat')
     } finally {
       await legacyClient.close()
     }
@@ -389,6 +398,57 @@ describe('MCP server (integration)', () => {
       limit: 1,
     })
     expect(stillPending).toMatchObject({ status: 'pending', review_channel: null })
+  })
+
+  it('refuses decision/note as review tool input with approval_requires_human', async () => {
+    const staged = await createProposal(db, spaceId, {
+      title: 'Agent-supplied decision refusal',
+      input_hash: computeInputHash(['agent-decision-refusal'], 'manual'),
+      agent_meta: { model: 'manual', prompt_version: 'manual' },
+      decisions: [
+        {
+          slug: 'agent-decision-refusal',
+          title: 'Refuse agent decisions',
+          context: 'The agent tried to pass the human decision as tool input.',
+          decision: 'Refuse without touching the proposal.',
+        },
+      ],
+    })
+    const client = new Client(
+      { name: 'wikikit-agent-decision-itest', version: '1' },
+      { capabilities: { elicitation: { form: {} } } },
+    )
+    let formRequests = 0
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+      formRequests += 1
+      return { action: 'cancel' }
+    })
+    const transport = new StreamableHTTPClientTransport(new URL(liveMcpUrl), {
+      requestInit: { headers: { authorization: 'Bearer wk_reviewer', 'x-wikikit-traffic-class': 'synthetic' } },
+    })
+    await client.connect(transport)
+    try {
+      const result = (await client.callTool({
+        name: 'wikikit_review_proposal',
+        arguments: { proposal_id: staged.proposal_id, decision: 'approve', note: 'looks good' },
+      })) as { isError?: boolean; content: { type: string; text?: string }[] }
+      expect(result.isError).toBe(true)
+      const content = result.content.find((entry) => entry.type === 'text')
+      const payload = JSON.parse(content?.type === 'text' ? (content.text ?? '{}') : '{}') as Record<string, unknown>
+      expect(payload.code).toBe('approval_requires_human')
+      const actions = (payload.next_best_actions as string[]).join(' ')
+      expect(actions).toContain('only { proposal_id }')
+      expect(actions).toContain('never collect approve/reject in chat')
+      // The refusal happened before any form was sent or any row was touched.
+      expect(formRequests).toBe(0)
+    } finally {
+      await client.close()
+    }
+    const [untouched] = await db.select<{ status: string; review_channel: string | null }>('wk_change_proposals', {
+      id: `eq.${staged.proposal_id}`,
+      limit: 1,
+    })
+    expect(untouched).toMatchObject({ status: 'pending', review_channel: null })
   })
 
   it('persists content-free MCP telemetry and returns exact aggregate statistics', async () => {

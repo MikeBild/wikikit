@@ -24,8 +24,8 @@ import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
 import {
   ConflictError,
-  ElicitationNotSupportedError,
   ForbiddenError,
+  HumanDecisionRequiredError,
   LlmNotConfiguredError,
   NotFoundError,
 } from '../domain/errors.ts'
@@ -85,6 +85,9 @@ export interface ToolDeps {
 
 /** Request-local MCP features supplied by server.ts. Ordinary tools ignore it. */
 export interface McpToolExecutionContext {
+  /** Whether the connected client advertises elicitation.form — checked BEFORE
+   *  attempting a form so a non-capable client gets a hand-off, not an error. */
+  formElicitationSupported: boolean
   elicitForm: ElicitForm
   setOutcome(outcome: UsageOutcome): void
   setSpaceSlug(spaceSlug: string): void
@@ -176,7 +179,8 @@ export const zProposalsToolInput = z.object({
   limit: z.number().int().min(1).max(200).optional().describe('Max summaries when proposal_id is omitted'),
 })
 
-/** The agent selects the proposal; only native elicitation may supply the decision. */
+/** The agent selects the proposal; only native elicitation or an out-of-band
+ *  human review may supply the decision. */
 export const zReviewProposalToolInput = z
   .object({
     proposal_id: z.uuid().describe('Pending proposal id returned by wikikit_proposals'),
@@ -567,13 +571,22 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_review_proposal',
     description:
-      'Start a native MCP human review for one pending ChangeProposal after inspecting it with wikikit_proposals. ' +
-      'The human chooses approve or reject and writes the optional audit note in the elicitation form; the agent cannot supply either. ' +
-      'Requires knowledge:approve and an elicitation.form-capable client. Decline, cancel, timeout, or missing capability never mutate knowledge.',
+      'Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. ' +
+      'The approve/reject decision and the optional audit note belong to the reviewing human and are collected exclusively through ' +
+      'WikiKit’s native elicitation form — never through tool arguments, chat, or any API call made for the human. ' +
+      'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required": ' +
+      'relay that to the user and check wikikit_proposals later. ' +
+      'Requires knowledge:approve. Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
     scope: 'knowledge:approve',
     inputSchema: zReviewProposalToolInput,
     annotations: REVIEW_ANNOTATIONS,
     async execute(deps, principal, input, context) {
+      // Structural refusal BEFORE schema parsing: `decision`/`note` are the
+      // form fields every doc names, so an agent on a degraded client will try
+      // them here — that gets a human-decision refusal, not a generic zod nit.
+      if (input && typeof input === 'object' && ('decision' in input || 'note' in input)) {
+        throw new HumanDecisionRequiredError()
+      }
       const args = zReviewProposalToolInput.parse(input)
       const proposal = await getProposal(deps.db, { id: args.proposal_id })
       if (principal.spaceId && principal.spaceId !== proposal.space_id) {
@@ -584,7 +597,25 @@ export const TOOLS: McpToolDef[] = [
           nextBestActions: ['call wikikit_proposals with proposal_id to inspect its terminal status'],
         })
       }
-      if (!context) throw new ElicitationNotSupportedError()
+      if (!context || !context.formElicitationSupported) {
+        // Hand-off, not an error: the pending proposal is the durable workflow
+        // object, and an error frame invites the agent to "fix" the call.
+        context?.setSpaceSlug(proposal.space)
+        context?.setOutcome('handoff')
+        return {
+          proposal_id: proposal.id,
+          status: 'pending',
+          outcome: 'human_review_required',
+          mutation_applied: false,
+          poll_with: 'wikikit_proposals',
+          agent_instructions:
+            'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
+            'The proposal stays pending. Tell the user that a human must review it themselves — from an elicitation-capable MCP client, ' +
+            'or directly against WikiKit as themselves. Do not ask for the decision in chat, do not pass a decision to any tool, ' +
+            'and do not call the REST approve/reject endpoints on the human’s behalf. ' +
+            'Check wikikit_proposals later to see whether the human has decided.',
+        }
+      }
       context.setSpaceSlug(proposal.space)
 
       const review = await elicitProposalReview(context.elicitForm, toProposalWire(proposal))

@@ -4,7 +4,13 @@
 // of looping), and unknown errors NEVER leak internals.
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { ConflictError, ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../../src/domain/errors.ts'
+import {
+  ConflictError,
+  ForbiddenError,
+  HumanDecisionRequiredError,
+  LlmNotConfiguredError,
+  NotFoundError,
+} from '../../src/domain/errors.ts'
 import { toToolError } from '../../src/mcp/error-adapter.ts'
 
 function envelopeOf(result: ReturnType<typeof toToolError>): Record<string, unknown> {
@@ -45,6 +51,15 @@ describe('toToolError', () => {
     const err = new ConflictError('stale_base', 'moved on', { nextBestActions: ['reject this proposal'] })
     const envelope = envelopeOf(toToolError(err, 'aaaabbbbcccc'))
     expect(envelope.next_best_actions).toEqual(['reject this proposal'])
+  })
+
+  test('approval_requires_human carries the human-decision guidance', () => {
+    const envelope = envelopeOf(toToolError(new HumanDecisionRequiredError(), 'aaaabbbbcccc'))
+    expect(envelope.code).toBe('approval_requires_human')
+    expect(String(envelope.error)).toContain('only { proposal_id }')
+    const actions = (envelope.next_best_actions as string[]).join(' ')
+    expect(actions).toContain('only { proposal_id }')
+    expect(actions).toContain('never collect approve/reject in chat')
   })
 
   test('zod errors become bad_request with a per-field summary', () => {

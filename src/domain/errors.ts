@@ -89,15 +89,40 @@ export class RateLimitError extends DomainError {
   }
 }
 
-/** 409 — the connected MCP client cannot present the required native form. */
+/** 409 — the connected MCP client cannot present the required native form.
+ *  Backstop only: the review tool detects the missing capability up front and
+ *  returns a human_review_required hand-off; this fires when the capability
+ *  vanishes mid-flight. The hints must never point the agent at a channel it
+ *  could operate itself. */
 export class ElicitationNotSupportedError extends DomainError {
   constructor() {
-    super('elicitation_not_supported', 'the connected MCP client does not support form elicitation', 409, {
+    super('elicitation_not_supported', 'the connected MCP client cannot present WikiKit’s native review form', 409, {
       nextBestActions: [
-        'use an MCP client that advertises elicitation.form and retry the review',
-        'or have a human reviewer use the existing REST approve/reject endpoint',
+        'tell the user the proposal stays pending and that a human must review it out-of-band or from an elicitation-capable MCP client',
+        'check wikikit_proposals later to see whether the human has decided',
+        'do not collect approve/reject in chat and do not approve or reject through any other channel on the human’s behalf',
       ],
     })
+  }
+}
+
+/** 400 — the caller tried to pass the human review decision as tool input.
+ *  Structural refusal, not a validation nit: approve/reject is a person's
+ *  decision and never travels through arguments a model controls. */
+export class HumanDecisionRequiredError extends DomainError {
+  constructor() {
+    super(
+      'approval_requires_human',
+      'approve/reject is a human decision, not tool input — wikikit_review_proposal accepts only { proposal_id }',
+      400,
+      {
+        nextBestActions: [
+          'call wikikit_review_proposal again with only { proposal_id } and nothing else',
+          'the decision travels only through WikiKit’s native review form or an out-of-band review the human performs themselves — never collect approve/reject in chat and never submit it through any tool, REST call, or connector on the human’s behalf',
+          'if this client cannot show the review form, tell the user the proposal stays pending until a human reviews it, and check wikikit_proposals later',
+        ],
+      },
+    )
   }
 }
 

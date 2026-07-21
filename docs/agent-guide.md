@@ -28,7 +28,9 @@ Keep these boundaries clear:
 - Approval is a separate, explicit human decision. For MCP review, call
   `wikikit_review_proposal` with only the proposal id; WikiKit itself asks the
   human for approve/reject and an optional note. Never invent, pre-fill or
-  infer that decision.
+  infer that decision. On a client that cannot show the native form the tool
+  returns `outcome: "human_review_required"` and the proposal stays pending
+  until a human reviews it out-of-band.
 - If reviewed knowledge does not answer a question, say that the knowledge is
   missing instead of filling the gap from memory.
 
@@ -130,12 +132,18 @@ should call `wikikit_guide` once when it needs the operating model.
 
 ## Interactive human review over MCP
 
+Three review journeys exist. Which one applies depends on who is acting and
+what the connected client can do — never on what the agent would prefer.
+
+### Journey 1 — client with native form elicitation
+
 Before review, use `wikikit_proposals` with `proposal_id` to inspect the full
 structured diff. Then call `wikikit_review_proposal` with that id only. WikiKit
-opens a native MCP form in which the human owns `decision` and optional `note`.
-Accept applies the review atomically; decline, cancel, timeout, invalid data or
-missing form support leaves the proposal pending. A successful audit record
-uses `review_channel: "mcp_elicitation"`.
+opens a native MCP form; the reviewing human — not the agent — selects approve
+or reject there and may add the audit note. Accept applies the review
+atomically and records `review_channel: "mcp_elicitation"`. Decline, cancel,
+timeout, or invalid form data leaves the proposal pending; report that plainly
+and, if the user wants, start the review again later.
 
 The reviewing identity needs `knowledge:approve`, but scope alone is not a
 human decision. Keep routine autonomous-agent credentials read/propose-only.
@@ -146,11 +154,39 @@ approval_policy = { granular = { mcp_elicitations = true } }
 approvals_reviewer = "user"
 ```
 
-Claude Code must be 2.1.76 or newer. ChatGPT connectors are supported only
-when the active connector advertises native form elicitation; reconnect after
-upgrades and test the capability. WikiKit fails closed when it is absent. In
-that case, a trusted human can inspect the same diff and use the REST
-approve/reject endpoint; REST reviews record `review_channel: "rest"`.
+Claude Code must be 2.1.76 or newer. ChatGPT connectors follow this journey
+only when the active connector advertises native form elicitation; reconnect
+after upgrades and test the capability.
+
+### Journey 2 — client without form elicitation
+
+If the client does not advertise `elicitation.form`, `wikikit_review_proposal`
+performs no mutation and returns `outcome: "human_review_required"` with the
+proposal still pending. The correct journey is:
+
+1. Tell the user that WikiKit requires a human to review the proposal
+   out-of-band: the user (or another trusted reviewer) opens the diff and
+   approves or rejects it themselves — from an elicitation-capable MCP client,
+   or directly against WikiKit with their own reviewer credential.
+2. Check `wikikit_proposals` later and report the outcome.
+
+Three moves are forbidden and will never work:
+
+- Asking for approve/reject in chat and acting on the answer. A chat reply is
+  not a review; WikiKit accepts the decision only from the human directly.
+- Passing `decision` or `note` to any tool. The review tool takes only
+  `proposal_id` and refuses those fields with `approval_requires_human`.
+- Calling the REST approve/reject endpoints — or having any connector,
+  workflow, or automation call them — with a credential the agent holds. Those
+  endpoints exist for a human operator acting as themselves, never for
+  software executing a human's reported answer.
+
+### Journey 3 — human operator over REST
+
+A trusted human can inspect the same diff and approve or reject over the REST
+endpoints using a credential issued to that person; such reviews record
+`review_channel: "rest"` and the reviewer's key name. Do not launder an
+agent's key through these endpoints.
 
 ## Space design and routing
 

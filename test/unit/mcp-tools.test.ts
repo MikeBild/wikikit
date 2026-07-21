@@ -4,9 +4,14 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import type { Db } from '../../src/db/postgres.ts'
-import { ConflictError, ForbiddenError, LlmNotConfiguredError, NotFoundError } from '../../src/domain/errors.ts'
+import {
+  ConflictError,
+  ForbiddenError,
+  HumanDecisionRequiredError,
+  LlmNotConfiguredError,
+  NotFoundError,
+} from '../../src/domain/errors.ts'
 import type { IngestPipeline } from '../../src/ingest/pipeline.ts'
-import { ElicitationNotSupportedError } from '../../src/domain/errors.ts'
 import {
   buildToolManifest,
   holdsScope,
@@ -319,6 +324,7 @@ describe('execute — transport duties', () => {
       principal({ name: 'human-reviewer' }),
       { proposal_id: proposalId },
       {
+        formElicitationSupported: true,
         elicitForm: async () => ({ action: 'accept', content: { decision: 'reject', note: 'Not ready.' } }),
         setOutcome: (value) => {
           outcome = value
@@ -332,6 +338,24 @@ describe('execute — transport duties', () => {
     expect(callArgs).toEqual([proposalId, 'human-reviewer', 'Not ready.', 'mcp_elicitation'])
     expect(spaceSlug).toBe('main')
     expect(outcome).toBe('') // accepted writes use the default success outcome
+  })
+
+  test('wikikit_review_proposal refuses decision/note as tool input before touching the database', async () => {
+    // A db whose every access throws proves the refusal happens first.
+    const throwingDb = new Proxy({} as Db, {
+      get() {
+        throw new Error('db must not be touched')
+      },
+    })
+    for (const input of [
+      { proposal_id: '11111111-1111-4111-8111-111111111111', decision: 'approve' },
+      { proposal_id: '11111111-1111-4111-8111-111111111111', decision: 'approve', note: 'x' },
+      { proposal_id: '11111111-1111-4111-8111-111111111111', note: 'x' },
+    ]) {
+      await expect(
+        byName.wikikit_review_proposal!.execute(deps({ db: throwingDb }), principal(), input),
+      ).rejects.toBeInstanceOf(HumanDecisionRequiredError)
+    }
   })
 
   test('wikikit_review_proposal declines without a write and fails closed without a form bridge', async () => {
@@ -367,6 +391,7 @@ describe('execute — transport duties', () => {
       principal(),
       { proposal_id: proposalId },
       {
+        formElicitationSupported: true,
         elicitForm: async () => ({ action: 'decline' }),
         setOutcome: (value) => {
           outcome = value
@@ -377,9 +402,74 @@ describe('execute — transport duties', () => {
     expect(noOp).toEqual({ proposal_id: proposalId, outcome: 'decline', mutation_applied: false })
     expect(outcome).toBe('rejected')
     expect(writes).toBe(0)
-    await expect(
-      byName.wikikit_review_proposal!.execute(deps({ db }), principal(), { proposal_id: proposalId }),
-    ).rejects.toBeInstanceOf(ElicitationNotSupportedError)
+  })
+
+  test('wikikit_review_proposal hands off to out-of-band human review without a form-capable client', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: '',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let writes = 0
+    db.call = async () => {
+      writes += 1
+      return []
+    }
+    const expectHandoff = (result: unknown) => {
+      expect(result).toMatchObject({
+        proposal_id: proposalId,
+        status: 'pending',
+        outcome: 'human_review_required',
+        mutation_applied: false,
+        poll_with: 'wikikit_proposals',
+      })
+      const instructions = (result as { agent_instructions: string }).agent_instructions
+      expect(instructions).toContain('Do not ask for the decision in chat')
+      expect(instructions).toContain('Check wikikit_proposals later')
+    }
+    // No execution context at all (a future non-MCP caller).
+    expectHandoff(await byName.wikikit_review_proposal!.execute(deps({ db }), principal(), { proposal_id: proposalId }))
+    // A live context whose client does not advertise elicitation.form: the
+    // hand-off must be returned WITHOUT attempting the form bridge.
+    let outcome = ''
+    let spaceSlug = ''
+    expectHandoff(
+      await byName.wikikit_review_proposal!.execute(
+        deps({ db }),
+        principal(),
+        { proposal_id: proposalId },
+        {
+          formElicitationSupported: false,
+          elicitForm: async () => {
+            throw new Error('elicitForm must not be called')
+          },
+          setOutcome: (value) => {
+            outcome = value
+          },
+          setSpaceSlug: (value) => {
+            spaceSlug = value
+          },
+        },
+      ),
+    )
+    expect(outcome).toBe('handoff')
+    expect(spaceSlug).toBe('main')
     expect(writes).toBe(0)
   })
 

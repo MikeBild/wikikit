@@ -102,7 +102,9 @@ same rule converges on the same content hash instead of piling up duplicates.
 ## Review
 
 An agent may stage with `knowledge:propose`, but publishing remains a distinct
-human decision. Review a complete diff before approval:
+human decision. These curl commands are the human operator's journey — run by
+a person with a credential issued to that person, never by the agent or an
+automation acting for it:
 
 ```bash
 curl -s "$WK/v1/spaces/default/proposals?status=pending" -H "Authorization: Bearer $KEY"
@@ -113,10 +115,19 @@ curl -s -X POST "$WK/v1/proposals/<id>/approve" \
 
 The MCP review tools enforce the boundary directly. First inspect the complete
 diff with `wikikit_proposals`, then call `wikikit_review_proposal` with only
-`proposal_id`. WikiKit opens a native form; the human selects approve/reject
-and may add the audit note. The agent cannot pass the decision. Decline,
-cancel, timeout, invalid form data or a client without form elicitation leaves
-the proposal pending.
+`proposal_id`. On a form-capable client WikiKit opens a native form; the human
+selects approve/reject and may add the audit note. The agent cannot pass the
+decision — `decision`/`note` as tool input are refused with
+`approval_requires_human`. Decline, cancel, timeout, or invalid form data
+leaves the proposal pending.
+
+On a client without form elicitation the tool returns
+`outcome: "human_review_required"` instead: the proposal stays pending, the
+agent tells the user that a human must review it out-of-band (from a
+form-capable client or over REST as themselves), and checks
+`wikikit_proposals` later for the outcome. The agent never collects the
+decision in chat and never calls the REST review endpoints on the human's
+behalf.
 
 For Codex, keep elicitation routed to the person:
 
@@ -126,18 +137,19 @@ approvals_reviewer = "user"
 ```
 
 Claude Code 2.1.76+ is a supported review host. Treat ChatGPT as conditional:
-reconnect the connector and run a form-capability canary; WikiKit fails closed
-if the active connector does not advertise native form elicitation. A trusted
-human may use the REST endpoints as the fallback. Successful audits distinguish
-`mcp_elicitation` from `rest` in `review_channel`.
+reconnect the connector and run a form-capability canary; without native form
+elicitation the review hands off to an out-of-band human as described above.
+Successful audits distinguish `mcp_elicitation` from `rest` in
+`review_channel`.
 
 ## Troubleshooting
 
-| Symptom                                        | Cause and fix                                                                                               |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| No context appears                             | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task. |
-| The wrong space activates                      | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.    |
-| Capture does nothing                           | This is expected when the user taught no durable rule or no explicit capture space exists.                  |
-| The agent says knowledge is saved              | It is only proposed until a human approves the ChangeProposal.                                              |
-| A tools-only client cannot read resources      | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                 |
-| MCP review reports `elicitation_not_supported` | Upgrade/reconnect the MCP host and verify native form support, or have a trusted human review over REST.    |
+| Symptom                                   | Cause and fix                                                                                                                                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No context appears                        | Verify the MCP connection and `knowledge:read`; then call `wikikit_context` directly with the current task.                                                                                           |
+| The wrong space activates                 | Fix stable `settings.agent_context` aliases or keywords. Do not add temporary facts as routing triggers.                                                                                              |
+| Capture does nothing                      | This is expected when the user taught no durable rule or no explicit capture space exists.                                                                                                            |
+| The agent says knowledge is saved         | It is only proposed until a human approves the ChangeProposal.                                                                                                                                        |
+| A tools-only client cannot read resources | Call `wikikit_guide`; it exposes the same built-in operating knowledge as a read-only tool.                                                                                                           |
+| Review returns `human_review_required`    | The client cannot show the native review form. The proposal stays pending; a human reviews it out-of-band; the agent polls `wikikit_proposals`. Never approve via chat or REST on the human's behalf. |
+| Review returns `approval_requires_human`  | The agent passed `decision`/`note` as tool input. The tool takes only `proposal_id`; the decision is collected from the human by WikiKit, never by the agent.                                         |

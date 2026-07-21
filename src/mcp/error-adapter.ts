@@ -34,6 +34,11 @@ const DEFAULT_ACTIONS: Record<string, string[]> = {
     'use wikikit_read on the affected concepts',
   ],
   proposal_not_pending: ['fetch the proposal via REST GET /v1/proposals/{id} to see its terminal status'],
+  // Fallback only: HumanDecisionRequiredError carries its own full guidance.
+  approval_requires_human: [
+    'call wikikit_review_proposal with only { proposal_id }',
+    'a human supplies the decision through the native form or out-of-band — never through tool input',
+  ],
   stale_base: ['re-ingest the source so it is synthesized against the current revision'],
   // Fallback only: LlmNotConfiguredError carries actions naming its own
   // provider key, so this fires only for a code-shaped error thrown elsewhere.

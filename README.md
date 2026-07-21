@@ -232,8 +232,12 @@ approvals_reviewer = "user"
 
 Claude Code supports form elicitation from 2.1.76. ChatGPT connectors must be
 reconnected and capability-checked; if ChatGPT does not advertise form
-elicitation, WikiKit deliberately refuses the MCP mutation. A trusted human
-operator can still use the existing REST approve/reject endpoints.
+elicitation, `wikikit_review_proposal` performs no mutation, answers
+`human_review_required`, and leaves the proposal pending. A human then reviews
+it out-of-band as themselves — from a form-capable client or over the REST
+approve/reject endpoints with their own credential — and the agent reports the
+outcome from `wikikit_proposals`. The REST review endpoints are for that human
+operator directly, never for the agent or a connector acting for it.
 
 ## Features
 

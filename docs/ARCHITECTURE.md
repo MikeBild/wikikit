@@ -202,9 +202,12 @@ validates with, converted to draft-07 JSON Schema with
 tool. Scope-gating is tool _visibility_: agents stage with `knowledge:propose`,
 while `knowledge:approve` exposes the full review diff and review tool. That
 tool accepts only a proposal id; the server obtains approve/reject and an
-optional note directly from the human through MCP form elicitation. The client
-must advertise form support. Decline, cancel, timeout, invalid form data or a
-client without that capability fails closed before any proposal mutation.
+optional note directly from the human through MCP form elicitation, and
+refuses agent-supplied `decision`/`note` input with `approval_requires_human`.
+Decline, cancel, timeout or invalid form data performs no mutation. A client
+without form support receives a pending `human_review_required` hand-off
+instead of a review — the pending proposal is the durable workflow object, and
+a human completes the review out-of-band.
 
 Form elicitation is synchronous and bounded by
 `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. WikiKit does not introduce MCP tasks,

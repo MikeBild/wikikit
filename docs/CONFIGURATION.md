@@ -79,8 +79,9 @@ request. It defaults to `knowledge:read,knowledge:propose`. Add
 `knowledge:approve` only for trusted human reviewers; a client must still ask
 for that scope and the consent page displays it. Scope merely exposes the MCP
 review tool: WikiKit still collects the actual decision from a human through
-native form elicitation and fails closed if the client cannot do so. REST
-reviews remain an explicit human-operated fallback. `admin` is never issued
+native form elicitation. A client that cannot show the form gets a pending
+`human_review_required` hand-off instead of a review; REST reviews remain a
+fallback for a human operator acting as themselves. `admin` is never issued
 to an interactive OAuth identity.
 
 `WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array. Each provider requires an HTTPS
