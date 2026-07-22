@@ -152,6 +152,8 @@ export interface Config {
   readonly oauthDynamicRegistrationEnabled?: boolean
   /** Interactive identity used by the remote MCP OAuth consent flow. */
   readonly oauthLoginProvider?: 'api_key' | 'firebase' | 'oidc' | 'federated'
+  /** Concurrent login methods exposed by the MCP OAuth browser flow. */
+  readonly oauthLoginMethods?: Array<'api_key' | 'firebase' | 'oidc'>
   /** Firebase project whose ID tokens may establish a WikiKit OAuth login. */
   readonly oauthFirebaseProjectId?: string
   /** Dedicated WikiKit Firebase Hosting sign-in page used for the browser hop. */
@@ -303,6 +305,19 @@ export function loadConfig(): Config {
   if (!['api_key', 'firebase', 'oidc', 'federated'].includes(oauthLoginProvider)) {
     throw new Error('WIKIKIT_OAUTH_LOGIN_PROVIDER must be api_key, firebase, oidc or federated')
   }
+  const configuredLoginMethods = str('WIKIKIT_OAUTH_LOGIN_METHODS')
+    .split(',')
+    .map((method) => method.trim())
+    .filter(Boolean)
+  const legacyLoginMethods: Array<'api_key' | 'firebase' | 'oidc'> =
+    oauthLoginProvider === 'federated' ? ['firebase', 'oidc'] : [oauthLoginProvider as 'api_key' | 'firebase' | 'oidc']
+  const oauthLoginMethods = [...new Set(configuredLoginMethods.length ? configuredLoginMethods : legacyLoginMethods)]
+  if (
+    !oauthLoginMethods.length ||
+    oauthLoginMethods.some((method) => !['api_key', 'firebase', 'oidc'].includes(method))
+  ) {
+    throw new Error('WIKIKIT_OAUTH_LOGIN_METHODS must contain api_key, firebase and/or oidc')
+  }
   const oauthAllowedEmails = str('WIKIKIT_OAUTH_ALLOWED_EMAILS')
     .split(',')
     .map((email) => email.trim().toLowerCase())
@@ -372,6 +387,7 @@ export function loadConfig(): Config {
     }),
     oauthDynamicRegistrationEnabled: bool('WIKIKIT_OAUTH_DCR_ENABLED', true),
     oauthLoginProvider,
+    oauthLoginMethods: oauthLoginMethods as Array<'api_key' | 'firebase' | 'oidc'>,
     oauthFirebaseProjectId: str('WIKIKIT_OAUTH_FIREBASE_PROJECT_ID'),
     oauthFirebaseLoginUrl: str('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL'),
     oauthAllowedEmails,
@@ -402,7 +418,7 @@ export function loadConfig(): Config {
     if (new URL(config.publicUrl).protocol !== 'https:') {
       throw new Error('WIKIKIT_PUBLIC_URL must use https in production (OAuth redirect and issuer security)')
     }
-    if (config.oauthLoginProvider === 'firebase') {
+    if (config.oauthLoginMethods?.includes('firebase')) {
       if (!config.oauthFirebaseProjectId || !config.oauthFirebaseLoginUrl || !config.oauthAllowedEmails?.length) {
         throw new Error(
           'Firebase OAuth login requires WIKIKIT_OAUTH_FIREBASE_PROJECT_ID, WIKIKIT_OAUTH_FIREBASE_LOGIN_URL and WIKIKIT_OAUTH_ALLOWED_EMAILS',
@@ -412,25 +428,8 @@ export function loadConfig(): Config {
         throw new Error('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL must use https in production')
       }
     }
-    if (config.oauthLoginProvider === 'oidc' && !config.oauthOidcProviders?.length) {
+    if (config.oauthLoginMethods?.includes('oidc') && !config.oauthOidcProviders?.length) {
       throw new Error('OIDC OAuth login requires WIKIKIT_OAUTH_OIDC_PROVIDERS')
-    }
-    if (
-      config.oauthLoginProvider === 'federated' &&
-      !config.oauthFirebaseProjectId &&
-      !config.oauthOidcProviders?.length
-    ) {
-      throw new Error('federated OAuth login requires Firebase or at least one OIDC provider')
-    }
-    if (config.oauthLoginProvider === 'federated' && config.oauthFirebaseProjectId) {
-      if (!config.oauthFirebaseLoginUrl || !config.oauthAllowedEmails?.length) {
-        throw new Error(
-          'federated Firebase login requires WIKIKIT_OAUTH_FIREBASE_LOGIN_URL and WIKIKIT_OAUTH_ALLOWED_EMAILS',
-        )
-      }
-      if (new URL(config.oauthFirebaseLoginUrl).protocol !== 'https:') {
-        throw new Error('WIKIKIT_OAUTH_FIREBASE_LOGIN_URL must use https in production')
-      }
     }
   }
 

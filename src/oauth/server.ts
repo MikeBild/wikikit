@@ -3,7 +3,7 @@
 // one successful, explicit consent into short-lived scoped OAuth tokens.
 // Plaintext API keys, authorization codes and tokens are never persisted.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import type { Auth, Principal } from '../http/auth.ts'
@@ -13,6 +13,7 @@ import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
 import { verifyFirebaseIdToken } from './firebase.ts'
 import { finishOidcLogin, startOidcLogin } from './oidc.ts'
+import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
 
 const OAUTH_SCOPES = [
   'knowledge:read',
@@ -72,6 +73,18 @@ interface IdentityLoginStateRow {
   provider_id: string | null
   oidc_nonce: string | null
   oidc_code_verifier: string | null
+}
+
+interface OperatorSessionRow {
+  id: string
+  principal_kind: 'api_key' | 'firebase' | 'oidc'
+  principal_key_id: string
+  principal_key_hash: string
+  principal_name: string
+  principal_space_id: string | null
+  provider_id: string | null
+  provider_subject: string | null
+  scopes: string[]
 }
 
 class OAuthError extends Error {
@@ -136,35 +149,21 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
   })
 }
 
+// Headers.forEach folds repeated set-cookie headers into one comma-joined
+// value, which user agents cannot split safely — the consent response sets
+// TWO cookies (CSRF + operator session), so set-cookie must be copied via
+// getSetCookie() as distinct header values.
+function writeResponseHeaders(res: ServerResponse, response: Response): void {
+  const setCookies = response.headers.getSetCookie()
+  if (setCookies.length) res.setHeader('set-cookie', setCookies)
+  response.headers.forEach((value, name) => {
+    if (name !== 'set-cookie') res.setHeader(name, value)
+  })
+}
+
 function oauthError(error: unknown): Response {
   const known = error instanceof OAuthError ? error : new OAuthError('server_error', 'authorization server error', 500)
   return json({ error: known.error, error_description: known.description }, known.status)
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>'"]/g,
-    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!,
-  )
-}
-
-function html(body: string, status = 200, redirectOrigin?: string): Response {
-  // CSP applies to a form submission's redirect chain too. The consent POST
-  // is same-origin, but its successful OAuth response must be allowed to
-  // redirect to the (already registered and validated) client redirect URI.
-  // Keep the exception origin-scoped; the form itself can still only POST
-  // back to WikiKit.
-  const formAction = [`'self'`, ...(redirectOrigin ? [redirectOrigin] : [])].join(' ')
-  return new Response(body, {
-    status,
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      'cache-control': 'no-store',
-      'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; frame-ancestors 'none'; base-uri 'none'`,
-      'referrer-policy': 'no-referrer',
-      'x-content-type-options': 'nosniff',
-    },
-  })
 }
 
 function redirectWith(redirectUri: string, values: Record<string, string | undefined>): Response {
@@ -191,71 +190,6 @@ async function readCappedBody(req: IncomingMessage, maxBytes: number): Promise<B
   })
 }
 
-function consentPage(args: {
-  clientName: string
-  params: URLSearchParams
-  scopes: string[]
-  error?: string
-  csrfToken: string
-  secureCookie: boolean
-  loginState?: string
-  redirectUri?: string
-}): Response {
-  const hidden = [...args.params.entries()]
-    .filter(([name]) => name !== 'api_key' && name !== 'action')
-    .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
-    .join('\n')
-  const scopeItems = args.scopes.map((scope) => `<li><code>${escapeHtml(scope)}</code></li>`).join('')
-  const error = args.error ? `<p class="error">${escapeHtml(args.error)}</p>` : ''
-  const redirectUri = args.redirectUri ?? args.params.get('redirect_uri') ?? undefined
-  const redirectOrigin = redirectUri ? new URL(redirectUri).origin : undefined
-  const response = html(
-    `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Authorize WikiKit</title><style>
-body{font:16px/1.5 system-ui,sans-serif;background:#f4f4f1;color:#171713;margin:0;padding:2rem}
-main{max-width:34rem;margin:4vh auto;background:#fff;border:1px solid #d8d8d0;border-radius:14px;padding:2rem;box-shadow:0 8px 30px #0001}
-h1{margin-top:0}label{display:block;font-weight:650;margin:1.25rem 0 .4rem}input[type=password]{box-sizing:border-box;width:100%;padding:.8rem;border:1px solid #aaa;border-radius:8px}
-.actions{display:flex;gap:.75rem;margin-top:1.5rem}button{padding:.7rem 1rem;border-radius:8px;border:1px solid #777;background:#fff;cursor:pointer}button.primary{background:#171713;color:#fff;border-color:#171713}.error{color:#a01818;font-weight:650}
-small{color:#555}</style></head><body><main>
-<h1>Authorize WikiKit</h1><p><strong>${escapeHtml(args.clientName)}</strong> requests these permissions:</p><ul>${scopeItems}</ul>${error}
-<form method="post" action="/v1/oauth/authorize">${hidden}
-<input type="hidden" name="csrf_token" value="${escapeHtml(args.csrfToken)}">
-${args.loginState ? `<input type="hidden" name="login_state" value="${escapeHtml(args.loginState)}">` : ''}
-${args.loginState ? '<p><strong>Signed in with your approved Google account.</strong></p>' : '<label for="api_key">WikiKit API key</label><input id="api_key" name="api_key" type="password" required autocomplete="off" spellcheck="false">'}
-<small>${args.loginState ? 'WikiKit only receives a verified Google identity. The issued OAuth token is limited to the permissions above.' : 'The key is checked once and is never stored. The issued OAuth token is limited to the permissions above.'}</small>
-<div class="actions"><button class="primary" type="submit" name="action" value="approve">Authorize</button><button type="submit" name="action" value="deny" formnovalidate>Deny</button></div>
-</form></main></body></html>`,
-    200,
-    redirectOrigin,
-  )
-  response.headers.set(
-    'set-cookie',
-    `wk_oauth_csrf=${encodeURIComponent(args.csrfToken)}; HttpOnly; SameSite=Lax; Path=/v1/oauth/authorize; Max-Age=600${args.secureCookie ? '; Secure' : ''}`,
-  )
-  return response
-}
-
-function loginChoicePage(args: {
-  state: string
-  firebase: boolean
-  oidc: Array<{ id: string; label: string }>
-}): Response {
-  const options = [...(args.firebase ? [{ id: 'firebase', label: 'Continue with Google' }] : []), ...args.oidc]
-    .map(
-      (provider) =>
-        `<a class="provider" href="/v1/oauth/login?state=${encodeURIComponent(args.state)}&provider=${encodeURIComponent(provider.id)}">${escapeHtml(provider.label)}</a>`,
-    )
-    .join('')
-  return html(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in to WikiKit</title><style>
-body{font:16px/1.5 system-ui,sans-serif;background:#f4f4f1;color:#171713;margin:0;padding:2rem}main{max-width:34rem;margin:10vh auto;background:#fff;border:1px solid #d8d8d0;border-radius:14px;padding:2rem;box-shadow:0 8px 30px #0001}h1{margin:0 0 .4rem}.provider{display:block;margin:.75rem 0;padding:.85rem 1rem;border:1px solid #777;border-radius:8px;color:#171713;text-decoration:none;font-weight:650}.provider:hover{background:#f4f4f1}small{color:#555}</style></head><body><main>
-<h1>Sign in to WikiKit</h1><p>Choose an approved identity provider to continue.</p>${options}<small>WikiKit only grants the permissions requested by your MCP client and allowed by this identity provider.</small>
-</main></body></html>`,
-  )
-}
-
 function cookieValue(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
     const [key, ...rest] = part.trim().split('=')
@@ -269,6 +203,22 @@ function clearCsrfCookie(response: Response, secure: boolean): Response {
     'set-cookie',
     `wk_oauth_csrf=; HttpOnly; SameSite=Lax; Path=/v1/oauth/authorize; Max-Age=0${secure ? '; Secure' : ''}`,
   )
+  return response
+}
+
+function operatorCookie(config: Config, token: string, maxAge = 8 * 60 * 60): string {
+  const secure = new URL(config.publicUrl).protocol === 'https:'
+  const name = secure ? '__Host-wikikit_operator' : 'wikikit_operator'
+  return `${name}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`
+}
+
+function operatorToken(request: Request, config: Config): string {
+  const secure = new URL(config.publicUrl).protocol === 'https:'
+  return cookieValue(request, secure ? '__Host-wikikit_operator' : 'wikikit_operator') ?? ''
+}
+
+function withOperatorCookie(response: Response, config: Config, token: string, maxAge?: number): Response {
+  response.headers.append('set-cookie', operatorCookie(config, token, maxAge))
   return response
 }
 
@@ -328,23 +278,36 @@ async function loadAuthorizationRequest(
   return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource, codeChallenge: challenge }
 }
 
+function configuredLoginMethods(config: Config): Array<'api_key' | 'firebase' | 'oidc'> {
+  if (config.oauthLoginMethods?.length) return config.oauthLoginMethods
+  if (config.oauthLoginProvider === 'federated') return ['firebase', 'oidc']
+  return [config.oauthLoginProvider ?? 'api_key']
+}
+
 function firebaseEnabled(config: Config): boolean {
   return (
-    (config.oauthLoginProvider === 'firebase' || config.oauthLoginProvider === 'federated') &&
+    configuredLoginMethods(config).includes('firebase') &&
     !!config.oauthFirebaseProjectId &&
     !!config.oauthFirebaseLoginUrl
   )
 }
 
 function oidcEnabled(config: Config): boolean {
-  return (
-    (config.oauthLoginProvider === 'oidc' || config.oauthLoginProvider === 'federated') &&
-    !!config.oauthOidcProviders?.length
-  )
+  return configuredLoginMethods(config).includes('oidc') && !!config.oauthOidcProviders?.length
 }
 
-function interactiveLoginEnabled(config: Config): boolean {
-  return firebaseEnabled(config) || oidcEnabled(config)
+function apiKeyLoginEnabled(config: Config): boolean {
+  return configuredLoginMethods(config).includes('api_key')
+}
+
+function loginOptions(config: Config): Array<{ id: string; label: string }> {
+  return [
+    ...(apiKeyLoginEnabled(config) ? [{ id: 'api_key', label: 'WikiKit API key' }] : []),
+    ...(firebaseEnabled(config) ? [{ id: 'firebase', label: 'Google' }] : []),
+    ...(oidcEnabled(config)
+      ? (config.oauthOidcProviders ?? []).map((provider) => ({ id: provider.id, label: provider.label }))
+      : []),
+  ]
 }
 
 function providerAllowedScopes(config: Config, providerId: string | null): string[] {
@@ -360,7 +323,7 @@ function firebaseLoginUrl(config: Config, loginState: string): string {
   const target = new URL(base)
   // The state is opaque and single-use. No MCP redirect URI or OAuth client
   // data crosses the Firebase-hosted page.
-  target.searchParams.set('wikikit_oauth_callback', `${config.publicUrl}/v1/oauth/firebase/callback`)
+  target.searchParams.set('wikikit_oauth_callback', `${config.publicUrl}/v1/identity/login/firebase/callback`)
   target.searchParams.set('wikikit_oauth_state', loginState)
   return target.toString()
 }
@@ -497,6 +460,160 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     return true
   }
 
+  async function currentOperator(request: Request): Promise<OperatorSessionRow | null> {
+    const rawToken = operatorToken(request, config)
+    if (!rawToken) return null
+    const { rows } = await deps.db.query<OperatorSessionRow>(
+      `SELECT id, principal_kind, principal_key_id, principal_key_hash, principal_name,
+              principal_space_id, provider_id, provider_subject, scopes
+         FROM wk_oauth_operator_sessions
+        WHERE token_hash = $1 AND revoked_at IS NULL
+          AND expires_at > now() AND absolute_expires_at > now()
+        LIMIT 1`,
+      [hashApiKey(rawToken, config.keyPepper)],
+    )
+    const session = rows[0]
+    if (!session) return null
+    if (session.principal_kind === 'api_key') {
+      if (!bootstrapGrantIsCurrent(config, session)) {
+        await deps.db.update(
+          'wk_oauth_operator_sessions',
+          { id: `eq.${session.id}` },
+          { revoked_at: new Date().toISOString() },
+          { returning: false },
+        )
+        return null
+      }
+      if (session.principal_key_id !== 'bootstrap') {
+        const { rows: keys } = await deps.db.query<{ scopes: string[]; space_id: string | null; name: string }>(
+          `SELECT scopes, space_id, name FROM wk_api_keys
+            WHERE id::text = $1 AND key_hash = $2 AND revoked_at IS NULL
+            LIMIT 1`,
+          [session.principal_key_id, session.principal_key_hash],
+        )
+        if (!keys[0]) return null
+        session.scopes = keys[0].scopes
+        session.principal_space_id = keys[0].space_id
+        session.principal_name = keys[0].name
+      }
+    } else {
+      if (!(await identityGrantIsCurrent(deps.db, config, session))) return null
+      session.scopes = providerAllowedScopes(config, session.provider_id)
+    }
+    await deps.db.query(
+      `UPDATE wk_oauth_operator_sessions
+          SET last_used_at = now(), expires_at = least(absolute_expires_at, now() + interval '8 hours')
+        WHERE id = $1`,
+      [session.id],
+    )
+    return session
+  }
+
+  async function createOperatorSession(args: {
+    principalKind: 'api_key' | 'firebase' | 'oidc'
+    principalKeyId: string
+    principalKeyHash: string
+    principalName: string
+    principalSpaceId: string | null
+    providerId?: string
+    providerSubject?: string
+    scopes: string[]
+  }): Promise<{ row: OperatorSessionRow; token: string }> {
+    const token = randomToken('wkos_')
+    const now = Date.now()
+    const [row] = await deps.db.insert<OperatorSessionRow>('wk_oauth_operator_sessions', {
+      token_hash: hashApiKey(token, config.keyPepper),
+      principal_kind: args.principalKind,
+      principal_key_id: args.principalKeyId,
+      principal_key_hash: args.principalKeyHash,
+      principal_name: args.principalName,
+      principal_space_id: args.principalSpaceId,
+      provider_id: args.providerId ?? null,
+      provider_subject: args.providerSubject ?? null,
+      scopes: args.scopes,
+      expires_at: new Date(now + 8 * 60 * 60 * 1000).toISOString(),
+      absolute_expires_at: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+    })
+    if (!row) throw new OAuthError('server_error', 'operator session could not be created', 500)
+    return { row, token }
+  }
+
+  async function attachOperator(stateId: string, operator: OperatorSessionRow): Promise<void> {
+    const changed = await deps.db.update(
+      'wk_oauth_login_states',
+      { id: `eq.${stateId}`, consumed_at: 'is.null' },
+      {
+        provider_id: operator.provider_id ?? 'api_key',
+        provider_subject: operator.provider_subject ?? operator.principal_key_id,
+        provider_email: operator.principal_name,
+        authenticated_at: new Date().toISOString(),
+      },
+    )
+    if (!changed.length) throw new OAuthError('invalid_request', 'authorization state expired or already used')
+  }
+
+  function offeredScopes(requested: string[], ceiling: string[]): string[] {
+    const allowed = new Set(ceiling)
+    const unrestricted = allowed.has('*') || allowed.has('admin')
+    return requested.filter((scope) => scope === 'offline_access' || unrestricted || allowed.has(scope))
+  }
+
+  async function consentResponse(
+    state: IdentityLoginStateRow,
+    client: ClientRow,
+    operator: OperatorSessionRow,
+    rawState: string,
+    setCookie?: string,
+  ): Promise<Response> {
+    const scopes = offeredScopes(state.scopes, operator.scopes)
+    if (!scopes.includes('knowledge:read')) throw new OAuthError('access_denied', 'identity cannot read WikiKit', 403)
+    const csrfToken = randomBytes(32).toString('base64url')
+    const response = authHtmlResponse(
+      renderConsentPage({
+        clientName: client.client_name,
+        identityLabel: operator.principal_name,
+        targetLabel: operator.principal_space_id ? 'the permitted WikiKit space' : 'the permitted WikiKit spaces',
+        offeredScopes: scopes,
+        csrfToken,
+        loginState: rawState,
+      }),
+    )
+    response.headers.append(
+      'set-cookie',
+      `wk_oauth_csrf=${encodeURIComponent(csrfToken)}; HttpOnly; SameSite=Lax; Path=/v1/oauth/authorize; Max-Age=600${new URL(config.publicUrl).protocol === 'https:' ? '; Secure' : ''}`,
+    )
+    if (setCookie) response.headers.append('set-cookie', operatorCookie(config, setCookie))
+    return response
+  }
+
+  async function loadLoginState(rawState: string): Promise<IdentityLoginStateRow | null> {
+    if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(rawState)) return null
+    const { rows } = await deps.db.query<IdentityLoginStateRow>(
+      `SELECT id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
+              provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier
+         FROM wk_oauth_login_states
+        WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+        LIMIT 1`,
+      [hashApiKey(rawState, config.keyPepper)],
+    )
+    return rows[0] ?? null
+  }
+
+  function loginResponse(rawState: string): Response {
+    const options = loginOptions(config)
+    if (!options.length) throw new OAuthError('server_error', 'no OAuth login method is configured', 500)
+    if (options.length === 1 && options[0]!.id === 'api_key') {
+      return authHtmlResponse(renderApiKeyLogin({ state: rawState }))
+    }
+    if (options.length === 1) {
+      const target = new URL(`${config.publicUrl}/v1/identity/login/start`)
+      target.searchParams.set('state', rawState)
+      target.searchParams.set('provider', options[0]!.id)
+      return new Response(null, { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' } })
+    }
+    return authHtmlResponse(renderProviderChoice({ state: rawState, providers: options }))
+  }
+
   async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
@@ -579,49 +696,67 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       }
       if (request.method === 'GET' && path === '/v1/oauth/authorize') {
         const loaded = await loadAuthorizationRequest(config, deps.db, url.searchParams)
-        if (interactiveLoginEnabled(config)) {
-          const loginState = randomToken('wkl_')
-          await deps.db.insert('wk_oauth_login_states', {
-            state_hash: hashApiKey(loginState, config.keyPepper),
-            client_id: loaded.client.client_id,
-            redirect_uri: loaded.redirectUri,
-            scopes: loaded.scopes,
-            code_challenge: loaded.codeChallenge, // validated by loadAuthorizationRequest
-            resource: loaded.resource,
-            client_state: url.searchParams.get('state'),
-            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-          })
-          const oidcProviders = oidcEnabled(config) ? config.oauthOidcProviders || [] : []
-          if (firebaseEnabled(config) && !oidcProviders.length) {
-            return new Response(null, {
-              status: 302,
-              headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
-            })
-          }
-          if (!firebaseEnabled(config) && oidcProviders.length === 1) {
-            const target = new URL(`${config.publicUrl}/v1/oauth/login`)
-            target.searchParams.set('state', loginState)
-            target.searchParams.set('provider', oidcProviders[0]!.id)
-            return new Response(null, {
-              status: 302,
-              headers: { location: target.toString(), 'cache-control': 'no-store' },
-            })
-          }
-          return loginChoicePage({
-            state: loginState,
-            firebase: firebaseEnabled(config),
-            oidc: oidcProviders.map((provider) => ({ id: provider.id, label: `Continue with ${provider.label}` })),
-          })
-        }
-        return consentPage({
-          clientName: loaded.client.client_name,
-          params: url.searchParams,
+        const loginState = randomToken('wkl_')
+        const operator = await currentOperator(request)
+        const [state] = await deps.db.insert<IdentityLoginStateRow>('wk_oauth_login_states', {
+          state_hash: hashApiKey(loginState, config.keyPepper),
+          client_id: loaded.client.client_id,
+          redirect_uri: loaded.redirectUri,
           scopes: loaded.scopes,
-          csrfToken: randomBytes(32).toString('base64url'),
-          secureCookie: new URL(config.publicUrl).protocol === 'https:',
+          code_challenge: loaded.codeChallenge,
+          resource: loaded.resource,
+          client_state: url.searchParams.get('state'),
+          provider_id: operator?.provider_id ?? (operator ? 'api_key' : null),
+          provider_subject: operator?.provider_subject ?? operator?.principal_key_id ?? null,
+          provider_email: operator?.principal_name ?? null,
+          authenticated_at: operator ? new Date().toISOString() : null,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         })
+        if (!state) throw new OAuthError('server_error', 'authorization state could not be created', 500)
+        if (operator) return await consentResponse(state, loaded.client, operator, loginState)
+        return loginResponse(loginState)
       }
-      if (request.method === 'GET' && path === '/v1/oauth/login') {
+      if (request.method === 'GET' && path === '/v1/identity/login/api-key') {
+        const loginState = url.searchParams.get('state') || ''
+        if (!apiKeyLoginEnabled(config) || !(await loadLoginState(loginState))) {
+          throw new OAuthError('invalid_request', 'API-key login state is unavailable')
+        }
+        return authHtmlResponse(renderApiKeyLogin({ state: loginState }))
+      }
+      if (request.method === 'POST' && path === '/v1/identity/login/api-key') {
+        if (!apiKeyLoginEnabled(config)) throw new OAuthError('not_found', 'API-key login is disabled', 404)
+        const params = new URLSearchParams(await request.text())
+        const loginState = params.get('login_state') || ''
+        const state = await loadLoginState(loginState)
+        if (!state) throw new OAuthError('invalid_request', 'authorization state expired')
+        const apiKey = params.get('api_key') || ''
+        let principal: Principal
+        try {
+          principal = await deps.auth.authenticate(`Bearer ${apiKey}`)
+          if (principal.keyId.startsWith('oauth:')) throw new Error('operator API key required')
+        } catch {
+          return authHtmlResponse(
+            renderApiKeyLogin({ state: loginState, error: 'The API key is invalid or expired.' }),
+            401,
+          )
+        }
+        const session = await createOperatorSession({
+          principalKind: 'api_key',
+          principalKeyId: principal.keyId,
+          principalKeyHash: hashApiKey(apiKey, config.keyPepper),
+          principalName: principal.name,
+          principalSpaceId: principal.spaceId,
+          scopes: principal.scopes,
+        })
+        await attachOperator(state.id, session.row)
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${state.client_id}`,
+          limit: 1,
+        })
+        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+        return await consentResponse(state, client, session.row, loginState, session.token)
+      }
+      if (request.method === 'GET' && ['/v1/oauth/login', '/v1/identity/login/start'].includes(path)) {
         const loginState = url.searchParams.get('state') || ''
         const providerId = url.searchParams.get('provider') || ''
         if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
@@ -637,7 +772,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           throw new OAuthError('not_found', 'identity provider is not available', 404)
         const started = await startOidcLogin({
           provider,
-          redirectUri: `${config.publicUrl}/v1/oauth/oidc/callback`,
+          redirectUri: `${config.publicUrl}/v1/identity/login/oidc/callback`,
           state: loginState,
         }).catch(() => {
           throw new OAuthError('temporarily_unavailable', 'OIDC provider discovery is unavailable', 503)
@@ -653,7 +788,10 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           headers: { location: started.authorizationUrl, 'cache-control': 'no-store' },
         })
       }
-      if (request.method === 'POST' && path === '/v1/oauth/firebase/callback') {
+      if (
+        request.method === 'POST' &&
+        ['/v1/oauth/firebase/callback', '/v1/identity/login/firebase/callback'].includes(path)
+      ) {
         if (!firebaseEnabled(config)) throw new OAuthError('not_found', 'Firebase OAuth login is disabled', 404)
         const params = new URLSearchParams(await request.text())
         const loginState = params.get('wikikit_oauth_state') || ''
@@ -696,17 +834,19 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           limit: 1,
         })
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
-        return consentPage({
-          clientName: client.client_name,
-          params: new URLSearchParams(),
-          scopes: state.scopes,
-          csrfToken: randomBytes(32).toString('base64url'),
-          secureCookie: new URL(config.publicUrl).protocol === 'https:',
-          loginState,
-          redirectUri: state.redirect_uri,
+        const session = await createOperatorSession({
+          principalKind: 'firebase',
+          principalKeyId: `firebase:${identity.subject}`,
+          principalKeyHash: hashApiKey(`firebase:${identity.subject}`, config.keyPepper),
+          principalName: identity.email,
+          principalSpaceId: null,
+          providerId: 'firebase',
+          providerSubject: identity.subject,
+          scopes: providerAllowedScopes(config, 'firebase'),
         })
+        return await consentResponse(state, client, session.row, loginState, session.token)
       }
-      if (request.method === 'GET' && path === '/v1/oauth/oidc/callback') {
+      if (request.method === 'GET' && ['/v1/oauth/oidc/callback', '/v1/identity/login/oidc/callback'].includes(path)) {
         const loginState = url.searchParams.get('state') || ''
         if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
           throw new OAuthError('invalid_request', 'a valid OIDC login state is required')
@@ -725,9 +865,13 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!state || !provider || !state.oidc_nonce || !state.oidc_code_verifier) {
           throw new OAuthError('invalid_request', 'OIDC login state is expired or invalid')
         }
+        const callbackRedirectUri =
+          path === '/v1/oauth/oidc/callback'
+            ? `${config.publicUrl}/v1/oauth/oidc/callback`
+            : `${config.publicUrl}/v1/identity/login/oidc/callback`
         const identity = await finishOidcLogin({
           provider,
-          redirectUri: `${config.publicUrl}/v1/oauth/oidc/callback`,
+          redirectUri: callbackRedirectUri,
           callbackUrl: url,
           state: loginState,
           nonce: state.oidc_nonce,
@@ -757,167 +901,170 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           limit: 1,
         })
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
-        return consentPage({
-          clientName: client.client_name,
-          params: new URLSearchParams(),
-          scopes: state.scopes,
-          csrfToken: randomBytes(32).toString('base64url'),
-          secureCookie: new URL(config.publicUrl).protocol === 'https:',
-          loginState,
-          redirectUri: state.redirect_uri,
+        const session = await createOperatorSession({
+          principalKind: 'oidc',
+          principalKeyId: `oidc:${provider.id}:${identity.subject}`,
+          principalKeyHash: hashApiKey(`oidc:${provider.id}:${identity.subject}`, config.keyPepper),
+          principalName: identity.email,
+          principalSpaceId: null,
+          providerId: provider.id,
+          providerSubject: identity.subject,
+          scopes: provider.allowedScopes,
         })
+        return await consentResponse(state, client, session.row, loginState, session.token)
       }
-      if (request.method === 'POST' && path === '/v1/oauth/authorize') {
+      if (request.method === 'POST' && ['/v1/oauth/authorize', '/v1/oauth/authorize/decision'].includes(path)) {
         const params = new URLSearchParams(await request.text())
         const csrfToken = params.get('csrf_token') || ''
         const csrfCookie = cookieValue(request, 'wk_oauth_csrf') || ''
         if (!csrfToken || !csrfCookie || !safeEqualText(csrfToken, csrfCookie)) {
           throw new OAuthError('invalid_request', 'consent form CSRF validation failed')
         }
-        let loaded: { client: ClientRow; redirectUri: string; scopes: string[]; resource: string }
-        let codeChallenge = ''
-        let principal: Principal | null = null
-        let principalKeyHash = ''
-        let principalKind: 'api_key' | 'firebase' | 'oidc' = 'api_key'
-        let identityStateId: string | null = null
-        let callbackState: string | undefined = params.get('state') ?? undefined
-        if (interactiveLoginEnabled(config)) {
-          const loginState = params.get('login_state') || ''
-          if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
-            throw new OAuthError('invalid_request', 'interactive OAuth login state is required')
-          const { rows } = await deps.db.query<IdentityLoginStateRow>(
-            `SELECT s.id, s.client_id, s.redirect_uri, s.scopes, s.code_challenge, s.resource, s.client_state,
-                    s.provider_subject, s.provider_email, s.provider_id, s.oidc_nonce, s.oidc_code_verifier
-               FROM wk_oauth_login_states s
-               JOIN wk_oauth_clients c ON c.client_id = s.client_id
-              WHERE s.state_hash = $1 AND s.consumed_at IS NULL AND s.expires_at > now()
-                AND s.authenticated_at IS NOT NULL AND c.revoked_at IS NULL
-              LIMIT 1`,
-            [hashApiKey(loginState, config.keyPepper)],
-          )
-          const state = rows[0]
-          if (!state?.provider_subject || !state.provider_email)
-            throw new OAuthError('invalid_request', 'interactive OAuth login is no longer valid')
-          const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
-            client_id: `eq.${state.client_id}`,
-            limit: 1,
-          })
-          if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
-          // Pre-federation Firebase states have no provider_id. They remain
-          // valid during a rolling deploy and are unambiguously Firebase when
-          // this mount exposes Firebase as its only interactive provider.
-          const providerId = state.provider_id || (firebaseEnabled(config) ? 'firebase' : '')
-          const providerScopes = providerAllowedScopes(config, providerId)
-          if (!providerScopes.length)
-            throw new OAuthError('access_denied', 'identity provider is no longer authorized', 403)
-          loaded = { client, redirectUri: state.redirect_uri, scopes: state.scopes, resource: state.resource }
-          principal = {
-            keyId:
-              providerId === 'firebase'
-                ? `firebase:${state.provider_subject}`
-                : `oidc:${providerId}:${state.provider_subject}`,
-            name: state.provider_email,
-            scopes: providerScopes,
-            spaceId: null,
-          }
-          principalKeyHash = hashApiKey(principal.keyId, config.keyPepper)
-          principalKind = providerId === 'firebase' ? 'firebase' : 'oidc'
-          identityStateId = state.id
-          callbackState = state.client_state ?? undefined
-          codeChallenge = state.code_challenge || ''
-        } else {
-          const request = await loadAuthorizationRequest(config, deps.db, params)
-          loaded = request
-          codeChallenge = request.codeChallenge
-        }
-        if (params.get('action') === 'deny') {
-          if (identityStateId) {
-            await deps.db.update(
-              'wk_oauth_login_states',
-              { id: `eq.${identityStateId}`, consumed_at: 'is.null' },
-              { consumed_at: new Date().toISOString() },
+        const loginState = params.get('login_state') || ''
+        if (!loginState && path === '/v1/oauth/authorize') {
+          const loaded = await loadAuthorizationRequest(config, deps.db, params)
+          if (params.get('action') === 'deny') {
+            return clearCsrfCookie(
+              redirectWith(loaded.redirectUri, { error: 'access_denied', state: params.get('state') ?? undefined }),
+              new URL(config.publicUrl).protocol === 'https:',
             )
           }
-          return clearCsrfCookie(
-            redirectWith(loaded.redirectUri, {
-              error: 'access_denied',
-              state: callbackState,
-            }),
-            new URL(config.publicUrl).protocol === 'https:',
-          )
-        }
-        if (!principal) {
           const apiKey = params.get('api_key') || ''
-          principalKeyHash = hashApiKey(apiKey, config.keyPepper)
-          try {
-            principal = await deps.auth.authenticate(`Bearer ${apiKey}`)
-            if (principal.keyId.startsWith('oauth:')) throw new Error('an operator API key is required')
-            for (const scope of loaded.scopes) {
-              if (scope !== 'offline_access')
-                deps.auth.requireScope(
-                  principal,
-                  scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve',
-                )
-            }
-          } catch {
-            return consentPage({
-              clientName: loaded.client.client_name,
-              params,
-              scopes: loaded.scopes,
-              error: 'The API key is invalid or lacks one of the requested scopes.',
-              csrfToken,
-              secureCookie: new URL(config.publicUrl).protocol === 'https:',
-            })
+          const principal = await deps.auth.authenticate(`Bearer ${apiKey}`).catch(() => null)
+          if (!principal || principal.keyId.startsWith('oauth:')) {
+            throw new OAuthError('access_denied', 'an operator API key is required', 403)
           }
-        }
-        for (const scope of loaded.scopes)
-          if (scope !== 'offline_access')
-            deps.auth.requireScope(
-              principal,
-              scope as 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve',
-            )
-        // Request-boundary PKCE guard for BOTH branches: whether the challenge
-        // came from the consent form (re-validated by loadAuthorizationRequest)
-        // or a stored login state (possibly written by an older binary without
-        // one), an invalid challenge is the CLIENT's error — 400
-        // invalid_request, never a 500 from the codes table's NOT NULL
-        // constraint at consent time.
-        if (!PKCE_CHALLENGE.test(codeChallenge)) {
-          throw new OAuthError('invalid_request', 'a valid S256 PKCE code_challenge is required')
-        }
-        const code = randomToken('wka_')
-        await deps.db.tx(async (tx) => {
-          if (identityStateId) {
-            const changed = await tx.update(
-              'wk_oauth_login_states',
-              { id: `eq.${identityStateId}`, consumed_at: 'is.null' },
-              { consumed_at: new Date().toISOString() },
-            )
-            if (!changed.length)
-              throw new OAuthError('invalid_request', 'interactive OAuth login state is already consumed')
-          }
-          await tx.insert(
+          const scopes = offeredScopes(loaded.scopes, principal.scopes)
+          if (!scopes.includes('knowledge:read'))
+            throw new OAuthError('access_denied', 'API key cannot read WikiKit', 403)
+          const code = randomToken('wka_')
+          await deps.db.insert(
             'wk_oauth_authorization_codes',
             {
               code_hash: hashApiKey(code, config.keyPepper),
               client_id: loaded.client.client_id,
               redirect_uri: loaded.redirectUri,
-              scopes: loaded.scopes,
-              code_challenge: codeChallenge,
+              scopes,
+              code_challenge: loaded.codeChallenge,
               resource: loaded.resource,
               principal_name: principal.name,
               principal_space_id: principal.spaceId,
               principal_key_id: principal.keyId,
-              principal_key_hash: principalKeyHash,
-              principal_kind: principalKind,
+              principal_key_hash: hashApiKey(apiKey, config.keyPepper),
+              principal_kind: 'api_key',
+              expires_at: new Date(Date.now() + (config.oauthAuthorizationCodeTtlMs ?? 10 * 60 * 1000)).toISOString(),
+            },
+            { returning: false },
+          )
+          return clearCsrfCookie(
+            redirectWith(loaded.redirectUri, { code, state: params.get('state') ?? undefined }),
+            new URL(config.publicUrl).protocol === 'https:',
+          )
+        }
+        const state = await loadLoginState(loginState)
+        if (!state?.provider_subject || !state.provider_email) {
+          throw new OAuthError('invalid_request', 'authorization state is no longer authenticated')
+        }
+        if (!PKCE_CHALLENGE.test(state.code_challenge)) {
+          throw new OAuthError('invalid_request', 'a valid S256 PKCE code_challenge is required')
+        }
+        const operator = await currentOperator(request)
+        const stateProvider = state.provider_id ?? 'firebase'
+        const operatorProvider = operator?.provider_id ?? (operator ? 'api_key' : '')
+        if (!operator || stateProvider !== operatorProvider) {
+          throw new OAuthError('access_denied', 'operator session expired', 401)
+        }
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${state.client_id}`,
+          limit: 1,
+        })
+        if (!client || client.revoked_at || !client.redirect_uris.includes(state.redirect_uri)) {
+          throw new OAuthError('invalid_client', 'unknown or revoked client')
+        }
+        const decision = params.get('decision') ?? params.get('action')
+        if (decision === 'switch_account') {
+          await deps.db.update(
+            'wk_oauth_operator_sessions',
+            { id: `eq.${operator.id}`, revoked_at: 'is.null' },
+            { revoked_at: new Date().toISOString() },
+            { returning: false },
+          )
+          await deps.db.query(
+            `UPDATE wk_oauth_login_states
+                SET provider_subject = NULL, provider_email = NULL, provider_id = NULL,
+                    oidc_nonce = NULL, oidc_code_verifier = NULL, authenticated_at = NULL
+              WHERE id = $1 AND consumed_at IS NULL`,
+            [state.id],
+          )
+          return withOperatorCookie(loginResponse(loginState), config, '', 0)
+        }
+        if (decision === 'deny') {
+          await deps.db.update(
+            'wk_oauth_login_states',
+            { id: `eq.${state.id}`, consumed_at: 'is.null' },
+            { consumed_at: new Date().toISOString() },
+            { returning: false },
+          )
+          return clearCsrfCookie(
+            redirectWith(state.redirect_uri, {
+              error: 'access_denied',
+              state: state.client_state ?? undefined,
+            }),
+            new URL(config.publicUrl).protocol === 'https:',
+          )
+        }
+        const selected = [...new Set(params.getAll('scope'))]
+        const ceiling = offeredScopes(state.scopes, operator.scopes)
+        const scopes = selected.filter((scope) => ceiling.includes(scope))
+        if (ceiling.includes('knowledge:read') && !scopes.includes('knowledge:read')) scopes.unshift('knowledge:read')
+        if (!scopes.includes('knowledge:read')) throw new OAuthError('access_denied', 'no readable scope selected', 403)
+        const code = randomToken('wka_')
+        await deps.db.tx(async (tx) => {
+          const changed = await tx.update(
+            'wk_oauth_login_states',
+            { id: `eq.${state.id}`, consumed_at: 'is.null' },
+            { consumed_at: new Date().toISOString() },
+          )
+          if (!changed.length) throw new OAuthError('invalid_request', 'authorization state is already consumed')
+          await tx.insert(
+            'wk_oauth_authorization_codes',
+            {
+              code_hash: hashApiKey(code, config.keyPepper),
+              client_id: client.client_id,
+              redirect_uri: state.redirect_uri,
+              scopes,
+              code_challenge: state.code_challenge,
+              resource: state.resource,
+              principal_name: operator.principal_name,
+              principal_space_id: operator.principal_space_id,
+              principal_key_id: operator.principal_key_id,
+              principal_key_hash: operator.principal_key_hash,
+              principal_kind: operator.principal_kind,
               expires_at: new Date(Date.now() + (config.oauthAuthorizationCodeTtlMs ?? 10 * 60 * 1000)).toISOString(),
             },
             { returning: false },
           )
         })
         return clearCsrfCookie(
-          redirectWith(loaded.redirectUri, { code, state: callbackState }),
+          redirectWith(state.redirect_uri, { code, state: state.client_state ?? undefined }),
           new URL(config.publicUrl).protocol === 'https:',
+        )
+      }
+      if (request.method === 'POST' && path === '/v1/identity/logout') {
+        const operator = await currentOperator(request)
+        if (operator) {
+          await deps.db.update(
+            'wk_oauth_operator_sessions',
+            { id: `eq.${operator.id}`, revoked_at: 'is.null' },
+            { revoked_at: new Date().toISOString() },
+            { returning: false },
+          )
+        }
+        return withOperatorCookie(
+          new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } }),
+          config,
+          '',
+          0,
         )
       }
       if (request.method === 'POST' && path === '/v1/oauth/token') {
@@ -1110,12 +1257,12 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       } as RequestInit)
       const response = await handle(request)
       res.statusCode = response.status
-      response.headers.forEach((value, name) => res.setHeader(name, value))
+      writeResponseHeaders(res, response)
       res.end(response.body ? Buffer.from(await response.arrayBuffer()) : undefined)
     } catch (error) {
       const response = oauthError(error)
       res.statusCode = response.status
-      response.headers.forEach((value, name) => res.setHeader(name, value))
+      writeResponseHeaders(res, response)
       res.end(Buffer.from(await response.arrayBuffer()))
     }
   }

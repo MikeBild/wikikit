@@ -41,6 +41,13 @@ const MANAGED = [
   'WIKIKIT_USAGE_TELEMETRY_ENABLED',
   'WIKIKIT_USAGE_HMAC_SECRET',
   'WIKIKIT_USAGE_RETENTION_DAYS',
+  'WIKIKIT_OAUTH_LOGIN_PROVIDER',
+  'WIKIKIT_OAUTH_LOGIN_METHODS',
+  'WIKIKIT_OAUTH_FIREBASE_PROJECT_ID',
+  'WIKIKIT_OAUTH_FIREBASE_LOGIN_URL',
+  'WIKIKIT_OAUTH_ALLOWED_EMAILS',
+  'WIKIKIT_OAUTH_ALLOWED_SCOPES',
+  'WIKIKIT_OAUTH_OIDC_PROVIDERS',
   'LOG_LEVEL',
 ]
 
@@ -153,6 +160,19 @@ describe('validation', () => {
     }
     process.env.WIKIKIT_TRUST_PROXY = '0'
     expect(loadConfig().trustProxy).toBe(false)
+  })
+
+  test('supports concurrent OAuth login methods and keeps the legacy selector as fallback', () => {
+    process.env.WIKIKIT_OAUTH_LOGIN_METHODS = 'api_key,firebase,oidc'
+    const concurrent = loadConfig()
+    expect(concurrent.oauthLoginMethods).toEqual(['api_key', 'firebase', 'oidc'])
+
+    // Empty, not deleted: loadConfig() restamps .env.defaults (which now pins
+    // WIKIKIT_OAUTH_LOGIN_METHODS=api_key) over deleted vars, and the parser
+    // treats empty as unset — exactly the legacy-fallback contract.
+    process.env.WIKIKIT_OAUTH_LOGIN_METHODS = ''
+    process.env.WIKIKIT_OAUTH_LOGIN_PROVIDER = 'federated'
+    expect(loadConfig().oauthLoginMethods).toEqual(['firebase', 'oidc'])
   })
 })
 

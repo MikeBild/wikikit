@@ -162,24 +162,46 @@ describe('MCP OAuth 2.1 (integration)', () => {
       scope: 'knowledge:read knowledge:propose offline_access',
       state: 'state-123',
     }
-    const consent = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`)
-    expect(consent.status).toBe(200)
-    expect(consent.headers.get('content-security-policy')).toContain("form-action 'self' https://chatgpt.com")
-    const csrfCookie = consent.headers.get('set-cookie')?.split(';')[0]
-    expect(csrfCookie).toMatch(/^wk_oauth_csrf=/)
-    const consentHtml = await consent.text()
+    // Step 1: without an operator session the authorize GET renders the
+    // API-key sign-in page carrying an opaque single-use login state — never
+    // the client's redirect target and never an API key.
+    const login = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`)
+    expect(login.status).toBe(200)
+    expect(login.headers.get('content-security-policy')).toContain("default-src 'none'")
+    const loginHtml = await login.text()
+    expect(loginHtml).toContain('Sign in to WikiKit')
+    expect(loginHtml).not.toContain(BOOTSTRAP)
+    const loginState = loginHtml.match(/name="login_state" value="(wkl_[A-Za-z0-9_-]{43})"/)?.[1]
+    expect(loginState).toBeDefined()
+
+    // Step 2: the API key is posted once to the login endpoint, which mints a
+    // reusable operator session (cookie) and answers with the consent page.
+    const signedIn = await fetch(`${base}/v1/identity/login/api-key`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form({ login_state: loginState!, api_key: BOOTSTRAP }),
+    })
+    expect(signedIn.status).toBe(200)
+    const setCookies = signedIn.headers.getSetCookie()
+    const csrfCookie = setCookies.find((cookie) => cookie.startsWith('wk_oauth_csrf='))?.split(';')[0]
+    const operatorCookie = setCookies.find((cookie) => cookie.includes('wikikit_operator='))?.split(';')[0]
+    expect(csrfCookie).toBeDefined()
+    expect(operatorCookie).toBeDefined()
+    const consentHtml = await signedIn.text()
     expect(consentHtml).toContain('ChatGPT test')
     expect(consentHtml).not.toContain(BOOTSTRAP)
 
-    const approved = await fetch(`${base}/v1/oauth/authorize`, {
+    // Step 3: the decision POST carries CSRF token + operator session cookie.
+    const decisionBody = form({
+      csrf_token: decodeURIComponent(csrfCookie!.split('=')[1]!),
+      login_state: loginState!,
+      decision: 'approve',
+    })
+    for (const scope of ['knowledge:read', 'knowledge:propose', 'offline_access']) decisionBody.append('scope', scope)
+    const approved = await fetch(`${base}/v1/oauth/authorize/decision`, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: csrfCookie! },
-      body: form({
-        ...authorize,
-        csrf_token: decodeURIComponent(csrfCookie!.split('=')[1]!),
-        api_key: BOOTSTRAP,
-        action: 'approve',
-      }),
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `${csrfCookie}; ${operatorCookie}` },
+      body: decisionBody,
       redirect: 'manual',
     })
     expect(approved.status).toBe(302)
@@ -360,17 +382,25 @@ describe('MCP OAuth 2.1 (integration)', () => {
         })}`,
         { redirect: 'manual' },
       )
+      // Firebase as the only login method: authorize hops to the internal
+      // login starter, which then bounces to the Firebase-hosted page.
       expect(response.status).toBe(302)
-      const location = new URL(response.headers.get('location')!)
+      const starter = new URL(response.headers.get('location')!)
+      expect(starter.origin).toBe(ISSUER)
+      expect(starter.pathname).toBe('/v1/identity/login/start')
+      const started = await fetch(`${firebaseBase}${starter.pathname}${starter.search}`, { redirect: 'manual' })
+      expect(started.status).toBe(302)
+      const location = new URL(started.headers.get('location')!)
       expect(location.origin).toBe('https://subkit-auth-prod.web.app')
-      expect(location.searchParams.get('wikikit_oauth_callback')).toBe(`${ISSUER}/v1/oauth/firebase/callback`)
+      expect(location.searchParams.get('wikikit_oauth_callback')).toBe(`${ISSUER}/v1/identity/login/firebase/callback`)
       const loginState = location.searchParams.get('wikikit_oauth_state')!
       expect(loginState).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
       expect(location.toString()).not.toContain(BOOTSTRAP)
 
       // The Firebase verifier is covered separately by jose's issuer/signature
-      // validation. Here we model its successful, server-side result and
-      // exercise the failure-prone transition from consent to a PKCE code.
+      // validation. Here we model its successful, server-side result — the
+      // authenticated login state AND the operator session the callback mints —
+      // and exercise the failure-prone transition from consent to a PKCE code.
       await firebaseApp.database.db.insert('wk_oauth_identities', {
         provider_subject: 'firebase-test-subject',
         email: 'mike@mikebild.com',
@@ -379,19 +409,34 @@ describe('MCP OAuth 2.1 (integration)', () => {
         'wk_oauth_login_states',
         { state_hash: `eq.${hashApiKey(loginState, 'itest-oauth-pepper')}` },
         {
+          provider_id: 'firebase',
           provider_subject: 'firebase-test-subject',
           provider_email: 'mike@mikebild.com',
           authenticated_at: new Date().toISOString(),
         },
       )
+      const operatorSessionToken = `wkos_${randomBytes(32).toString('base64url')}`
+      await firebaseApp.database.db.insert('wk_oauth_operator_sessions', {
+        token_hash: hashApiKey(operatorSessionToken, 'itest-oauth-pepper'),
+        principal_kind: 'firebase',
+        principal_key_id: 'firebase:firebase-test-subject',
+        principal_key_hash: hashApiKey('firebase:firebase-test-subject', 'itest-oauth-pepper'),
+        principal_name: 'mike@mikebild.com',
+        principal_space_id: null,
+        provider_id: 'firebase',
+        provider_subject: 'firebase-test-subject',
+        scopes: ['knowledge:read', 'knowledge:propose'],
+        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+        absolute_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      })
       const csrf = randomBytes(32).toString('base64url')
-      const approved = await fetch(`${firebaseBase}/v1/oauth/authorize`, {
+      const approved = await fetch(`${firebaseBase}/v1/oauth/authorize/decision`, {
         method: 'POST',
         headers: {
           'content-type': 'application/x-www-form-urlencoded',
-          cookie: `wk_oauth_csrf=${encodeURIComponent(csrf)}`,
+          cookie: `wk_oauth_csrf=${encodeURIComponent(csrf)}; __Host-wikikit_operator=${encodeURIComponent(operatorSessionToken)}`,
         },
-        body: form({ login_state: loginState, csrf_token: csrf, action: 'approve' }),
+        body: form({ login_state: loginState, csrf_token: csrf, decision: 'approve' }),
         redirect: 'manual',
       })
       expect(approved.status).toBe(302)
@@ -467,6 +512,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       refreshTokens: 1,
       authorizationCodes: 1,
       loginStates: 0,
+      operatorSessions: 0,
       unusedClients: 1,
     })
   })

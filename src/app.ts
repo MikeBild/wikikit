@@ -104,9 +104,17 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     '/.well-known/oauth-authorization-server',
     '/v1/oauth/register',
     '/v1/oauth/authorize',
+    '/v1/oauth/authorize/decision',
+    '/v1/oauth/login',
     '/v1/oauth/firebase/callback',
+    '/v1/oauth/oidc/callback',
     '/v1/oauth/token',
     '/v1/oauth/revoke',
+    '/v1/identity/login/api-key',
+    '/v1/identity/login/start',
+    '/v1/identity/login/firebase/callback',
+    '/v1/identity/login/oidc/callback',
+    '/v1/identity/logout',
   ]) {
     http.mountRawHandler(path, oauth.handler)
   }

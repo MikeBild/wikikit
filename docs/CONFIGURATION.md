@@ -52,6 +52,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
 | `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | Human login: `api_key`, `firebase`, `oidc`, or `federated` provider chooser                                    | `api_key`                                                          |
+| `WIKIKIT_OAUTH_LOGIN_METHODS`        | Preferred comma-separated provider matrix: any of `api_key`, `firebase`, `oidc`; methods may coexist           | derived from legacy `WIKIKIT_OAUTH_LOGIN_PROVIDER`                 |
 | `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | Firebase project whose signed ID tokens establish a WikiKit OAuth login                                        | (required for `firebase`)                                          |
 | `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | Dedicated trusted WikiKit Firebase Hosting sign-in page                                                        | (required for `firebase`)                                          |
 | `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | Comma-separated, case-insensitive global human allow-list                                                      | (required for Firebase; OIDC can override per provider)            |
@@ -62,8 +63,10 @@ instead of producing a half-configured server.
 
 ## Remote MCP identity providers
 
-`WIKIKIT_OAUTH_LOGIN_PROVIDER` selects the browser identity flow used after a
-remote client has completed OAuth discovery and PKCE:
+`WIKIKIT_OAUTH_LOGIN_METHODS` selects one or more browser identity flows after
+a remote client has completed OAuth discovery and PKCE. The older
+`WIKIKIT_OAUTH_LOGIN_PROVIDER` remains a compatibility fallback when the new
+variable is unset:
 
 - `api_key` is the local compatibility flow; it is not appropriate for a
   public ChatGPT connector.
@@ -71,8 +74,7 @@ remote client has completed OAuth discovery and PKCE:
   It requires `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`,
   `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` and `WIKIKIT_OAUTH_ALLOWED_EMAILS`.
 - `oidc` uses the providers in `WIKIKIT_OAUTH_OIDC_PROVIDERS`.
-- `federated` shows a chooser when more than one configured Firebase/OIDC
-  provider is available; with one provider it redirects directly to it.
+- Multiple enabled methods and OIDC entries share one provider chooser.
 
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
 request. It defaults to `knowledge:read,knowledge:propose`. Add
