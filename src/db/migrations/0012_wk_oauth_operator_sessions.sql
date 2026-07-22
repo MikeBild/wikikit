@@ -4,7 +4,7 @@
 create table if not exists public.wk_oauth_operator_sessions (
   id uuid primary key default gen_random_uuid(),
   token_hash text not null unique,
-  principal_kind text not null check (principal_kind in ('api_key', 'firebase', 'oidc')),
+  principal_kind text not null check (principal_kind in ('api_key', 'identity')),
   principal_key_id text not null,
   principal_key_hash text not null,
   principal_name text not null,
@@ -20,11 +20,10 @@ create table if not exists public.wk_oauth_operator_sessions (
   check (
     (principal_kind = 'api_key' and provider_id is null and provider_subject is null)
     or
-    (principal_kind in ('firebase', 'oidc') and provider_id is not null and provider_subject is not null)
+    (principal_kind = 'identity' and provider_id is not null and provider_subject is not null)
   )
 );
 
 create index if not exists wk_oauth_operator_sessions_expiry_idx
   on public.wk_oauth_operator_sessions (absolute_expires_at)
   where revoked_at is null;
-

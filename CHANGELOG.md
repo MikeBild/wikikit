@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.2 - 2026-07-22
+
+### Changed
+
+- Replace the remaining provider-specific bootstrap migrations with a
+  provider-neutral external-identity baseline and structural provider metadata.
+- Extend the architecture contract to scan embedded migration sources so a
+  clean installation cannot pass through a retired provider-specific schema.
+
+### Migration
+
+- Existing installations rename the two historical migration journal tags
+  once before the binary cutover. The already-neutral production schema and
+  all knowledge data remain unchanged; WikiKit backfills only the new hashes.
+
 ## 0.9.1 - 2026-07-22
 
 ### Added

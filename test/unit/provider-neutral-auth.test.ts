@@ -15,7 +15,13 @@ function productionSources(path: string): string[] {
 
 describe('provider-neutral auth architecture', () => {
   test('keeps vendor names, legacy discriminators and fixed provider routes out of runtime auth', () => {
-    const files = [...productionSources('src/oauth'), 'src/config.ts', 'src/http/auth.ts', 'src/app.ts']
+    const files = [
+      ...productionSources('src/oauth'),
+      ...productionSources('src/db/migrations'),
+      'src/config.ts',
+      'src/http/auth.ts',
+      'src/app.ts',
+    ]
     const source = files.map((file) => readFileSync(file, 'utf8')).join('\n')
     expect(source).not.toMatch(/firebase|FIREBASE_|login\/(?:firebase|api-key|token-bridge)/i)
     expect(source).not.toMatch(/params\.get\(['"]id_token['"]\)/)

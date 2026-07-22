@@ -34,13 +34,13 @@
     },
     {
       "idx": 5,
-      "tag": "0005_wk_oauth_firebase_identity",
+      "tag": "0005_wk_oauth_external_identity",
       "when": 1784314800000,
       "breakpoints": true
     },
     {
       "idx": 6,
-      "tag": "0006_wk_oauth_federated_identity",
+      "tag": "0006_wk_oauth_provider_metadata",
       "when": 1784322000000,
       "breakpoints": true
     },
