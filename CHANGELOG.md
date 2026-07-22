@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.1 - 2026-07-22
+
+### Added
+
+- Enforce the provider-neutral auth boundary with a repository contract test:
+  runtime auth may expose only generic identity routes and protocol
+  discriminators, never vendor-named branches, configuration keys or route
+  aliases.
+
 ## 0.9.0 - 2026-07-22
 
 ### Added
@@ -39,6 +48,12 @@ and this project adheres to
   mandatory and is never silently added to a request that omitted it.
 - Allow reviewer credentials to inspect proposal details while keeping the
   irreversible approve/reject boundary on `knowledge:approve`.
+
+### Removed
+
+- Remove the former provider-specific configuration and login endpoints with
+  no aliases or compatibility parser. Deployments must supply canonical
+  `protocol` records before starting 0.9.0.
 
 ### Security
 
