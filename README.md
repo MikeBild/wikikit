@@ -196,6 +196,13 @@ adapters in the common WikiKit-branded auth card. Provider products are
 configuration values, not WikiKit modes. JWT bridges can map safe dotted
 subject, email and verification claim paths; OIDC adapters use discovery and
 Authorization Code + PKCE.
+The method chooser is the family-wide `mcp-auth-v2` contract: SSO is always
+first as **Continue with SSO**, API-key fallback is always second as
+**Continue with API key**, and configured provider labels never alter those
+two actions. The same public surface is implemented independently by WikiKit,
+ContentKit and SubKit: provider discovery, assertion exchange, generic
+start/callback/logout, OAuth discovery, DCR, authorize/consent, token and
+revocation. There are no provider-named routes or compatibility aliases.
 WikiKit verifies the selected provider and admits
 only the explicit provider/email allow-list. The operator session is
 revocable, has an eight-hour idle/24-hour absolute limit, and the consent page
@@ -204,6 +211,13 @@ unrequested scopes are never displayed or granted and `knowledge:read` is a
 mandatory requested baseline. `WIKIKIT_PUBLIC_URL` must
 be the canonical HTTPS base URL in production because it is the OAuth issuer
 and audience.
+
+Non-browser clients discover the same configured methods with
+`GET /v1/identity/providers`. A configured SSO assertion is exchanged only at
+`POST /v1/identity/sessions` using
+`{"provider_id":"<id>","identity_token":"<assertion>"}`. The response shape
+is always `{api_key,principal_id,context_id,email}`; WikiKit returns a null
+`context_id` because space access remains encoded in the issued key's scopes.
 
 For a review-capable connector, select the discovered standard scopes
 `knowledge:read`, `knowledge:propose`, `knowledge:review`,

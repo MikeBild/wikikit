@@ -15,6 +15,7 @@
 import { z } from 'zod'
 import { SCHEMAS } from './schemas.ts'
 import type { RouteDef } from './routes.ts'
+import { registerMcpAuthOpenApi } from '../oauth/openapi.ts'
 
 export interface OpenApiDocument {
   openapi: '3.1.0'
@@ -142,6 +143,8 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
     paths[route.path] ??= {}
     paths[route.path]![route.method] = op
   }
+
+  registerMcpAuthOpenApi(paths, components)
 
   return {
     openapi: '3.1.0',

@@ -67,6 +67,12 @@ remote client has completed OAuth discovery and PKCE:
 - `oidc` uses standard discovery and Authorization Code + PKCE.
 - Multiple enabled methods and OIDC entries share one provider chooser.
 
+The browser surface never inherits vendor or configured labels. It renders the
+versioned `mcp-auth-v2` card with `Continue with SSO` first and `Continue with
+API key` second. Every adapter uses the same `/v1/identity/login/start`,
+`/v1/identity/login/callback`, `/v1/identity/logout`, provider discovery and
+session-exchange routes; provider ids are opaque configuration values.
+
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
 request. It defaults to `knowledge:read,knowledge:propose`. Add
 `knowledge:review` for identities that inspect proposals and start the MCP
@@ -125,6 +131,13 @@ it through the production secret store. Register
 redirect URI and keep `WIKIKIT_PUBLIC_URL` on its canonical HTTPS origin. All
 adapters use only `/v1/identity/login/start`,
 `/v1/identity/login/callback`, and `/v1/identity/logout`.
+
+`GET /v1/identity/providers` returns only the safe common discovery projection:
+`protocol`, opaque `id`, canonical `label` (`SSO` or `API key`) and the
+protocol metadata needed by a client (`login_url` or `issuer`).
+`POST /v1/identity/sessions` accepts only a configured `provider_id` plus an
+`identity_token` and returns `{api_key,principal_id,context_id,email}`. It never
+accepts a caller-supplied issuer or a provider-specific payload shape.
 
 ## Privacy-safe usage telemetry
 

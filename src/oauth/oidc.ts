@@ -2,6 +2,7 @@
 // Each provider is explicitly configured and its issuer is discovered through
 // openid-client; no browser-provided issuer, endpoint or return URL is trusted.
 import * as oidc from 'openid-client'
+import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { OidcProviderConfig } from '../config.ts'
 
 export interface OidcStart {
@@ -55,6 +56,64 @@ export async function startOidcLogin(args: {
 export interface OidcIdentity {
   subject: string
   email: string
+}
+
+const assertionMetadata = new Map<string, Promise<{ issuer: string; jwks_uri: string }>>()
+const assertionKeys = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+
+function discoveryUrl(issuer: string): URL {
+  const endpoint = new URL(issuer)
+  endpoint.pathname = `${endpoint.pathname.replace(/\/$/, '')}/.well-known/openid-configuration`
+  endpoint.search = ''
+  endpoint.hash = ''
+  return endpoint
+}
+
+async function providerMetadata(provider: OidcProviderConfig): Promise<{ issuer: string; jwks_uri: string }> {
+  let pending = assertionMetadata.get(provider.issuer)
+  if (!pending) {
+    pending = (async () => {
+      const endpoint = discoveryUrl(provider.issuer)
+      const response = await fetch(endpoint, { headers: { accept: 'application/json' }, redirect: 'error' })
+      if (!response.ok) throw new Error('OIDC discovery failed')
+      const metadata = (await response.json()) as { issuer?: unknown; jwks_uri?: unknown }
+      if (metadata.issuer !== provider.issuer || typeof metadata.jwks_uri !== 'string') {
+        throw new Error('OIDC discovery metadata is invalid')
+      }
+      return { issuer: metadata.issuer, jwks_uri: metadata.jwks_uri }
+    })()
+    assertionMetadata.set(provider.issuer, pending)
+  }
+  try {
+    return await pending
+  } catch (error) {
+    assertionMetadata.delete(provider.issuer)
+    throw error
+  }
+}
+
+/** Verify a provider assertion for the provider-neutral identity-session exchange. */
+export async function verifyOidcIdentityToken(args: {
+  provider: OidcProviderConfig
+  identityToken: string
+}): Promise<OidcIdentity> {
+  const metadata = await providerMetadata(args.provider)
+  let keySet = assertionKeys.get(metadata.jwks_uri)
+  if (!keySet) {
+    keySet = createRemoteJWKSet(new URL(metadata.jwks_uri))
+    assertionKeys.set(metadata.jwks_uri, keySet)
+  }
+  const { payload } = await jwtVerify(args.identityToken, keySet, {
+    issuer: metadata.issuer,
+    audience: args.provider.clientId,
+  })
+  const subject = typeof payload.sub === 'string' ? payload.sub : ''
+  const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : ''
+  if (!subject || !email || payload.email_verified !== true) {
+    throw new Error('OIDC identity must contain sub, email and email_verified=true')
+  }
+  if (!args.provider.allowedEmails.includes(email)) throw new Error('OIDC account is not allowed to access WikiKit')
+  return { subject, email }
 }
 
 export async function finishOidcLogin(args: {

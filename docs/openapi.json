@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.9.3",
+    "version": "0.10.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2253,6 +2253,344 @@
         "operationId": "llmsFullTxt",
         "responses": { "200": { "description": "Complete documentation", "content": { "text/plain": {} } } }
       }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "operationId": "getOAuthProtectedResource",
+        "tags": ["MCP authentication"],
+        "summary": "Read MCP protected-resource metadata",
+        "responses": {
+          "200": { "description": "Metadata", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/.well-known/oauth-protected-resource/mcp": {
+      "get": {
+        "operationId": "getMcpOAuthProtectedResource",
+        "tags": ["MCP authentication"],
+        "summary": "Read MCP protected-resource metadata",
+        "responses": {
+          "200": { "description": "Metadata", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "operationId": "getOAuthAuthorizationServer",
+        "tags": ["MCP authentication"],
+        "summary": "Read OAuth authorization-server metadata",
+        "responses": {
+          "200": { "description": "Metadata", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/v1/oauth/register": {
+      "post": {
+        "operationId": "registerOAuthClient",
+        "tags": ["MCP authentication"],
+        "summary": "Register a public OAuth client",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["redirect_uris"],
+                "properties": {
+                  "redirect_uris": { "type": "array", "items": { "type": "string", "format": "uri" } },
+                  "client_name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Client registered",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/oauth/authorize": {
+      "get": {
+        "operationId": "authorizeOAuthClient",
+        "tags": ["MCP authentication"],
+        "summary": "Start authorization-code login and consent",
+        "responses": {
+          "200": {
+            "description": "Login or consent HTML",
+            "content": { "text/html": { "schema": { "type": "string" } } }
+          },
+          "302": { "description": "Redirect" },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/oauth/authorize/decision": {
+      "post": {
+        "operationId": "decideOAuthConsent",
+        "tags": ["MCP authentication"],
+        "summary": "Approve or deny consent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "responses": {
+          "302": { "description": "OAuth redirect" },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/oauth/token": {
+      "post": {
+        "operationId": "exchangeOAuthToken",
+        "tags": ["MCP authentication"],
+        "summary": "Exchange or refresh OAuth tokens",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Tokens", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/oauth/revoke": {
+      "post": {
+        "operationId": "revokeOAuthToken",
+        "tags": ["MCP authentication"],
+        "summary": "Revoke an OAuth token family",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Revoked" },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/identity/providers": {
+      "get": {
+        "operationId": "listIdentityProviders",
+        "tags": ["MCP authentication"],
+        "summary": "List available MCP authentication methods",
+        "responses": {
+          "200": {
+            "description": "Canonical SSO-first method matrix",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProvidersResponse" } } }
+          }
+        }
+      }
+    },
+    "/v1/identity/sessions": {
+      "post": {
+        "operationId": "createIdentitySession",
+        "tags": ["MCP authentication"],
+        "summary": "Exchange a configured identity assertion for a scoped API key",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentitySessionRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Scoped product session",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentitySessionResponse" } } }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/identity/login/start": {
+      "get": {
+        "operationId": "startIdentityLogin",
+        "tags": ["MCP authentication"],
+        "summary": "Show the SSO-first login chooser or start a selected method",
+        "responses": {
+          "200": { "description": "Login HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "302": { "description": "Provider redirect" },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "submitApiKeyLogin",
+        "tags": ["MCP authentication"],
+        "summary": "Authenticate the API-key login method",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Consent HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/identity/login/callback": {
+      "get": {
+        "operationId": "completeOidcLogin",
+        "tags": ["MCP authentication"],
+        "summary": "Complete an OIDC login adapter",
+        "responses": {
+          "200": { "description": "Consent HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "302": { "description": "Redirect" },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "completeTokenBridgeLogin",
+        "tags": ["MCP authentication"],
+        "summary": "Complete a token-bridge login adapter",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Consent HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "400": {
+            "description": "Invalid request",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          }
+        }
+      }
+    },
+    "/v1/identity/logout": {
+      "post": {
+        "operationId": "logoutIdentitySession",
+        "tags": ["MCP authentication"],
+        "summary": "Revoke the browser operator session",
+        "responses": { "200": { "description": "Logged out" }, "204": { "description": "Completed" } }
+      }
     }
   },
   "components": {
@@ -4466,6 +4804,53 @@
         },
         "required": ["status", "version"],
         "additionalProperties": false
+      },
+      "AuthProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["protocol", "id", "label"],
+        "properties": {
+          "protocol": { "type": "string", "enum": ["api_key", "token_bridge", "oidc"] },
+          "id": { "type": "string" },
+          "label": { "type": "string", "enum": ["SSO", "API key"] },
+          "login_url": { "type": "string", "format": "uri" },
+          "issuer": { "type": "string", "format": "uri" }
+        }
+      },
+      "ProvidersResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["providers"],
+        "properties": { "providers": { "type": "array", "items": { "$ref": "#/components/schemas/AuthProvider" } } }
+      },
+      "IdentitySessionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider_id", "identity_token"],
+        "properties": {
+          "provider_id": { "type": "string", "minLength": 1 },
+          "identity_token": { "type": "string", "minLength": 1 }
+        }
+      },
+      "IdentitySessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["api_key", "principal_id", "context_id", "email"],
+        "properties": {
+          "api_key": { "type": "string" },
+          "principal_id": { "type": "string" },
+          "context_id": { "type": ["string", "null"] },
+          "email": { "type": "string" }
+        }
+      },
+      "OAuthError": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "error": { "type": "string" },
+          "error_description": { "type": "string" },
+          "code": { "type": "string" }
+        }
       }
     }
   }

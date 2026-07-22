@@ -2,6 +2,8 @@
 // mount. This is the compatibility path ChatGPT uses: discovery -> DCR ->
 // consent -> code exchange -> authenticated MCP -> refresh -> revoke.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
+import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createApp, type App } from '../../src/app.ts'
@@ -67,6 +69,12 @@ function config(databaseUrl: string): Config {
 
 function form(values: Record<string, string>): URLSearchParams {
   return new URLSearchParams(values)
+}
+
+function providerHref(html: string, id: string): string {
+  const match = html.match(new RegExp(`href="([^"]*provider=${encodeURIComponent(id)}[^"]*)"`))
+  expect(match, `expected provider link ${id}`).not.toBeNull()
+  return match![1]!.replaceAll('&amp;', '&')
 }
 
 let app: App
@@ -165,13 +173,16 @@ describe('MCP OAuth 2.1 (integration)', () => {
       scope: 'knowledge:read knowledge:propose offline_access',
       state: 'state-123',
     }
-    // Step 1: without an operator session the authorize GET hops to the
-    // single configured provider's login starter, which renders the API-key
-    // sign-in page carrying an opaque single-use login state — never the
-    // client's redirect target and never an API key.
+    // Step 1: every authorization request renders the same explicit provider
+    // chooser, even when only one method is configured.
     const authorized = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`, { redirect: 'manual' })
     expect(authorized.status).toBe(302)
-    const loginHop = new URL(authorized.headers.get('location')!)
+    const chooserLocation = new URL(authorized.headers.get('location')!)
+    const chooser = await fetch(`${base}${chooserLocation.pathname}${chooserLocation.search}`)
+    expect(chooser.status).toBe(200)
+    const chooserHtml = await chooser.text()
+    expect(chooserHtml).toContain('Continue with API key')
+    const loginHop = new URL(providerHref(chooserHtml, 'api-key'), ISSUER)
     expect(loginHop.pathname).toBe('/v1/identity/login/start')
     expect(loginHop.searchParams.get('provider')).toBe('api-key')
     const loginState = loginHop.searchParams.get('login_state')
@@ -402,9 +413,14 @@ describe('MCP OAuth 2.1 (integration)', () => {
         })}`,
         { redirect: 'manual' },
       )
-      // A bridge-only configuration hops through the generic login router.
+      // A bridge-only configuration still exposes the same explicit chooser.
       expect(response.status).toBe(302)
-      const starter = new URL(response.headers.get('location')!)
+      const chooserLocation = new URL(response.headers.get('location')!)
+      const chooser = await fetch(`${bridgeBase}${chooserLocation.pathname}${chooserLocation.search}`)
+      expect(chooser.status).toBe(200)
+      const chooserHtml = await chooser.text()
+      expect(chooserHtml).toContain('Continue with SSO')
+      const starter = new URL(providerHref(chooserHtml, 'google'), ISSUER)
       expect(starter.origin).toBe(ISSUER)
       expect(starter.pathname).toBe('/v1/identity/login/start')
       const started = await fetch(`${bridgeBase}${starter.pathname}${starter.search}`, { redirect: 'manual' })
@@ -478,6 +494,70 @@ describe('MCP OAuth 2.1 (integration)', () => {
       expect(((await exchanged.json()) as { access_token: string }).access_token).toMatch(/^wko_/)
     } finally {
       await bridgeApp.close()
+    }
+  })
+
+  it('exchanges a configured SSO assertion through the common identity-session contract', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('RS256')
+    const jwk = { ...(await exportJWK(publicKey)), kid: 'identity-session-test', alg: 'RS256', use: 'sig' }
+    const identityServer = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ keys: req.url === '/jwks' ? [jwk] : [] }))
+    })
+    await new Promise<void>((resolve) => identityServer.listen(0, '127.0.0.1', resolve))
+    const identityBase = `http://127.0.0.1:${(identityServer.address() as { port: number }).port}`
+    const sessionApp = createApp(
+      {
+        ...config(app.config.databaseUrl),
+        oauthProviders: [
+          {
+            protocol: 'token_bridge',
+            id: 'workforce',
+            label: 'deployment identity',
+            loginUrl: `${identityBase}/login`,
+            issuer: identityBase,
+            audience: 'wikikit-session-test',
+            jwksUrl: `${identityBase}/jwks`,
+            allowedEmails: ['operator@example.test'],
+            allowedScopes: ['knowledge:read'],
+          },
+        ],
+      },
+      { llm: createFakeProvider(), logger: createLogger({ level: 'error', write: () => {} }) },
+    )
+    await new Promise<void>((resolve) => sessionApp.server.listen(0, '127.0.0.1', resolve))
+    const sessionBase = `http://127.0.0.1:${(sessionApp.server.address() as { port: number }).port}`
+    try {
+      const identityToken = await new SignJWT({ email: 'operator@example.test', email_verified: true })
+        .setProtectedHeader({ alg: 'RS256', kid: 'identity-session-test' })
+        .setIssuer(identityBase)
+        .setAudience('wikikit-session-test')
+        .setSubject('operator-subject')
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(privateKey)
+      const response = await fetch(`${sessionBase}/v1/identity/sessions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider_id: 'workforce', identity_token: identityToken }),
+      })
+      expect(response.status).toBe(200)
+      const session = (await response.json()) as {
+        api_key: string
+        principal_id: string
+        context_id: string | null
+        email: string
+      }
+      expect(session.api_key).toMatch(/^wk_/)
+      expect(session.principal_id).toMatch(/^wki_/)
+      expect(session.context_id).toBeNull()
+      expect(session.email).toBe('operator@example.test')
+      expect(
+        (await fetch(`${sessionBase}/v1/spaces`, { headers: { authorization: `Bearer ${session.api_key}` } })).status,
+      ).toBe(200)
+    } finally {
+      await sessionApp.close()
+      await new Promise<void>((resolve, reject) => identityServer.close((error) => (error ? reject(error) : resolve())))
     }
   })
 

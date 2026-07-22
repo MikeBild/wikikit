@@ -107,6 +107,8 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     '/v1/oauth/authorize/decision',
     '/v1/oauth/token',
     '/v1/oauth/revoke',
+    '/v1/identity/providers',
+    '/v1/identity/sessions',
     '/v1/identity/login/start',
     '/v1/identity/login/callback',
     '/v1/identity/logout',

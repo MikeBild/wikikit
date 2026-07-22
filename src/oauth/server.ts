@@ -12,7 +12,7 @@ import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
 import { verifyBridgedIdentity } from './token-bridge.ts'
-import { finishOidcLogin, startOidcLogin } from './oidc.ts'
+import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
 
 const OAUTH_SCOPES = [
@@ -296,9 +296,31 @@ function apiKeyLoginEnabled(config: Config): boolean {
 }
 
 function loginOptions(
-  config: Config,
+  config: Pick<Config, 'oauthProviders'>,
 ): Array<{ id: string; protocol: 'api_key' | 'token_bridge' | 'oidc'; label: string }> {
-  return (config.oauthProviders ?? []).map(({ id, protocol, label }) => ({ id, protocol, label }))
+  return (config.oauthProviders ?? [])
+    .map(({ id, protocol, label }) => ({ id, protocol, label }))
+    .sort((left, right) => Number(left.protocol === 'api_key') - Number(right.protocol === 'api_key'))
+}
+
+export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Array<{
+  protocol: 'api_key' | 'token_bridge' | 'oidc'
+  id: string
+  label: 'API key' | 'SSO'
+  login_url?: string
+  issuer?: string
+}> {
+  const configured = config.oauthProviders ?? []
+  return loginOptions(config).map(({ id, protocol }) => {
+    const provider = configured.find((candidate) => candidate.id === id)
+    return {
+      protocol,
+      id,
+      label: protocol === 'api_key' ? 'API key' : 'SSO',
+      ...(provider?.protocol === 'token_bridge' ? { login_url: provider.loginUrl } : {}),
+      ...(provider?.protocol === 'oidc' ? { issuer: provider.issuer } : {}),
+    }
+  })
 }
 
 function providerAllowedScopes(config: Config, providerId: string | null): string[] {
@@ -571,13 +593,54 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
   function loginResponse(rawState: string): Response {
     const options = loginOptions(config)
     if (!options.length) throw new OAuthError('server_error', 'no OAuth login method is configured', 500)
-    if (options.length === 1) {
-      const target = new URL(`${config.publicUrl}/v1/identity/login/start`)
-      target.searchParams.set('login_state', rawState)
-      target.searchParams.set('provider', options[0]!.id)
-      return new Response(null, { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' } })
-    }
     return authHtmlResponse(renderProviderChoice({ state: rawState, providers: options }))
+  }
+
+  async function createIdentitySession(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as { provider_id?: unknown; identity_token?: unknown } | null
+    const providerId = typeof body?.provider_id === 'string' ? body.provider_id : ''
+    const identityToken = typeof body?.identity_token === 'string' ? body.identity_token : ''
+    if (!providerId || !identityToken) {
+      throw new OAuthError('invalid_request', 'provider_id and identity_token are required')
+    }
+    const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
+    if (!provider) throw new OAuthError('access_denied', 'identity provider is not configured', 403)
+    if (provider.protocol === 'api_key') {
+      throw new OAuthError('invalid_request', 'API key login does not accept identity assertions')
+    }
+    const identity = await (
+      provider.protocol === 'token_bridge'
+        ? verifyBridgedIdentity({
+            token: identityToken,
+            issuer: provider.issuer,
+            audience: provider.audience,
+            jwksUrl: provider.jwksUrl,
+            subjectClaim: provider.subjectClaim,
+            emailClaim: provider.emailClaim,
+            emailVerifiedClaim: provider.emailVerifiedClaim,
+            allowedEmails: provider.allowedEmails,
+          })
+        : verifyOidcIdentityToken({ provider, identityToken })
+    ).catch(() => {
+      throw new OAuthError('invalid_token', 'identity assertion was rejected', 401)
+    })
+    await deps.db.query(
+      `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (provider, provider_subject) DO UPDATE
+         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
+      [identity.subject, identity.email, provider.id],
+    )
+    const issued = await deps.auth.createKey({
+      name: `SSO ${identity.email}`,
+      scopes: provider.allowedScopes,
+      spaceId: null,
+    })
+    const principalId = `wki_${createHash('sha256')
+      .update(`${provider.id}\u0000${identity.subject}`)
+      .digest('base64url')}`
+    deps.logger.info('identity API key issued', { provider_id: provider.id, principal_id: principalId })
+    return json({ api_key: issued.key, principal_id: principalId, context_id: null, email: identity.email })
   }
 
   async function handle(request: Request): Promise<Response> {
@@ -585,6 +648,12 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     const path = url.pathname
     const base = config.publicUrl
     try {
+      if (request.method === 'GET' && path === '/v1/identity/providers') {
+        return json({ providers: publicLoginProviders(config) })
+      }
+      if (request.method === 'POST' && path === '/v1/identity/sessions') {
+        return await createIdentitySession(request)
+      }
       if (
         request.method === 'GET' &&
         ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(path)
@@ -680,7 +749,12 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         })
         if (!state) throw new OAuthError('server_error', 'authorization state could not be created', 500)
         if (operator) return await consentResponse(state, loaded.client, operator, loginState)
-        return loginResponse(loginState)
+        const chooser = new URL('/v1/identity/login/start', config.publicUrl)
+        chooser.searchParams.set('login_state', loginState)
+        return new Response(null, {
+          status: 302,
+          headers: { location: chooser.toString(), 'cache-control': 'no-store' },
+        })
       }
       if (request.method === 'POST' && path === '/v1/identity/login/start') {
         const params = new URLSearchParams(await request.text())
@@ -733,6 +807,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         const configuredProvider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
         const state = await loadLoginState(loginState)
         if (!state) throw new OAuthError('invalid_request', 'authorization state expired')
+        if (!providerId) return loginResponse(loginState)
         if (configuredProvider?.protocol === 'api_key') {
           return authHtmlResponse(renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id }))
         }

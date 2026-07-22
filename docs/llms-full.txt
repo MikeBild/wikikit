@@ -372,6 +372,17 @@ never issues `admin`. A connector stores the tools and scopes it scanned, so a
 new tool or scope requires a rescan/reconnect rather than silently broadening
 an old token.
 
+The browser chooser implements `mcp-auth-v2` and always renders `Continue with
+SSO` before `Continue with API key`; configured labels never change those
+actions. Authorize redirects through the generic
+`/v1/identity/login/start?login_state=<opaque>` funnel. Provider discovery is
+`GET /v1/identity/providers`; assertion exchange is
+`POST /v1/identity/sessions` with `{provider_id,identity_token}` and the exact
+response `{api_key,principal_id,context_id,email}`. Only the generic
+start/callback/logout routes exist—there are no provider-named or legacy
+aliases. WikiKit returns `context_id:null` and keeps space authorization in the
+issued key.
+
 Sessions are leases: idle TTL sweep (`WIKIKIT_MCP_SESSION_TTL_MS`), hard cap
 (`WIKIKIT_MCP_MAX_SESSIONS`) with oldest-idle eviction; a different key on a
 known session id gets 404 (hijack guard); an unknown session id gets JSON-RPC

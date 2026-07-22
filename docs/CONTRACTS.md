@@ -1262,6 +1262,11 @@ PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
 one-time code. `WIKIKIT_OAUTH_PROVIDERS` is the only browser-provider
 configuration and may contain one `api_key` plus multiple named `token_bridge`
 and `oidc` adapters concurrently. Product names are never protocol branches.
+A provider-neutral `302` from authorize leads to
+`/v1/identity/login/start?login_state=<opaque>`. The `mcp-auth-v2` chooser
+always presents `Continue with SSO` before `Continue with API key`; product
+branding, scopes, policy and data stay WikiKit-owned. Provider labels cannot
+change these actions.
 A token bridge posts a signed JWT only to WikiKit's generic callback; WikiKit
 verifies its configured signature keys, issuer, audience, expiry, verified
 email and explicit allow-list. OIDC uses discovery plus Authorization Code +
@@ -1283,6 +1288,14 @@ the same revocable operator session with an eight-hour idle limit and 24-hour
 absolute cap; authorize render and decision revalidate expiry, revocation and
 current identity policy. The common `W` card exposes explicit logout/account
 switching without combining WikiKit identities with another product.
+
+The common non-browser boundary is `GET /v1/identity/providers` and
+`POST /v1/identity/sessions`. Discovery returns configured methods in SSO-first
+order with canonical labels. Assertion exchange accepts exactly
+`{provider_id,identity_token}` and returns exactly
+`{api_key,principal_id,context_id,email}`; WikiKit uses `context_id:null` and
+keeps space authorization in the issued key. No provider-specific route or
+legacy request/response alias exists.
 
 `POST /v1/oauth/token` issues one-hour bearer tokens and, when
 `offline_access` is granted, rotating 30-day refresh tokens. A refresh-token

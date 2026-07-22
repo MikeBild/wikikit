@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.0 - 2026-07-22
+
+### Added
+
+- Publish the complete common MCP-auth OpenAPI contract, including safe
+  provider discovery and provider-neutral assertion exchange at
+  `POST /v1/identity/sessions` with the shared
+  `{api_key,principal_id,context_id,email}` response.
+- Verify OIDC identity assertions through issuer discovery, pinned audience,
+  cached remote keys, verified email and WikiKit's explicit identity policy.
+
+### Changed
+
+- Upgrade every WikiKit login and consent page to `mcp-auth-v2`, byte-identical
+  shared styles, an opaque `login_state` handoff, and the fixed user actions
+  `Continue with SSO` then `Continue with API key`.
+- Keep configured provider labels and products out of the UI and public route
+  model while preserving WikiKit-owned scopes, spaces, data and deployment.
+- Update README, contracts, configuration, OpenAPI and both LLM documents to
+  the exact common auth operation and schema contract.
+
+### Removed
+
+- Retain no provider-named routes, response aliases or compatibility parsing.
+
 ## 0.9.3 - 2026-07-22
 
 ### Changed

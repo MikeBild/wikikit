@@ -3,6 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildOpenApi } from '../../src/http/openapi.ts'
 import { ROUTES } from '../../src/http/routes.ts'
+import { MCP_AUTH_OPERATIONS } from '../../src/oauth/openapi.ts'
 
 const doc = buildOpenApi(ROUTES, { version: '9.9.9-test' })
 
@@ -13,9 +14,9 @@ describe('buildOpenApi', () => {
     expect(doc.info.title).toBe('WikiKit API')
   })
 
-  test('covers every registry route and nothing else', () => {
+  test('covers every REST registry route plus the raw common MCP-auth contract', () => {
     const fromDoc = Object.entries(doc.paths).flatMap(([path, ops]) => Object.keys(ops).map((m) => `${m} ${path}`))
-    const fromRoutes = ROUTES.map((r) => `${r.method} ${r.path}`)
+    const fromRoutes = [...ROUTES.map((r) => `${r.method} ${r.path}`), ...MCP_AUTH_OPERATIONS]
     expect(fromDoc.sort()).toEqual(fromRoutes.sort())
   })
 
