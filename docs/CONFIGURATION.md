@@ -97,13 +97,12 @@ boolean value `true`; it cannot be disabled.
   },
   {
     "protocol": "token_bridge",
-    "id": "supabase",
-    "label": "Supabase",
+    "id": "external-identity",
+    "label": "External identity",
     "login_url": "https://login.example.com/wikikit/",
-    "issuer_url": "https://project.example.com/auth/v1",
-    "audience": "authenticated",
-    "jwks_url": "https://project.example.com/auth/v1/.well-known/jwks.json",
-    "email_verified_claim": "user_metadata.email_verified",
+    "issuer_url": "https://identity.example.com",
+    "audience": "wikikit",
+    "jwks_url": "https://identity.example.com/.well-known/jwks.json",
     "allowed_emails": ["reviewer@example.com"]
   },
   {

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.3 - 2026-07-22
+
+### Changed
+
+- Make all browser-auth examples and historical auth descriptions use only
+  provider-neutral protocols, ids and endpoints.
+- Extend the architecture contract to reject concrete provider products in
+  both the auth runtime and its operator documentation.
+
 ## 0.9.2 - 2026-07-22
 
 ### Changed
@@ -275,7 +284,7 @@ and this project adheres to
 ### Changed
 
 - Public documentation now describes the deployed remote-MCP contract
-  consistently: the WikiKit-branded Firebase relay, multiple OIDC providers,
+  consistently: a branded token bridge, multiple OIDC providers,
   the interactive `knowledge:approve` ceiling, and the separate proposal
   inspection/review tools.
 - ChatGPT setup documents that an app scans and stores its tool and OAuth-scope
@@ -295,7 +304,7 @@ and this project adheres to
 - MCP proposal review is now complete: `wikikit_proposals` exposes the full
   staged diff and `wikikit_review_proposal` performs an explicit, confirmed
   approve/reject decision. Both require `knowledge:approve`.
-- Remote MCP OAuth supports a dedicated WikiKit Firebase page, standard OIDC
+- Remote MCP OAuth supports a dedicated WikiKit token-bridge page, standard OIDC
   Authorization Code + PKCE providers, or a federated provider chooser.
   Identity-provider allow-lists and the read/propose/approve permission ceiling
   are independently configurable.
@@ -317,7 +326,7 @@ and this project adheres to
 
 ### Fixed
 
-- Firebase-authenticated MCP consent now preserves the original PKCE challenge
+- Token-bridge-authenticated MCP consent now preserves the original PKCE challenge
   across the external browser login, allowing the authorization-code exchange
   to complete.
 
@@ -325,16 +334,16 @@ and this project adheres to
 
 ### Changed
 
-- Remote MCP OAuth can now use the existing SubKit Firebase/Google browser
-  sign-in bridge. WikiKit verifies the signed Firebase identity and an explicit
+- Remote MCP OAuth can now use an external browser sign-in bridge. WikiKit
+  verifies the signed identity token and an explicit
   email allow-list before showing OAuth consent, so ChatGPT never asks for a
   WikiKit operator API key.
 
 ### Security
 
-- Firebase login states are opaque, single-use and server-stored; the shared
-  Firebase page only posts ID tokens to WikiKit's fixed callback. OAuth grants
-  remain scoped, refresh rotation remains intact, and an inactive Firebase
+- Token-bridge login states are opaque, single-use and server-stored; the shared
+  sign-in page only posts identity tokens to WikiKit's callback. OAuth grants
+  remain scoped, refresh rotation remains intact, and an inactive external
   identity immediately invalidates its MCP bearer token.
 
 ## 0.1.10
