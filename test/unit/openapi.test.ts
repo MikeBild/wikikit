@@ -27,7 +27,7 @@ describe('buildOpenApi', () => {
     for (const route of ROUTES) {
       const op = doc.paths[route.path]![route.method] as Record<string, unknown>
       if (route.scope) {
-        expect(op.security, route.path).toEqual([{ bearerAuth: [] }, { apiKey: [] }])
+        expect(op.security, route.path).toEqual([{ oauth2: [] }, { bearerAuth: [] }, { apiKey: [] }])
         expect(op['x-required-scope'], route.path).toBe(route.scope)
       } else {
         expect(op.security, route.path).toBeUndefined()
@@ -97,6 +97,6 @@ describe('buildOpenApi', () => {
   })
 
   test('security schemes declare the existing API credentials', () => {
-    expect(Object.keys(doc.components.securitySchemes).sort()).toEqual(['apiKey', 'bearerAuth'])
+    expect(Object.keys(doc.components.securitySchemes).sort()).toEqual(['apiKey', 'bearerAuth', 'oauth2'])
   })
 })

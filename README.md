@@ -190,11 +190,15 @@ revocation at the same `/mcp` endpoint. Enter:
 https://wikikit.mikebild.dev/mcp
 ```
 
-Choose OAuth. WikiKit verifies the configured identity provider and admits only
-the explicit provider/email allow-list. No operator key is entered in the
-client or sent to the browser. The client receives only a scoped, short-lived
-token. `WIKIKIT_PUBLIC_URL` must be the canonical HTTPS base URL in production
-because it is the OAuth issuer and audience.
+Choose OAuth. `WIKIKIT_OAUTH_LOGIN_METHODS` can offer browser API-key,
+Firebase and multiple generic OIDC providers concurrently in the common
+WikiKit-branded auth card. WikiKit verifies the selected provider and admits
+only the explicit provider/email allow-list. The operator session is
+revocable, has an eight-hour idle/24-hour absolute limit, and the consent page
+can switch accounts. The client receives only a scoped, short-lived token;
+unrequested scopes are never displayed or granted. `WIKIKIT_PUBLIC_URL` must
+be the canonical HTTPS base URL in production because it is the OAuth issuer
+and audience.
 
 For a review-capable connector, select the discovered standard scopes
 `knowledge:read`, `knowledge:propose`, `knowledge:review`,
