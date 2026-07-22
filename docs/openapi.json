@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -989,7 +989,7 @@
         "x-accepted-scopes": ["knowledge:read", "knowledge:review"]
       },
       "post": {
-        "summary": "Stage a manual change proposal (agent-authored changes go through the same review gate)",
+        "summary": "Stage a manual change proposal, including removals of active relations (agent-authored changes go through the same review gate)",
         "operationId": "createProposal",
         "responses": {
           "201": {
@@ -1035,7 +1035,7 @@
     },
     "/v1/proposals/{id}": {
       "get": {
-        "summary": "Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept; knowledge:review keys may inspect too",
+        "summary": "Structured proposal diff (old/new markdown, claims added/disputed/deprecated, relations added/removed); text/markdown via Accept; knowledge:review keys may inspect too",
         "operationId": "getProposal",
         "responses": {
           "200": {
@@ -2989,6 +2989,19 @@
               },
               "required": ["slug", "title", "context", "decision"]
             }
+          },
+          "relations_removed": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
+                "to_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
+                "kind": { "type": "string", "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"] }
+              },
+              "required": ["from_slug", "to_slug", "kind"]
+            }
           }
         },
         "required": ["title", "input_hash"]
@@ -3121,6 +3134,19 @@
               "required": ["slug", "title", "context", "decision", "rationale", "alternatives"],
               "additionalProperties": false
             }
+          },
+          "relations_removed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from_slug": { "type": "string" },
+                "to_slug": { "type": "string" },
+                "kind": { "type": "string" }
+              },
+              "required": ["from_slug", "to_slug", "kind"],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -3137,7 +3163,8 @@
           "source_ids",
           "agent_meta",
           "concepts",
-          "decisions"
+          "decisions",
+          "relations_removed"
         ],
         "additionalProperties": false
       },
@@ -3160,9 +3187,18 @@
               "concepts": { "type": "array", "items": { "type": "string" } },
               "claims_verified": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "relations_removed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
             },
-            "required": ["proposal_id", "status", "concepts", "claims_verified", "claims_disputed", "review_channel"],
+            "required": [
+              "proposal_id",
+              "status",
+              "concepts",
+              "claims_verified",
+              "claims_disputed",
+              "relations_removed",
+              "review_channel"
+            ],
             "additionalProperties": false
           },
           {

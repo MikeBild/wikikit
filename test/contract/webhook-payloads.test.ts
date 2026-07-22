@@ -56,6 +56,7 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     concepts: ['open-knowledge-format'],
     claims_count: 7,
     contradictions_count: 1,
+    relations_removed_count: 0,
   },
   'wikikit.proposal.approved': {
     proposal_id: PROPOSAL_ID,

@@ -201,6 +201,7 @@ describe('http surface (integration)', () => {
         alternatives: unknown[]
       }[]
       source_ids: string[]
+      relations_removed: unknown[]
     }
     expect(detail.space).toBe('demo')
     expect(detail.space_id).toBeUndefined() // scoping handle never on the wire
@@ -210,6 +211,10 @@ describe('http surface (integration)', () => {
     expect(detail.concepts[0]!.is_new).toBe(true)
     expect(detail.concepts[0]!.claims_added.length).toBeGreaterThan(0)
     expect(detail.decisions).toEqual([])
+    // The removal diff field is always on the wire (empty here — this
+    // proposal stages no removals); the full removal loop is covered in
+    // test/integration/domain.test.ts against the real apply function.
+    expect(detail.relations_removed).toEqual([])
 
     const md = await fetch(`${base}/v1/proposals/${proposalId}`, {
       headers: { ...bearer(readerKey), accept: 'text/markdown' },

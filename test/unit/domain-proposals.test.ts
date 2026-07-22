@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
-import { ConflictError, NotFoundError } from '../../src/domain/errors.ts'
+import { ConflictError, NotFoundError, ValidationError } from '../../src/domain/errors.ts'
 import {
   approveProposal,
   computeInputHash,
@@ -70,6 +70,7 @@ const stagingArgs = {
       relations: [{ to_slug: 'graph-store', kind: 'related' as const }],
     },
   ],
+  relations_removed: [{ from_slug: 'okf', to_slug: 'legacy-store', kind: 'depends_on' as const }],
 }
 
 describe('computeInputHash', () => {
@@ -92,13 +93,14 @@ describe('createProposal — staging in one transaction', () => {
       { match: /INSERT INTO "public"\."wk_change_proposals"/, rows: [{ id: 'prop-1' }] },
       {
         match: /SELECT id, current_revision_id FROM wk_concepts .* FOR UPDATE/,
-        rows: (values) =>
-          values[1] === 'okf'
-            ? [{ id: 'con-okf', current_revision_id: 'rev-base' }]
-            : [{ id: 'con-graph-store', current_revision_id: null }],
+        rows: (values) => [
+          { id: `con-${values[1] as string}`, current_revision_id: values[1] === 'okf' ? 'rev-base' : null },
+        ],
       },
       { match: /COALESCE\(MAX\(rev\), 0\)/, rows: [{ next: 4 }] },
       { match: /INSERT INTO "public"\."wk_claims"/, rows: [{ id: 'claim-1' }] },
+      // Removal staging: the marker UPDATE must hit an ACTIVE row.
+      { match: /SET removal_proposal_id/, rows: [{ id: 'rel-legacy' }] },
       { match: /unnest/, rows: [] },
     ]
   }
@@ -134,6 +136,15 @@ describe('createProposal — staging in one transaction', () => {
     expect(relationInsert.sql).toContain("WHERE wk_relations.status <> 'active'")
     expect(relationInsert.values).toEqual(['space-1', 'con-okf', 'con-graph-store', 'related', 'prop-1'])
 
+    // Removal staging is a MARKER on the still-active row — pinned to the
+    // exact SQL so it can never silently regress into a status flip, and
+    // guarded on status='active' so staging cannot invent work for apply.
+    const removalMark = calls.find((call) => call.sql.includes('SET removal_proposal_id'))!
+    expect(removalMark.sql).toContain("status = 'active'")
+    expect(removalMark.sql).toContain('RETURNING id')
+    expect(removalMark.sql).not.toContain('SET status')
+    expect(removalMark.values).toEqual(['space-1', 'con-okf', 'con-legacy-store', 'depends_on', 'prop-1'])
+
     // Outbox event inside the SAME transaction, §6.3 payload shape.
     const outbox = calls.find((call) => call.sql.includes('wk_outbox_events'))!
     const payload = JSON.parse(outbox.values[2] as string)
@@ -144,6 +155,7 @@ describe('createProposal — staging in one transaction', () => {
       concepts: ['okf'],
       claims_count: 1,
       contradictions_count: 0,
+      relations_removed_count: 1,
     })
     // And the payload parses against the §6.3 wire contract (loose ids in the
     // fixture aside, the KEY SET and types must hold — swap in uuid-shaped
@@ -153,12 +165,41 @@ describe('createProposal — staging in one transaction', () => {
       'concepts',
       'contradictions_count',
       'proposal_id',
+      'relations_removed_count',
       'source_ids',
       'space',
       'title',
     ])
     const outboxIndex = calls.indexOf(outbox)
     expect(calls.slice(outboxIndex).some((call) => call.sql === 'COMMIT')).toBe(true)
+  })
+
+  test('removal of a nonexistent or inactive relation is a 400, never silent', async () => {
+    const routes = stagingRoutes().map((route) =>
+      route.match.test('UPDATE x SET removal_proposal_id') ? { ...route, rows: [] } : route,
+    )
+    const { db } = fakeDb(routes)
+    await expect(createProposal(db, 'space-1', stagingArgs)).rejects.toThrow(ValidationError)
+    await expect(createProposal(db, 'space-1', stagingArgs)).rejects.toThrow(
+      'no active depends_on relation from okf to legacy-store',
+    )
+  })
+
+  test('removal endpoints are locked, never auto-created — a typo slug is a 400', async () => {
+    const routes = stagingRoutes().map((route) =>
+      route.match.test('SELECT id, current_revision_id FROM wk_concepts WHERE space_id = $1 AND slug = $2 FOR UPDATE')
+        ? {
+            ...route,
+            rows: (values: unknown[]) =>
+              values[1] === 'legacy-store'
+                ? []
+                : [{ id: `con-${values[1] as string}`, current_revision_id: values[1] === 'okf' ? 'rev-base' : null }],
+          }
+        : route,
+    )
+    const { db, calls } = fakeDb(routes)
+    await expect(createProposal(db, 'space-1', stagingArgs)).rejects.toThrow('concept not found: legacy-store')
+    expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_concepts"'))).toBe(false)
   })
 
   test('pending input_hash hit converges without staging anything', async () => {
@@ -169,9 +210,13 @@ describe('createProposal — staging in one transaction', () => {
     const result = await createProposal(db, 'space-1', stagingArgs)
     expect(result).toEqual({ proposal_id: 'prop-existing', status: 'pending' })
     expect(calls.some((call) => call.sql.startsWith('INSERT'))).toBe(false)
-    // The dedup lookup pins space + hash + pending.
+    // The dedup lookup pins space + hash + pending. stagingArgs carries a
+    // relations_removed entry, so the EFFECTIVE hash is the documented salted
+    // form: sha256(input_hash + canonical removal set) — a sourceless
+    // removal-only proposal would otherwise collide with EVERY other one.
+    const saltedHash = sha256Hex(`${INPUT_HASH}\nokf\tlegacy-store\tdepends_on`)
     const dedup = calls.find((call) => call.sql.includes('wk_change_proposals'))!
-    expect(dedup.values).toEqual(['space-1', INPUT_HASH, 'pending', 1])
+    expect(dedup.values).toEqual(['space-1', saltedHash, 'pending', 1])
   })
 
   test('dedup index race converges on the winner (23505 on the partial unique index)', async () => {
@@ -254,8 +299,10 @@ describe('createProposal — staging in one transaction', () => {
     const lockSlugs = calls
       .filter((call) => /FROM wk_concepts WHERE space_id = \$1 AND slug = \$2 FOR UPDATE/.test(call.sql))
       .map((call) => call.values[1])
+    // Removal endpoints (okf, legacy-store from stagingArgs.relations_removed)
+    // join the SAME sorted pass — one global lock order, no second discipline.
     expect(lockSlugs).toEqual([...lockSlugs].sort())
-    expect(lockSlugs).toEqual(['alpha', 'zeta'])
+    expect(lockSlugs).toEqual(['alpha', 'legacy-store', 'okf', 'zeta'])
   })
 
   test('rejects an empty proposal (no concepts, no decisions) before SQL', async () => {
@@ -414,6 +461,7 @@ describe('renderProposalMarkdown', () => {
         alternatives: [],
       },
     ],
+    relations_removed: [{ from_slug: 'okf', to_slug: 'legacy-store', kind: 'depends_on' }],
   }
 
   test('carries the whole review decision as readable markdown', () => {
@@ -430,6 +478,8 @@ describe('renderProposalMarkdown', () => {
     expect(markdown).toContain('### Claims disputed (1) ⚠')
     expect(markdown).toContain('- okf **has_status** draft-v0.1')
     expect(markdown).toContain('- related → [[graph-store]]')
+    expect(markdown).toContain('## Relations removed (1) ⚠')
+    expect(markdown).toContain('- [[okf]] depends_on → [[legacy-store]] — will be deactivated on approval')
     expect(markdown).toContain('## Decision `standard-webhooks` — Use standard webhooks')
     expect(markdown).toContain('### Context\n\nChoose an integration boundary.')
     expect(markdown).toContain('### Decision\n\nIntegrate through standard webhooks.')

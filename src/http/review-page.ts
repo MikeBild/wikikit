@@ -98,11 +98,21 @@ function render(detail) {
     parts.push('<h2>Decision: ' + esc(decision.title) + '</h2><p class="muted">' + esc(decision.context) + '</p><p>' + esc(decision.decision) + '</p>');
   }
   for (const concept of detail.concepts ?? []) {
-    parts.push('<h2>Concept: ' + esc(concept.title) + '</h2>');
+    parts.push('<h2>Concept: ' + esc(concept.slug) + (concept.is_new ? ' <span class="badge">new</span>' : '') + '</h2>');
     if (concept.old_markdown) parts.push('<p class="muted">replaces an existing revision — review the full diff below</p><pre>' + esc(concept.old_markdown) + '</pre><p class="muted">new revision:</p>');
-    parts.push('<pre>' + esc(concept.markdown) + '</pre>');
-    const claims = (concept.claims ?? []).length;
+    parts.push('<pre>' + esc(concept.new_markdown) + '</pre>');
+    const claims = (concept.claims_added ?? []).length;
     if (claims) parts.push('<p class="muted">' + claims + ' claim(s) with citations included.</p>');
+    const added = concept.relations_added ?? [];
+    if (added.length) parts.push('<p class="muted">Relations added: ' + added.map((relation) => esc(concept.slug + ' ' + relation.kind + ' → ' + relation.to_slug)).join(', ') + '</p>');
+  }
+  const removed = detail.relations_removed ?? [];
+  if (removed.length) {
+    parts.push('<h2 class="error">Relations removed (' + removed.length + ')</h2><ul>');
+    for (const edge of removed) {
+      parts.push('<li class="error">' + esc(edge.from_slug + ' ' + edge.kind + ' → ' + edge.to_slug) + ' — this active relation will be deactivated on approval</li>');
+    }
+    parts.push('</ul>');
   }
   $("proposal").innerHTML = parts.join("");
   $("proposal").hidden = false;

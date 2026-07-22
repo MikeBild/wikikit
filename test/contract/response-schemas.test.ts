@@ -145,6 +145,11 @@ function stubDb(): Db {
           ]
         }
         if (text.includes('FROM wk_relations rel') && text.includes('rel.proposal_id = $1')) return []
+        // Removal diff SELECT + removal-marker staging UPDATE ---------------
+        if (text.includes('rel.removal_proposal_id = $1')) {
+          return [{ from_slug: 'wikikit', to_slug: 'legacy-store', kind: 'depends_on' }]
+        }
+        if (text.includes('SET removal_proposal_id')) return [{ id: '44444444-4444-4444-8444-444444444444' }]
         if (text.includes('FROM wk_decisions') && text.includes('proposal_id = $1')) {
           return [
             {
@@ -237,6 +242,7 @@ function stubDb(): Db {
             concepts: ['wikikit'],
             claims_verified: 1,
             claims_disputed: 0,
+            relations_removed: 0,
             review_channel: 'rest',
           },
         ] as R[]
@@ -603,6 +609,7 @@ const CASES: RouteCase[] = [
           relations: [{ to_slug: 'open-knowledge-format', kind: 'related' }],
         },
       ],
+      relations_removed: [{ from_slug: 'wikikit', to_slug: 'legacy-store', kind: 'depends_on' }],
     },
   },
   { template: '/v1/proposals/{id}', method: 'get', url: `/v1/proposals/${PROPOSAL_ID}`, status: 200 },

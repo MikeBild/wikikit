@@ -35,6 +35,7 @@ const proposal: ProposalWireDetail = {
     },
   ],
   decisions: [],
+  relations_removed: [],
 }
 
 describe('native proposal review elicitation', () => {
@@ -52,6 +53,24 @@ describe('native proposal review elicitation', () => {
     expect(request!.requestedSchema.properties.note.maxLength).toBe(REVIEW_NOTE_MAX_LENGTH)
     expect(request!.message).toContain(proposal.id)
     expect(request!.message).toContain('Inspect the complete diff')
+    expect(request!.message).toContain('0 relation removal(s)')
+  })
+
+  test('the form message spells out staged relation removals — the human must see the destructive part', async () => {
+    let request: FormElicitationRequest | undefined
+    await elicitProposalReview(
+      async (value) => {
+        request = value
+        return { action: 'decline' }
+      },
+      {
+        ...proposal,
+        relations_removed: [{ from_slug: 'alpha', to_slug: 'legacy-store', kind: 'depends_on' }],
+      },
+    )
+    expect(request!.message).toContain('1 relation removal(s)')
+    expect(request!.message).toContain('DEACTIVATES 1 active relation(s)')
+    expect(request!.message).toContain('alpha depends_on → legacy-store')
   })
 
   for (const action of ['decline', 'cancel'] as const) {

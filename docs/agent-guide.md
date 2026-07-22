@@ -25,6 +25,9 @@ Keep these boundaries clear:
 
 - Reading tools return approved knowledge and provenance.
 - Ingest and proposal tools stage changes; they do not make knowledge live.
+  This includes deletions: `wikikit_propose` stages removals of existing
+  active relations via `relations_removed` — the edge stays visible until a
+  human approves the proposal, and rejection leaves it untouched.
 - Approval is a separate, explicit human decision. For MCP review, call
   `wikikit_review_proposal` with only the proposal id; WikiKit itself asks the
   human for approve/reject and an optional note. Never invent, pre-fill or

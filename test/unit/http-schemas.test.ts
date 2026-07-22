@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   SCHEMAS,
   zCreateApiKeyRequest,
+  zCreateProposalRequest,
   zErrorEnvelope,
   zIngestRequest,
   zListQuery,
@@ -57,6 +58,40 @@ describe('http schemas', () => {
     expect(zCreateApiKeyRequest.safeParse({ name: 'k', scopes: [] }).success).toBe(false)
     expect(zCreateApiKeyRequest.safeParse({ name: 'k', scopes: ['*'] }).success).toBe(false) // '*' is bootstrap-only
     expect(zCreateApiKeyRequest.safeParse({ name: 'k', scopes: ['root'] }).success).toBe(false)
+  })
+
+  test('zCreateProposalRequest accepts removal-only proposals and rejects contradictory edges', () => {
+    const base = { title: 'Prune legacy links', input_hash: 'a'.repeat(64) }
+    const edge = { from_slug: 'okf', to_slug: 'legacy-store', kind: 'depends_on' }
+
+    // A removal-only proposal is valid — no fake revision required.
+    expect(zCreateProposalRequest.safeParse({ ...base, relations_removed: [edge] }).success).toBe(true)
+    // Empty everything still fails the at-least-one refine.
+    expect(zCreateProposalRequest.safeParse(base).success).toBe(false)
+    // Slug pattern and kind enum hold at the boundary.
+    expect(
+      zCreateProposalRequest.safeParse({ ...base, relations_removed: [{ ...edge, from_slug: 'Bad Slug' }] }).success,
+    ).toBe(false)
+    expect(
+      zCreateProposalRequest.safeParse({ ...base, relations_removed: [{ ...edge, kind: 'unrelated' }] }).success,
+    ).toBe(false)
+    // Duplicate edges are refused.
+    expect(zCreateProposalRequest.safeParse({ ...base, relations_removed: [edge, { ...edge }] }).success).toBe(false)
+    // The same edge added AND removed in one proposal is contradictory.
+    expect(
+      zCreateProposalRequest.safeParse({
+        ...base,
+        concepts: [
+          {
+            slug: 'okf',
+            title: 'OKF',
+            markdown: '# OKF',
+            relations: [{ to_slug: 'legacy-store', kind: 'depends_on' }],
+          },
+        ],
+        relations_removed: [edge],
+      }).success,
+    ).toBe(false)
   })
 
   test('zReadyResponse pins the exact deploy-gate shape', () => {

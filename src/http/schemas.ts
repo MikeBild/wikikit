@@ -392,6 +392,8 @@ export const zProposalDetailResponse = z.object({
       alternatives: z.array(z.unknown()),
     }),
   ),
+  /** Edge-level removals staged by this proposal (top-level: removal-only proposals have no concepts). */
+  relations_removed: z.array(z.object({ from_slug: z.string(), to_slug: z.string(), kind: z.string() })),
 })
 
 export const zReviewRequest = z.object({ note: z.string().max(2000).optional() }).default({})
@@ -403,6 +405,7 @@ export const zProposalReviewResponse = z.discriminatedUnion('status', [
     concepts: z.array(z.string()),
     claims_verified: z.number().int(),
     claims_disputed: z.number().int(),
+    relations_removed: z.number().int(),
     review_channel: zReviewChannel,
   }),
   z.object({ proposal_id: z.uuid(), status: z.literal('rejected'), review_channel: zReviewChannel }),

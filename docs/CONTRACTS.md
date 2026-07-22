@@ -158,6 +158,13 @@ CREATE TABLE wk_relations (
   kind             text NOT NULL CHECK (kind IN ('related','part_of','depends_on','contradicts','supersedes')),
   status           text NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','active','removed')),
   proposal_id      uuid,
+  -- Pending-removal MARKER (0014): stamped on the still-ACTIVE row by a
+  -- proposal's relations_removed staging — never a status flip before
+  -- approval, so every reader keeps seeing the edge during review. Approve
+  -- flips the marked row to 'removed' (soft delete); reject touches nothing.
+  -- The marker is KEPT after either terminal state so the proposal's diff
+  -- stays reviewable (single-slot provenance, like proposal_id re-adoption).
+  removal_proposal_id uuid REFERENCES wk_change_proposals(id) ON DELETE SET NULL,
   created_at       timestamptz NOT NULL DEFAULT now(),
   UNIQUE (space_id, from_concept_id, to_concept_id, kind)
 );
@@ -350,7 +357,11 @@ Callable exclusively through the RPC whitelist in `src/db/postgres.ts` (§2.1).
 --    concepts.current_revision_id repointed; claims proposed → 'verified';
 --    collisions on settings.functional_predicates → both 'disputed' + ensure
 --    a 'contradicts' relation; undeclared predicates remain multi-valued;
---    relations/decisions proposed → 'active'.
+--    relations/decisions proposed → 'active'; relations MARKED for removal
+--    (removal_proposal_id = this proposal, still 'active') → 'removed'
+--    (soft delete, marker kept for audit; a stolen marker or an already-
+--    removed edge matches nothing — the returned count is the signal).
+--    The concept-lock set includes the endpoints of marked relations.
 -- 4. Proposal → 'approved' (reviewer, note, review_channel, reviewed_at); space epoch += 1;
 --    outbox events 'wikikit.proposal.approved' + 'wikikit.concept.updated' per concept.
 -- Errors: 'proposal_not_found', 'proposal_not_pending', 'stale_base'.
@@ -360,13 +371,15 @@ CREATE FUNCTION wk_apply_proposal(
   p_note text DEFAULT NULL,
   p_review_channel text DEFAULT 'rest'
 )
-RETURNS jsonb;  -- {proposal_id, status:'approved', review_channel, concepts:[slug,...], claims_verified:int, claims_disputed:int}
+RETURNS jsonb;  -- {proposal_id, status:'approved', review_channel, concepts:[slug,...], claims_verified:int, claims_disputed:int, relations_removed:int}
 
 -- Atomic reject. Proposed rows KEEP their rows (audit) but flip:
 -- revisions → 'rejected', claims stay 'proposed' pinned to the rejected proposal
 -- (invisible everywhere: readers filter on verified/disputed/deprecated),
--- relations → 'removed', decisions stay 'proposed'. Proposal → 'rejected';
--- outbox 'wikikit.proposal.rejected'.
+-- relations → 'removed', decisions stay 'proposed'. Relations MARKED for
+-- removal are untouched by construction (the flip is guarded status='proposed'):
+-- they stay ACTIVE and keep the marker, so the rejected diff remains readable.
+-- Proposal → 'rejected'; outbox 'wikikit.proposal.rejected'.
 CREATE FUNCTION wk_reject_proposal(
   p_proposal_id uuid,
   p_reviewer text,
@@ -716,6 +729,20 @@ export interface CreateProposalArgs {
     rationale?: string
     alternatives?: unknown[]
   }[]
+  // Removals of EXISTING active relations — top-level (edge-level, not
+  // per-concept), so a removal-only proposal needs no fake revision. Staging
+  // stamps removal_proposal_id on the still-active row (400 if the edge is
+  // not an active relation; endpoints are locked, never auto-created).
+  // Approval flips the marked rows to 'removed' atomically; rejection leaves
+  // them active. The same edge cannot be both added and removed in one
+  // proposal (boundary refine); across proposals, staging an ADD of an edge
+  // whose removal is pending is likewise a 400 (the add would stage nothing
+  // and could not restore the edge if the removal were approved first).
+  // Dedup: for proposals carrying relations_removed the effective
+  // (space_id, input_hash) dedup key is sha256(input_hash + canonical
+  // removal set) — identical retries converge, different removal sets with
+  // the same documented sourceless hash stage as distinct proposals.
+  relations_removed?: { from_slug: string; to_slug: string; kind: RelationKind }[]
 }
 
 // src/domain/lint.ts  (LLM-free, pure SQL)
@@ -1059,8 +1086,15 @@ export const zProposalDetailResponse = z.object({
       alternatives: z.array(z.unknown()),
     }),
   ),
+  // Edge-level removals staged by this proposal (top-level: removal-only
+  // proposals carry no concept entries). Present for terminal proposals too —
+  // the removal marker survives approve and reject.
+  relations_removed: z.array(z.object({ from_slug: z.string(), to_slug: z.string(), kind: z.string() })),
 })
 ```
+
+The approved branch of `zProposalReviewResponse` carries the apply counts,
+including `relations_removed: z.number().int()` (Flip 6b row count).
 
 ### 5.4 Auth (`src/http/auth.ts`)
 
@@ -1159,13 +1193,13 @@ Body (`zWebhookEnvelope`):
 
 ### 6.3 Payload `data` schemas (`zWebhookPayloads` in `src/http/schemas.ts`)
 
-| Event                       | `data` shape                                                                                                                              |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `wikikit.proposal.created`  | `{ proposal_id, space, title, source_ids: string[], concepts: string[] /* slugs */, claims_count: number, contradictions_count: number }` |
-| `wikikit.proposal.approved` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation', concepts: string[] }`                 |
-| `wikikit.proposal.rejected` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation' }`                                     |
-| `wikikit.concept.updated`   | `{ space, slug, rev: number, proposal_id }`                                                                                               |
-| `wikikit.ingest.failed`     | `{ ingest_id, space, error: { code, message } }`                                                                                          |
+| Event                       | `data` shape                                                                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wikikit.proposal.created`  | `{ proposal_id, space, title, source_ids: string[], concepts: string[] /* slugs */, claims_count: number, contradictions_count: number, relations_removed_count: number }` |
+| `wikikit.proposal.approved` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation', concepts: string[] }`                                                  |
+| `wikikit.proposal.rejected` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation' }`                                                                      |
+| `wikikit.concept.updated`   | `{ space, slug, rev: number, proposal_id }`                                                                                                                                |
+| `wikikit.ingest.failed`     | `{ ingest_id, space, error: { code, message } }`                                                                                                                           |
 
 Delivery worker: poll `wk_outbox_events` where `dispatched_at IS NULL`, fan out
 one `wk_webhook_deliveries` row per matching active endpoint, exponential
@@ -1225,15 +1259,14 @@ Remote public clients dynamically register at `POST /v1/oauth/register` (RFC
 7591): at most five safe HTTPS or loopback redirect URIs, no client secret,
 and a bounded per-source-address rate. Authorization is code-only, requires
 PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
-one-time code. `WIKIKIT_OAUTH_LOGIN_METHODS` selects concurrent `api_key`,
-`firebase`, and/or `oidc` flows; `WIKIKIT_OAUTH_LOGIN_PROVIDER` is the legacy
-fallback and selects `firebase`, `oidc`, a
-`federated` chooser, or the local `api_key` compatibility mode. Firebase uses a
-dedicated WikiKit-branded page that posts a signed ID token only to WikiKit's
-fixed callback; WikiKit verifies its signature, issuer, audience, expiry,
-verified email and explicit allow-list. OIDC uses discovery plus Authorization
-Code + PKCE, verifies the identity claims, and applies each provider's explicit
-email allow-list. The hosted page is never an arbitrary token relay.
+one-time code. `WIKIKIT_OAUTH_PROVIDERS` is the only browser-provider
+configuration and may contain one `api_key` plus multiple named `token_bridge`
+and `oidc` adapters concurrently. Product names are never protocol branches.
+A token bridge posts a signed JWT only to WikiKit's generic callback; WikiKit
+verifies its configured signature keys, issuer, audience, expiry, verified
+email and explicit allow-list. OIDC uses discovery plus Authorization Code +
+PKCE and applies the same identity policy. A hosted page is never an arbitrary
+token relay.
 
 The consent form has CSRF protection and persists only the minimum provider
 identity, never an API key or an ID token. Interactive OAuth identities can
@@ -1243,13 +1276,20 @@ be within the global or per-provider allowed-scope ceiling, and
 `knowledge:approve` is never granted by default. `admin` is never issued through an interactive OAuth identity.
 Clients retain their issued scope set; adding an MCP tool or scope requires a
 fresh connector scan/reconnect rather than silently elevating an old grant.
+The displayed and issued grant is always client request ∩ server support ∩
+current identity ceiling. `knowledge:read` is mandatory and a request that
+explicitly omits it is denied rather than expanded. Every login method creates
+the same revocable operator session with an eight-hour idle limit and 24-hour
+absolute cap; authorize render and decision revalidate expiry, revocation and
+current identity policy. The common `W` card exposes explicit logout/account
+switching without combining WikiKit identities with another product.
 
 `POST /v1/oauth/token` issues one-hour bearer tokens and, when
 `offline_access` is granted, rotating 30-day refresh tokens. A refresh-token
 replay revokes its entire token family. `POST /v1/oauth/revoke` is idempotent;
 revoking a refresh token revokes its family. Every exchange and MCP bearer
 authentication rechecks the source API key or interactive identity's current
-revocation state. Raw secrets, Firebase ID tokens, OIDC assertions,
+revocation state. Raw secrets, external identity assertions,
 authorization codes, access tokens and refresh tokens are never stored; only
 keyed HMAC hashes and the minimal identity record are retained. Expired
 artifacts and unused DCR clients are removed by the hourly housekeeping sweep.
@@ -1282,7 +1322,7 @@ audience they are written for.
 | `wikikit_ingest`          | knowledge:propose | `zIngestRequest` + `{ space: string }`                                                                                               | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — never blocks)                                                                                                                                                                                                                                   | `false`  | `true`      | `true`     | `true`    |
 | `wikikit_ingest_status`   | knowledge:propose | `{ ingest_id: string (uuid) }`                                                                                                       | `zIngestStatusResponse` shape (§5.3)                                                                                                                                                                                                                                                                                                | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                                                    | `{ proposal_id, status: 'pending' }`                                                                                                                                                                                                                                                                                                | `false`  | `true`      | `true`     | `false`   |
-| `wikikit_proposals`       | knowledge:review  | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                                                      | summaries, or one complete public proposal diff including staged decisions                                                                                                                                                                                                                                                          | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_proposals`       | knowledge:review  | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                                                      | summaries, or one complete public proposal diff including staged decisions and relations added/removed                                                                                                                                                                                                                              | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_review_proposal` | knowledge:review  | `{ proposal_id: uuid }` only; decision + optional note are human form fields; `decision`/`note` as input → `approval_requires_human` | accepted: approved/rejected result with `review_channel:'mcp_elicitation'`; declined/cancelled: `{ proposal_id, outcome, mutation_applied:false }`; no form capability: `{ proposal_id, status:'pending', outcome:'human_review_required', review_url, mutation_applied:false, poll_with:'wikikit_proposals', agent_instructions }` | `false`  | `true`      | `false`    | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
@@ -1382,6 +1422,10 @@ revision: proposed ─approve─▶ current ─(later approve of same concept)�
           proposed ─reject──▶ rejected
 claim:    proposed ─approve─▶ verified ─(contradiction on approve)─▶ disputed ─▶ deprecated (via later proposal)
 relation: proposed ─approve─▶ active   / ─reject─▶ removed
+          active ─(approve of a proposal that staged its removal)─▶ removed
+          (distinct writers of 'removed': a REJECTED add flips its own
+           proposed row; an APPROVED removal flips a marked ACTIVE row —
+           removal_proposal_id + the proposal's terminal status disambiguate)
 ```
 
 Readers (search, concept reads, export) only ever see `current` revisions and
@@ -1429,13 +1473,8 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_OAUTH_CODE_TTL_MS`          | `600000` (10 min)                                                  | 1–15 min                                                    |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | `api_key`                                                          | `api_key` \| `firebase` \| `oidc` \| `federated`            |
-| `WIKIKIT_OAUTH_LOGIN_METHODS`        | derived from legacy selector                                       | comma-separated `api_key`, `firebase`, `oidc`; concurrent   |
-| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | ``                                                                 | Firebase project for `firebase`/`federated`                 |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | ``                                                                 | dedicated HTTPS WikiKit Firebase login page                 |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | ``                                                                 | comma-separated global allow-list                           |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
-| `WIKIKIT_OAUTH_OIDC_PROVIDERS`       | ``                                                                 | JSON provider array; standard OIDC Authorization Code+PKCE  |
+| `WIKIKIT_OAUTH_PROVIDERS`            | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS     |
 | `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                       |
 | `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`    |
 

@@ -94,8 +94,8 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key) |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
-| POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal (same review gate) |
-| GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | Structured proposal diff; `text/markdown` via Accept header |
+| POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal, incl. `relations_removed` (same review gate) |
+| GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | Structured proposal diff incl. relations added/removed; `text/markdown` via Accept header |
 | POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve | Approve a pending proposal (atomic apply) |
 | POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve | Reject a pending proposal (staged rows kept for audit) |
 | GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly |
@@ -258,7 +258,7 @@ the approve scope to an autonomous agent.
 | Revision | Immutable page version: `proposed → current → superseded` (or `rejected`); carries `agent_meta` `{model, prompt_version, input_hash, usage, source_ids}` |
 | Claim | A verifiable statement `subject / predicate / object` with `confidence`, citations, and status `proposed → verified → disputed → deprecated` |
 | Citation | Claim provenance: source + verbatim quote + locator |
-| Relation | Concept link: `related \| part_of \| depends_on \| contradicts \| supersedes` |
+| Relation | Concept link: `related \| part_of \| depends_on \| contradicts \| supersedes`; added via `concepts[].relations`, removed via a proposal's top-level `relations_removed` (approval deactivates the edge, soft delete) |
 | Decision | A first-class recorded decision: context, decision, rationale, alternatives (the decision-log pattern; meeting sources are mined for these) |
 | ChangeProposal | The review gate: staged rows in the target tables (never a JSON diff blob) that flip atomically on approve |
 | Ingest job | Async pipeline run: `queued → running → done\|failed\|quota_blocked` |
@@ -359,12 +359,12 @@ An unauthenticated `/mcp` response advertises protected-resource metadata via
 `WWW-Authenticate`; OAuth tokens expose only the consented read/propose/approve
 scopes, capped by the configured identity-provider policy.
 
-Remote human login is selected with the concurrent
-`WIKIKIT_OAUTH_LOGIN_METHODS` matrix; the older
-`WIKIKIT_OAUTH_LOGIN_PROVIDER` is a fallback. `firebase` uses the dedicated
-WikiKit-branded Firebase page and `oidc` uses one or more entries in
-`WIKIKIT_OAUTH_OIDC_PROVIDERS`. Firebase and each OIDC provider apply an
-explicit email allow-list. The interactive permission ceiling
+Remote human login is configured only by the provider-neutral
+`WIKIKIT_OAUTH_PROVIDERS` JSON list. It accepts one API-key plus multiple named
+token-bridge and OIDC adapters concurrently; product names are configuration
+values. JWT bridges can map safe dotted subject, email and verification claim
+paths while verification must still resolve to boolean true. Each external
+adapter applies an explicit email allow-list. The interactive permission ceiling
 defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
 review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
@@ -481,7 +481,7 @@ matching endpoints with exponential backoff (up to
 Events:
 
 ```
-wikikit.proposal.created    {proposal_id, space, title, source_ids, concepts, claims_count, contradictions_count}
+wikikit.proposal.created    {proposal_id, space, title, source_ids, concepts, claims_count, contradictions_count, relations_removed_count}
 wikikit.proposal.approved   {proposal_id, space, reviewer, note, review_channel, concepts}
 wikikit.proposal.rejected   {proposal_id, space, reviewer, note, review_channel}
 wikikit.concept.updated     {space, slug, rev, proposal_id}
@@ -595,13 +595,8 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER` | human OAuth login: `api_key`, `firebase`, `oidc`, or `federated` | `api_key` |
-| `WIKIKIT_OAUTH_LOGIN_METHODS` | preferred concurrent login matrix: comma-separated `api_key`, `firebase`, `oidc` | derived from legacy selector |
-| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID` | Firebase project whose signed ID tokens establish a WikiKit login | (required for `firebase`) |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` | dedicated trusted WikiKit Firebase sign-in page | (required for `firebase`) |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS` | comma-separated global human allow-list | (required for Firebase; OIDC can override) |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES` | interactive identity permission ceiling | `knowledge:read,knowledge:propose` |
-| `WIKIKIT_OAUTH_OIDC_PROVIDERS` | JSON array of configured standard OIDC providers | (required for `oidc`) |
+| `WIKIKIT_OAUTH_PROVIDERS` | only browser-provider configuration; JSON records use `protocol: api_key`, `token_bridge`, or `oidc` | API-key record |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 
@@ -614,12 +609,12 @@ one matching `WIKIKIT_LLM_PROVIDER` is read; without it every LLM-free feature
 still works. In production the behavior flips: no
 auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
 
-For OIDC, `WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array of objects with
-`id`, `label`, HTTPS `issuer`, `client_id`, optional `client_secret`, `scopes`
-(which includes `openid`), and optional `allowed_emails` / `allowed_scopes`
-overrides. Register `${WIKIKIT_PUBLIC_URL}/v1/oauth/oidc/callback` with each
-provider. Keep client secrets in the production secret store, never in the
-repository.
+`WIKIKIT_OAUTH_PROVIDERS` is a JSON array with unique `id`, `protocol`, and
+`label`. Token bridges add HTTPS login, issuer and JWKS URLs plus an audience;
+OIDC records add HTTPS `issuer_url`, `client_id`, optional `client_secret`,
+`scopes` (including `openid`), and optional identity-policy overrides. Register
+`${WIKIKIT_PUBLIC_URL}/v1/identity/login/callback` with each OIDC provider. Keep
+client secrets in the production secret store, never in the repository.
 
 ---
 

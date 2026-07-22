@@ -538,8 +538,9 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_propose',
     description:
-      'Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into ' +
-      'the review gate. Nothing becomes visible until a human reviewer explicitly approves it.',
+      'Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions, and removals of ' +
+      'existing active relations via relations_removed) into the review gate. Nothing changes until a human ' +
+      'reviewer explicitly approves it — approval also deactivates the staged relation removals atomically.',
     scope: 'knowledge:propose',
     inputSchema: zProposeToolInput,
     annotations: {
@@ -562,7 +563,7 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_proposals',
     description:
       'Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, ' +
-      'including old/new revisions, claims, relations, decisions, sources and prior review metadata. ' +
+      'including old/new revisions, claims, relations added and removed, decisions, sources and prior review metadata. ' +
       'Requires knowledge:review (implied by knowledge:approve).',
     scope: 'knowledge:review',
     inputSchema: zProposalsToolInput,

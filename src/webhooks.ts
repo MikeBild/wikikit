@@ -55,6 +55,7 @@ export const zProposalCreatedData = z.object({
   concepts: z.array(z.string()),
   claims_count: z.number().int(),
   contradictions_count: z.number().int(),
+  relations_removed_count: z.number().int(),
 })
 
 export const zProposalApprovedData = z.object({

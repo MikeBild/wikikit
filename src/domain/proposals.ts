@@ -77,6 +77,13 @@ export interface ProposalDetail {
   agent_meta: Record<string, unknown>
   concepts: ConceptDiff[]
   decisions: DecisionDiff[]
+  /**
+   * Edge-level removals staged by this proposal (wk_relations rows carrying
+   * removal_proposal_id = this proposal). Top-level, not per-concept: a
+   * removal-only proposal has no concept entries at all. The marker survives
+   * approve AND reject, so terminal proposals keep their full diff.
+   */
+  relations_removed: { from_slug: string; to_slug: string; kind: string }[]
 }
 
 /** Public REST/MCP shape; space_id is only an authorization handle. */
@@ -88,6 +95,8 @@ export interface ApplyResult {
   concepts: string[]
   claims_verified: number
   claims_disputed: number
+  /** Active relations deactivated by this approval (Flip 6b row count). */
+  relations_removed: number
   review_channel: ReviewChannel
 }
 
@@ -165,9 +174,23 @@ export const zCreateProposalArgs = z
         }),
       )
       .default([]),
+    /**
+     * Removals of EXISTING active relations. Top-level (not per-concept) on
+     * purpose: a removal is edge-level and must not force a fake revision
+     * through concepts[].markdown min(1) — a removal-only proposal is valid.
+     */
+    relations_removed: z
+      .array(
+        z.object({
+          from_slug: z.string().regex(SLUG_PATTERN),
+          to_slug: z.string().regex(SLUG_PATTERN),
+          kind: z.enum(RELATION_KINDS),
+        }),
+      )
+      .default([]),
   })
-  .refine((value) => value.concepts.length > 0 || value.decisions.length > 0, {
-    message: 'a proposal must stage at least one concept or decision',
+  .refine((value) => value.concepts.length > 0 || value.decisions.length > 0 || value.relations_removed.length > 0, {
+    message: 'a proposal must stage at least one concept, decision or relation removal',
   })
   // Duplicate slugs would stage two proposed revisions (rev N and N+1) for
   // one concept; on approval BOTH flip to 'current' and the concept pointer
@@ -180,6 +203,24 @@ export const zCreateProposalArgs = z
   .refine((value) => new Set(value.decisions.map((decision) => decision.slug)).size === value.decisions.length, {
     message: 'decisions[].slug must be unique within a proposal',
   })
+  .refine(
+    (value) =>
+      new Set(value.relations_removed.map((edge) => `${edge.from_slug}\n${edge.to_slug}\n${edge.kind}`)).size ===
+      value.relations_removed.length,
+    { message: 'relations_removed entries must be unique within a proposal' },
+  )
+  // Adding and removing the SAME edge in one proposal is contradictory: the
+  // add re-adopts the row while the removal marks it — approval order inside
+  // the apply function would decide the outcome. Refuse at the boundary.
+  .refine(
+    (value) => {
+      const removed = new Set(value.relations_removed.map((edge) => `${edge.from_slug}\n${edge.to_slug}\n${edge.kind}`))
+      return !value.concepts.some((concept) =>
+        concept.relations.some((relation) => removed.has(`${concept.slug}\n${relation.to_slug}\n${relation.kind}`)),
+      )
+    },
+    { message: 'a relation cannot be both added and removed in the same proposal' },
+  )
 
 export type CreateProposalArgs = z.input<typeof zCreateProposalArgs>
 
@@ -270,6 +311,21 @@ export async function createProposal(
   args: CreateProposalArgs,
 ): Promise<{ proposal_id: string; status: 'pending' }> {
   const input = zCreateProposalArgs.parse(args)
+  // The documented input_hash recipe (sorted source hashes + prompt version)
+  // carries ZERO entropy for a sourceless removal-only proposal — every such
+  // proposal built per the recipe hashes identically, and the pending-dedup
+  // fast path would silently swallow a DIFFERENT removal set as "the same
+  // knowledge". Salt the effective hash with the canonical removal set:
+  // identical retries still converge (deterministic), different removal sets
+  // stage as distinct proposals.
+  const inputHash = input.relations_removed.length
+    ? sha256Hex(
+        `${input.input_hash}\n${input.relations_removed
+          .map((edge) => `${edge.from_slug}\t${edge.to_slug}\t${edge.kind}`)
+          .sort()
+          .join('\n')}`,
+      )
+    : input.input_hash
 
   try {
     return await db.tx(async (tx) => {
@@ -281,7 +337,7 @@ export async function createProposal(
       // staging rows that would be rolled back.
       const [pending] = await tx.select<{ id: string }>('wk_change_proposals', {
         space_id: `eq.${spaceId}`,
-        input_hash: `eq.${input.input_hash}`,
+        input_hash: `eq.${inputHash}`,
         status: 'eq.pending',
         limit: 1,
       })
@@ -319,7 +375,7 @@ export async function createProposal(
         space_id: spaceId,
         title: input.title,
         summary: input.summary,
-        input_hash: input.input_hash,
+        input_hash: inputHash,
         source_ids: input.source_ids,
         agent_meta: JSON.stringify(input.agent_meta),
       })
@@ -346,9 +402,27 @@ export async function createProposal(
         }
       }
       for (const entry of input.concepts) titleBySlug.set(entry.slug, entry.title)
+      // Removal endpoints join the SAME sorted lock pass, but lock-only: a
+      // removal must never auto-create a concept — a typo'd slug is a 400,
+      // not a fresh empty concept.
+      const removalOnlySlugs = new Set<string>()
+      for (const edge of input.relations_removed) {
+        for (const slug of [edge.from_slug, edge.to_slug]) {
+          if (!titleBySlug.has(slug)) removalOnlySlugs.add(slug)
+        }
+      }
       const conceptBySlug = new Map<string, { id: string; current_revision_id: string | null }>()
-      for (const slug of [...titleBySlug.keys()].sort()) {
-        conceptBySlug.set(slug, await lockOrCreateConcept(tx, spaceId, slug, titleBySlug.get(slug)!))
+      for (const slug of [...new Set([...titleBySlug.keys(), ...removalOnlySlugs])].sort()) {
+        if (removalOnlySlugs.has(slug)) {
+          const locked = await tx.query<{ id: string; current_revision_id: string | null }>(
+            'SELECT id, current_revision_id FROM wk_concepts WHERE space_id = $1 AND slug = $2 FOR UPDATE',
+            [spaceId, slug],
+          )
+          if (!locked.rows[0]) throw new ValidationError(`concept not found: ${slug}`)
+          conceptBySlug.set(slug, locked.rows[0])
+        } else {
+          conceptBySlug.set(slug, await lockOrCreateConcept(tx, spaceId, slug, titleBySlug.get(slug)!))
+        }
       }
 
       for (const entry of input.concepts) {
@@ -417,6 +491,28 @@ export async function createProposal(
         for (const relation of entry.relations) {
           if (relation.to_slug === entry.slug) continue // self-relations are noise, drop silently
           const target = conceptBySlug.get(relation.to_slug)!
+          // A pending REMOVAL of the same edge is an explicit conflict, not a
+          // silent one: re-asserting an active edge stages nothing (the
+          // upsert below no-ops), so if the pending removal were approved
+          // later, this proposal's approval could not restore the edge it
+          // asserted. Surface that as a 400 while it is still detectable.
+          // (The narrower race — removal STAGED AND APPROVED entirely within
+          // this proposal's pending window — remains an accepted single-slot
+          // limitation, documented in CONTRACTS §1.7.)
+          const pendingRemoval = await tx.query<{ id: string }>(
+            `SELECT rel.id
+               FROM wk_relations rel
+               JOIN wk_change_proposals p ON p.id = rel.removal_proposal_id
+              WHERE rel.space_id = $1 AND rel.from_concept_id = $2 AND rel.to_concept_id = $3 AND rel.kind = $4
+                AND p.status = 'pending'
+              LIMIT 1`,
+            [spaceId, concept.id, target.id, relation.kind],
+          )
+          if (pendingRemoval.rows[0]) {
+            throw new ValidationError(
+              `relation ${entry.slug} ${relation.kind} ${relation.to_slug} has a pending removal proposal — review that first`,
+            )
+          }
           // Upsert with RE-ADOPTION: an already-ACTIVE relation keeps its
           // status and provenance (re-proposing it is a no-op, never a
           // downgrade back to 'proposed'), but a row left 'removed' by a
@@ -468,6 +564,29 @@ export async function createProposal(
         )
       }
 
+      for (const edge of input.relations_removed) {
+        const from = conceptBySlug.get(edge.from_slug)!
+        const to = conceptBySlug.get(edge.to_slug)!
+        // Mark the ACTIVE row for removal — no status flip before approval,
+        // so every reader keeps seeing the relation during review. A marker
+        // already held by another pending proposal is overwritten: relation
+        // removal provenance is single-slot, the same accepted trade-off as
+        // proposal_id re-adoption above. Zero rows = the edge does not exist
+        // as an active relation → 400, staging must not invent work for the
+        // apply function.
+        const marked = await tx.query<{ id: string }>(
+          `UPDATE wk_relations SET removal_proposal_id = $5
+            WHERE space_id = $1 AND from_concept_id = $2 AND to_concept_id = $3 AND kind = $4 AND status = 'active'
+            RETURNING id`,
+          [spaceId, from.id, to.id, edge.kind, proposalId],
+        )
+        if (!marked.rows[0]) {
+          throw new ValidationError(
+            `no active ${edge.kind} relation from ${edge.from_slug} to ${edge.to_slug} in this space`,
+          )
+        }
+      }
+
       // Run the SAME exact-frame matcher the approval will apply, so the
       // proposal.created event announces contradictions before any review.
       const contradictions = await findContradictions(tx, spaceId, { claims: allTriples })
@@ -480,6 +599,7 @@ export async function createProposal(
         concepts: conceptSlugs,
         claims_count: claimsCount,
         contradictions_count: contradictions.length,
+        relations_removed_count: input.relations_removed.length,
       })
 
       return { proposal_id: proposalId, status: 'pending' as const }
@@ -492,7 +612,7 @@ export async function createProposal(
     if (pg.code === '23505' && pg.constraint === 'wk_change_proposals_pending_dedup') {
       const [winner] = await db.select<{ id: string }>('wk_change_proposals', {
         space_id: `eq.${spaceId}`,
-        input_hash: `eq.${input.input_hash}`,
+        input_hash: `eq.${inputHash}`,
         status: 'eq.pending',
         limit: 1,
       })
@@ -585,6 +705,19 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     [args.id],
   )
 
+  // Removals live on the MARKER, never on proposal_id — the query above
+  // cannot conflate them. The marker survives approve and reject, so the
+  // diff of a terminal proposal stays complete for the audit trail.
+  const relationsRemoved = await db.query<{ from_slug: string; to_slug: string; kind: RelationKind }>(
+    `SELECT f.slug AS from_slug, t.slug AS to_slug, rel.kind
+       FROM wk_relations rel
+       JOIN wk_concepts f ON f.id = rel.from_concept_id
+       JOIN wk_concepts t ON t.id = rel.to_concept_id
+      WHERE rel.removal_proposal_id = $1
+      ORDER BY f.slug ASC, t.slug ASC, rel.kind ASC`,
+    [args.id],
+  )
+
   // Decisions are real staged rows just like revisions, claims and relations.
   // Load them for every proposal status: approval activates them, rejection
   // deliberately keeps them proposed for the audit trail, and both states
@@ -642,6 +775,11 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
       decision: decision.decision,
       rationale: decision.rationale,
       alternatives: Array.isArray(decision.alternatives) ? decision.alternatives : [],
+    })),
+    relations_removed: relationsRemoved.rows.map((edge) => ({
+      from_slug: edge.from_slug,
+      to_slug: edge.to_slug,
+      kind: edge.kind,
     })),
   }
 }
@@ -721,6 +859,24 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
       lines.push('### Relations')
       lines.push('')
       for (const relation of concept.relations_added) lines.push(`- ${relation.kind} → [[${relation.to_slug}]]`)
+    }
+  }
+
+  if (detail.relations_removed.length) {
+    // Tense follows the proposal state: a terminal proposal's diff must not
+    // promise a future effect that already happened (approved) or never will
+    // (rejected/failed).
+    const removalEffect =
+      detail.status === 'pending'
+        ? 'will be deactivated on approval'
+        : detail.status === 'approved'
+          ? 'deactivated by this approval'
+          : 'NOT deactivated — this proposal was not approved'
+    lines.push('')
+    lines.push(`## Relations removed (${detail.relations_removed.length}) ⚠`)
+    lines.push('')
+    for (const edge of detail.relations_removed) {
+      lines.push(`- [[${edge.from_slug}]] ${edge.kind} → [[${edge.to_slug}]] — ${removalEffect}`)
     }
   }
 

@@ -41,6 +41,11 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
               "type": "string",
             },
+            "relations_removed_count": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
             "source_ids": {
               "items": {
                 "format": "uuid",
@@ -64,6 +69,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
             "concepts",
             "claims_count",
             "contradictions_count",
+            "relations_removed_count",
           ],
           "type": "object",
         },
@@ -355,6 +361,11 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.created 
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
       "type": "string",
     },
+    "relations_removed_count": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer",
+    },
     "source_ids": {
       "items": {
         "format": "uuid",
@@ -378,6 +389,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.created 
     "concepts",
     "claims_count",
     "contradictions_count",
+    "relations_removed_count",
   ],
   "type": "object",
   "~standard": {

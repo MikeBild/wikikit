@@ -7,7 +7,7 @@ import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts
 import { runMigrations } from '../../src/db/migrate.ts'
 import { getConcept, getConceptHistory, getConceptIndex, listConcepts } from '../../src/domain/concepts.ts'
 import { getDecision, listDecisions } from '../../src/domain/decisions.ts'
-import { ConflictError, NotFoundError } from '../../src/domain/errors.ts'
+import { ConflictError, NotFoundError, ValidationError } from '../../src/domain/errors.ts'
 import { lintSpace } from '../../src/domain/lint.ts'
 import {
   approveProposal,
@@ -284,6 +284,236 @@ describe('domain modules (integration)', () => {
     expect(contradiction.severity).toBe('error')
     expect(contradiction.message).toContain('okf has_status')
     expect(report.counts.error).toBeGreaterThanOrEqual(1)
+  })
+
+  it('relation removal: staged is invisible, approve deactivates atomically, reject leaves it untouched', async () => {
+    const space = await seedSpace('removal-space')
+    const propose = (title: string, args: Record<string, unknown>) =>
+      createProposal(db, space.id, {
+        title,
+        input_hash: sha256Hex(title),
+        source_ids: [],
+        agent_meta: AGENT_META,
+        ...args,
+      } as Parameters<typeof createProposal>[2])
+
+    // Seed one active relation alpha —depends_on→ beta through the normal gate.
+    const seeded = await propose('seed alpha', {
+      concepts: [
+        {
+          slug: 'alpha',
+          title: 'Alpha',
+          summary: '',
+          markdown: '# Alpha',
+          claims: [],
+          relations: [{ to_slug: 'beta', kind: 'depends_on' }],
+        },
+      ],
+    })
+    await approveProposal(db, { id: seeded.proposal_id, reviewer: 'mike' })
+    const alphaId = (
+      await db.query<{ id: string }>('SELECT id FROM wk_concepts WHERE space_id = $1 AND slug = $2', [
+        space.id,
+        'alpha',
+      ])
+    ).rows[0]!.id
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(1)
+
+    // A removal-only proposal stages the marker — and NOTHING else changes.
+    const removal = await propose('remove alpha dependency', {
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+    })
+    expect(removal.status).toBe('pending')
+    const detail = await getProposal(db, { id: removal.proposal_id })
+    expect(detail.relations_removed).toEqual([{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }])
+    expect(detail.concepts).toEqual([])
+    expect(renderProposalMarkdown(detail)).toContain('## Relations removed (1) ⚠')
+    // Invisible staging: every reader still sees the active relation.
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(1)
+
+    // Approve: the flip is atomic, counted, soft and auditable.
+    const applied = await approveProposal(db, { id: removal.proposal_id, reviewer: 'mike', note: 'prune legacy edge' })
+    expect(applied.relations_removed).toBe(1)
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(0)
+    const raw = await db.query<{ status: string; removal_proposal_id: string | null }>(
+      `SELECT rel.status, rel.removal_proposal_id
+         FROM wk_relations rel JOIN wk_concepts f ON f.id = rel.from_concept_id
+        WHERE rel.space_id = $1 AND f.slug = 'alpha' AND rel.kind = 'depends_on'`,
+      [space.id],
+    )
+    expect(raw.rows[0]).toEqual({ status: 'removed', removal_proposal_id: removal.proposal_id })
+    // The terminal proposal keeps its full diff (marker survives approval).
+    expect((await getProposal(db, { id: removal.proposal_id })).relations_removed).toHaveLength(1)
+
+    // Re-adding the removed edge works through the normal re-adoption path.
+    const readd = await propose('re-add alpha dependency', {
+      concepts: [
+        {
+          slug: 'alpha',
+          title: 'Alpha',
+          summary: '',
+          markdown: '# Alpha v2',
+          claims: [],
+          relations: [{ to_slug: 'beta', kind: 'depends_on' }],
+        },
+      ],
+    })
+    await approveProposal(db, { id: readd.proposal_id, reviewer: 'mike' })
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(1)
+
+    // Reject leaves the relation ACTIVE and keeps the rejected diff readable.
+    const rejected = await propose('remove again, but rejected', {
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+    })
+    await rejectProposal(db, { id: rejected.proposal_id, reviewer: 'mike', note: 'still needed' })
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(1)
+    expect((await getProposal(db, { id: rejected.proposal_id })).relations_removed).toHaveLength(1)
+
+    // Approving a LATER removal of the same edge still works (marker re-staged).
+    const second = await propose('remove alpha dependency, second attempt', {
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+    })
+    const secondApplied = await approveProposal(db, { id: second.proposal_id, reviewer: 'mike' })
+    expect(secondApplied.relations_removed).toBe(1)
+    expect(await listRelations(db, space.id, { conceptId: alphaId })).toHaveLength(0)
+
+    // Validation: nonexistent edges and typo'd slugs are 400s, and a removal
+    // NEVER auto-creates a concept.
+    await expect(
+      propose('remove a relation that never existed', {
+        relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'related' }],
+      }),
+    ).rejects.toThrow(ValidationError)
+    await expect(
+      propose('remove with typo slug', {
+        relations_removed: [{ from_slug: 'alpha', to_slug: 'ghost-concept', kind: 'depends_on' }],
+      }),
+    ).rejects.toThrow('concept not found: ghost-concept')
+    const ghost = await db.query('SELECT 1 FROM wk_concepts WHERE space_id = $1 AND slug = $2', [
+      space.id,
+      'ghost-concept',
+    ])
+    expect(ghost.rows).toHaveLength(0)
+
+    // Space isolation: identical slugs in ANOTHER space cannot reach this
+    // space's edge — the removal resolves concepts and the marker strictly
+    // inside its own space.
+    const foreign = await seedSpace('removal-foreign-space')
+    const foreignSeed = await createProposal(db, foreign.id, {
+      title: 'seed foreign alpha',
+      input_hash: sha256Hex('seed foreign alpha'),
+      source_ids: [],
+      agent_meta: AGENT_META,
+      concepts: [
+        { slug: 'alpha', title: 'Alpha', summary: '', markdown: '# Alpha', claims: [], relations: [] },
+        { slug: 'beta', title: 'Beta', summary: '', markdown: '# Beta', claims: [], relations: [] },
+      ],
+    })
+    await approveProposal(db, { id: foreignSeed.proposal_id, reviewer: 'mike' })
+    await expect(
+      createProposal(db, foreign.id, {
+        title: 'cross-space removal attempt',
+        input_hash: sha256Hex('cross-space removal attempt'),
+        source_ids: [],
+        agent_meta: AGENT_META,
+        relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+      }),
+    ).rejects.toThrow('no active depends_on relation')
+  })
+
+  it('relation removal: cross-proposal guards — pending removal blocks a re-add, different removal sets never dedup-collide', async () => {
+    const space = await seedSpace('removal-guard-space')
+    const seed = await createProposal(db, space.id, {
+      title: 'seed edges',
+      input_hash: sha256Hex('seed edges'),
+      source_ids: [],
+      agent_meta: AGENT_META,
+      concepts: [
+        {
+          slug: 'alpha',
+          title: 'Alpha',
+          summary: '',
+          markdown: '# Alpha',
+          claims: [],
+          relations: [
+            { to_slug: 'beta', kind: 'depends_on' },
+            { to_slug: 'gamma', kind: 'related' },
+          ],
+        },
+      ],
+    })
+    await approveProposal(db, { id: seed.proposal_id, reviewer: 'mike' })
+
+    // Removal-only proposals with IDENTICAL documented input_hash but
+    // DIFFERENT removal sets must stage as distinct proposals (server-side
+    // salted dedup hash) — never silently converge.
+    const zeroSourceHash = computeInputHash([], 'manual')
+    const removalOne = await createProposal(db, space.id, {
+      title: 'remove alpha->beta',
+      input_hash: zeroSourceHash,
+      source_ids: [],
+      agent_meta: AGENT_META,
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+    })
+    const removalTwo = await createProposal(db, space.id, {
+      title: 'remove alpha->gamma',
+      input_hash: zeroSourceHash,
+      source_ids: [],
+      agent_meta: AGENT_META,
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'gamma', kind: 'related' }],
+    })
+    expect(removalTwo.proposal_id).not.toBe(removalOne.proposal_id)
+    // An identical retry of the SAME removal set still converges.
+    const retry = await createProposal(db, space.id, {
+      title: 'remove alpha->beta retry',
+      input_hash: zeroSourceHash,
+      source_ids: [],
+      agent_meta: AGENT_META,
+      relations_removed: [{ from_slug: 'alpha', to_slug: 'beta', kind: 'depends_on' }],
+    })
+    expect(retry.proposal_id).toBe(removalOne.proposal_id)
+
+    // Re-asserting an edge whose removal is pending is an explicit 400 — the
+    // add would stage nothing and could not restore the edge later.
+    await expect(
+      createProposal(db, space.id, {
+        title: 're-add while removal pending',
+        input_hash: sha256Hex('re-add while removal pending'),
+        source_ids: [],
+        agent_meta: AGENT_META,
+        concepts: [
+          {
+            slug: 'alpha',
+            title: 'Alpha',
+            summary: '',
+            markdown: '# Alpha v2',
+            claims: [],
+            relations: [{ to_slug: 'beta', kind: 'depends_on' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('has a pending removal proposal')
+
+    // Once the removal is decided (rejected here), the add stages normally.
+    await rejectProposal(db, { id: removalOne.proposal_id, reviewer: 'mike' })
+    await rejectProposal(db, { id: removalTwo.proposal_id, reviewer: 'mike' })
+    const readd = await createProposal(db, space.id, {
+      title: 're-add after decision',
+      input_hash: sha256Hex('re-add after decision'),
+      source_ids: [],
+      agent_meta: AGENT_META,
+      concepts: [
+        {
+          slug: 'alpha',
+          title: 'Alpha',
+          summary: '',
+          markdown: '# Alpha v3',
+          claims: [],
+          relations: [{ to_slug: 'beta', kind: 'depends_on' }],
+        },
+      ],
+    })
+    expect(readd.status).toBe('pending')
   })
 
   it('stale base surfaces as ConflictError(stale_base) through approveProposal', async () => {

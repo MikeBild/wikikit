@@ -313,7 +313,8 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/spaces/{space}/proposals',
     scope: 'knowledge:propose',
-    summary: 'Stage a manual change proposal (agent-authored changes go through the same review gate)',
+    summary:
+      'Stage a manual change proposal, including removals of active relations (agent-authored changes go through the same review gate)',
     handler: 'createProposalHandler',
     request: { params: 'zSpaceParams', body: 'zCreateProposalRequest' },
     responses: { 201: { schema: 'zProposalCreatedResponse', type: 'application/json', desc: 'Proposal staged' } },
@@ -324,7 +325,7 @@ export const ROUTES: RouteDef[] = [
     scope: 'knowledge:read',
     altScopes: ['knowledge:review'],
     summary:
-      'Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept; knowledge:review keys may inspect too',
+      'Structured proposal diff (old/new markdown, claims added/disputed/deprecated, relations added/removed); text/markdown via Accept; knowledge:review keys may inspect too',
     handler: 'getProposalHandler',
     request: { params: 'zIdParams' },
     responses: {

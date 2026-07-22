@@ -518,7 +518,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human reviewer explicitly approves it.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions, and removals of existing active relations via relations_removed) into the review gate. Nothing changes until a human reviewer explicitly approves it — approval also deactivates the staged relation removals atomically.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -709,6 +709,39 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
         "input_hash": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string",
+        },
+        "relations_removed": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "related",
+                  "part_of",
+                  "depends_on",
+                  "contradicts",
+                  "supersedes",
+                ],
+                "type": "string",
+              },
+              "to_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "from_slug",
+              "to_slug",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "type": "array",
         },
         "source_ids": {
           "default": [],
@@ -1269,7 +1302,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human reviewer explicitly approves it.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions, and removals of existing active relations via relations_removed) into the review gate. Nothing changes until a human reviewer explicitly approves it — approval also deactivates the staged relation removals atomically.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1461,6 +1494,39 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "pattern": "^[0-9a-f]{64}$",
           "type": "string",
         },
+        "relations_removed": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "related",
+                  "part_of",
+                  "depends_on",
+                  "contradicts",
+                  "supersedes",
+                ],
+                "type": "string",
+              },
+              "to_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "from_slug",
+              "to_slug",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
         "source_ids": {
           "default": [],
           "items": {
@@ -1516,7 +1582,7 @@ exports[`MCP manifest contract tools/list manifest for approve-only-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations added and removed, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2114,7 +2180,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human reviewer explicitly approves it.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions, and removals of existing active relations via relations_removed) into the review gate. Nothing changes until a human reviewer explicitly approves it — approval also deactivates the staged relation removals atomically.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2306,6 +2372,39 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "pattern": "^[0-9a-f]{64}$",
           "type": "string",
         },
+        "relations_removed": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "related",
+                  "part_of",
+                  "depends_on",
+                  "contradicts",
+                  "supersedes",
+                ],
+                "type": "string",
+              },
+              "to_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "from_slug",
+              "to_slug",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
         "source_ids": {
           "default": [],
           "items": {
@@ -2356,7 +2455,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations added and removed, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2954,7 +3053,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": false,
     },
-    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions) into the review gate. Nothing becomes visible until a human reviewer explicitly approves it.",
+    "description": "Stage a structured ChangeProposal (concepts with claims/citations/relations, decisions, and removals of existing active relations via relations_removed) into the review gate. Nothing changes until a human reviewer explicitly approves it — approval also deactivates the staged relation removals atomically.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3146,6 +3245,39 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "pattern": "^[0-9a-f]{64}$",
           "type": "string",
         },
+        "relations_removed": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "from_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "kind": {
+                "enum": [
+                  "related",
+                  "part_of",
+                  "depends_on",
+                  "contradicts",
+                  "supersedes",
+                ],
+                "type": "string",
+              },
+              "to_slug": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "from_slug",
+              "to_slug",
+              "kind",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
         "source_ids": {
           "default": [],
           "items": {
@@ -3196,7 +3328,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
+    "description": "Review queue for a space. Without proposal_id, lists proposal summaries; with proposal_id, returns the full staged diff, including old/new revisions, claims, relations added and removed, decisions, sources and prior review metadata. Requires knowledge:review (implied by knowledge:approve).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
