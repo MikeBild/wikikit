@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0 - 2026-07-22
+
+### Added
+
+- Add proposal-staged relation removals: `relations_removed` on
+  `POST /v1/spaces/{space}/proposals` and `wikikit_propose` marks existing
+  active relations for removal; the structured diff, markdown rendering and
+  the human review page show the pending removals, approval deactivates the
+  marked edges atomically (soft delete, audit marker kept), and rejection
+  leaves them untouched. Removal-only proposals are valid.
+- Add one provider-neutral MCP browser-auth list that can offer one scoped API
+  key plus multiple named token-bridge and OIDC adapters concurrently;
+  provider products are configuration values rather than WikiKit modes.
+- Add configurable subject, email and verification claim paths for JWT bridge
+  adapters without adding provider-specific branches.
+- Add revocable operator sessions with an eight-hour idle limit, 24-hour
+  absolute cap, live identity revalidation, explicit logout and account
+  switching.
+- Add the shared `mcp-auth-v1` sign-in and consent card with the WikiKit `W`
+  badge and an OAuth 2.1 security scheme in OpenAPI.
+
+### Changed
+
+- Replace every provider-specific login route and config branch with
+  `/v1/identity/login/start`, `/v1/identity/login/callback`,
+  `/v1/identity/logout`, and the `protocol` discriminator. No legacy provider
+  shape or route is accepted.
+
+- Bind consent strictly to scopes requested by the client, supported by the
+  server and currently permitted for the identity. `knowledge:read` remains
+  mandatory and is never silently added to a request that omitted it.
+- Allow reviewer credentials to inspect proposal details while keeping the
+  irreversible approve/reject boundary on `knowledge:approve`.
+
+### Security
+
+- Persist only opaque session/token hashes, recheck revocation and expiry at
+  consent and token use, and keep credentials and identity assertions out of
+  rendered pages, logs and history.
+
 ## 0.8.0
 
 ### Added
