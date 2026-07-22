@@ -15,30 +15,26 @@ describe('GET /v1/identity/providers', () => {
       oauthProviders: [
         { protocol: 'api_key' as const, id: 'api-key', label: 'WikiKit API key' },
         {
-          protocol: 'token_bridge' as const,
+          protocol: 'oidc' as const,
           id: 'workforce',
           label: 'Configured deployment label',
-          loginUrl: 'https://login.example.com',
           issuer: 'https://issuer.example.com',
-          audience: 'wikikit',
-          jwksUrl: 'https://issuer.example.com/jwks',
-          subjectClaim: 'sub',
-          emailClaim: 'email',
-          emailVerifiedClaim: 'email_verified',
+          clientId: 'wikikit-test',
+          scopes: 'openid email profile',
           allowedEmails: [],
           allowedScopes: ['knowledge:read'],
         },
       ],
     }
     expect(publicLoginProviders(config)).toEqual([
-      { protocol: 'token_bridge', id: 'workforce', label: 'SSO', login_url: 'https://login.example.com' },
+      { protocol: 'oidc', id: 'workforce', label: 'SSO', issuer: 'https://issuer.example.com' },
       { protocol: 'api_key', id: 'api-key', label: 'API key' },
     ])
   })
 
   test('browser-auth runtime and documentation contain protocols, never provider products or fixed routes', () => {
     const concreteProvider = new RegExp(['fire' + 'base', 'supa' + 'base'].join('|'), 'i')
-    const fixedRoute = /\/v1\/identity\/login\/(?:oidc|api-key|token-bridge)(?:\/|['"`])/i
+    const fixedRoute = /\/v1\/identity\/login\/(?:oidc|api-key)(?:\/|['"`])/i
     const runtime = [...productionSources('src/oauth'), 'src/config.ts', 'src/app.ts', 'src/http/auth.ts']
       .filter((file) => !file.endsWith('.test.ts'))
       .map((file) => readFileSync(file, 'utf8'))

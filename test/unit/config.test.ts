@@ -157,20 +157,9 @@ describe('validation', () => {
     expect(loadConfig().trustProxy).toBe(false)
   })
 
-  test('supports one protocol-neutral provider list with bridge claim mapping and OIDC', () => {
+  test('supports one product-local provider list with API key and OIDC', () => {
     process.env.WIKIKIT_OAUTH_PROVIDERS = JSON.stringify([
       { protocol: 'api_key', id: 'api-key', label: 'WikiKit API key' },
-      {
-        protocol: 'token_bridge',
-        id: 'workforce-bridge',
-        label: 'Workforce bridge',
-        login_url: 'https://auth.example.test/wikikit',
-        issuer_url: 'https://issuer.example.test/project',
-        audience: 'project',
-        jwks_url: 'https://issuer.example.test/keys',
-        email_verified_claim: 'user_metadata.email_verified',
-        allowed_emails: ['mike@example.com'],
-      },
       {
         protocol: 'oidc',
         id: 'workforce-oidc',
@@ -181,14 +170,11 @@ describe('validation', () => {
       },
     ])
     const concurrent = loadConfig()
-    expect(concurrent.oauthProviders?.map((provider) => provider.id)).toEqual([
-      'api-key',
-      'workforce-bridge',
-      'workforce-oidc',
-    ])
+    expect(concurrent.oauthProviders?.map((provider) => provider.id)).toEqual(['api-key', 'workforce-oidc'])
     expect(concurrent.oauthProviders?.[1]).toMatchObject({
-      protocol: 'token_bridge',
-      emailVerifiedClaim: 'user_metadata.email_verified',
+      protocol: 'oidc',
+      issuer: 'https://identity.example.test',
+      clientId: 'wikikit',
     })
   })
 

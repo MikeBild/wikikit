@@ -369,140 +369,16 @@ describe('MCP OAuth 2.1 (integration)', () => {
     ).toBe(400)
   })
 
-  it('starts a configured token bridge without exposing an operator API key', async () => {
-    const bridgeApp = createApp(
-      {
-        ...config(app.config.databaseUrl),
-        oauthProviders: [
-          {
-            protocol: 'token_bridge',
-            id: 'google',
-            label: 'Google',
-            loginUrl: 'https://subkit-auth-prod.web.app',
-            issuer: 'https://securetoken.google.com/subkit-auth-prod',
-            audience: 'subkit-auth-prod',
-            jwksUrl: 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
-            allowedEmails: ['mike@mikebild.com'],
-            allowedScopes: ['knowledge:read', 'knowledge:propose'],
-          },
-        ],
-      },
-      { llm: createFakeProvider(), logger: createLogger({ level: 'error', write: () => {} }) },
-    )
-    await new Promise<void>((resolve) => bridgeApp.server.listen(0, '127.0.0.1', resolve))
-    const bridgeBase = `http://127.0.0.1:${(bridgeApp.server.address() as { port: number }).port}`
-    try {
-      const registration = await fetch(`${bridgeBase}/v1/oauth/register`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ client_name: 'Token bridge test', redirect_uris: [REDIRECT] }),
-      })
-      const { client_id } = (await registration.json()) as { client_id: string }
-      const verifier = randomBytes(32).toString('base64url')
-      const challenge = createHash('sha256').update(verifier).digest('base64url')
-      const response = await fetch(
-        `${bridgeBase}/v1/oauth/authorize?${form({
-          response_type: 'code',
-          client_id,
-          redirect_uri: REDIRECT,
-          code_challenge: challenge,
-          code_challenge_method: 'S256',
-          resource: RESOURCE,
-          scope: 'knowledge:read',
-          state: 'bridge-state',
-        })}`,
-        { redirect: 'manual' },
-      )
-      // A bridge-only configuration still exposes the same explicit chooser.
-      expect(response.status).toBe(302)
-      const chooserLocation = new URL(response.headers.get('location')!)
-      const chooser = await fetch(`${bridgeBase}${chooserLocation.pathname}${chooserLocation.search}`)
-      expect(chooser.status).toBe(200)
-      const chooserHtml = await chooser.text()
-      expect(chooserHtml).toContain('Continue with SSO')
-      const starter = new URL(providerHref(chooserHtml, 'google'), ISSUER)
-      expect(starter.origin).toBe(ISSUER)
-      expect(starter.pathname).toBe('/v1/identity/login/start')
-      const started = await fetch(`${bridgeBase}${starter.pathname}${starter.search}`, { redirect: 'manual' })
-      expect(started.status).toBe(302)
-      const location = new URL(started.headers.get('location')!)
-      expect(location.origin).toBe('https://subkit-auth-prod.web.app')
-      expect(location.searchParams.get('mcp_callback')).toBe(`${ISSUER}/v1/identity/login/callback`)
-      const loginState = location.searchParams.get('mcp_state')!
-      expect(loginState).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
-      expect(location.toString()).not.toContain(BOOTSTRAP)
-
-      // The bridge verifier is covered separately. Here we model its successful result — the
-      // authenticated login state AND the operator session the callback mints —
-      // and exercise the failure-prone transition from consent to a PKCE code.
-      await bridgeApp.database.db.insert('wk_oauth_identities', {
-        provider_subject: 'bridge-test-subject',
-        email: 'mike@mikebild.com',
-        provider: 'google',
-      })
-      await bridgeApp.database.db.update(
-        'wk_oauth_login_states',
-        { state_hash: `eq.${hashApiKey(loginState, 'itest-oauth-pepper')}` },
-        {
-          provider_id: 'google',
-          provider_subject: 'bridge-test-subject',
-          provider_email: 'mike@mikebild.com',
-          authenticated_at: new Date().toISOString(),
-        },
-      )
-      const operatorSessionToken = `wkos_${randomBytes(32).toString('base64url')}`
-      await bridgeApp.database.db.insert('wk_oauth_operator_sessions', {
-        token_hash: hashApiKey(operatorSessionToken, 'itest-oauth-pepper'),
-        principal_kind: 'identity',
-        principal_key_id: 'identity:google:bridge-test-subject',
-        principal_key_hash: hashApiKey('identity:google:bridge-test-subject', 'itest-oauth-pepper'),
-        principal_name: 'mike@mikebild.com',
-        principal_space_id: null,
-        provider_id: 'google',
-        provider_subject: 'bridge-test-subject',
-        scopes: ['knowledge:read', 'knowledge:propose'],
-        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
-        absolute_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      })
-      const csrf = randomBytes(32).toString('base64url')
-      const approved = await fetch(`${bridgeBase}/v1/oauth/authorize/decision`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded',
-          cookie: `wk_oauth_csrf=${encodeURIComponent(csrf)}; __Host-wikikit_operator=${encodeURIComponent(operatorSessionToken)}`,
-        },
-        body: form({ login_state: loginState, csrf_token: csrf, decision: 'approve' }),
-        redirect: 'manual',
-      })
-      expect(approved.status).toBe(302)
-      const callback = new URL(approved.headers.get('location')!)
-      const code = callback.searchParams.get('code')!
-      expect(code).toMatch(/^wka_/)
-      const exchanged = await fetch(`${bridgeBase}/v1/oauth/token`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: form({
-          grant_type: 'authorization_code',
-          client_id,
-          code,
-          code_verifier: verifier,
-          redirect_uri: REDIRECT,
-          resource: RESOURCE,
-        }),
-      })
-      expect(exchanged.status).toBe(200)
-      expect(((await exchanged.json()) as { access_token: string }).access_token).toMatch(/^wko_/)
-    } finally {
-      await bridgeApp.close()
-    }
-  })
-
   it('exchanges a configured SSO assertion through the common identity-session contract', async () => {
     const { publicKey, privateKey } = await generateKeyPair('RS256')
     const jwk = { ...(await exportJWK(publicKey)), kid: 'identity-session-test', alg: 'RS256', use: 'sig' }
     const identityServer = createServer((req, res) => {
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ keys: req.url === '/jwks' ? [jwk] : [] }))
+      if (req.url === '/.well-known/openid-configuration') {
+        res.end(JSON.stringify({ issuer: identityBase, jwks_uri: `${identityBase}/jwks` }))
+      } else {
+        res.end(JSON.stringify({ keys: req.url === '/jwks' ? [jwk] : [] }))
+      }
     })
     await new Promise<void>((resolve) => identityServer.listen(0, '127.0.0.1', resolve))
     const identityBase = `http://127.0.0.1:${(identityServer.address() as { port: number }).port}`
@@ -511,13 +387,12 @@ describe('MCP OAuth 2.1 (integration)', () => {
         ...config(app.config.databaseUrl),
         oauthProviders: [
           {
-            protocol: 'token_bridge',
+            protocol: 'oidc',
             id: 'workforce',
             label: 'deployment identity',
-            loginUrl: `${identityBase}/login`,
             issuer: identityBase,
-            audience: 'wikikit-session-test',
-            jwksUrl: `${identityBase}/jwks`,
+            clientId: 'wikikit-session-test',
+            scopes: 'openid email profile',
             allowedEmails: ['operator@example.test'],
             allowedScopes: ['knowledge:read'],
           },

@@ -191,11 +191,10 @@ https://wikikit.mikebild.dev/mcp
 ```
 
 Choose OAuth. The single `WIKIKIT_OAUTH_PROVIDERS` JSON list can offer one
-browser API-key adapter and any number of named `token_bridge` and `oidc`
-adapters in the common WikiKit-branded auth card. Provider products are
-configuration values, not WikiKit modes. JWT bridges can map safe dotted
-subject, email and verification claim paths; OIDC adapters use discovery and
-Authorization Code + PKCE.
+browser API-key adapter and any number of directly configured `oidc` adapters
+in the WikiKit-branded auth card. Each OIDC client, secret, callback and policy
+belongs to this WikiKit deployment; no shared login service or cross-product
+auth component is involved. OIDC uses discovery and Authorization Code + PKCE.
 The method chooser is the family-wide `mcp-auth-v2` contract: SSO is always
 first as **Continue with SSO**, API-key fallback is always second as
 **Continue with API key**, and configured provider labels never alter those

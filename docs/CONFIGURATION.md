@@ -52,7 +52,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | Interactive identity permission ceiling: comma-separated read/propose/approve                                  | `knowledge:read,knowledge:propose`                                 |
-| `WIKIKIT_OAUTH_PROVIDERS`            | Single JSON list of named `api_key`, `token_bridge`, and `oidc` adapters                                       | API-key record                                                     |
+| `WIKIKIT_OAUTH_PROVIDERS`            | WikiKit-local JSON list of named `api_key` and direct `oidc` adapters                                          | API-key record                                                     |
 | `LOG_LEVEL`                          | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
 | `NODE_ENV`                           | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
 
@@ -62,9 +62,8 @@ instead of producing a half-configured server.
 remote client has completed OAuth discovery and PKCE:
 
 - `api_key` uses an existing scoped WikiKit operator key.
-- `token_bridge` redirects to a configured hosted login adapter and verifies
-  the returned JWT against its configured issuer, audience and JWKS URL.
-- `oidc` uses standard discovery and Authorization Code + PKCE.
+- `oidc` uses WikiKit's own client configuration, standard discovery and
+  Authorization Code + PKCE.
 - Multiple enabled methods and OIDC entries share one provider chooser.
 
 The browser surface never inherits vendor or configured labels. It renders the
@@ -86,13 +85,10 @@ that embedded review page (or over REST) as themselves. `admin` is never issued
 to an interactive OAuth identity.
 
 The provider array uses one shared `protocol` discriminator. Provider ids are
-unique; `api_key` may occur once, while `token_bridge` and `oidc` may occur
-several times. OIDC `scopes` must include `openid`.
-JWT bridge claim paths default to `sub`, `email`, and `email_verified`.
-Set `subject_claim`, `email_claim`, or `email_verified_claim` to a safe dotted
-path when an adapter nests the same semantics (for example
-`user_metadata.email_verified`). Verification must still resolve to the
-boolean value `true`; it cannot be disabled.
+unique; `api_key` may occur once and `oidc` may occur several times. OIDC
+`scopes` must include `openid`. Every OIDC record is configured and operated
+for WikiKit itself, including its client id, optional client secret, callback
+registration, allow-list and permission ceiling.
 
 ```json
 [
@@ -100,16 +96,6 @@ boolean value `true`; it cannot be disabled.
     "protocol": "api_key",
     "id": "api-key",
     "label": "WikiKit API key"
-  },
-  {
-    "protocol": "token_bridge",
-    "id": "external-identity",
-    "label": "External identity",
-    "login_url": "https://login.example.com/wikikit/",
-    "issuer_url": "https://identity.example.com",
-    "audience": "wikikit",
-    "jwks_url": "https://identity.example.com/.well-known/jwks.json",
-    "allowed_emails": ["reviewer@example.com"]
   },
   {
     "protocol": "oidc",

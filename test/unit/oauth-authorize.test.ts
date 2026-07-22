@@ -149,13 +149,12 @@ describe('POST /v1/oauth/authorize/decision', () => {
       testConfig({
         oauthProviders: [
           {
-            protocol: 'token_bridge',
-            id: 'google',
-            label: 'Google',
-            loginUrl: 'https://login.example/oauth',
-            issuer: 'https://issuer.example.test/project',
-            audience: 'project',
-            jwksUrl: 'https://issuer.example.test/keys',
+            protocol: 'oidc',
+            id: 'workforce',
+            label: 'Workforce OIDC',
+            issuer: 'https://issuer.example.test',
+            clientId: 'wikikit-test',
+            scopes: 'openid email profile',
             allowedEmails: ['mike@example.com'],
             allowedScopes: ['knowledge:read', 'knowledge:propose'],
           },

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2554,34 +2554,6 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
           }
         }
-      },
-      "post": {
-        "operationId": "completeTokenBridgeLogin",
-        "tags": ["MCP authentication"],
-        "summary": "Complete a token-bridge login adapter",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": { "type": "object", "additionalProperties": { "type": "string" } }
-            }
-          }
-        },
-        "responses": {
-          "200": { "description": "Consent HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "400": {
-            "description": "Invalid request",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
-          },
-          "401": {
-            "description": "Identity assertion rejected",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
-          },
-          "403": {
-            "description": "Identity or requested access denied",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
-          }
-        }
       }
     },
     "/v1/identity/logout": {
@@ -4810,10 +4782,9 @@
         "additionalProperties": false,
         "required": ["protocol", "id", "label"],
         "properties": {
-          "protocol": { "type": "string", "enum": ["api_key", "token_bridge", "oidc"] },
+          "protocol": { "type": "string", "enum": ["api_key", "oidc"] },
           "id": { "type": "string" },
           "label": { "type": "string", "enum": ["SSO", "API key"] },
-          "login_url": { "type": "string", "format": "uri" },
           "issuer": { "type": "string", "format": "uri" }
         }
       },

@@ -35,7 +35,6 @@ export const MCP_AUTH_OPERATIONS = [
   'get /v1/identity/login/start',
   'post /v1/identity/login/start',
   'get /v1/identity/login/callback',
-  'post /v1/identity/login/callback',
   'post /v1/identity/logout',
 ] as const
 
@@ -46,10 +45,9 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       additionalProperties: false,
       required: ['protocol', 'id', 'label'],
       properties: {
-        protocol: { type: 'string', enum: ['api_key', 'token_bridge', 'oidc'] },
+        protocol: { type: 'string', enum: ['api_key', 'oidc'] },
         id: { type: 'string' },
         label: { type: 'string', enum: ['SSO', 'API key'] },
-        login_url: { type: 'string', format: 'uri' },
         issuer: { type: 'string', format: 'uri' },
       },
     },
@@ -221,13 +219,6 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
         302: { description: 'Redirect' },
         ...errorResponses,
       },
-    },
-    post: {
-      operationId: 'completeTokenBridgeLogin',
-      tags: ['MCP authentication'],
-      summary: 'Complete a token-bridge login adapter',
-      requestBody: formBody,
-      responses: { 200: { description: 'Consent HTML', content: html }, ...errorResponses },
     },
   }
   paths['/v1/identity/logout'] = {

@@ -169,21 +169,6 @@ export interface ApiKeyOAuthProviderConfig {
   readonly label: string
 }
 
-export interface TokenBridgeOAuthProviderConfig {
-  readonly protocol: 'token_bridge'
-  readonly id: string
-  readonly label: string
-  readonly loginUrl: string
-  readonly issuer: string
-  readonly audience: string
-  readonly jwksUrl: string
-  readonly subjectClaim?: string
-  readonly emailClaim?: string
-  readonly emailVerifiedClaim?: string
-  readonly allowedEmails: string[]
-  readonly allowedScopes: IdentityScope[]
-}
-
 export interface OidcProviderConfig {
   readonly protocol: 'oidc'
   readonly id: string
@@ -196,7 +181,7 @@ export interface OidcProviderConfig {
   readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
 }
 
-export type OAuthProviderConfig = ApiKeyOAuthProviderConfig | TokenBridgeOAuthProviderConfig | OidcProviderConfig
+export type OAuthProviderConfig = ApiKeyOAuthProviderConfig | OidcProviderConfig
 
 const IDENTITY_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'] as const
 type IdentityScope = (typeof IDENTITY_SCOPES)[number]
@@ -233,8 +218,8 @@ function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthP
     const protocol = typeof item.protocol === 'string' ? item.protocol.trim() : ''
     const id = typeof item.id === 'string' ? item.id.trim() : ''
     const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim() : id
-    if (!['api_key', 'token_bridge', 'oidc'].includes(protocol)) {
-      throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}].protocol must be api_key, token_bridge or oidc`)
+    if (!['api_key', 'oidc'].includes(protocol)) {
+      throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}].protocol must be api_key or oidc`)
     }
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(id) || ids.has(id) || !label || label.length > 120) {
       throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}] has an invalid or duplicate id or label`)
@@ -260,53 +245,6 @@ function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthP
         )
       : globalScopes
     if (!emails.length) throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}].allowed_emails must not be empty`)
-
-    if (protocol === 'token_bridge') {
-      const loginUrl = typeof item.login_url === 'string' ? item.login_url.trim().replace(/\/$/, '') : ''
-      const issuer = typeof item.issuer_url === 'string' ? item.issuer_url.trim().replace(/\/$/, '') : ''
-      const audience = typeof item.audience === 'string' ? item.audience.trim() : ''
-      const jwksUrl = typeof item.jwks_url === 'string' ? item.jwks_url.trim() : ''
-      const subjectClaim = typeof item.subject_claim === 'string' ? item.subject_claim.trim() : 'sub'
-      const emailClaim = typeof item.email_claim === 'string' ? item.email_claim.trim() : 'email'
-      const emailVerifiedClaim =
-        typeof item.email_verified_claim === 'string' ? item.email_verified_claim.trim() : 'email_verified'
-      const claimPath = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/
-      let parsedLoginUrl: URL, parsedIssuer: URL, parsedJwksUrl: URL
-      try {
-        parsedLoginUrl = new URL(loginUrl)
-        parsedIssuer = new URL(issuer)
-        parsedJwksUrl = new URL(jwksUrl)
-      } catch {
-        throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}] bridge URLs must be HTTPS URLs`)
-      }
-      if (
-        !audience ||
-        !claimPath.test(subjectClaim) ||
-        !claimPath.test(emailClaim) ||
-        !claimPath.test(emailVerifiedClaim) ||
-        parsedLoginUrl.protocol !== 'https:' ||
-        parsedIssuer.protocol !== 'https:' ||
-        parsedJwksUrl.protocol !== 'https:'
-      ) {
-        throw new Error(
-          `WIKIKIT_OAUTH_PROVIDERS[${index}] token_bridge requires HTTPS login_url, issuer_url, jwks_url and audience`,
-        )
-      }
-      return {
-        protocol,
-        id,
-        label,
-        loginUrl,
-        issuer,
-        audience,
-        jwksUrl,
-        subjectClaim,
-        emailClaim,
-        emailVerifiedClaim,
-        allowedEmails: emails,
-        allowedScopes: scopes,
-      }
-    }
 
     const issuer = typeof item.issuer_url === 'string' ? item.issuer_url.trim().replace(/\/$/, '') : ''
     const clientId = typeof item.client_id === 'string' ? item.client_id.trim() : ''

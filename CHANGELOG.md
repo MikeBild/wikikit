@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.11.0 - 2026-07-22
+
+### Changed
+
+- Make API-key and direct OIDC the complete WikiKit-owned MCP authentication
+  model. WikiKit owns its OIDC client, callback, policy, sessions and secrets;
+  no shared or externally hosted cross-product auth component is supported.
+- Keep the family-wide SSO-first UI and public provider-neutral contract while
+  implementing and configuring every auth operation inside WikiKit itself.
+- Update README, contracts, configuration, OpenAPI and both LLM documents to
+  the corrected independent-product architecture.
+
+### Removed
+
+- Remove the hosted assertion-adapter protocol and its POST callback surface.
+
 ## 0.10.0 - 2026-07-22
 
 ### Added
@@ -75,10 +91,10 @@ and this project adheres to
   marked edges atomically (soft delete, audit marker kept), and rejection
   leaves them untouched. Removal-only proposals are valid.
 - Add one provider-neutral MCP browser-auth list that can offer one scoped API
-  key plus multiple named token-bridge and OIDC adapters concurrently;
+  key plus multiple named direct OIDC adapters concurrently;
   provider products are configuration values rather than WikiKit modes.
-- Add configurable subject, email and verification claim paths for JWT bridge
-  adapters without adding provider-specific branches.
+- Apply verified-email and explicit allow-list policy to direct OIDC adapters
+  without adding provider-specific branches.
 - Add revocable operator sessions with an eight-hour idle limit, 24-hour
   absolute cap, live identity revalidation, explicit logout and account
   switching.
@@ -309,7 +325,7 @@ and this project adheres to
 ### Changed
 
 - Public documentation now describes the deployed remote-MCP contract
-  consistently: a branded token bridge, multiple OIDC providers,
+  consistently: product-local API-key and direct OIDC providers,
   the interactive `knowledge:approve` ceiling, and the separate proposal
   inspection/review tools.
 - ChatGPT setup documents that an app scans and stores its tool and OAuth-scope
@@ -329,8 +345,8 @@ and this project adheres to
 - MCP proposal review is now complete: `wikikit_proposals` exposes the full
   staged diff and `wikikit_review_proposal` performs an explicit, confirmed
   approve/reject decision. Both require `knowledge:approve`.
-- Remote MCP OAuth supports a dedicated WikiKit token-bridge page, standard OIDC
-  Authorization Code + PKCE providers, or a federated provider chooser.
+- Remote MCP OAuth supports standard OIDC Authorization Code + PKCE providers
+  and a provider-neutral chooser.
   Identity-provider allow-lists and the read/propose/approve permission ceiling
   are independently configurable.
 
@@ -351,23 +367,20 @@ and this project adheres to
 
 ### Fixed
 
-- Token-bridge-authenticated MCP consent now preserves the original PKCE challenge
-  across the external browser login, allowing the authorization-code exchange
-  to complete.
+- OIDC-authenticated MCP consent preserves the original PKCE challenge across
+  browser login, allowing the authorization-code exchange to complete.
 
 ## 0.1.11
 
 ### Changed
 
-- Remote MCP OAuth can now use an external browser sign-in bridge. WikiKit
-  verifies the signed identity token and an explicit
-  email allow-list before showing OAuth consent, so ChatGPT never asks for a
-  WikiKit operator API key.
+- Remote MCP OAuth can use direct OIDC. WikiKit verifies the identity and an
+  explicit email allow-list before showing OAuth consent, so ChatGPT need not
+  receive a WikiKit operator API key.
 
 ### Security
 
-- Token-bridge login states are opaque, single-use and server-stored; the shared
-  sign-in page only posts identity tokens to WikiKit's callback. OAuth grants
+- OIDC login states are opaque, single-use and server-stored. OAuth grants
   remain scoped, refresh rotation remains intact, and an inactive external
   identity immediately invalidates its MCP bearer token.
 

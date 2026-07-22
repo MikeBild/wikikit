@@ -31,14 +31,13 @@ describe('common MCP auth UI contract', () => {
       state: 'state',
       providers: [
         { id: 'api-key', protocol: 'api_key', label: 'WikiKit API key' },
-        { id: 'google', protocol: 'token_bridge', label: 'Google' },
-        { id: 'entra', protocol: 'oidc', label: 'Microsoft Entra ID' },
+        { id: 'workforce', protocol: 'oidc', label: 'Workforce OIDC' },
       ],
     })
-    expect(html.match(/Continue with SSO/g)).toHaveLength(2)
+    expect(html.match(/Continue with SSO/g)).toHaveLength(1)
     expect(html.match(/Continue with API key/g)).toHaveLength(1)
     expect(html).not.toContain('Continue with Continue with')
-    expect(html).not.toContain('Microsoft Entra ID')
+    expect(html).not.toContain('Workforce OIDC')
     expect(html).toContain('class="provider-stack"')
     const styles = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
     expect(createHash('sha256').update(styles).digest('hex')).toBe(COMMON_STYLE_SHA256)

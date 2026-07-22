@@ -1260,18 +1260,17 @@ Remote public clients dynamically register at `POST /v1/oauth/register` (RFC
 and a bounded per-source-address rate. Authorization is code-only, requires
 PKCE `S256`, exact redirect URI and resource matching, and uses a short-lived
 one-time code. `WIKIKIT_OAUTH_PROVIDERS` is the only browser-provider
-configuration and may contain one `api_key` plus multiple named `token_bridge`
-and `oidc` adapters concurrently. Product names are never protocol branches.
+configuration and may contain one `api_key` plus multiple directly configured
+`oidc` adapters concurrently. Product names are never protocol branches.
 A provider-neutral `302` from authorize leads to
 `/v1/identity/login/start?login_state=<opaque>`. The `mcp-auth-v2` chooser
 always presents `Continue with SSO` before `Continue with API key`; product
 branding, scopes, policy and data stay WikiKit-owned. Provider labels cannot
 change these actions.
-A token bridge posts a signed JWT only to WikiKit's generic callback; WikiKit
-verifies its configured signature keys, issuer, audience, expiry, verified
-email and explicit allow-list. OIDC uses discovery plus Authorization Code +
-PKCE and applies the same identity policy. A hosted page is never an arbitrary
-token relay.
+WikiKit performs OIDC discovery and Authorization Code + PKCE itself and
+applies its own verified-email, allow-list and scope policy. Its OIDC client,
+secret, callback registration, sessions and identity records belong only to
+this deployment; no shared cross-product authentication runtime exists.
 
 The consent form has CSRF protection and persists only the minimum provider
 identity, never an API key or an ID token. Interactive OAuth identities can

@@ -361,10 +361,10 @@ scopes, capped by the configured identity-provider policy.
 
 Remote human login is configured only by the provider-neutral
 `WIKIKIT_OAUTH_PROVIDERS` JSON list. It accepts one API-key plus multiple named
-token-bridge and OIDC adapters concurrently; product names are configuration
-values. JWT bridges can map safe dotted subject, email and verification claim
-paths while verification must still resolve to boolean true. Each external
-adapter applies an explicit email allow-list. The interactive permission ceiling
+direct OIDC adapters concurrently; product names are configuration values.
+WikiKit owns each OIDC client, callback, secret and policy; no cross-product
+authentication runtime is involved. Each OIDC adapter applies an explicit
+verified-email allow-list. The interactive permission ceiling
 defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
 review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
@@ -607,7 +607,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES` | interactive identity permission ceiling | `knowledge:read,knowledge:propose` |
-| `WIKIKIT_OAUTH_PROVIDERS` | only browser-provider configuration; JSON records use `protocol: api_key`, `token_bridge`, or `oidc` | API-key record |
+| `WIKIKIT_OAUTH_PROVIDERS` | WikiKit-local browser-provider configuration; JSON records use `protocol: api_key` or `oidc` | API-key record |
 | `LOG_LEVEL` | `debug`/`info`/`warn`/`error` | `info` |
 | `NODE_ENV` | `production` activates guards + disables `.env.defaults` | (unset) |
 
@@ -621,8 +621,8 @@ still works. In production the behavior flips: no
 auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
 
 `WIKIKIT_OAUTH_PROVIDERS` is a JSON array with unique `id`, `protocol`, and
-`label`. Token bridges add HTTPS login, issuer and JWKS URLs plus an audience;
-OIDC records add HTTPS `issuer_url`, `client_id`, optional `client_secret`,
+`label`. API-key records select a product-local key policy; direct OIDC records
+add HTTPS `issuer_url`, `client_id`, optional `client_secret`,
 `scopes` (including `openid`), and optional identity-policy overrides. Register
 `${WIKIKIT_PUBLIC_URL}/v1/identity/login/callback` with each OIDC provider. Keep
 client secrets in the production secret store, never in the repository.

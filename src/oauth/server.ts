@@ -4,14 +4,13 @@
 // Plaintext API keys, authorization codes and tokens are never persisted.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Config, OidcProviderConfig, TokenBridgeOAuthProviderConfig } from '../config.ts'
+import type { Config, OidcProviderConfig } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import type { Auth, Principal } from '../http/auth.ts'
 import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
-import { verifyBridgedIdentity } from './token-bridge.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
 
@@ -278,13 +277,6 @@ async function loadAuthorizationRequest(
   return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource, codeChallenge: challenge }
 }
 
-function tokenBridgeProvider(config: Config, id?: string): TokenBridgeOAuthProviderConfig | undefined {
-  return config.oauthProviders?.find(
-    (provider): provider is TokenBridgeOAuthProviderConfig =>
-      provider.protocol === 'token_bridge' && (id === undefined || provider.id === id),
-  )
-}
-
 function oidcProvider(config: Config, id: string | null | undefined): OidcProviderConfig | undefined {
   return config.oauthProviders?.find(
     (provider): provider is OidcProviderConfig => provider.protocol === 'oidc' && provider.id === id,
@@ -297,17 +289,16 @@ function apiKeyLoginEnabled(config: Config): boolean {
 
 function loginOptions(
   config: Pick<Config, 'oauthProviders'>,
-): Array<{ id: string; protocol: 'api_key' | 'token_bridge' | 'oidc'; label: string }> {
+): Array<{ id: string; protocol: 'api_key' | 'oidc'; label: string }> {
   return (config.oauthProviders ?? [])
     .map(({ id, protocol, label }) => ({ id, protocol, label }))
     .sort((left, right) => Number(left.protocol === 'api_key') - Number(right.protocol === 'api_key'))
 }
 
 export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Array<{
-  protocol: 'api_key' | 'token_bridge' | 'oidc'
+  protocol: 'api_key' | 'oidc'
   id: string
   label: 'API key' | 'SSO'
-  login_url?: string
   issuer?: string
 }> {
   const configured = config.oauthProviders ?? []
@@ -317,7 +308,6 @@ export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Ar
       protocol,
       id,
       label: protocol === 'api_key' ? 'API key' : 'SSO',
-      ...(provider?.protocol === 'token_bridge' ? { login_url: provider.loginUrl } : {}),
       ...(provider?.protocol === 'oidc' ? { issuer: provider.issuer } : {}),
     }
   })
@@ -326,15 +316,6 @@ export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Ar
 function providerAllowedScopes(config: Config, providerId: string | null): string[] {
   const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
   return provider && provider.protocol !== 'api_key' ? provider.allowedScopes : []
-}
-
-function bridgeLoginUrl(config: Config, provider: TokenBridgeOAuthProviderConfig, loginState: string): string {
-  const target = new URL(provider.loginUrl)
-  // The state is opaque and single-use. No MCP redirect URI or OAuth client
-  // data crosses the external bridge page.
-  target.searchParams.set('mcp_callback', `${config.publicUrl}/v1/identity/login/callback`)
-  target.searchParams.set('mcp_state', loginState)
-  return target.toString()
 }
 
 async function identityGrantIsCurrent(
@@ -608,20 +589,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     if (provider.protocol === 'api_key') {
       throw new OAuthError('invalid_request', 'API key login does not accept identity assertions')
     }
-    const identity = await (
-      provider.protocol === 'token_bridge'
-        ? verifyBridgedIdentity({
-            token: identityToken,
-            issuer: provider.issuer,
-            audience: provider.audience,
-            jwksUrl: provider.jwksUrl,
-            subjectClaim: provider.subjectClaim,
-            emailClaim: provider.emailClaim,
-            emailVerifiedClaim: provider.emailVerifiedClaim,
-            allowedEmails: provider.allowedEmails,
-          })
-        : verifyOidcIdentityToken({ provider, identityToken })
-    ).catch(() => {
+    const identity = await verifyOidcIdentityToken({ provider, identityToken }).catch(() => {
       throw new OAuthError('invalid_token', 'identity assertion was rejected', 401)
     })
     await deps.db.query(
@@ -811,18 +779,6 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (configuredProvider?.protocol === 'api_key') {
           return authHtmlResponse(renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id }))
         }
-        if (configuredProvider?.protocol === 'token_bridge') {
-          const changed = await deps.db.update(
-            'wk_oauth_login_states',
-            { state_hash: `eq.${hashApiKey(loginState, config.keyPepper)}`, consumed_at: 'is.null' },
-            { provider_id: configuredProvider.id },
-          )
-          if (!changed.length) throw new OAuthError('invalid_request', 'OAuth login state is expired or already used')
-          return new Response(null, {
-            status: 302,
-            headers: { location: bridgeLoginUrl(config, configuredProvider, loginState), 'cache-control': 'no-store' },
-          })
-        }
         const provider = oidcProvider(config, providerId)
         if (!provider) throw new OAuthError('not_found', 'identity provider is not available', 404)
         const started = await startOidcLogin({
@@ -842,68 +798,6 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           status: 302,
           headers: { location: started.authorizationUrl, 'cache-control': 'no-store' },
         })
-      }
-      if (request.method === 'POST' && path === '/v1/identity/login/callback') {
-        const params = new URLSearchParams(await request.text())
-        const loginState = params.get('login_state') || ''
-        const identityToken = params.get('identity_token') || ''
-        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState) || !identityToken) {
-          throw new OAuthError('invalid_request', 'a valid login state and identity token are required')
-        }
-        const pendingState = await loadLoginState(loginState)
-        const bridge = pendingState?.provider_id ? tokenBridgeProvider(config, pendingState.provider_id) : undefined
-        if (!bridge) throw new OAuthError('not_found', 'identity provider is not available', 404)
-        const identity = await verifyBridgedIdentity({
-          token: identityToken,
-          issuer: bridge.issuer,
-          audience: bridge.audience,
-          jwksUrl: bridge.jwksUrl,
-          subjectClaim: bridge.subjectClaim,
-          emailClaim: bridge.emailClaim,
-          emailVerifiedClaim: bridge.emailVerifiedClaim,
-          allowedEmails: bridge.allowedEmails,
-        }).catch((error) => {
-          throw new OAuthError(
-            'access_denied',
-            error instanceof Error ? error.message : 'identity login was rejected',
-            403,
-          )
-        })
-        const stateHash = hashApiKey(loginState, config.keyPepper)
-        const { rows } = await deps.db.query<IdentityLoginStateRow>(
-          `UPDATE wk_oauth_login_states
-              SET provider_subject = $2, provider_email = $3, authenticated_at = now()
-            WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
-              AND provider_id = $4
-            RETURNING id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
-                      provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier`,
-          [stateHash, identity.subject, identity.email, bridge.id],
-        )
-        const state = rows[0]
-        if (!state) throw new OAuthError('invalid_request', 'identity login state is expired or already used')
-        await deps.db.query(
-          `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (provider, provider_subject) DO UPDATE
-             SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
-          [identity.subject, identity.email, bridge.id],
-        )
-        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
-          client_id: `eq.${state.client_id}`,
-          limit: 1,
-        })
-        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
-        const session = await createOperatorSession({
-          principalKind: 'identity',
-          principalKeyId: `identity:${bridge.id}:${identity.subject}`,
-          principalKeyHash: hashApiKey(`identity:${bridge.id}:${identity.subject}`, config.keyPepper),
-          principalName: identity.email,
-          principalSpaceId: null,
-          providerId: bridge.id,
-          providerSubject: identity.subject,
-          scopes: providerAllowedScopes(config, bridge.id),
-        })
-        return await consentResponse(state, client, session.row, loginState, session.token)
       }
       if (request.method === 'GET' && path === '/v1/identity/login/callback') {
         const loginState = url.searchParams.get('state') || ''

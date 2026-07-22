@@ -26,7 +26,8 @@ describe('provider-neutral auth architecture', () => {
     ]
     const source = files.map((file) => readFileSync(file, 'utf8')).join('\n')
     expect(source).not.toMatch(concreteProvider)
-    expect(source).not.toMatch(/login\/(?:api-key|token-bridge)/i)
+    expect(source).not.toMatch(/login\/(?:api-key|oidc)/i)
+    expect(source).not.toContain(['token', 'bridge'].join('_'))
     expect(source).not.toMatch(/params\.get\(['"]id_token['"]\)/)
     expect(source).toContain('/v1/identity/login/start')
     expect(source).toContain('/v1/identity/login/callback')

@@ -56,7 +56,7 @@ export function renderConsentPage(options: {
 
 export function renderProviderChoice(options: {
   state: string
-  providers: Array<{ id: string; protocol: 'api_key' | 'token_bridge' | 'oidc'; label: string }>
+  providers: Array<{ id: string; protocol: 'api_key' | 'oidc'; label: string }>
 }): string {
   const providers = options.providers
     .map((provider) => {
