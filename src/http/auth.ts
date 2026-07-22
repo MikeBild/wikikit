@@ -39,8 +39,13 @@ export interface Auth {
    * Throws UnauthorizedError (401) for missing/unknown/revoked keys.
    */
   authenticate(headerValue: string | undefined): Promise<Principal>
-  /** Throws ForbiddenError (403 insufficient_scope) when the principal lacks `scope` or is scoped to a different space. */
-  requireScope(principal: Principal, scope: Scope, spaceId?: string): void
+  /**
+   * Throws ForbiddenError (403 insufficient_scope) when the principal lacks
+   * `scope` or is scoped to a different space. An array means any-of: routes
+   * that live on two surfaces (e.g. proposal inspection is both part of the
+   * read surface and the review surface) accept either scope.
+   */
+  requireScope(principal: Principal, scope: Scope | readonly Scope[], spaceId?: string): void
   /** Mint a key. The plaintext is returned exactly once and never stored. */
   createKey(args: { name: string; scopes: string[]; spaceId?: string | null }): Promise<{ id: string; key: string }>
   /**
@@ -226,17 +231,20 @@ export function createAuth(config: Config, db: Db): Auth {
     },
 
     requireScope(principal, scope, spaceId) {
+      const accepted = Array.isArray(scope) ? (scope as readonly Scope[]) : [scope as Scope]
       const scopes = principal.scopes
       // '*' implies everything. 'admin' implies all knowledge scopes but NOT
       // '*' (§5.2 note) — the distinction only matters for future scopes, but
       // encoding it now keeps the rule honest. 'knowledge:approve' implies
       // 'knowledge:review' (review is the inspect subset of approve).
-      const has =
-        scopes.includes('*') ||
-        scopes.includes(scope) ||
-        (scope !== 'admin' && scopes.includes('admin')) ||
-        (scope === 'knowledge:review' && scopes.includes('knowledge:approve'))
-      if (!has) throw new ForbiddenError(`this key lacks the ${scope} scope`)
+      const has = accepted.some(
+        (candidate) =>
+          scopes.includes('*') ||
+          scopes.includes(candidate) ||
+          (candidate !== 'admin' && scopes.includes('admin')) ||
+          (candidate === 'knowledge:review' && scopes.includes('knowledge:approve')),
+      )
+      if (!has) throw new ForbiddenError(`this key lacks the ${accepted.join(' or ')} scope`)
       if (spaceId && principal.spaceId && principal.spaceId !== spaceId) {
         throw new ForbiddenError('this key is scoped to a different space')
       }

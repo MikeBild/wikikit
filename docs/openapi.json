@@ -37,7 +37,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       },
       "post": {
@@ -73,7 +73,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateSpaceRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -121,7 +121,7 @@
             "schema": { "type": "integer", "minimum": 500, "maximum": 4000 }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -159,7 +159,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAgentContextRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -201,7 +201,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -249,7 +249,7 @@
             "application/json": { "schema": { "$ref": "#/components/schemas/zUpdateSpaceSettingsRequest" } }
           }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -303,7 +303,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -353,7 +353,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCaptureSessionRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -399,7 +399,7 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -470,7 +470,7 @@
           "required": true,
           "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -520,7 +520,7 @@
           { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
           { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -572,7 +572,7 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -622,7 +622,7 @@
           { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
           { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -670,7 +670,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -724,7 +724,7 @@
           { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
           { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -772,7 +772,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -820,7 +820,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -880,7 +880,7 @@
             "schema": { "type": "integer", "minimum": 1, "maximum": 50 }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -930,13 +930,13 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zQueryRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
     "/v1/spaces/{space}/proposals": {
       "get": {
-        "summary": "List change proposals (?status=pending)",
+        "summary": "List change proposals (?status=pending); knowledge:review keys may inspect too",
         "operationId": "listProposals",
         "responses": {
           "200": {
@@ -984,8 +984,9 @@
             "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
-        "x-required-scope": "knowledge:read"
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read",
+        "x-accepted-scopes": ["knowledge:read", "knowledge:review"]
       },
       "post": {
         "summary": "Stage a manual change proposal (agent-authored changes go through the same review gate)",
@@ -1028,13 +1029,13 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateProposalRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/proposals/{id}": {
       "get": {
-        "summary": "Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept",
+        "summary": "Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept; knowledge:review keys may inspect too",
         "operationId": "getProposal",
         "responses": {
           "200": {
@@ -1074,8 +1075,9 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
-        "x-required-scope": "knowledge:read"
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read",
+        "x-accepted-scopes": ["knowledge:read", "knowledge:review"]
       }
     },
     "/v1/proposals/{id}/approve": {
@@ -1128,7 +1130,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReviewRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:approve"
       }
     },
@@ -1182,7 +1184,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zReviewRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:approve"
       }
     },
@@ -1224,7 +1226,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1269,7 +1271,7 @@
             "schema": { "default": "md", "type": "string", "enum": ["md", "okf"] }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1321,7 +1323,7 @@
           "required": true,
           "content": { "application/zip": { "schema": { "type": "string", "format": "binary" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
     },
@@ -1363,7 +1365,7 @@
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       },
       "post": {
@@ -1407,7 +1409,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateWebhookRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -1459,7 +1461,7 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -1493,7 +1495,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       },
       "post": {
@@ -1529,7 +1531,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zCreateApiKeyRequest" } } }
         },
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -1575,7 +1577,7 @@
             }
           }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -1645,7 +1647,7 @@
           },
           { "name": "group_by", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 200 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
     },
@@ -1721,7 +1723,7 @@
           },
           { "name": "group_by", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 200 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1797,7 +1799,7 @@
           },
           { "name": "group_by", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 200 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1873,7 +1875,7 @@
           },
           { "name": "group_by", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 200 } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -1942,7 +1944,7 @@
           },
           { "name": "tz", "in": "query", "required": false, "schema": { "type": "string", "const": "UTC" } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -2011,7 +2013,7 @@
           },
           { "name": "tz", "in": "query", "required": false, "schema": { "type": "string", "const": "UTC" } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -2080,7 +2082,7 @@
           },
           { "name": "tz", "in": "query", "required": false, "schema": { "type": "string", "const": "UTC" } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -2149,7 +2151,7 @@
           },
           { "name": "tz", "in": "query", "required": false, "schema": { "type": "string", "const": "UTC" } }
         ],
-        "security": [{ "bearerAuth": [] }, { "apiKey": [] }],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
       }
     },
@@ -2255,6 +2257,22 @@
   },
   "components": {
     "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 authorization code with PKCE-S256 for interactive clients.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/v1/oauth/authorize",
+            "tokenUrl": "/v1/oauth/token",
+            "scopes": {
+              "knowledge:read": "Read spaces, sources, concepts, search and reviewed proposals",
+              "knowledge:propose": "Create ingest jobs and staged proposals",
+              "knowledge:review": "Inspect and start human proposal review",
+              "knowledge:approve": "Approve or reject proposals after explicit human review"
+            }
+          }
+        }
+      },
       "bearerAuth": { "type": "http", "scheme": "bearer", "description": "Authorization: Bearer wk_..." },
       "apiKey": { "type": "apiKey", "in": "header", "name": "X-API-Key" }
     },

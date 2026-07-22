@@ -122,10 +122,13 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
       }
     }
     if (route.scope) {
-      op.security = [{ bearerAuth: [] }, { apiKey: [] }]
+      op.security = [{ oauth2: [] }, { bearerAuth: [] }, { apiKey: [] }]
       // Vendor extension consumed by agents reading the raw spec: which scope
       // a key needs for this operation.
       op['x-required-scope'] = route.scope
+      // Any-of routes additionally list every accepted scope so agents
+      // reading the raw spec know a knowledge:review key suffices here.
+      if (route.altScopes?.length) op['x-accepted-scopes'] = [route.scope, ...route.altScopes]
       for (const [status, desc] of Object.entries(IMPLICIT_ERRORS)) {
         if (!(status in responses)) {
           responses[status] = {
@@ -157,6 +160,22 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
     paths,
     components: {
       securitySchemes: {
+        oauth2: {
+          type: 'oauth2',
+          description: 'OAuth 2.1 authorization code with PKCE-S256 for interactive clients.',
+          flows: {
+            authorizationCode: {
+              authorizationUrl: '/v1/oauth/authorize',
+              tokenUrl: '/v1/oauth/token',
+              scopes: {
+                'knowledge:read': 'Read spaces, sources, concepts, search and reviewed proposals',
+                'knowledge:propose': 'Create ingest jobs and staged proposals',
+                'knowledge:review': 'Inspect and start human proposal review',
+                'knowledge:approve': 'Approve or reject proposals after explicit human review',
+              },
+            },
+          },
+        },
         bearerAuth: { type: 'http', scheme: 'bearer', description: 'Authorization: Bearer wk_...' },
         apiKey: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
       },

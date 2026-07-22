@@ -120,6 +120,22 @@ describe('http auth', () => {
     expect(() => auth.requireScope(p(['admin']), 'knowledge:review')).not.toThrow()
   })
 
+  test('requireScope any-of: proposal inspection accepts read OR review (approve implies review)', () => {
+    const auth = createAuth(testConfig(), stubDb([]).db)
+    const p = (scopes: string[]): Principal => ({ keyId: 'k', name: 'k', scopes, spaceId: null })
+    const anyOf = ['knowledge:read', 'knowledge:review'] as const
+
+    expect(() => auth.requireScope(p(['knowledge:read']), anyOf)).not.toThrow()
+    expect(() => auth.requireScope(p(['knowledge:review']), anyOf)).not.toThrow()
+    // The human review page trap: an approve-only reviewer key must be able
+    // to load the proposal diff it is deciding on.
+    expect(() => auth.requireScope(p(['knowledge:approve']), anyOf)).not.toThrow()
+    expect(() => auth.requireScope(p(['knowledge:propose']), anyOf)).toThrow(ForbiddenError)
+    expect(() => auth.requireScope(p(['knowledge:propose']), anyOf)).toThrow(
+      'this key lacks the knowledge:read or knowledge:review scope',
+    )
+  })
+
   test('requireScope: space-scoped key on a foreign space → 403 insufficient_scope', () => {
     const auth = createAuth(testConfig(), stubDb([]).db)
     const principal: Principal = { keyId: 'k', name: 'k', scopes: ['knowledge:read'], spaceId: 'space-1' }

@@ -194,7 +194,7 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       const header =
         (req.headers.authorization as string | undefined) ?? (req.headers['x-api-key'] as string | undefined)
       principal = await deps.auth.authenticate(header)
-      deps.auth.requireScope(principal, def.scope)
+      deps.auth.requireScope(principal, def.altScopes ? [def.scope, ...def.altScopes] : def.scope)
       markUsagePrincipal(req, principal)
     }
 

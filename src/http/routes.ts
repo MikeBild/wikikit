@@ -70,6 +70,14 @@ export interface RouteDef {
   path: string
   /** null = public (health/docs endpoints). */
   scope: Scope | null
+  /**
+   * Additional scopes that ALSO satisfy this route (any-of with `scope`).
+   * Proposal inspection carries `knowledge:review` here: review is the
+   * inspect subset of approve (§5.2), so a reviewer key — including the
+   * `knowledge:approve` key the human review page asks for — must be able
+   * to load the diff it is deciding on without also holding knowledge:read.
+   */
+  altScopes?: readonly Scope[]
   summary: string
   /** Exported handler name in HANDLERS — drift-tested against the registry. */
   handler: string
@@ -295,7 +303,8 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/proposals',
     scope: 'knowledge:read',
-    summary: 'List change proposals (?status=pending)',
+    altScopes: ['knowledge:review'],
+    summary: 'List change proposals (?status=pending); knowledge:review keys may inspect too',
     handler: 'listProposalsHandler',
     request: { params: 'zSpaceParams', query: 'zProposalListQuery' },
     responses: { 200: { schema: 'zProposalListResponse', type: 'application/json', desc: 'Proposals' } },
@@ -313,7 +322,9 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/proposals/{id}',
     scope: 'knowledge:read',
-    summary: 'Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept',
+    altScopes: ['knowledge:review'],
+    summary:
+      'Structured proposal diff (old/new markdown, claims added/disputed/deprecated); text/markdown via Accept; knowledge:review keys may inspect too',
     handler: 'getProposalHandler',
     request: { params: 'zIdParams' },
     responses: {
@@ -743,7 +754,7 @@ export type Handler = (deps: HttpDeps, input: HandlerInput) => Promise<HandlerRe
  * step — every space-scoped handler starts here, so a query that forgets the
  * space filter cannot even be written.
  */
-async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope): Promise<Space> {
+async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope | readonly Scope[]): Promise<Space> {
   const space = await getSpaceBySlug(deps.db, input.params.space!)
   deps.auth.requireScope(input.principal!, scope, space.id)
   markUsageContext(input.req, { spaceId: space.id })
@@ -754,7 +765,12 @@ async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope): 
  * Global-by-id lookups (§4 ⚠): the proposal/job row carries its space_id;
  * the transport enforces the key/space match against it here.
  */
-function requireSpaceAccess(deps: HttpDeps, input: HandlerInput, scope: Scope, spaceId: string): void {
+function requireSpaceAccess(
+  deps: HttpDeps,
+  input: HandlerInput,
+  scope: Scope | readonly Scope[],
+  spaceId: string,
+): void {
   deps.auth.requireScope(input.principal!, scope, spaceId)
   markUsageContext(input.req, { spaceId })
 }
@@ -967,7 +983,7 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   async listProposalsHandler(deps, input) {
-    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const space = await resolveSpace(deps, input, ['knowledge:read', 'knowledge:review'])
     const query = input.query as { status?: 'pending' | 'approved' | 'rejected' | 'failed'; limit?: number }
     const items = await listProposals(deps.db, space.id, query)
     return { status: 200, body: { items } }
@@ -988,7 +1004,7 @@ export const HANDLERS: Record<string, Handler> = {
 
   async getProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
-    requireSpaceAccess(deps, input, 'knowledge:read', detail.space_id)
+    requireSpaceAccess(deps, input, ['knowledge:read', 'knowledge:review'], detail.space_id)
     // Accept negotiation (plan §15.3): the SAME diff as chat-readable
     // markdown, so review-over-curl carries the whole decision.
     const accept = String(input.req.headers.accept ?? '')

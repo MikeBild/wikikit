@@ -13,6 +13,7 @@ const PEPPER = 'server-test-pepper'
 const BOOTSTRAP = 'wk_test-bootstrap-key'
 const READER_KEY = 'wk_test-reader-key-000000000000000000000000000'
 const WRITER_KEY = 'wk_test-writer-key-000000000000000000000000000'
+const APPROVER_KEY = 'wk_test-approver-key-0000000000000000000000000'
 
 const SPACE = {
   id: '00000000-0000-0000-0000-00000000aaaa',
@@ -38,6 +39,14 @@ const KEYS = [
     name: 'writer',
     key_hash: hashApiKey(WRITER_KEY, PEPPER),
     scopes: ['knowledge:propose'],
+    space_id: null,
+    revoked_at: null,
+  },
+  {
+    id: '00000000-0000-0000-0000-00000000k003',
+    name: 'approver',
+    key_hash: hashApiKey(APPROVER_KEY, PEPPER),
+    scopes: ['knowledge:approve'],
     space_id: null,
     revoked_at: null,
   },
@@ -192,6 +201,28 @@ describe('http server', () => {
 
     const viaHeader = await fetch(`${base}/v1/spaces/demo`, { headers: { 'x-api-key': READER_KEY } })
     expect(viaHeader.status).toBe(200)
+  })
+
+  test('proposal inspection is any-of read|review: an approve-only reviewer key gets past the scope gate', async () => {
+    // The human review page asks for a knowledge:approve key; approve implies
+    // review, and proposal GETs accept review — so the gate must NOT 403 here
+    // (the stub DB has no proposal row, hence 404 not_found after the gate).
+    const detail = await fetch(`${base}/v1/proposals/2fdd6c2e-418b-4441-a017-db3ab26bc2bf`, {
+      headers: auth(APPROVER_KEY),
+    })
+    expect(detail.status).toBe(404)
+    expect(((await detail.json()) as { code: string }).code).toBe('not_found')
+
+    const list = await fetch(`${base}/v1/spaces/demo/proposals`, { headers: auth(APPROVER_KEY) })
+    expect(list.status).toBe(200)
+    expect(await list.json()).toEqual({ items: [] })
+
+    // A propose-only key satisfies neither read nor review → still 403.
+    const denied = await fetch(`${base}/v1/proposals/2fdd6c2e-418b-4441-a017-db3ab26bc2bf`, {
+      headers: auth(WRITER_KEY),
+    })
+    expect(denied.status).toBe(403)
+    expect(((await denied.json()) as { code: string }).code).toBe('insufficient_scope')
   })
 
   test('known key without the scope → 403 insufficient_scope (401 ≠ 403)', async () => {

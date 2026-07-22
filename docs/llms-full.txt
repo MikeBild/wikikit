@@ -93,9 +93,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key) |
-| GET    | `/v1/spaces/{space}/proposals`                | knowledge:read    | List change proposals (`?status=pending`) |
+| GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
 | POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal (same review gate) |
-| GET    | `/v1/proposals/{id}`                          | knowledge:read    | Structured proposal diff; `text/markdown` via Accept header |
+| GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | Structured proposal diff; `text/markdown` via Accept header |
 | POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve | Approve a pending proposal (atomic apply) |
 | POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve | Reject a pending proposal (staged rows kept for audit) |
 | GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly |
@@ -230,7 +230,7 @@ Scopes:
 |---------------------|--------|
 | `knowledge:read`    | spaces, sources, concepts, history, search, query, proposals (read), lint, export |
 | `knowledge:propose` | ingest + ingest status, manual proposals, import |
-| `knowledge:review` | inspect proposals and start the MCP review where the human decides (implied by `knowledge:approve`) |
+| `knowledge:review` | inspect proposals (REST GET proposals too) and start the MCP review where the human decides (implied by `knowledge:approve`) |
 | `knowledge:approve` | approve/reject proposals over REST — the human-operator review credential; implies `knowledge:review` |
 | `admin`             | spaces (create), webhooks, api-keys; implies all knowledge scopes |
 | `*`                 | bootstrap key — everything |
@@ -359,11 +359,12 @@ An unauthenticated `/mcp` response advertises protected-resource metadata via
 `WWW-Authenticate`; OAuth tokens expose only the consented read/propose/approve
 scopes, capped by the configured identity-provider policy.
 
-Remote human login is selected with `WIKIKIT_OAUTH_LOGIN_PROVIDER`:
-`firebase` uses the dedicated WikiKit-branded Firebase page, `oidc` uses the
-explicit provider array in `WIKIKIT_OAUTH_OIDC_PROVIDERS`, and `federated`
-chooses among the configured Firebase/OIDC providers. Firebase and each OIDC
-provider apply an explicit email allow-list. The interactive permission ceiling
+Remote human login is selected with the concurrent
+`WIKIKIT_OAUTH_LOGIN_METHODS` matrix; the older
+`WIKIKIT_OAUTH_LOGIN_PROVIDER` is a fallback. `firebase` uses the dedicated
+WikiKit-branded Firebase page and `oidc` uses one or more entries in
+`WIKIKIT_OAUTH_OIDC_PROVIDERS`. Firebase and each OIDC provider apply an
+explicit email allow-list. The interactive permission ceiling
 defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
 review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
@@ -595,6 +596,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
 | `WIKIKIT_OAUTH_LOGIN_PROVIDER` | human OAuth login: `api_key`, `firebase`, `oidc`, or `federated` | `api_key` |
+| `WIKIKIT_OAUTH_LOGIN_METHODS` | preferred concurrent login matrix: comma-separated `api_key`, `firebase`, `oidc` | derived from legacy selector |
 | `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID` | Firebase project whose signed ID tokens establish a WikiKit login | (required for `firebase`) |
 | `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` | dedicated trusted WikiKit Firebase sign-in page | (required for `firebase`) |
 | `WIKIKIT_OAUTH_ALLOWED_EMAILS` | comma-separated global human allow-list | (required for Firebase; OIDC can override) |
