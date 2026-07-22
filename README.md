@@ -190,13 +190,18 @@ revocation at the same `/mcp` endpoint. Enter:
 https://wikikit.mikebild.dev/mcp
 ```
 
-Choose OAuth. `WIKIKIT_OAUTH_LOGIN_METHODS` can offer browser API-key,
-Firebase and multiple generic OIDC providers concurrently in the common
-WikiKit-branded auth card. WikiKit verifies the selected provider and admits
+Choose OAuth. The single `WIKIKIT_OAUTH_PROVIDERS` JSON list can offer one
+browser API-key adapter and any number of named `token_bridge` and `oidc`
+adapters in the common WikiKit-branded auth card. Provider products are
+configuration values, not WikiKit modes. JWT bridges can map safe dotted
+subject, email and verification claim paths; OIDC adapters use discovery and
+Authorization Code + PKCE.
+WikiKit verifies the selected provider and admits
 only the explicit provider/email allow-list. The operator session is
 revocable, has an eight-hour idle/24-hour absolute limit, and the consent page
 can switch accounts. The client receives only a scoped, short-lived token;
-unrequested scopes are never displayed or granted. `WIKIKIT_PUBLIC_URL` must
+unrequested scopes are never displayed or granted and `knowledge:read` is a
+mandatory requested baseline. `WIKIKIT_PUBLIC_URL` must
 be the canonical HTTPS base URL in production because it is the OAuth issuer
 and audience.
 
@@ -204,7 +209,7 @@ For a review-capable connector, select the discovered standard scopes
 `knowledge:read`, `knowledge:propose`, `knowledge:review`,
 `knowledge:approve` and `offline_access`; production must also allow
 `knowledge:approve` through
-`WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that OIDC provider's `allowed_scopes`).
+`WIKIKIT_OAUTH_ALLOWED_SCOPES` (or that provider's `allowed_scopes`).
 `wikikit_review_proposal` accepts only a proposal id and then opens a native
 MCP form. The human — not the agent — selects approve or reject and enters the
 optional audit note. The tool remains marked as destructive because accepting

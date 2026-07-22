@@ -51,29 +51,20 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_CODE_TTL_MS`          | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
-| `WIKIKIT_OAUTH_LOGIN_PROVIDER`       | Human login: `api_key`, `firebase`, `oidc`, or `federated` provider chooser                                    | `api_key`                                                          |
-| `WIKIKIT_OAUTH_LOGIN_METHODS`        | Preferred comma-separated provider matrix: any of `api_key`, `firebase`, `oidc`; methods may coexist           | derived from legacy `WIKIKIT_OAUTH_LOGIN_PROVIDER`                 |
-| `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`  | Firebase project whose signed ID tokens establish a WikiKit OAuth login                                        | (required for `firebase`)                                          |
-| `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL`   | Dedicated trusted WikiKit Firebase Hosting sign-in page                                                        | (required for `firebase`)                                          |
-| `WIKIKIT_OAUTH_ALLOWED_EMAILS`       | Comma-separated, case-insensitive global human allow-list                                                      | (required for Firebase; OIDC can override per provider)            |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | Interactive identity permission ceiling: comma-separated read/propose/approve                                  | `knowledge:read,knowledge:propose`                                 |
-| `WIKIKIT_OAUTH_OIDC_PROVIDERS`       | JSON array of explicit OIDC issuer/client/provider policies                                                    | (required for `oidc`)                                              |
+| `WIKIKIT_OAUTH_PROVIDERS`            | Single JSON list of named `api_key`, `token_bridge`, and `oidc` adapters                                       | API-key record                                                     |
 | `LOG_LEVEL`                          | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
 | `NODE_ENV`                           | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
 
 ## Remote MCP identity providers
 
-`WIKIKIT_OAUTH_LOGIN_METHODS` selects one or more browser identity flows after
-a remote client has completed OAuth discovery and PKCE. The older
-`WIKIKIT_OAUTH_LOGIN_PROVIDER` remains a compatibility fallback when the new
-variable is unset:
+`WIKIKIT_OAUTH_PROVIDERS` is the only browser identity configuration after a
+remote client has completed OAuth discovery and PKCE:
 
-- `api_key` is the local compatibility flow; it is not appropriate for a
-  public ChatGPT connector.
-- `firebase` redirects to the configured, dedicated WikiKit Firebase page.
-  It requires `WIKIKIT_OAUTH_FIREBASE_PROJECT_ID`,
-  `WIKIKIT_OAUTH_FIREBASE_LOGIN_URL` and `WIKIKIT_OAUTH_ALLOWED_EMAILS`.
-- `oidc` uses the providers in `WIKIKIT_OAUTH_OIDC_PROVIDERS`.
+- `api_key` uses an existing scoped WikiKit operator key.
+- `token_bridge` redirects to a configured hosted login adapter and verifies
+  the returned JWT against its configured issuer, audience and JWKS URL.
+- `oidc` uses standard discovery and Authorization Code + PKCE.
 - Multiple enabled methods and OIDC entries share one provider chooser.
 
 `WIKIKIT_OAUTH_ALLOWED_SCOPES` is an identity permission ceiling, not a client
@@ -88,16 +79,38 @@ from a human through native form elicitation. A client that cannot show the form
 that embedded review page (or over REST) as themselves. `admin` is never issued
 to an interactive OAuth identity.
 
-`WIKIKIT_OAUTH_OIDC_PROVIDERS` is a JSON array. Each provider requires an HTTPS
-issuer, client id and stable id; `allowed_emails` and `allowed_scopes` override
-the global values when present. `scopes` must include `openid`.
+The provider array uses one shared `protocol` discriminator. Provider ids are
+unique; `api_key` may occur once, while `token_bridge` and `oidc` may occur
+several times. OIDC `scopes` must include `openid`.
+JWT bridge claim paths default to `sub`, `email`, and `email_verified`.
+Set `subject_claim`, `email_claim`, or `email_verified_claim` to a safe dotted
+path when an adapter nests the same semantics (for example
+`user_metadata.email_verified`). Verification must still resolve to the
+boolean value `true`; it cannot be disabled.
 
 ```json
 [
   {
-    "id": "entra",
-    "label": "Microsoft Entra ID",
-    "issuer": "https://login.microsoftonline.com/<tenant>/v2.0",
+    "protocol": "api_key",
+    "id": "api-key",
+    "label": "WikiKit API key"
+  },
+  {
+    "protocol": "token_bridge",
+    "id": "supabase",
+    "label": "Supabase",
+    "login_url": "https://login.example.com/wikikit/",
+    "issuer_url": "https://project.example.com/auth/v1",
+    "audience": "authenticated",
+    "jwks_url": "https://project.example.com/auth/v1/.well-known/jwks.json",
+    "email_verified_claim": "user_metadata.email_verified",
+    "allowed_emails": ["reviewer@example.com"]
+  },
+  {
+    "protocol": "oidc",
+    "id": "workforce-oidc",
+    "label": "Workforce OIDC",
+    "issuer_url": "https://identity.example.com",
     "client_id": "<public-or-confidential-client-id>",
     "client_secret": "<optional-confidential-client-secret>",
     "scopes": "openid profile email",
@@ -109,8 +122,10 @@ the global values when present. `scopes` must include `openid`.
 
 Do not put this JSON in version control when it has a `client_secret`; inject
 it through the production secret store. Register
-`${WIKIKIT_PUBLIC_URL}/v1/oauth/oidc/callback` as the provider redirect URI and
-keep `WIKIKIT_PUBLIC_URL` on its canonical HTTPS origin.
+`${WIKIKIT_PUBLIC_URL}/v1/identity/login/callback` as every OIDC provider's
+redirect URI and keep `WIKIKIT_PUBLIC_URL` on its canonical HTTPS origin. All
+adapters use only `/v1/identity/login/start`,
+`/v1/identity/login/callback`, and `/v1/identity/logout`.
 
 ## Privacy-safe usage telemetry
 

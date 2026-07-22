@@ -27,9 +27,9 @@ describe('common MCP auth UI contract', () => {
     const html = renderProviderChoice({
       state: 'state',
       providers: [
-        { id: 'api_key', label: 'WikiKit API key' },
-        { id: 'firebase', label: 'Google' },
-        { id: 'entra', label: 'Microsoft Entra ID' },
+        { id: 'api-key', protocol: 'api_key', label: 'WikiKit API key' },
+        { id: 'google', protocol: 'token_bridge', label: 'Google' },
+        { id: 'entra', protocol: 'oidc', label: 'Microsoft Entra ID' },
       ],
     })
     expect(html).toContain('WikiKit API key')

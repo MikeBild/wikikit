@@ -16,7 +16,6 @@ const PEPPER = 'oauth-test-pepper'
 const BOOTSTRAP = 'wk_test-bootstrap-key'
 const CLIENT_ID = 'wkc_test-client'
 const REDIRECT = 'https://client.example/callback'
-const CHALLENGE = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM' // valid S256 shape (43 chars)
 const LOGIN_STATE = `wkl_${'a'.repeat(43)}`
 
 const CLIENT_ROW = {
@@ -42,9 +41,9 @@ function stubDb(loginState: { code_challenge: string } | null) {
               code_challenge: loginState.code_challenge,
               resource: 'https://wikikit.test/mcp',
               client_state: null,
-              provider_subject: 'firebase-user-1',
+              provider_subject: 'identity-user-1',
               provider_email: 'mike@example.com',
-              provider_id: 'firebase',
+              provider_id: 'workforce',
               oidc_nonce: null,
               oidc_code_verifier: null,
             },
@@ -128,7 +127,7 @@ async function boot(config: Config, db: Db): Promise<{ app: App; base: string }>
 }
 
 function consentPost(base: string, form: Record<string, string>): Promise<Response> {
-  return fetch(`${base}/v1/oauth/authorize`, {
+  return fetch(`${base}/v1/oauth/authorize/decision`, {
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
@@ -139,50 +138,8 @@ function consentPost(base: string, form: Record<string, string>): Promise<Respon
   })
 }
 
-describe('POST /v1/oauth/authorize — api_key consent branch', () => {
-  const { db, inserts } = stubDb(null)
-  let app: App
-  let base: string
-
-  beforeAll(async () => {
-    ;({ app, base } = await boot(testConfig(), db))
-  })
-  afterAll(async () => {
-    await app.close()
-  })
-
-  test('a non-PKCE consent POST is a 400 invalid_request, never a 500 from the codes table', async () => {
-    const res = await consentPost(base, {
-      response_type: 'code',
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT,
-      api_key: BOOTSTRAP,
-      // no code_challenge / code_challenge_method at all
-    })
-    expect(res.status).toBe(400)
-    expect(await res.json()).toMatchObject({ error: 'invalid_request' })
-    expect(inserts.filter((entry) => entry.table === 'wk_oauth_authorization_codes')).toEqual([])
-  })
-
-  test('a valid PKCE consent POST still issues the code (the guard does not over-block)', async () => {
-    const res = await consentPost(base, {
-      response_type: 'code',
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT,
-      code_challenge: CHALLENGE,
-      code_challenge_method: 'S256',
-      api_key: BOOTSTRAP,
-    })
-    expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toContain(`${REDIRECT}?code=wka_`)
-    const staged = inserts.find((entry) => entry.table === 'wk_oauth_authorization_codes')!
-    expect(staged.body.code_challenge).toBe(CHALLENGE)
-  })
-})
-
-describe('POST /v1/oauth/authorize — interactive login-state branch', () => {
-  // A login-state row WITHOUT a code challenge (e.g. written by an older
-  // binary): consent must answer invalid_request, not insert NULL.
+describe('POST /v1/oauth/authorize/decision', () => {
+  // A malformed login-state row must never reach the authorization-code table.
   const { db, inserts } = stubDb({ code_challenge: '' })
   let app: App
   let base: string
@@ -190,10 +147,19 @@ describe('POST /v1/oauth/authorize — interactive login-state branch', () => {
   beforeAll(async () => {
     ;({ app, base } = await boot(
       testConfig({
-        oauthLoginProvider: 'firebase',
-        oauthFirebaseProjectId: 'test-project',
-        oauthFirebaseLoginUrl: 'https://login.example/oauth',
-        oauthAllowedEmails: ['mike@example.com'],
+        oauthProviders: [
+          {
+            protocol: 'token_bridge',
+            id: 'google',
+            label: 'Google',
+            loginUrl: 'https://login.example/oauth',
+            issuer: 'https://issuer.example.test/project',
+            audience: 'project',
+            jwksUrl: 'https://issuer.example.test/keys',
+            allowedEmails: ['mike@example.com'],
+            allowedScopes: ['knowledge:read', 'knowledge:propose'],
+          },
+        ],
       }),
       db,
     ))

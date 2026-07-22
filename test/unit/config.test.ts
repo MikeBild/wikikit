@@ -41,13 +41,8 @@ const MANAGED = [
   'WIKIKIT_USAGE_TELEMETRY_ENABLED',
   'WIKIKIT_USAGE_HMAC_SECRET',
   'WIKIKIT_USAGE_RETENTION_DAYS',
-  'WIKIKIT_OAUTH_LOGIN_PROVIDER',
-  'WIKIKIT_OAUTH_LOGIN_METHODS',
-  'WIKIKIT_OAUTH_FIREBASE_PROJECT_ID',
-  'WIKIKIT_OAUTH_FIREBASE_LOGIN_URL',
-  'WIKIKIT_OAUTH_ALLOWED_EMAILS',
+  'WIKIKIT_OAUTH_PROVIDERS',
   'WIKIKIT_OAUTH_ALLOWED_SCOPES',
-  'WIKIKIT_OAUTH_OIDC_PROVIDERS',
   'LOG_LEVEL',
 ]
 
@@ -162,17 +157,44 @@ describe('validation', () => {
     expect(loadConfig().trustProxy).toBe(false)
   })
 
-  test('supports concurrent OAuth login methods and keeps the legacy selector as fallback', () => {
-    process.env.WIKIKIT_OAUTH_LOGIN_METHODS = 'api_key,firebase,oidc'
+  test('supports one protocol-neutral provider list with bridge claim mapping and OIDC', () => {
+    process.env.WIKIKIT_OAUTH_PROVIDERS = JSON.stringify([
+      { protocol: 'api_key', id: 'api-key', label: 'WikiKit API key' },
+      {
+        protocol: 'token_bridge',
+        id: 'workforce-bridge',
+        label: 'Workforce bridge',
+        login_url: 'https://auth.example.test/wikikit',
+        issuer_url: 'https://issuer.example.test/project',
+        audience: 'project',
+        jwks_url: 'https://issuer.example.test/keys',
+        email_verified_claim: 'user_metadata.email_verified',
+        allowed_emails: ['mike@example.com'],
+      },
+      {
+        protocol: 'oidc',
+        id: 'workforce-oidc',
+        label: 'Workforce OIDC',
+        issuer_url: 'https://identity.example.test',
+        client_id: 'wikikit',
+        allowed_emails: ['mike@example.com'],
+      },
+    ])
     const concurrent = loadConfig()
-    expect(concurrent.oauthLoginMethods).toEqual(['api_key', 'firebase', 'oidc'])
+    expect(concurrent.oauthProviders?.map((provider) => provider.id)).toEqual([
+      'api-key',
+      'workforce-bridge',
+      'workforce-oidc',
+    ])
+    expect(concurrent.oauthProviders?.[1]).toMatchObject({
+      protocol: 'token_bridge',
+      emailVerifiedClaim: 'user_metadata.email_verified',
+    })
+  })
 
-    // Empty, not deleted: loadConfig() restamps .env.defaults (which now pins
-    // WIKIKIT_OAUTH_LOGIN_METHODS=api_key) over deleted vars, and the parser
-    // treats empty as unset — exactly the legacy-fallback contract.
-    process.env.WIKIKIT_OAUTH_LOGIN_METHODS = ''
-    process.env.WIKIKIT_OAUTH_LOGIN_PROVIDER = 'federated'
-    expect(loadConfig().oauthLoginMethods).toEqual(['firebase', 'oidc'])
+  test('rejects the removed provider type discriminator', () => {
+    process.env.WIKIKIT_OAUTH_PROVIDERS = '[{"type":"api_key","id":"api-key","label":"WikiKit API key"}]'
+    expect(() => loadConfig()).toThrow(/protocol/)
   })
 })
 
@@ -189,6 +211,7 @@ describe('production guards', () => {
     process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
     process.env.DATABASE_URL = 'postgresql://prod/wikikit'
     process.env.WIKIKIT_PUBLIC_URL = 'https://wikikit.example.com'
+    process.env.WIKIKIT_OAUTH_PROVIDERS = '[{"protocol":"api_key","id":"api-key","label":"WikiKit API key"}]'
     const config = loadConfig()
     expect(config.production).toBe(true)
     expect(config.keyPepper).toBe('prod-pepper')
@@ -203,6 +226,7 @@ describe('production guards', () => {
     process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
     process.env.DATABASE_URL = 'postgresql://prod/wikikit'
     process.env.WIKIKIT_PUBLIC_URL = 'https://wikikit.example.com'
+    process.env.WIKIKIT_OAUTH_PROVIDERS = '[{"protocol":"api_key","id":"api-key","label":"WikiKit API key"}]'
     const config = loadConfig()
     expect(config.llmConfigured).toBe(false)
   })

@@ -56,6 +56,9 @@ function config(databaseUrl: string): Config {
     oauthAccessTokenTtlMs: 60 * 60 * 1000,
     oauthRefreshTokenTtlMs: 30 * 24 * 60 * 60 * 1000,
     oauthDynamicRegistrationEnabled: true,
+    // Mirrors loadConfig()'s zero-config default — the literal Config here
+    // bypasses parseOAuthProviders, so the provider list must be explicit.
+    oauthProviders: [{ protocol: 'api_key', id: 'api-key', label: 'WikiKit API key' }],
     logLevel: 'error',
     version: '0.0.0-oauth-itest',
     llmConfigured: false,
@@ -162,24 +165,32 @@ describe('MCP OAuth 2.1 (integration)', () => {
       scope: 'knowledge:read knowledge:propose offline_access',
       state: 'state-123',
     }
-    // Step 1: without an operator session the authorize GET renders the
-    // API-key sign-in page carrying an opaque single-use login state — never
-    // the client's redirect target and never an API key.
-    const login = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`)
+    // Step 1: without an operator session the authorize GET hops to the
+    // single configured provider's login starter, which renders the API-key
+    // sign-in page carrying an opaque single-use login state — never the
+    // client's redirect target and never an API key.
+    const authorized = await fetch(`${base}/v1/oauth/authorize?${form(authorize)}`, { redirect: 'manual' })
+    expect(authorized.status).toBe(302)
+    const loginHop = new URL(authorized.headers.get('location')!)
+    expect(loginHop.pathname).toBe('/v1/identity/login/start')
+    expect(loginHop.searchParams.get('provider')).toBe('api-key')
+    const loginState = loginHop.searchParams.get('login_state')
+    expect(loginState).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
+
+    const login = await fetch(`${base}${loginHop.pathname}${loginHop.search}`)
     expect(login.status).toBe(200)
     expect(login.headers.get('content-security-policy')).toContain("default-src 'none'")
     const loginHtml = await login.text()
     expect(loginHtml).toContain('Sign in to WikiKit')
     expect(loginHtml).not.toContain(BOOTSTRAP)
-    const loginState = loginHtml.match(/name="login_state" value="(wkl_[A-Za-z0-9_-]{43})"/)?.[1]
-    expect(loginState).toBeDefined()
+    expect(loginHtml).toContain(`name="login_state" value="${loginState}"`)
 
     // Step 2: the API key is posted once to the login endpoint, which mints a
     // reusable operator session (cookie) and answers with the consent page.
-    const signedIn = await fetch(`${base}/v1/identity/login/api-key`, {
+    const signedIn = await fetch(`${base}/v1/identity/login/start`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: form({ login_state: loginState!, api_key: BOOTSTRAP }),
+      body: form({ provider: 'api-key', login_state: loginState!, api_key: BOOTSTRAP }),
     })
     expect(signedIn.status).toBe(200)
     const setCookies = signedIn.headers.getSetCookie()
@@ -347,30 +358,39 @@ describe('MCP OAuth 2.1 (integration)', () => {
     ).toBe(400)
   })
 
-  it('starts the Firebase login bridge without exposing an operator API key', async () => {
-    const firebaseApp = createApp(
+  it('starts a configured token bridge without exposing an operator API key', async () => {
+    const bridgeApp = createApp(
       {
         ...config(app.config.databaseUrl),
-        oauthLoginProvider: 'firebase',
-        oauthFirebaseProjectId: 'subkit-auth-prod',
-        oauthFirebaseLoginUrl: 'https://subkit-auth-prod.web.app',
-        oauthAllowedEmails: ['mike@mikebild.com'],
+        oauthProviders: [
+          {
+            protocol: 'token_bridge',
+            id: 'google',
+            label: 'Google',
+            loginUrl: 'https://subkit-auth-prod.web.app',
+            issuer: 'https://securetoken.google.com/subkit-auth-prod',
+            audience: 'subkit-auth-prod',
+            jwksUrl: 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
+            allowedEmails: ['mike@mikebild.com'],
+            allowedScopes: ['knowledge:read', 'knowledge:propose'],
+          },
+        ],
       },
       { llm: createFakeProvider(), logger: createLogger({ level: 'error', write: () => {} }) },
     )
-    await new Promise<void>((resolve) => firebaseApp.server.listen(0, '127.0.0.1', resolve))
-    const firebaseBase = `http://127.0.0.1:${(firebaseApp.server.address() as { port: number }).port}`
+    await new Promise<void>((resolve) => bridgeApp.server.listen(0, '127.0.0.1', resolve))
+    const bridgeBase = `http://127.0.0.1:${(bridgeApp.server.address() as { port: number }).port}`
     try {
-      const registration = await fetch(`${firebaseBase}/v1/oauth/register`, {
+      const registration = await fetch(`${bridgeBase}/v1/oauth/register`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ client_name: 'Firebase bridge test', redirect_uris: [REDIRECT] }),
+        body: JSON.stringify({ client_name: 'Token bridge test', redirect_uris: [REDIRECT] }),
       })
       const { client_id } = (await registration.json()) as { client_id: string }
       const verifier = randomBytes(32).toString('base64url')
       const challenge = createHash('sha256').update(verifier).digest('base64url')
       const response = await fetch(
-        `${firebaseBase}/v1/oauth/authorize?${form({
+        `${bridgeBase}/v1/oauth/authorize?${form({
           response_type: 'code',
           client_id,
           redirect_uri: REDIRECT,
@@ -378,59 +398,58 @@ describe('MCP OAuth 2.1 (integration)', () => {
           code_challenge_method: 'S256',
           resource: RESOURCE,
           scope: 'knowledge:read',
-          state: 'firebase-state',
+          state: 'bridge-state',
         })}`,
         { redirect: 'manual' },
       )
-      // Firebase as the only login method: authorize hops to the internal
-      // login starter, which then bounces to the Firebase-hosted page.
+      // A bridge-only configuration hops through the generic login router.
       expect(response.status).toBe(302)
       const starter = new URL(response.headers.get('location')!)
       expect(starter.origin).toBe(ISSUER)
       expect(starter.pathname).toBe('/v1/identity/login/start')
-      const started = await fetch(`${firebaseBase}${starter.pathname}${starter.search}`, { redirect: 'manual' })
+      const started = await fetch(`${bridgeBase}${starter.pathname}${starter.search}`, { redirect: 'manual' })
       expect(started.status).toBe(302)
       const location = new URL(started.headers.get('location')!)
       expect(location.origin).toBe('https://subkit-auth-prod.web.app')
-      expect(location.searchParams.get('wikikit_oauth_callback')).toBe(`${ISSUER}/v1/identity/login/firebase/callback`)
-      const loginState = location.searchParams.get('wikikit_oauth_state')!
+      expect(location.searchParams.get('mcp_callback')).toBe(`${ISSUER}/v1/identity/login/callback`)
+      const loginState = location.searchParams.get('mcp_state')!
       expect(loginState).toMatch(/^wkl_[A-Za-z0-9_-]{43}$/)
       expect(location.toString()).not.toContain(BOOTSTRAP)
 
-      // The Firebase verifier is covered separately by jose's issuer/signature
-      // validation. Here we model its successful, server-side result — the
+      // The bridge verifier is covered separately. Here we model its successful result — the
       // authenticated login state AND the operator session the callback mints —
       // and exercise the failure-prone transition from consent to a PKCE code.
-      await firebaseApp.database.db.insert('wk_oauth_identities', {
-        provider_subject: 'firebase-test-subject',
+      await bridgeApp.database.db.insert('wk_oauth_identities', {
+        provider_subject: 'bridge-test-subject',
         email: 'mike@mikebild.com',
+        provider: 'google',
       })
-      await firebaseApp.database.db.update(
+      await bridgeApp.database.db.update(
         'wk_oauth_login_states',
         { state_hash: `eq.${hashApiKey(loginState, 'itest-oauth-pepper')}` },
         {
-          provider_id: 'firebase',
-          provider_subject: 'firebase-test-subject',
+          provider_id: 'google',
+          provider_subject: 'bridge-test-subject',
           provider_email: 'mike@mikebild.com',
           authenticated_at: new Date().toISOString(),
         },
       )
       const operatorSessionToken = `wkos_${randomBytes(32).toString('base64url')}`
-      await firebaseApp.database.db.insert('wk_oauth_operator_sessions', {
+      await bridgeApp.database.db.insert('wk_oauth_operator_sessions', {
         token_hash: hashApiKey(operatorSessionToken, 'itest-oauth-pepper'),
-        principal_kind: 'firebase',
-        principal_key_id: 'firebase:firebase-test-subject',
-        principal_key_hash: hashApiKey('firebase:firebase-test-subject', 'itest-oauth-pepper'),
+        principal_kind: 'identity',
+        principal_key_id: 'identity:google:bridge-test-subject',
+        principal_key_hash: hashApiKey('identity:google:bridge-test-subject', 'itest-oauth-pepper'),
         principal_name: 'mike@mikebild.com',
         principal_space_id: null,
-        provider_id: 'firebase',
-        provider_subject: 'firebase-test-subject',
+        provider_id: 'google',
+        provider_subject: 'bridge-test-subject',
         scopes: ['knowledge:read', 'knowledge:propose'],
         expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
         absolute_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       })
       const csrf = randomBytes(32).toString('base64url')
-      const approved = await fetch(`${firebaseBase}/v1/oauth/authorize/decision`, {
+      const approved = await fetch(`${bridgeBase}/v1/oauth/authorize/decision`, {
         method: 'POST',
         headers: {
           'content-type': 'application/x-www-form-urlencoded',
@@ -443,7 +462,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       const callback = new URL(approved.headers.get('location')!)
       const code = callback.searchParams.get('code')!
       expect(code).toMatch(/^wka_/)
-      const exchanged = await fetch(`${firebaseBase}/v1/oauth/token`, {
+      const exchanged = await fetch(`${bridgeBase}/v1/oauth/token`, {
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: form({
@@ -458,7 +477,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       expect(exchanged.status).toBe(200)
       expect(((await exchanged.json()) as { access_token: string }).access_token).toMatch(/^wko_/)
     } finally {
-      await firebaseApp.close()
+      await bridgeApp.close()
     }
   })
 

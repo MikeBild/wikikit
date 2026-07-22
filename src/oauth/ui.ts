@@ -56,14 +56,11 @@ export function renderConsentPage(options: {
 
 export function renderProviderChoice(options: {
   state: string
-  providers: Array<{ id: string; label: string }>
+  providers: Array<{ id: string; protocol: 'api_key' | 'token_bridge' | 'oidc'; label: string }>
 }): string {
   const providers = options.providers
     .map((provider) => {
-      const href =
-        provider.id === 'api_key'
-          ? `/v1/identity/login/api-key?state=${encodeURIComponent(options.state)}`
-          : `/v1/identity/login/start?state=${encodeURIComponent(options.state)}&provider=${encodeURIComponent(provider.id)}`
+      const href = `/v1/identity/login/start?login_state=${encodeURIComponent(options.state)}&provider=${encodeURIComponent(provider.id)}`
       return `<li><a class="button approve" href="${href}">Continue with ${escapeHtml(provider.label)}</a></li>`
     })
     .join('')
@@ -73,10 +70,10 @@ export function renderProviderChoice(options: {
   )
 }
 
-export function renderApiKeyLogin(options: { state: string; error?: string }): string {
+export function renderApiKeyLogin(options: { state: string; providerId: string; error?: string }): string {
   return shell(
     'Sign in',
-    `<h1>Sign in to WikiKit</h1><p class="muted">Use a scoped WikiKit API key to authorize this MCP client.</p>${options.error ? `<p class="error" role="alert">${escapeHtml(options.error)}</p>` : ''}<form method="POST" action="/v1/identity/login/api-key"><input type="hidden" name="login_state" value="${escapeHtml(options.state)}"><label class="field">API key<input type="password" name="api_key" autocomplete="current-password" required></label><div class="actions"><button class="approve" type="submit">Continue</button></div></form>`,
+    `<h1>Sign in to WikiKit</h1><p class="muted">Use a scoped WikiKit API key to authorize this MCP client.</p>${options.error ? `<p class="error" role="alert">${escapeHtml(options.error)}</p>` : ''}<form method="POST" action="/v1/identity/login/start"><input type="hidden" name="provider" value="${escapeHtml(options.providerId)}"><input type="hidden" name="login_state" value="${escapeHtml(options.state)}"><label class="field">API key<input type="password" name="api_key" autocomplete="current-password" required></label><div class="actions"><button class="approve" type="submit">Continue</button></div></form>`,
   )
 }
 

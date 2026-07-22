@@ -4,14 +4,14 @@
 // Plaintext API keys, authorization codes and tokens are never persisted.
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { Config } from '../config.ts'
+import type { Config, OidcProviderConfig, TokenBridgeOAuthProviderConfig } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import type { Auth, Principal } from '../http/auth.ts'
 import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
-import { verifyFirebaseIdToken } from './firebase.ts'
+import { verifyBridgedIdentity } from './token-bridge.ts'
 import { finishOidcLogin, startOidcLogin } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
 
@@ -43,7 +43,7 @@ interface CodeRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
-  principal_kind: 'api_key' | 'firebase' | 'oidc'
+  principal_kind: 'api_key' | 'identity'
 }
 
 interface RefreshRow {
@@ -54,7 +54,7 @@ interface RefreshRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
-  principal_kind: 'api_key' | 'firebase' | 'oidc'
+  principal_kind: 'api_key' | 'identity'
   family_id: string
   expires_at: Date | string
   revoked_at: Date | string | null
@@ -77,7 +77,7 @@ interface IdentityLoginStateRow {
 
 interface OperatorSessionRow {
   id: string
-  principal_kind: 'api_key' | 'firebase' | 'oidc'
+  principal_kind: 'api_key' | 'identity'
   principal_key_id: string
   principal_key_hash: string
   principal_name: string
@@ -278,71 +278,41 @@ async function loadAuthorizationRequest(
   return { client, redirectUri, scopes: parseScopes(params.get('scope')), resource, codeChallenge: challenge }
 }
 
-function configuredLoginMethods(config: Config): Array<'api_key' | 'firebase' | 'oidc'> {
-  if (config.oauthLoginMethods?.length) return config.oauthLoginMethods
-  if (config.oauthLoginProvider === 'federated') return ['firebase', 'oidc']
-  return [config.oauthLoginProvider ?? 'api_key']
-}
-
-function firebaseEnabled(config: Config): boolean {
-  return (
-    configuredLoginMethods(config).includes('firebase') &&
-    !!config.oauthFirebaseProjectId &&
-    !!config.oauthFirebaseLoginUrl
+function tokenBridgeProvider(config: Config, id?: string): TokenBridgeOAuthProviderConfig | undefined {
+  return config.oauthProviders?.find(
+    (provider): provider is TokenBridgeOAuthProviderConfig =>
+      provider.protocol === 'token_bridge' && (id === undefined || provider.id === id),
   )
 }
 
-function oidcEnabled(config: Config): boolean {
-  return configuredLoginMethods(config).includes('oidc') && !!config.oauthOidcProviders?.length
+function oidcProvider(config: Config, id: string | null | undefined): OidcProviderConfig | undefined {
+  return config.oauthProviders?.find(
+    (provider): provider is OidcProviderConfig => provider.protocol === 'oidc' && provider.id === id,
+  )
 }
 
 function apiKeyLoginEnabled(config: Config): boolean {
-  return configuredLoginMethods(config).includes('api_key')
+  return !!config.oauthProviders?.some((provider) => provider.protocol === 'api_key')
 }
 
-function loginOptions(config: Config): Array<{ id: string; label: string }> {
-  return [
-    ...(apiKeyLoginEnabled(config) ? [{ id: 'api_key', label: 'WikiKit API key' }] : []),
-    ...(firebaseEnabled(config) ? [{ id: 'firebase', label: 'Google' }] : []),
-    ...(oidcEnabled(config)
-      ? (config.oauthOidcProviders ?? []).map((provider) => ({ id: provider.id, label: provider.label }))
-      : []),
-  ]
+function loginOptions(
+  config: Config,
+): Array<{ id: string; protocol: 'api_key' | 'token_bridge' | 'oidc'; label: string }> {
+  return (config.oauthProviders ?? []).map(({ id, protocol, label }) => ({ id, protocol, label }))
 }
 
 function providerAllowedScopes(config: Config, providerId: string | null): string[] {
-  if (providerId === 'firebase') return config.oauthAllowedScopes ?? ['knowledge:read', 'knowledge:propose']
-  return (config.oauthOidcProviders || []).find((provider) => provider.id === providerId)?.allowedScopes ?? []
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
+  return provider && provider.protocol !== 'api_key' ? provider.allowedScopes : []
 }
 
-function firebaseLoginUrl(config: Config, loginState: string): string {
-  const base = config.oauthFirebaseLoginUrl
-  if (!base || !config.oauthFirebaseProjectId || !config.oauthAllowedEmails?.length) {
-    throw new OAuthError('server_error', 'Firebase OAuth login is not configured', 500)
-  }
-  const target = new URL(base)
+function bridgeLoginUrl(config: Config, provider: TokenBridgeOAuthProviderConfig, loginState: string): string {
+  const target = new URL(provider.loginUrl)
   // The state is opaque and single-use. No MCP redirect URI or OAuth client
-  // data crosses the Firebase-hosted page.
-  target.searchParams.set('wikikit_oauth_callback', `${config.publicUrl}/v1/identity/login/firebase/callback`)
-  target.searchParams.set('wikikit_oauth_state', loginState)
+  // data crosses the external bridge page.
+  target.searchParams.set('mcp_callback', `${config.publicUrl}/v1/identity/login/callback`)
+  target.searchParams.set('mcp_state', loginState)
   return target.toString()
-}
-
-async function firebaseGrantIsCurrent(
-  db: Db,
-  config: Config,
-  row: { principal_kind: string; principal_key_id: string },
-): Promise<boolean> {
-  if (row.principal_kind !== 'firebase') return true
-  const subject = row.principal_key_id.startsWith('firebase:') ? row.principal_key_id.slice('firebase:'.length) : ''
-  if (!subject || !config.oauthAllowedEmails?.length) return false
-  const { rows } = await db.query<{ email: string }>(
-    `SELECT email FROM wk_oauth_identities
-      WHERE provider = 'firebase' AND provider_subject = $1 AND revoked_at IS NULL
-      LIMIT 1`,
-    [subject],
-  )
-  return !!rows[0] && config.oauthAllowedEmails.includes(rows[0].email.toLowerCase())
 }
 
 async function identityGrantIsCurrent(
@@ -350,12 +320,11 @@ async function identityGrantIsCurrent(
   config: Config,
   row: { principal_kind: string; principal_key_id: string },
 ): Promise<boolean> {
-  if (row.principal_kind === 'firebase') return firebaseGrantIsCurrent(db, config, row)
-  if (row.principal_kind !== 'oidc') return true
-  const match = row.principal_key_id.match(/^oidc:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
+  if (row.principal_kind !== 'identity') return true
+  const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const provider = config.oauthOidcProviders?.find((candidate) => candidate.id === match[1])
-  if (!provider) return false
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === match[1])
+  if (!provider || provider.protocol === 'api_key') return false
   const { rows } = await db.query<{ email: string }>(
     `SELECT email FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
@@ -376,7 +345,7 @@ async function issueTokens(
     principalSpaceId: string | null
     principalKeyId: string
     principalKeyHash: string
-    principalKind: 'api_key' | 'firebase' | 'oidc'
+    principalKind: 'api_key' | 'identity'
     familyId?: string
   },
 ): Promise<Record<string, unknown>> {
@@ -510,7 +479,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
   }
 
   async function createOperatorSession(args: {
-    principalKind: 'api_key' | 'firebase' | 'oidc'
+    principalKind: 'api_key' | 'identity'
     principalKeyId: string
     principalKeyHash: string
     principalName: string
@@ -602,12 +571,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
   function loginResponse(rawState: string): Response {
     const options = loginOptions(config)
     if (!options.length) throw new OAuthError('server_error', 'no OAuth login method is configured', 500)
-    if (options.length === 1 && options[0]!.id === 'api_key') {
-      return authHtmlResponse(renderApiKeyLogin({ state: rawState }))
-    }
     if (options.length === 1) {
       const target = new URL(`${config.publicUrl}/v1/identity/login/start`)
-      target.searchParams.set('state', rawState)
+      target.searchParams.set('login_state', rawState)
       target.searchParams.set('provider', options[0]!.id)
       return new Response(null, { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store' } })
     }
@@ -716,16 +682,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (operator) return await consentResponse(state, loaded.client, operator, loginState)
         return loginResponse(loginState)
       }
-      if (request.method === 'GET' && path === '/v1/identity/login/api-key') {
-        const loginState = url.searchParams.get('state') || ''
-        if (!apiKeyLoginEnabled(config) || !(await loadLoginState(loginState))) {
-          throw new OAuthError('invalid_request', 'API-key login state is unavailable')
-        }
-        return authHtmlResponse(renderApiKeyLogin({ state: loginState }))
-      }
-      if (request.method === 'POST' && path === '/v1/identity/login/api-key') {
-        if (!apiKeyLoginEnabled(config)) throw new OAuthError('not_found', 'API-key login is disabled', 404)
+      if (request.method === 'POST' && path === '/v1/identity/login/start') {
         const params = new URLSearchParams(await request.text())
+        const providerId = params.get('provider') || ''
+        const configuredProvider = config.oauthProviders?.find(
+          (provider) => provider.id === providerId && provider.protocol === 'api_key',
+        )
+        if (!configuredProvider || !apiKeyLoginEnabled(config)) {
+          throw new OAuthError('not_found', 'identity provider is not available', 404)
+        }
         const loginState = params.get('login_state') || ''
         const state = await loadLoginState(loginState)
         if (!state) throw new OAuthError('invalid_request', 'authorization state expired')
@@ -736,7 +701,11 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           if (principal.keyId.startsWith('oauth:')) throw new Error('operator API key required')
         } catch {
           return authHtmlResponse(
-            renderApiKeyLogin({ state: loginState, error: 'The API key is invalid or expired.' }),
+            renderApiKeyLogin({
+              state: loginState,
+              providerId: configuredProvider.id,
+              error: 'The API key is invalid or expired.',
+            }),
             401,
           )
         }
@@ -756,23 +725,34 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
         return await consentResponse(state, client, session.row, loginState, session.token)
       }
-      if (request.method === 'GET' && ['/v1/oauth/login', '/v1/identity/login/start'].includes(path)) {
-        const loginState = url.searchParams.get('state') || ''
+      if (request.method === 'GET' && path === '/v1/identity/login/start') {
+        const loginState = url.searchParams.get('login_state') || ''
         const providerId = url.searchParams.get('provider') || ''
         if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
           throw new OAuthError('invalid_request', 'valid login state is required')
-        if (providerId === 'firebase' && firebaseEnabled(config)) {
+        const configuredProvider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
+        const state = await loadLoginState(loginState)
+        if (!state) throw new OAuthError('invalid_request', 'authorization state expired')
+        if (configuredProvider?.protocol === 'api_key') {
+          return authHtmlResponse(renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id }))
+        }
+        if (configuredProvider?.protocol === 'token_bridge') {
+          const changed = await deps.db.update(
+            'wk_oauth_login_states',
+            { state_hash: `eq.${hashApiKey(loginState, config.keyPepper)}`, consumed_at: 'is.null' },
+            { provider_id: configuredProvider.id },
+          )
+          if (!changed.length) throw new OAuthError('invalid_request', 'OAuth login state is expired or already used')
           return new Response(null, {
             status: 302,
-            headers: { location: firebaseLoginUrl(config, loginState), 'cache-control': 'no-store' },
+            headers: { location: bridgeLoginUrl(config, configuredProvider, loginState), 'cache-control': 'no-store' },
           })
         }
-        const provider = (config.oauthOidcProviders || []).find((candidate) => candidate.id === providerId)
-        if (!provider || !oidcEnabled(config))
-          throw new OAuthError('not_found', 'identity provider is not available', 404)
+        const provider = oidcProvider(config, providerId)
+        if (!provider) throw new OAuthError('not_found', 'identity provider is not available', 404)
         const started = await startOidcLogin({
           provider,
-          redirectUri: `${config.publicUrl}/v1/identity/login/oidc/callback`,
+          redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
           state: loginState,
         }).catch(() => {
           throw new OAuthError('temporarily_unavailable', 'OIDC provider discovery is unavailable', 503)
@@ -788,46 +768,50 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           headers: { location: started.authorizationUrl, 'cache-control': 'no-store' },
         })
       }
-      if (
-        request.method === 'POST' &&
-        ['/v1/oauth/firebase/callback', '/v1/identity/login/firebase/callback'].includes(path)
-      ) {
-        if (!firebaseEnabled(config)) throw new OAuthError('not_found', 'Firebase OAuth login is disabled', 404)
+      if (request.method === 'POST' && path === '/v1/identity/login/callback') {
         const params = new URLSearchParams(await request.text())
-        const loginState = params.get('wikikit_oauth_state') || ''
-        const idToken = params.get('id_token') || ''
-        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState) || !idToken) {
-          throw new OAuthError('invalid_request', 'a valid Firebase OAuth login state and ID token are required')
+        const loginState = params.get('login_state') || ''
+        const identityToken = params.get('identity_token') || ''
+        if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState) || !identityToken) {
+          throw new OAuthError('invalid_request', 'a valid login state and identity token are required')
         }
-        const identity = await verifyFirebaseIdToken({
-          token: idToken,
-          projectId: config.oauthFirebaseProjectId || '',
-          allowedEmails: config.oauthAllowedEmails || [],
+        const pendingState = await loadLoginState(loginState)
+        const bridge = pendingState?.provider_id ? tokenBridgeProvider(config, pendingState.provider_id) : undefined
+        if (!bridge) throw new OAuthError('not_found', 'identity provider is not available', 404)
+        const identity = await verifyBridgedIdentity({
+          token: identityToken,
+          issuer: bridge.issuer,
+          audience: bridge.audience,
+          jwksUrl: bridge.jwksUrl,
+          subjectClaim: bridge.subjectClaim,
+          emailClaim: bridge.emailClaim,
+          emailVerifiedClaim: bridge.emailVerifiedClaim,
+          allowedEmails: bridge.allowedEmails,
         }).catch((error) => {
           throw new OAuthError(
             'access_denied',
-            error instanceof Error ? error.message : 'Firebase login was rejected',
+            error instanceof Error ? error.message : 'identity login was rejected',
             403,
           )
         })
         const stateHash = hashApiKey(loginState, config.keyPepper)
         const { rows } = await deps.db.query<IdentityLoginStateRow>(
           `UPDATE wk_oauth_login_states
-              SET provider_subject = $2, provider_email = $3, provider_id = 'firebase', authenticated_at = now()
+              SET provider_subject = $2, provider_email = $3, authenticated_at = now()
             WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
-              AND (provider_id IS NULL OR provider_id = 'firebase')
+              AND provider_id = $4
             RETURNING id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
                       provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier`,
-          [stateHash, identity.subject, identity.email],
+          [stateHash, identity.subject, identity.email, bridge.id],
         )
         const state = rows[0]
-        if (!state) throw new OAuthError('invalid_request', 'Firebase OAuth login state is expired or already used')
+        if (!state) throw new OAuthError('invalid_request', 'identity login state is expired or already used')
         await deps.db.query(
           `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
-           VALUES ($1, $2, 'firebase', now())
+           VALUES ($1, $2, $3, now())
            ON CONFLICT (provider, provider_subject) DO UPDATE
              SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
-          [identity.subject, identity.email],
+          [identity.subject, identity.email, bridge.id],
         )
         const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
           client_id: `eq.${state.client_id}`,
@@ -835,18 +819,18 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         })
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
         const session = await createOperatorSession({
-          principalKind: 'firebase',
-          principalKeyId: `firebase:${identity.subject}`,
-          principalKeyHash: hashApiKey(`firebase:${identity.subject}`, config.keyPepper),
+          principalKind: 'identity',
+          principalKeyId: `identity:${bridge.id}:${identity.subject}`,
+          principalKeyHash: hashApiKey(`identity:${bridge.id}:${identity.subject}`, config.keyPepper),
           principalName: identity.email,
           principalSpaceId: null,
-          providerId: 'firebase',
+          providerId: bridge.id,
           providerSubject: identity.subject,
-          scopes: providerAllowedScopes(config, 'firebase'),
+          scopes: providerAllowedScopes(config, bridge.id),
         })
         return await consentResponse(state, client, session.row, loginState, session.token)
       }
-      if (request.method === 'GET' && ['/v1/oauth/oidc/callback', '/v1/identity/login/oidc/callback'].includes(path)) {
+      if (request.method === 'GET' && path === '/v1/identity/login/callback') {
         const loginState = url.searchParams.get('state') || ''
         if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
           throw new OAuthError('invalid_request', 'a valid OIDC login state is required')
@@ -859,19 +843,13 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           [hashApiKey(loginState, config.keyPepper)],
         )
         const state = rows[0]
-        const provider = state?.provider_id
-          ? (config.oauthOidcProviders || []).find((candidate) => candidate.id === state.provider_id)
-          : undefined
+        const provider = oidcProvider(config, state?.provider_id)
         if (!state || !provider || !state.oidc_nonce || !state.oidc_code_verifier) {
           throw new OAuthError('invalid_request', 'OIDC login state is expired or invalid')
         }
-        const callbackRedirectUri =
-          path === '/v1/oauth/oidc/callback'
-            ? `${config.publicUrl}/v1/oauth/oidc/callback`
-            : `${config.publicUrl}/v1/identity/login/oidc/callback`
         const identity = await finishOidcLogin({
           provider,
-          redirectUri: callbackRedirectUri,
+          redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
           callbackUrl: url,
           state: loginState,
           nonce: state.oidc_nonce,
@@ -902,9 +880,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         })
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
         const session = await createOperatorSession({
-          principalKind: 'oidc',
-          principalKeyId: `oidc:${provider.id}:${identity.subject}`,
-          principalKeyHash: hashApiKey(`oidc:${provider.id}:${identity.subject}`, config.keyPepper),
+          principalKind: 'identity',
+          principalKeyId: `identity:${provider.id}:${identity.subject}`,
+          principalKeyHash: hashApiKey(`identity:${provider.id}:${identity.subject}`, config.keyPepper),
           principalName: identity.email,
           principalSpaceId: null,
           providerId: provider.id,
@@ -913,7 +891,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         })
         return await consentResponse(state, client, session.row, loginState, session.token)
       }
-      if (request.method === 'POST' && ['/v1/oauth/authorize', '/v1/oauth/authorize/decision'].includes(path)) {
+      if (request.method === 'POST' && path === '/v1/oauth/authorize/decision') {
         const params = new URLSearchParams(await request.text())
         const csrfToken = params.get('csrf_token') || ''
         const csrfCookie = cookieValue(request, 'wk_oauth_csrf') || ''
@@ -921,46 +899,6 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           throw new OAuthError('invalid_request', 'consent form CSRF validation failed')
         }
         const loginState = params.get('login_state') || ''
-        if (!loginState && path === '/v1/oauth/authorize') {
-          const loaded = await loadAuthorizationRequest(config, deps.db, params)
-          if (params.get('action') === 'deny') {
-            return clearCsrfCookie(
-              redirectWith(loaded.redirectUri, { error: 'access_denied', state: params.get('state') ?? undefined }),
-              new URL(config.publicUrl).protocol === 'https:',
-            )
-          }
-          const apiKey = params.get('api_key') || ''
-          const principal = await deps.auth.authenticate(`Bearer ${apiKey}`).catch(() => null)
-          if (!principal || principal.keyId.startsWith('oauth:')) {
-            throw new OAuthError('access_denied', 'an operator API key is required', 403)
-          }
-          const scopes = offeredScopes(loaded.scopes, principal.scopes)
-          if (!scopes.includes('knowledge:read'))
-            throw new OAuthError('access_denied', 'API key cannot read WikiKit', 403)
-          const code = randomToken('wka_')
-          await deps.db.insert(
-            'wk_oauth_authorization_codes',
-            {
-              code_hash: hashApiKey(code, config.keyPepper),
-              client_id: loaded.client.client_id,
-              redirect_uri: loaded.redirectUri,
-              scopes,
-              code_challenge: loaded.codeChallenge,
-              resource: loaded.resource,
-              principal_name: principal.name,
-              principal_space_id: principal.spaceId,
-              principal_key_id: principal.keyId,
-              principal_key_hash: hashApiKey(apiKey, config.keyPepper),
-              principal_kind: 'api_key',
-              expires_at: new Date(Date.now() + (config.oauthAuthorizationCodeTtlMs ?? 10 * 60 * 1000)).toISOString(),
-            },
-            { returning: false },
-          )
-          return clearCsrfCookie(
-            redirectWith(loaded.redirectUri, { code, state: params.get('state') ?? undefined }),
-            new URL(config.publicUrl).protocol === 'https:',
-          )
-        }
         const state = await loadLoginState(loginState)
         if (!state?.provider_subject || !state.provider_email) {
           throw new OAuthError('invalid_request', 'authorization state is no longer authenticated')
@@ -969,7 +907,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           throw new OAuthError('invalid_request', 'a valid S256 PKCE code_challenge is required')
         }
         const operator = await currentOperator(request)
-        const stateProvider = state.provider_id ?? 'firebase'
+        const stateProvider = state.provider_id ?? ''
         const operatorProvider = operator?.provider_id ?? (operator ? 'api_key' : '')
         if (!operator || stateProvider !== operatorProvider) {
           throw new OAuthError('access_denied', 'operator session expired', 401)
@@ -1092,7 +1030,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
                   AND a.resource = $4 AND a.consumed_at IS NULL AND a.expires_at > now()
                   AND c.revoked_at IS NULL
                   AND (
-                    a.principal_kind IN ('firebase', 'oidc')
+                    a.principal_kind = 'identity'
                     OR a.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k
@@ -1146,7 +1084,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
                 WHERE r.token_hash = $1 AND r.client_id = $2
                   AND c.revoked_at IS NULL
                   AND (
-                    r.principal_kind IN ('firebase', 'oidc')
+                    r.principal_kind = 'identity'
                     OR r.principal_key_id = 'bootstrap'
                     OR EXISTS (
                       SELECT 1 FROM wk_api_keys k

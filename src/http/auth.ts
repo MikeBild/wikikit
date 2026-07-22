@@ -97,24 +97,7 @@ interface OAuthTokenRow {
   principal_space_id: string | null
   principal_key_id: string
   principal_key_hash: string
-  principal_kind: 'api_key' | 'firebase' | 'oidc'
-}
-
-async function firebaseGrantIsCurrent(
-  db: Db,
-  config: Config,
-  row: { principal_key_id: string; principal_kind: string },
-): Promise<boolean> {
-  if (row.principal_kind !== 'firebase') return true
-  const subject = row.principal_key_id.startsWith('firebase:') ? row.principal_key_id.slice('firebase:'.length) : ''
-  if (!subject || !config.oauthAllowedEmails?.length) return false
-  const { rows } = await db.query<{ email: string }>(
-    `SELECT email FROM wk_oauth_identities
-      WHERE provider = 'firebase' AND provider_subject = $1 AND revoked_at IS NULL
-      LIMIT 1`,
-    [subject],
-  )
-  return !!rows[0] && config.oauthAllowedEmails.includes(rows[0].email.toLowerCase())
+  principal_kind: 'api_key' | 'identity'
 }
 
 async function identityGrantIsCurrent(
@@ -122,12 +105,11 @@ async function identityGrantIsCurrent(
   config: Config,
   row: { principal_key_id: string; principal_kind: string },
 ): Promise<boolean> {
-  if (row.principal_kind === 'firebase') return firebaseGrantIsCurrent(db, config, row)
-  if (row.principal_kind !== 'oidc') return true
-  const match = row.principal_key_id.match(/^oidc:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
+  if (row.principal_kind !== 'identity') return true
+  const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const provider = config.oauthOidcProviders?.find((candidate) => candidate.id === match[1])
-  if (!provider) return false
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === match[1])
+  if (!provider || provider.protocol === 'api_key') return false
   const { rows } = await db.query<{ email: string }>(
     `SELECT email FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
@@ -164,7 +146,7 @@ export function createAuth(config: Config, db: Db): Auth {
               AND t.expires_at > now()
               AND c.revoked_at IS NULL
               AND (
-                t.principal_kind IN ('firebase', 'oidc')
+                t.principal_kind = 'identity'
                 OR t.principal_key_id = 'bootstrap'
                 OR EXISTS (
                   SELECT 1 FROM wk_api_keys k
