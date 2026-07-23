@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.16.1 - 2026-07-23
+
+### Fixed
+
+- Coverage-gap lexeme capture now resolves the space's text-search config
+  through the db.call whitelist instead of inlining the SQL function —
+  db.query's identifier guard (correctly) rejected the inlined call, so
+  opt-in gap topics silently recorded nothing.
+
 ## 0.16.0 - 2026-07-23
 
 ### Added

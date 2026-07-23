@@ -60,6 +60,7 @@ export type WhitelistedFn =
   | 'wk_search_hybrid'
   | 'wk_search_sources_hybrid'
   | 'wk_reindex_space'
+  | 'wk_space_search_config'
   | 'wk_split_proposal'
   | 'wk_request_changes'
 
@@ -175,6 +176,19 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
       }
       // Same LIMIT NULL guard as wk_search: mirror the SQL default here.
       return [args[0], args[1], args[2] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_space_search_config: {
+    // Read-only helper: the space's text-search config name (regconfig) —
+    // needed by TS callers that stem/strip text OUTSIDE a wk_ table query
+    // (coverage-gap lexemes), where the identifier guard forbids inlining it.
+    sql: 'SELECT public.wk_space_search_config($1)::text AS config',
+    normalize: (args) => {
+      if (args.length !== 1) {
+        throw new Error(`wk_space_search_config expects [space_id] — got ${args.length} args`)
+      }
+      return [args[0]]
     },
     result: (response) => response.rows,
   },

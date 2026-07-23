@@ -35,13 +35,18 @@ export async function recordConceptRead(db: Db, spaceId: string, slug: string): 
 
 /** Store stemmed lexemes (max 8) of an unanswered question — never its text. */
 export async function recordCoverageGap(db: Db, spaceId: string, question: string): Promise<void> {
+  // Two steps by architecture: wk_space_search_config is a SQL function and
+  // must go through the db.call whitelist — db.query's identifier guard
+  // rejects any inlined wk_* function on purpose.
+  const [row] = await db.call('wk_space_search_config', [spaceId])
+  const config = String(row?.config ?? 'simple')
   await db.query(
     `INSERT INTO wk_coverage_gaps (space_id, lexeme)
      SELECT $1, lexeme
-       FROM (SELECT DISTINCT unnest(tsvector_to_array(to_tsvector(public.wk_space_search_config($1), $2))) AS lexeme) t
+       FROM (SELECT DISTINCT unnest(tsvector_to_array(to_tsvector($2::regconfig, $3))) AS lexeme) t
       WHERE char_length(lexeme) <= 60
       LIMIT 8`,
-    [spaceId, question],
+    [spaceId, config, question],
   )
 }
 
