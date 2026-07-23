@@ -1443,7 +1443,12 @@ remains for non-browser endpoints and for `Accept: application/json`.
 WikiKit performs OIDC discovery and Authorization Code + PKCE itself. The
 immutable `sub` is mandatory; access requires an exact subject allow-list
 match or a provider-verified email allow-list match. Unverified email claims
-are ignored. Its OIDC client,
+are ignored. With `WIKIKIT_OAUTH_ENABLE_SIGNUP=true` (default `false`) an
+unknown OIDC identity is instead auto-admitted at the SSO callback: it is
+registered in `wk_oauth_identities` with its own per-identity ceiling of
+`knowledge:read` only — never the provider's `allowed_scopes` set. The switch
+governs only unknown identities; allow-lists, already-registered identities
+and operator revocation keep today's semantics. Its OIDC client,
 secret, callback registration, sessions and identity records belong only to
 this deployment; no shared cross-product authentication runtime exists.
 
@@ -1663,6 +1668,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
+| `WIKIKIT_OAUTH_ENABLE_SIGNUP`        | `false`                                                            | auto-admit unknown OIDC identities at `knowledge:read`      |
 | `WIKIKIT_OAUTH_PROVIDERS`            | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS     |
 | `LOG_LEVEL`                          | `info`                                                             | debug/info/warn/error                                       |
 | `NODE_ENV`                           | —                                                                  | `production` activates guards + disables `.env.defaults`    |

@@ -113,6 +113,8 @@ export async function finishOidcLogin(args: {
   state: string
   nonce: string
   codeVerifier: string
+  /** Return unknown identities instead of rejecting them — the SSO callback decides admission (signup branch). */
+  allowUnknown?: boolean
 }): Promise<OidcIdentity> {
   const config = await configuration(args.provider)
   const callback = new URL(args.redirectUri)
@@ -123,5 +125,5 @@ export async function finishOidcLogin(args: {
     pkceCodeVerifier: args.codeVerifier,
   })
   const claims = tokens.claims() as { sub?: unknown; email?: unknown; email_verified?: unknown } | undefined
-  return oidcIdentityFromClaims(args.provider, claims)
+  return oidcIdentityFromClaims(args.provider, claims, { allowUnknown: args.allowUnknown })
 }

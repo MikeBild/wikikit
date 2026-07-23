@@ -11,7 +11,12 @@ import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
-import { isOidcIdentityAllowed, type OidcIdentity } from './identity-policy.ts'
+import {
+  isOidcIdentityAllowed,
+  OIDC_SIGNUP_SCOPES,
+  oidcIdentityScopeCeiling,
+  type OidcIdentity,
+} from './identity-policy.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderErrorPage, renderProviderChoice } from './ui.ts'
 
@@ -340,9 +345,25 @@ export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Ar
   })
 }
 
-function providerAllowedScopes(config: Config, providerId: string | null): string[] {
-  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
-  return provider && provider.protocol !== 'api_key' ? provider.allowedScopes : []
+// Per-identity permission ceiling: allowlisted identities inherit the
+// provider's allowed_scopes; a self-signup identity carries its own minimal
+// ceiling on the wk_oauth_identities row. null = the identity is not (or no
+// longer) admitted.
+async function identityCeiling(
+  db: Db,
+  config: Config,
+  providerId: string | null,
+  subject: string | null,
+): Promise<string[] | null> {
+  const provider = oidcProvider(config, providerId)
+  if (!provider || !subject) return null
+  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null }>(
+    `SELECT email, allowed_scopes FROM wk_oauth_identities
+      WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
+      LIMIT 1`,
+    [provider.id, subject],
+  )
+  return oidcIdentityScopeCeiling(provider, subject, rows[0])
 }
 
 async function identityGrantIsCurrent(
@@ -353,18 +374,63 @@ async function identityGrantIsCurrent(
   if (row.principal_kind !== 'identity') return true
   const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const providerId = match[1]!
-  const subject = match[2]!
-  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
-  if (!provider || provider.protocol === 'api_key') return false
-  const { rows } = await db.query<{ email: string | null }>(
-    `SELECT email FROM wk_oauth_identities
-      WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
+  return (await identityCeiling(db, config, match[1]!, match[2]!)) !== null
+}
+
+// Admission decision for an authenticated OIDC callback identity, including
+// its registration in wk_oauth_identities. Returns the identity's permission
+// ceiling, or null when the login must be denied.
+//
+// - Allowlisted (allowed_subjects/allowed_emails): registered/reactivated as
+//   before; ceiling = the provider's allowed_scopes. The per-row ceiling is
+//   reset so a later allowlist removal keeps revoking access.
+// - Already-registered signup identity (per-row allowed_scopes): admitted
+//   regardless of the switch position — WIKIKIT_OAUTH_ENABLE_SIGNUP governs
+//   only UNKNOWN identities. Operator revocation (revoked_at) always wins.
+// - Unknown identity: the signup branch — admitted and registered at the
+//   minimal knowledge:read ceiling only when WIKIKIT_OAUTH_ENABLE_SIGNUP is
+//   true; denied otherwise (exact pre-signup behavior).
+async function admitOidcCallbackIdentity(
+  db: Db,
+  config: Config,
+  provider: OidcProviderConfig,
+  identity: OidcIdentity,
+): Promise<string[] | null> {
+  if (isOidcIdentityAllowed(provider, identity.subject, identity.email)) {
+    await db.query(
+      `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (provider, provider_subject) DO UPDATE
+         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null,
+             allowed_scopes = null`,
+      [identity.subject, identity.email, provider.id],
+    )
+    return provider.allowedScopes
+  }
+  const { rows } = await db.query<{ allowed_scopes: string[] | null; revoked_at: Date | string | null }>(
+    `SELECT allowed_scopes, revoked_at FROM wk_oauth_identities
+      WHERE provider = $1 AND provider_subject = $2
       LIMIT 1`,
-    [provider.id, subject],
+    [provider.id, identity.subject],
   )
-  const identity = rows[0]
-  return !!identity && isOidcIdentityAllowed(provider, subject, identity.email ? identity.email.toLowerCase() : null)
+  const registered = rows[0]
+  if (registered) {
+    if (registered.revoked_at || !registered.allowed_scopes?.length) return null
+    await db.query(
+      `UPDATE wk_oauth_identities SET email = $3, last_seen_at = now()
+        WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL`,
+      [provider.id, identity.subject, identity.email],
+    )
+    return registered.allowed_scopes
+  }
+  if (config.oauthSignupEnabled !== true) return null
+  await db.query(
+    `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at, allowed_scopes)
+     VALUES ($1, $2, $3, now(), $4)
+     ON CONFLICT (provider, provider_subject) DO NOTHING`,
+    [identity.subject, identity.email, provider.id, [...OIDC_SIGNUP_SCOPES]],
+  )
+  return [...OIDC_SIGNUP_SCOPES]
 }
 
 async function issueTokens(
@@ -499,8 +565,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         session.principal_name = keys[0].name
       }
     } else {
-      if (!(await identityGrantIsCurrent(deps.db, config, session))) return null
-      session.scopes = providerAllowedScopes(config, session.provider_id)
+      const ceiling = await identityCeiling(deps.db, config, session.provider_id, session.provider_subject)
+      if (!ceiling) return null
+      session.scopes = ceiling
     }
     await deps.db.query(
       `UPDATE wk_oauth_operator_sessions
@@ -655,11 +722,14 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     const identity = await verifyOidcIdentityToken({ provider, identityToken }).catch(() => {
       throw new OAuthError('invalid_token', 'identity assertion was rejected', 401)
     })
+    // Allowlist-verified path (verifyOidcIdentityToken rejects unknown
+    // identities): the per-row signup ceiling is reset like at the callback.
     await deps.db.query(
       `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
        VALUES ($1, $2, $3, now())
        ON CONFLICT (provider, provider_subject) DO UPDATE
-         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
+         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null,
+             allowed_scopes = null`,
       [identity.subject, identity.email, provider.id],
     )
     const issued = await deps.auth.createKey({
@@ -900,6 +970,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
         let identity: OidcIdentity
         try {
+          // allowUnknown: the allowlist decision is NOT made inside the code
+          // exchange — an unknown identity must reach the admission logic
+          // below, where the signup branch runs before the rejection.
           identity = await finishOidcLogin({
             provider,
             redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
@@ -907,6 +980,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             state: loginState,
             nonce: state.oidc_nonce,
             codeVerifier: state.oidc_code_verifier,
+            allowUnknown: true,
           })
         } catch (error) {
           // Identity-policy denial or code-exchange failure in the browser
@@ -929,6 +1003,27 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             denied ? 403 : 400,
           )
         }
+        // Admission + registration: allowlist first (unchanged), then the
+        // already-registered signup identity, then — only with
+        // WIKIKIT_OAUTH_ENABLE_SIGNUP — self-signup of a truly unknown
+        // identity at the minimal knowledge:read ceiling.
+        const ceiling = await admitOidcCallbackIdentity(deps.db, config, provider, identity)
+        if (!ceiling) {
+          // Exact pre-signup denial: consume the state like a consent deny
+          // and answer the human with the styled not-authorized page; the
+          // waiting OAuth client gets the RFC 6749 access_denied redirect
+          // behind "Sign in again".
+          await deps.db.update(
+            'wk_oauth_login_states',
+            { id: `eq.${state.id}`, consumed_at: 'is.null' },
+            { consumed_at: new Date().toISOString() },
+            { returning: false },
+          )
+          const retryHref = client.redirect_uris.includes(state.redirect_uri)
+            ? clientErrorRedirectUrl(state.redirect_uri, state.client_state)
+            : undefined
+          return authHtmlResponse(renderErrorPage({ message: NOT_AUTHORIZED_MESSAGE, retryHref }), 403)
+        }
         const authenticated = await deps.db.update(
           'wk_oauth_login_states',
           { id: `eq.${state.id}`, consumed_at: 'is.null' },
@@ -939,13 +1034,6 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           },
         )
         if (!authenticated.length) return await loginStateErrorResponse(request, loginState)
-        await deps.db.query(
-          `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (provider, provider_subject) DO UPDATE
-             SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
-          [identity.subject, identity.email, provider.id],
-        )
         const session = await createOperatorSession({
           principalKind: 'identity',
           principalKeyId: `identity:${provider.id}:${identity.subject}`,
@@ -954,7 +1042,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           principalSpaceId: null,
           providerId: provider.id,
           providerSubject: identity.subject,
-          scopes: provider.allowedScopes,
+          scopes: ceiling,
         })
         return await consentResponse(state, client, session.row, loginState, session.token)
       }

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Self-signup for OIDC identities (`WIKIKIT_OAUTH_ENABLE_SIGNUP`, default
+  `false`; migration `0024_wk_oauth_identity_signup`): when enabled, an
+  unknown OIDC identity that authenticates at the SSO callback is
+  auto-admitted and registered in `wk_oauth_identities` with its own
+  per-identity permission ceiling of `knowledge:read` — never the provider's
+  full `allowed_scopes` set. Disabled (the default) keeps today's behavior:
+  unknown identities are rejected with the styled not-authorized page and the
+  RFC 6749 `access_denied` client redirect. The switch governs only unknown
+  identities — allowlist entries (`allowed_subjects`/`allowed_emails`) and
+  already-registered identities keep working unchanged, allowlist removal
+  still revokes access, and operator revocation (`revoked_at`) always wins
+  over signup.
+
 ## 0.13.1 - 2026-07-23
 
 ### Fixed

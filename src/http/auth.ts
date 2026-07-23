@@ -20,7 +20,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../domain/errors.ts'
 import type { Logger } from '../logger.ts'
-import { isOidcIdentityAllowed } from '../oauth/identity-policy.ts'
+import { oidcIdentityScopeCeiling } from '../oauth/identity-policy.ts'
 import type { Scope } from './routes.ts'
 
 export interface Principal {
@@ -130,15 +130,17 @@ async function identityGrantIsCurrent(
   const providerId = match[1]!
   const subject = match[2]!
   const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
-  if (!provider || provider.protocol === 'api_key') return false
-  const { rows } = await db.query<{ email: string | null }>(
-    `SELECT email FROM wk_oauth_identities
+  if (!provider || provider.protocol !== 'oidc') return false
+  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null }>(
+    `SELECT email, allowed_scopes FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
     [provider.id, subject],
   )
-  const identity = rows[0]
-  return !!identity && isOidcIdentityAllowed(provider, subject, identity.email ? identity.email.toLowerCase() : null)
+  // Admitted via the allowlist or via the per-row signup ceiling — the
+  // WIKIKIT_OAUTH_ENABLE_SIGNUP switch governs only unknown identities, so
+  // already-registered signup identities keep their grants.
+  return oidcIdentityScopeCeiling(provider, subject, rows[0]) !== null
 }
 
 export function createAuth(config: Config, db: Db): Auth {

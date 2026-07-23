@@ -54,6 +54,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`  | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES`       | Interactive identity permission ceiling: comma-separated read/propose/approve                                  | `knowledge:read,knowledge:propose`                                 |
+| `WIKIKIT_OAUTH_ENABLE_SIGNUP`        | Auto-admit unknown OIDC identities at the SSO callback with the minimal `knowledge:read` ceiling               | `false`                                                            |
 | `WIKIKIT_OAUTH_PROVIDERS`            | WikiKit-local JSON list of named `api_key` and direct `oidc` adapters                                          | API-key record                                                     |
 | `LOG_LEVEL`                          | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
 | `NODE_ENV`                           | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
@@ -85,6 +86,16 @@ from a human through native form elicitation. A client that cannot show the form
 `human_review_required` hand-off with a `review_url`; the human decides on
 that embedded review page (or over REST) as themselves. `admin` is never issued
 to an interactive OAuth identity.
+
+`WIKIKIT_OAUTH_ENABLE_SIGNUP` (default `false`) is the positively named signup
+switch. When `true`, an unknown OIDC identity that authenticates at the SSO
+callback is auto-admitted: it is registered in `wk_oauth_identities` with its
+own minimal per-identity ceiling of `knowledge:read` — never the provider's
+full `allowed_scopes` set. When `false`, unknown identities are rejected
+exactly as before. The switch governs only unknown identities: allowlist
+entries (`allowed_subjects`/`allowed_emails`) and identities that are already
+registered keep working unchanged, and an operator revocation
+(`revoked_at`) always wins over signup.
 
 The provider array uses one shared `protocol` discriminator. Provider ids are
 unique; `api_key` may occur once and `oidc` may occur several times. OIDC

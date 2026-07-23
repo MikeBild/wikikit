@@ -5,7 +5,7 @@
 // redirect wherever the client is validated and known, and mint a FRESH login
 // state for every "Continue with SSO" click instead of rotating the nonce and
 // PKCE verifier of the pending row (which broke the Back-button flow).
-import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createApp, type App } from '../../src/app.ts'
@@ -70,11 +70,15 @@ function stubDb(options: {
   live?: StateRow | null
   recoverable?: Pick<StateRow, 'client_id' | 'redirect_uri' | 'client_state'> | null
   clients?: (typeof CLIENT_ROW)[]
+  /** Registered wk_oauth_identities row served to the callback admission logic. */
+  identity?: { email: string | null; allowed_scopes: string[] | null; revoked_at: string | null } | null
 }) {
   const inserts: { table: string; body: Record<string, unknown> }[] = []
   const updates: { table: string; body: Record<string, unknown> }[] = []
+  const queries: { sql: string; params: unknown[] }[] = []
   const db: Db = {
-    async query(sql: string) {
+    async query(sql: string, params?: unknown[]) {
+      queries.push({ sql, params: params ?? [] })
       if (sql.includes('FROM wk_oauth_login_states')) {
         if (sql.includes('consumed_at IS NULL')) {
           return { rows: (options.live ? [options.live] : []) as never[], rowCount: options.live ? 1 : 0 }
@@ -83,6 +87,9 @@ function stubDb(options: {
           rows: (options.recoverable ? [options.recoverable] : []) as never[],
           rowCount: options.recoverable ? 1 : 0,
         }
+      }
+      if (sql.includes('FROM wk_oauth_identities')) {
+        return { rows: (options.identity ? [options.identity] : []) as never[], rowCount: options.identity ? 1 : 0 }
       }
       return { rows: [], rowCount: 0 }
     },
@@ -108,7 +115,7 @@ function stubDb(options: {
     },
     async remove() {},
   }
-  return { db, inserts, updates }
+  return { db, inserts, updates, queries }
 }
 
 function testConfig(): Config {
@@ -164,12 +171,15 @@ function testConfig(): Config {
 
 const apps: App[] = []
 
-async function boot(db: Db): Promise<string> {
-  const app = createApp(testConfig(), {
-    database: { db, async close() {} },
-    llm: createFakeProvider(),
-    logger: createLogger({ level: 'error', write: () => {} }),
-  })
+async function boot(db: Db, overrides: Partial<Config> = {}): Promise<string> {
+  const app = createApp(
+    { ...testConfig(), ...overrides },
+    {
+      database: { db, async close() {} },
+      llm: createFakeProvider(),
+      logger: createLogger({ level: 'error', write: () => {} }),
+    },
+  )
   apps.push(app)
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve))
   const address = app.server.address() as { port: number }
@@ -177,6 +187,9 @@ async function boot(db: Db): Promise<string> {
 }
 
 let finishError: Error = new Error(DENIAL)
+// When set, the mocked code exchange succeeds with this identity instead of
+// throwing — the signup/admission tests drive the callback through it.
+let finishIdentity: { subject: string; email: string | null } | null = null
 
 beforeAll(() => {
   // Deterministic OIDC edge: no discovery/network in unit tests. Restored to
@@ -189,6 +202,7 @@ beforeAll(() => {
       codeVerifier: 'fresh-verifier',
     }),
     finishOidcLogin: async () => {
+      if (finishIdentity) return finishIdentity
       throw finishError
     },
   }))
@@ -292,6 +306,94 @@ describe('identity policy denial in the callback', () => {
     expect(html).toContain('This sign-in attempt expired or was already used. Please sign in again.')
     expect(html).toContain(`href="${REDIRECT}?error=access_denied&amp;state=client-state-1"`)
     expect(updates.filter((entry) => entry.table === 'wk_oauth_login_states')).toHaveLength(1)
+  })
+})
+
+describe('signup switch at the SSO callback (WIKIKIT_OAUTH_ENABLE_SIGNUP)', () => {
+  const ssoState = () => liveStateRow({ provider_id: 'workforce', oidc_nonce: 'n1', oidc_code_verifier: 'v1' })
+
+  afterEach(() => {
+    finishIdentity = null
+  })
+
+  test('default off: an unknown identity is denied exactly like before', async () => {
+    finishIdentity = { subject: 'stranger-subject', email: 'stranger@example.com' }
+    const { db, updates, queries } = stubDb({ live: ssoState(), identity: null })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(403)
+    const html = await res.text()
+    expect(html).toContain('Your account is not authorized for WikiKit. Contact the operator.')
+    expect(html).toContain(`href="${REDIRECT}?error=access_denied&amp;state=client-state-1"`)
+    // The state is consumed like a consent deny; nothing is registered.
+    const consumed = updates.filter((entry) => entry.table === 'wk_oauth_login_states')
+    expect(consumed).toHaveLength(1)
+    expect(consumed[0]!.body).toHaveProperty('consumed_at')
+    expect(queries.some((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))).toBe(false)
+  })
+
+  test('on: an unknown identity self-registers with the minimal knowledge:read ceiling', async () => {
+    finishIdentity = { subject: 'stranger-subject', email: 'stranger@example.com' }
+    const { db, inserts, queries } = stubDb({ live: ssoState(), identity: null })
+    const base = await boot(db, { oauthSignupEnabled: true })
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('<h1>Authorize access</h1>')
+    expect(html).toContain('knowledge:read')
+    // Registered in wk_oauth_identities with the per-identity signup ceiling.
+    const registration = queries.find((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))
+    expect(registration).toBeDefined()
+    expect(registration!.params).toEqual(['stranger-subject', 'stranger@example.com', 'workforce', ['knowledge:read']])
+    // The operator session carries knowledge:read — NOT the provider's full
+    // allowed_scopes set (knowledge:read + knowledge:propose).
+    const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
+    expect(session).toBeDefined()
+    expect(session!.body.scopes).toEqual(['knowledge:read'])
+  })
+
+  test('off: an already-registered signup identity stays admitted at its stored ceiling', async () => {
+    finishIdentity = { subject: 'stranger-subject', email: 'stranger@example.com' }
+    const { db, inserts } = stubDb({
+      live: ssoState(),
+      identity: { email: 'stranger@example.com', allowed_scopes: ['knowledge:read'], revoked_at: null },
+    })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('<h1>Authorize access</h1>')
+    const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
+    expect(session!.body.scopes).toEqual(['knowledge:read'])
+  })
+
+  test('on: a revoked identity is still denied — operator revocation wins over signup', async () => {
+    finishIdentity = { subject: 'stranger-subject', email: 'stranger@example.com' }
+    const { db, queries } = stubDb({
+      live: ssoState(),
+      identity: {
+        email: 'stranger@example.com',
+        allowed_scopes: ['knowledge:read'],
+        revoked_at: new Date().toISOString(),
+      },
+    })
+    const base = await boot(db, { oauthSignupEnabled: true })
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(403)
+    expect(await res.text()).toContain('Your account is not authorized for WikiKit. Contact the operator.')
+    expect(queries.some((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))).toBe(false)
+  })
+
+  test('on: an allowlisted identity keeps the provider allowed_scopes ceiling', async () => {
+    finishIdentity = { subject: 'any-subject', email: 'mike@example.com' }
+    const { db, inserts, queries } = stubDb({ live: ssoState(), identity: null })
+    const base = await boot(db, { oauthSignupEnabled: true })
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(200)
+    const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
+    expect(session!.body.scopes).toEqual(['knowledge:read', 'knowledge:propose'])
+    // Allowlist logins reset the per-row ceiling (allowed_scopes = null).
+    const upsert = queries.find((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))
+    expect(upsert!.sql).toContain('allowed_scopes = null')
   })
 })
 

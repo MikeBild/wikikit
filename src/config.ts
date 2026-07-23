@@ -154,6 +154,15 @@ export interface Config {
   readonly oauthProviders?: OAuthProviderConfig[]
   /** Maximum permissions that an interactive identity can receive. */
   readonly oauthAllowedScopes?: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
+  /**
+   * Positively named signup switch (WIKIKIT_OAUTH_ENABLE_SIGNUP, default
+   * false): when true, an unknown OIDC identity that authenticates at the
+   * SSO callback is auto-admitted and registered with the MINIMAL
+   * knowledge:read ceiling. When false, unknown identities are rejected
+   * exactly as before. Allowlist entries and already-registered identities
+   * are unaffected — the switch governs only unknown identities.
+   */
+  readonly oauthSignupEnabled?: boolean
   readonly logLevel: string
   readonly version: string
   /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
@@ -416,6 +425,7 @@ export function loadConfig(): Config {
     oauthDynamicRegistrationEnabled: bool('WIKIKIT_OAUTH_DCR_ENABLED', true),
     oauthProviders,
     oauthAllowedScopes,
+    oauthSignupEnabled: bool('WIKIKIT_OAUTH_ENABLE_SIGNUP', false),
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
