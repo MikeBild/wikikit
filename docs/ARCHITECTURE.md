@@ -128,7 +128,7 @@ admin-scoped while HTTP/usage/reviews are space-scoped.
 `stats.ts` runs separate bucket and total queries. This is load-bearing:
 distinct actors/sessions and percentiles are non-additive. Responses expose
 semantic value kind/state, sample size and ratio evidence so downstream
-ContentKit AST reports can distinguish zero activity from unavailable data.
+reporting consumers can distinguish zero activity from unavailable data.
 
 ## One registry, many surfaces
 

@@ -68,7 +68,7 @@ events only when the MCP host supports them:
 The prompt-time action is the important dynamic step. Space choice comes from
 stable `settings.agent_context` metadata, not from incidental facts inside
 concept pages. A user can explicitly request any visible combination, for
-example `space: contentkit+blog-de` or `wikikit: ocpp+slidekit`.
+example `space: payments+blog` or `wikikit: infra+design-system`.
 
 Automatically guessed spaces are never capture targets. Capture requires an
 explicitly configured project space because writes must not be routed by a
@@ -183,7 +183,7 @@ project space and limits:
 ```json
 {
   "schema_version": 1,
-  "primary_space": "contentkit",
+  "primary_space": "payments",
   "budget_tokens": 1200,
   "max_active_spaces": 6,
   "capture": true

@@ -194,7 +194,7 @@ client registration, PKCE (`S256`), consent, rotating refresh tokens and
 revocation at the same `/mcp` endpoint. Enter:
 
 ```text
-https://wikikit.mikebild.dev/mcp
+https://YOUR-WIKIKIT-HOST/mcp
 ```
 
 Choose OAuth. The single `WIKIKIT_OAUTH_PROVIDERS` JSON list can offer one
@@ -205,8 +205,8 @@ auth component is involved. OIDC uses discovery and Authorization Code + PKCE.
 The method chooser is the family-wide `mcp-auth-v2` contract: SSO is always
 first as **Continue with SSO**, API-key fallback is always second as
 **Continue with API key**, and configured provider labels never alter those
-two actions. The same public surface is implemented independently by WikiKit,
-ContentKit and SubKit: provider discovery, assertion exchange, generic
+two actions. WikiKit implements the same public surface independently of any sibling
+product: provider discovery, assertion exchange, generic
 start/callback/logout, OAuth discovery, DCR, authorize/consent, token and
 revocation. There are no provider-named routes or compatibility aliases.
 WikiKit verifies the selected provider and admits only an exact configured
