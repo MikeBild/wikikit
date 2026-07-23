@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.3 - 2026-07-23
+
+### Changed
+
+- Align the shared auth-UI design tokens with the product family's ink-primary
+  palette (`--primary:#1f2328`, `--primary-hover:#000`).
+- Browser GET failures in the interactive login funnel (denied identity
+  policy, unknown/expired/consumed login state, code-exchange errors) now
+  render a human-readable "Sign-in failed" page in the shared auth shell
+  instead of a raw JSON body. Whenever the waiting OAuth client is validated
+  and known, the page's "Sign in again" action carries the RFC 6749
+  `error=access_denied` redirect back to the client's `redirect_uri`, so MCP
+  connectors no longer hang on a callback that never comes. The JSON
+  `{error,error_description}` envelope remains for the non-browser endpoints
+  (token/register/API) and for requests with `Accept: application/json`.
+
+### Fixed
+
+- Every "Continue with SSO" click now mints its own login state with its own
+  nonce and PKCE verifier instead of rewriting the pending row — going back in
+  the browser and clicking SSO again no longer invalidates the first, still
+  in-flight IdP round trip. The chooser state stays valid until its TTL.
+
 ## 0.12.2 - 2026-07-23
 
 ### Changed

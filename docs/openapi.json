@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.12.2",
+    "version": "0.12.3",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2386,15 +2386,24 @@
           "302": { "description": "Redirect" },
           "400": {
             "description": "Invalid request",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "401": {
             "description": "Identity assertion rejected",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "403": {
             "description": "Identity or requested access denied",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           }
         }
       }
@@ -2541,15 +2550,24 @@
           "302": { "description": "Provider redirect" },
           "400": {
             "description": "Invalid request",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "401": {
             "description": "Identity assertion rejected",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "403": {
             "description": "Identity or requested access denied",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           }
         }
       },
@@ -2592,15 +2610,24 @@
           "302": { "description": "Redirect" },
           "400": {
             "description": "Invalid request",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "401": {
             "description": "Identity assertion rejected",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           },
           "403": {
             "description": "Identity or requested access denied",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
           }
         }
       }
