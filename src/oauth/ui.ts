@@ -1,7 +1,7 @@
 const AUTH_UI_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
 
 const TOKENS = `
-  :root{color-scheme:light;--bg:#f4f5f7;--card:#fff;--ink:#1f2328;--muted:#6a7280;--line:#e3e5e9;--soft:#f7f8fa;--primary:#1f6feb;--primary-hover:#1a60d0}
+  :root{color-scheme:light;--bg:#f4f5f7;--card:#fff;--ink:#1f2328;--muted:#6a7280;--line:#e3e5e9;--soft:#f7f8fa;--primary:#1f2328;--primary-hover:#000}
   *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:24px;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
   .card{background:var(--card);width:100%;max-width:420px;border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px rgba(20,24,33,.08);padding:32px}
   .brand{display:flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:11px;background:var(--ink);color:#fff;font-weight:700;font-size:18px;letter-spacing:-.03em;margin:0 0 20px}
@@ -75,6 +75,21 @@ export function renderApiKeyLogin(options: { state: string; providerId: string; 
   return shell(
     'Sign in',
     `<h1>Sign in to WikiKit</h1><p class="muted">Use a scoped WikiKit API key to authorize this MCP client.</p>${options.error ? `<p class="error" role="alert">${escapeHtml(options.error)}</p>` : ''}<form method="POST" action="/v1/identity/login/start"><input type="hidden" name="provider" value="${escapeHtml(options.providerId)}"><input type="hidden" name="login_state" value="${escapeHtml(options.state)}"><label class="field">API key<input type="password" name="api_key" autocomplete="current-password" required></label><div class="actions"><button class="approve" type="submit">Continue</button></div></form>`,
+  )
+}
+
+export function renderErrorPage(options: { message: string; retryHref?: string }): string {
+  // Browser-funnel failures render in the same page()/TOKENS shell as every
+  // other auth screen. When a retry target is known, "Sign in again" either
+  // re-enters the login funnel or carries the RFC 6749 access_denied redirect
+  // back to the waiting OAuth client so MCP connectors never hang.
+  return shell(
+    'Sign-in failed',
+    `<h1>Sign-in failed</h1><p>${escapeHtml(options.message)}</p>${
+      options.retryHref
+        ? `<div class="actions"><a class="button approve" href="${escapeHtml(options.retryHref)}">Sign in again</a></div>`
+        : ''
+    }`,
   )
 }
 

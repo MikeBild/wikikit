@@ -14,6 +14,18 @@ const errorResponses = {
     content: json({ $ref: '#/components/schemas/OAuthError' }),
   },
 }
+// Browser-funnel GETs (authorize, login/start, login/callback) answer humans
+// with an HTML error page; the JSON envelope is still served when the caller
+// asks for application/json.
+const browserError = (description: string) => ({
+  description,
+  content: { ...json({ $ref: '#/components/schemas/OAuthError' }), ...html },
+})
+const browserErrorResponses = {
+  400: browserError('Invalid request'),
+  401: browserError('Identity assertion rejected'),
+  403: browserError('Identity or requested access denied'),
+}
 const formBody = {
   required: true,
   content: {
@@ -134,7 +146,7 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       responses: {
         200: { description: 'Login or consent HTML', content: html },
         302: { description: 'Redirect' },
-        ...errorResponses,
+        ...browserErrorResponses,
       },
     },
   }
@@ -201,7 +213,7 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       responses: {
         200: { description: 'Login HTML', content: html },
         302: { description: 'Provider redirect' },
-        ...errorResponses,
+        ...browserErrorResponses,
       },
     },
     post: {
@@ -220,7 +232,7 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       responses: {
         200: { description: 'Consent HTML', content: html },
         302: { description: 'Redirect' },
-        ...errorResponses,
+        ...browserErrorResponses,
       },
     },
   }
