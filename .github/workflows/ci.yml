@@ -32,6 +32,9 @@ jobs:
       # package.json/bun.lock mismatch is a bug, not something to auto-heal.
       - run: bun install --frozen-lockfile
       - run: bun run lint
+      # Served shell scripts (agent hooks + installer) — shellcheck ships on
+      # ubuntu-latest, no extra dependency.
+      - run: shellcheck examples/agent-hooks/*.sh src/http/install/install.sh
 
   typecheck:
     runs-on: ubuntu-latest

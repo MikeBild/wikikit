@@ -74,6 +74,107 @@ Automatically guessed spaces are never capture targets. Capture requires an
 explicitly configured project space because writes must not be routed by a
 guess.
 
+### Example hook scripts
+
+[`examples/agent-hooks/`](../examples/agent-hooks) ships one product-neutral
+script per lifecycle moment, as a `.sh`/`.ps1` pair (POSIX sh + curl + jq for
+macOS/Linux, PowerShell 5.1 for Windows — no Node or Python required):
+
+| Lifecycle moment       | Scripts                                        |
+| ---------------------- | ---------------------------------------------- |
+| Session start          | `wikikit-briefing.sh` / `wikikit-briefing.ps1` |
+| User prompt submission | `wikikit-context.sh` / `wikikit-context.ps1`   |
+| Session end or stop    | `wikikit-capture.sh` / `wikikit-capture.ps1`   |
+
+All six share one contract: stdin is the host's JSON event, stdout is injected
+into the session, and they **always exit 0** — a knowledge base being down
+must never break a session, and exit code 2 would tell the host to block the
+event. They read `~/.wikikit/env` (or `~\.wikikit\env.ps1`), where environment
+variables always win over stored values. The context scripts are the shipped
+consumers of the optional `.wikikit/agent.json` project manifest below.
+
+### Install the hooks
+
+Every WikiKit server serves its own installer with the base URL pre-resolved:
+
+```bash
+# macOS / Linux
+curl -fsSL https://YOUR-WIKIKIT-HOST/install.sh | sh
+```
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://YOUR-WIKIKIT-HOST/install.ps1 | iex"
+```
+
+The installer detects installed harnesses (`~/.claude`, `~/.codex`,
+`~/.cursor`), downloads the hook scripts to `~/.wikikit/hooks/`, and merges the
+hook entries into each harness config. It never clobbers: existing entries are
+preserved, the first real change keeps a one-time `.wikikit-backup`, re-running
+is an idempotent upgrade, and `--uninstall` removes exactly the wikikit
+entries. Keyless installs are valid — hooks stay dormant until a key lands in
+`~/.wikikit/env` (chmod 600). Secrets never enter harness configs: Codex uses
+`bearer_token_env_var`, and MCP registration for Claude Code and Cursor is
+printed as instructions rather than executed. Flags: `--url`, `--key`,
+`--space`, `--yes`, `--no-mcp`, `--uninstall` (the Windows installer reads the
+equivalent `WIKIKIT_*` environment variables).
+
+This agent hooks installer is unrelated to the repository's
+`bun run hooks:install`, which installs git pre-push hooks for contributors.
+
+### Harness wiring
+
+What the installer writes (or what to merge manually):
+
+**Claude Code** — `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [{ "type": "command", "command": "$HOME/.wikikit/hooks/wikikit-briefing.sh", "timeout": 30 }]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.wikikit/hooks/wikikit-context.sh", "timeout": 30 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "$HOME/.wikikit/hooks/wikikit-capture.sh", "timeout": 60 }] }
+    ]
+  }
+}
+```
+
+**Codex** — `~/.codex/hooks.json` with the same entry shape, except the
+terminal event is named `Stop` (Codex has no `SessionEnd`). Recent Codex
+versions enable hooks by default; older ones need `[features] hooks = true` in
+`~/.codex/config.toml`. On Windows, Codex additionally supports a
+`command_windows` field per entry for a PowerShell alternative command.
+
+**Cursor** — `~/.cursor/hooks.json` (the `"version": 1` field is required):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "$HOME/.wikikit/hooks/wikikit-briefing.sh" }],
+    "beforeSubmitPrompt": [{ "command": "$HOME/.wikikit/hooks/wikikit-context.sh" }],
+    "stop": [{ "command": "$HOME/.wikikit/hooks/wikikit-capture.sh" }]
+  }
+}
+```
+
+Cursor's hook surface is newer than the other two — verify event names and
+whether `beforeSubmitPrompt` stdout injects context against current Cursor
+documentation; if it does not, use Cursor with context via MCP
+(`wikikit_context`) plus capture via `stop`.
+
+On native Windows the installer wires the `.ps1` variants through
+`powershell -NoProfile -ExecutionPolicy Bypass -File ...` command strings, so
+none of the hooks depend on Git Bash being installed.
+
 ### Optional project manifest
 
 A host-side lifecycle adapter may use `.wikikit/agent.json` to pin a stable
@@ -90,7 +191,9 @@ project space and limits:
 ```
 
 The manifest is optional and is not consumed by the WikiKit server itself. It
-is a small convention for lifecycle adapters; pure MCP clients do not need it.
+is a small convention for lifecycle adapters — the shipped
+`wikikit-context.sh`/`.ps1` hooks read `primary_space` and `budget_tokens`
+from it; pure MCP clients do not need it.
 
 ## Session capture
 

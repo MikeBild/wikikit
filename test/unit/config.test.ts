@@ -175,7 +175,37 @@ describe('validation', () => {
       protocol: 'oidc',
       issuer: 'https://identity.example.test',
       clientId: 'wikikit',
+      allowedEmails: ['mike@example.com'],
+      allowedSubjects: [],
     })
+  })
+
+  test('accepts a subject-only OIDC allow-list and preserves opaque subject case', () => {
+    process.env.WIKIKIT_OAUTH_PROVIDERS = JSON.stringify([
+      {
+        protocol: 'oidc',
+        id: 'workforce-oidc',
+        issuer_url: 'https://identity.example.test',
+        client_id: 'wikikit',
+        allowed_subjects: ['User-ABC', 'User-ABC'],
+      },
+    ])
+    expect(loadConfig().oauthProviders?.[0]).toMatchObject({
+      allowedEmails: [],
+      allowedSubjects: ['User-ABC'],
+    })
+  })
+
+  test('rejects an OIDC provider without an explicit email or subject allow-list', () => {
+    process.env.WIKIKIT_OAUTH_PROVIDERS = JSON.stringify([
+      {
+        protocol: 'oidc',
+        id: 'workforce-oidc',
+        issuer_url: 'https://identity.example.test',
+        client_id: 'wikikit',
+      },
+    ])
+    expect(() => loadConfig()).toThrow(/allowed_emails, allowed_subjects, or both/)
   })
 
   test('rejects the removed provider type discriminator', () => {

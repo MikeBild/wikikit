@@ -393,7 +393,8 @@ describe('MCP OAuth 2.1 (integration)', () => {
             issuer: identityBase,
             clientId: 'wikikit-session-test',
             scopes: 'openid email profile',
-            allowedEmails: ['operator@example.test'],
+            allowedEmails: [],
+            allowedSubjects: ['operator-subject'],
             allowedScopes: ['knowledge:read'],
           },
         ],
@@ -403,7 +404,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
     await new Promise<void>((resolve) => sessionApp.server.listen(0, '127.0.0.1', resolve))
     const sessionBase = `http://127.0.0.1:${(sessionApp.server.address() as { port: number }).port}`
     try {
-      const identityToken = await new SignJWT({ email: 'operator@example.test', email_verified: true })
+      const identityToken = await new SignJWT({})
         .setProtectedHeader({ alg: 'RS256', kid: 'identity-session-test' })
         .setIssuer(identityBase)
         .setAudience('wikikit-session-test')
@@ -421,12 +422,12 @@ describe('MCP OAuth 2.1 (integration)', () => {
         api_key: string
         principal_id: string
         context_id: string | null
-        email: string
+        email: string | null
       }
       expect(session.api_key).toMatch(/^wk_/)
       expect(session.principal_id).toMatch(/^wki_/)
       expect(session.context_id).toBeNull()
-      expect(session.email).toBe('operator@example.test')
+      expect(session.email).toBeNull()
       expect(
         (await fetch(`${sessionBase}/v1/spaces`, { headers: { authorization: `Bearer ${session.api_key}` } })).status,
       ).toBe(200)

@@ -935,6 +935,9 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/llms-full.txt`                              | —                                  | `llmsFullTxtHandler`           | —                                                         | 200 `text/plain`                                                                         |
 | GET    | `/.well-known/llms.txt`                       | —                                  | `llmsTxtHandler`               | —                                                         | 200 `text/plain`                                                                         |
 | GET    | `/.well-known/llms-full.txt`                  | —                                  | `llmsFullTxtHandler`           | —                                                         | 200 `text/plain`                                                                         |
+| GET    | `/install.sh`                                 | —                                  | `installShHandler`             | —                                                         | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                          |
+| GET    | `/install.ps1`                                | —                                  | `installPs1Handler`            | —                                                         | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                          |
+| GET    | `/install/hooks/{script}`                     | —                                  | `installHookScriptHandler`     | params `zInstallHookScriptParams`                         | 200 `text/plain` (closed enum of the six hook scripts)                                   |
 
 `POST /mcp` (plus `GET`/`DELETE /mcp` for SSE/session-close per Streamable
 HTTP) is intentionally **outside** the ROUTES registry and the OpenAPI surface;
@@ -1267,8 +1270,10 @@ A provider-neutral `302` from authorize leads to
 always presents `Continue with SSO` before `Continue with API key`; product
 branding, scopes, policy and data stay WikiKit-owned. Provider labels cannot
 change these actions.
-WikiKit performs OIDC discovery and Authorization Code + PKCE itself and
-applies its own verified-email, allow-list and scope policy. Its OIDC client,
+WikiKit performs OIDC discovery and Authorization Code + PKCE itself. The
+immutable `sub` is mandatory; access requires an exact subject allow-list
+match or a provider-verified email allow-list match. Unverified email claims
+are ignored. Its OIDC client,
 secret, callback registration, sessions and identity records belong only to
 this deployment; no shared cross-product authentication runtime exists.
 

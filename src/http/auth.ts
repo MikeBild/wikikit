@@ -20,6 +20,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../domain/errors.ts'
 import type { Logger } from '../logger.ts'
+import { isOidcIdentityAllowed } from '../oauth/identity-policy.ts'
 import type { Scope } from './routes.ts'
 
 export interface Principal {
@@ -108,15 +109,18 @@ async function identityGrantIsCurrent(
   if (row.principal_kind !== 'identity') return true
   const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const provider = config.oauthProviders?.find((candidate) => candidate.id === match[1])
+  const providerId = match[1]!
+  const subject = match[2]!
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
   if (!provider || provider.protocol === 'api_key') return false
-  const { rows } = await db.query<{ email: string }>(
+  const { rows } = await db.query<{ email: string | null }>(
     `SELECT email FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
-    [provider.id, match[2]],
+    [provider.id, subject],
   )
-  return !!rows[0] && provider.allowedEmails.includes(rows[0].email.toLowerCase())
+  const identity = rows[0]
+  return !!identity && isOidcIdentityAllowed(provider, subject, identity.email ? identity.email.toLowerCase() : null)
 }
 
 export function createAuth(config: Config, db: Db): Auth {

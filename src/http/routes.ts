@@ -59,6 +59,7 @@ import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
 import { readDocsFile } from './docs-embedded.ts'
+import { INSTALL_HOOK_SCRIPTS, renderInstaller } from './install-embedded.ts'
 import { renderReviewPage, REVIEW_PAGE_CSP } from './review-page.ts'
 import { markUsageContext, type UsageTelemetry } from '../usage.ts'
 
@@ -619,6 +620,34 @@ export const ROUTES: RouteDef[] = [
     summary: 'Well-known alias of the full LLM documentation',
     handler: 'llmsFullTxtHandler',
     responses: { 200: { type: 'text/plain', desc: 'Complete documentation' } },
+  },
+  {
+    method: 'get',
+    path: '/install.sh',
+    scope: null,
+    summary:
+      'Coding-agent hooks installer (macOS/Linux) — `curl -fsSL <host>/install.sh | sh` wires the lifecycle hooks into Claude Code, Codex and Cursor. Unrelated to the repository’s git pre-push hooks.',
+    handler: 'installShHandler',
+    responses: { 200: { type: 'text/plain', desc: 'POSIX sh installer, base URL pre-resolved to this server' } },
+  },
+  {
+    method: 'get',
+    path: '/install.ps1',
+    scope: null,
+    summary:
+      'Coding-agent hooks installer (Windows) — `powershell -ExecutionPolicy Bypass -c "irm <host>/install.ps1 | iex"`.',
+    handler: 'installPs1Handler',
+    responses: { 200: { type: 'text/plain', desc: 'PowerShell 5.1 installer, base URL pre-resolved to this server' } },
+  },
+  {
+    method: 'get',
+    path: '/install/hooks/{script}',
+    scope: null,
+    summary:
+      'One agent lifecycle hook script (closed set: wikikit-briefing/context/capture as .sh and .ps1) — downloaded by the installers, individually inspectable.',
+    handler: 'installHookScriptHandler',
+    request: { params: 'zInstallHookScriptParams' },
+    responses: { 200: { type: 'text/plain', desc: 'Hook script source' } },
   },
 ]
 
@@ -1290,6 +1319,31 @@ export const HANDLERS: Record<string, Handler> = {
       text:
         content ??
         '# WikiKit\n\n> docs/llms-full.txt is not bundled in this build.\n\nSee /openapi.json for the API surface.\n',
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    }
+  },
+
+  async installShHandler(deps) {
+    return {
+      status: 200,
+      text: renderInstaller(deps.config, 'sh'),
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    }
+  },
+
+  async installPs1Handler(deps) {
+    return {
+      status: 200,
+      text: renderInstaller(deps.config, 'ps1'),
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    }
+  },
+
+  async installHookScriptHandler(_deps, input) {
+    // The params schema (closed enum) already rejected unknown names with 400.
+    return {
+      status: 200,
+      text: INSTALL_HOOK_SCRIPTS[input.params.script!]!,
       headers: { 'content-type': 'text/plain; charset=utf-8' },
     }
   },

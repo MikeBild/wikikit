@@ -11,6 +11,7 @@ import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
+import { isOidcIdentityAllowed } from './identity-policy.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
 
@@ -326,15 +327,18 @@ async function identityGrantIsCurrent(
   if (row.principal_kind !== 'identity') return true
   const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const provider = config.oauthProviders?.find((candidate) => candidate.id === match[1])
+  const providerId = match[1]!
+  const subject = match[2]!
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
   if (!provider || provider.protocol === 'api_key') return false
-  const { rows } = await db.query<{ email: string }>(
+  const { rows } = await db.query<{ email: string | null }>(
     `SELECT email FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
-    [provider.id, match[2]],
+    [provider.id, subject],
   )
-  return !!rows[0] && provider.allowedEmails.includes(rows[0].email.toLowerCase())
+  const identity = rows[0]
+  return !!identity && isOidcIdentityAllowed(provider, subject, identity.email ? identity.email.toLowerCase() : null)
 }
 
 async function issueTokens(
@@ -600,7 +604,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       [identity.subject, identity.email, provider.id],
     )
     const issued = await deps.auth.createKey({
-      name: `SSO ${identity.email}`,
+      name: `SSO ${identity.email ?? identity.subject}`,
       scopes: provider.allowedScopes,
       spaceId: null,
     })
@@ -852,7 +856,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           principalKind: 'identity',
           principalKeyId: `identity:${provider.id}:${identity.subject}`,
           principalKeyHash: hashApiKey(`identity:${provider.id}:${identity.subject}`, config.keyPepper),
-          principalName: identity.email,
+          principalName: identity.email ?? identity.subject,
           principalSpaceId: null,
           providerId: provider.id,
           providerSubject: identity.subject,
@@ -869,7 +873,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         }
         const loginState = params.get('login_state') || ''
         const state = await loadLoginState(loginState)
-        if (!state?.provider_subject || !state.provider_email) {
+        if (!state?.provider_subject) {
           throw new OAuthError('invalid_request', 'authorization state is no longer authenticated')
         }
         if (!PKCE_CHALLENGE.test(state.code_challenge)) {

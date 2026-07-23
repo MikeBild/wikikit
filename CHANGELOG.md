@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.12.0 - 2026-07-23
+
+### Added
+
+- Ship the missing UserPromptSubmit example hook (`wikikit-context.sh`) —
+  per-prompt space selection via `POST /v1/agent/context`, reading the
+  optional `.wikikit/agent.json` manifest — plus PowerShell 5.1 counterparts
+  of all three lifecycle hooks (`wikikit-briefing.ps1`, `wikikit-context.ps1`,
+  `wikikit-capture.ps1`) so native Windows needs no Git Bash, jq or Node.
+- Serve an embedded agent hooks installer from every WikiKit server:
+  `GET /install.sh` (strict POSIX, rustup-style, curl→wget fallback) and
+  `GET /install.ps1` (PowerShell 5.1, TLS 1.2), with the six hook scripts
+  individually downloadable at `GET /install/hooks/{script}`. The installer
+  detects Claude Code, Codex and Cursor, merges hook entries without ever
+  clobbering existing configuration, is idempotent on re-run, supports
+  `--uninstall`, and keeps secrets in `~/.wikikit/env` (chmod 600) instead of
+  harness configs.
+- Document Cursor as a lifecycle-capable harness (hooks.json `version: 1`,
+  `sessionStart`/`beforeSubmitPrompt`/`stop`) alongside Claude Code and Codex
+  in the coding-agent integration guide and both LLM documents.
+
+### Changed
+
+- All example hooks source `~/.wikikit/env` (environment variables still win),
+  so harness configs stay bare script paths with no inline secrets.
+- Make OIDC identity subject-first: `sub` is mandatory, while email is optional
+  and used only with `email_verified=true`. Each provider must still explicitly
+  allow the exact subject, a verified email, or both.
+
 ## 0.11.0 - 2026-07-22
 
 ### Changed

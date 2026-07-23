@@ -1,0 +1,4 @@
+# Served scripts must keep their native line endings regardless of checkout
+# platform: a CRLF .sh fails with `bad interpreter: /bin/sh^M`.
+*.sh text eol=lf
+*.ps1 text eol=crlf

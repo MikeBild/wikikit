@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2252,6 +2252,55 @@
         "summary": "Well-known alias of the full LLM documentation",
         "operationId": "llmsFullTxt",
         "responses": { "200": { "description": "Complete documentation", "content": { "text/plain": {} } } }
+      }
+    },
+    "/install.sh": {
+      "get": {
+        "summary": "Coding-agent hooks installer (macOS/Linux) — `curl -fsSL <host>/install.sh | sh` wires the lifecycle hooks into Claude Code, Codex and Cursor. Unrelated to the repository’s git pre-push hooks.",
+        "operationId": "installSh",
+        "responses": {
+          "200": {
+            "description": "POSIX sh installer, base URL pre-resolved to this server",
+            "content": { "text/plain": {} }
+          }
+        }
+      }
+    },
+    "/install.ps1": {
+      "get": {
+        "summary": "Coding-agent hooks installer (Windows) — `powershell -ExecutionPolicy Bypass -c \"irm <host>/install.ps1 | iex\"`.",
+        "operationId": "installPs1",
+        "responses": {
+          "200": {
+            "description": "PowerShell 5.1 installer, base URL pre-resolved to this server",
+            "content": { "text/plain": {} }
+          }
+        }
+      }
+    },
+    "/install/hooks/{script}": {
+      "get": {
+        "summary": "One agent lifecycle hook script (closed set: wikikit-briefing/context/capture as .sh and .ps1) — downloaded by the installers, individually inspectable.",
+        "operationId": "installHookScript",
+        "responses": { "200": { "description": "Hook script source", "content": { "text/plain": {} } } },
+        "parameters": [
+          {
+            "name": "script",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "wikikit-briefing.sh",
+                "wikikit-context.sh",
+                "wikikit-capture.sh",
+                "wikikit-briefing.ps1",
+                "wikikit-context.ps1",
+                "wikikit-capture.ps1"
+              ]
+            }
+          }
+        ]
       }
     },
     "/.well-known/oauth-protected-resource": {
@@ -4811,7 +4860,10 @@
           "api_key": { "type": "string" },
           "principal_id": { "type": "string" },
           "context_id": { "type": ["string", "null"] },
-          "email": { "type": "string" }
+          "email": {
+            "type": ["string", "null"],
+            "description": "Verified provider email when supplied; null when the subject alone identifies the account"
+          }
         }
       },
       "OAuthError": {

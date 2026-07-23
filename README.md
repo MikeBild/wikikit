@@ -147,8 +147,15 @@ authenticated canaries with `X-WikiKit-Traffic-Class: synthetic`. See
 ## Connect an agent (MCP)
 
 The built-in **[agent guide](docs/agent-guide.md)** explains setup by MCP
-capability instead of by client brand. For the optional session lifecycle, see
-**[coding-agent integration](docs/coding-agent-integration.md)**.
+capability instead of by client brand. For the optional session lifecycle
+(Claude Code, Codex, Cursor), see
+**[coding-agent integration](docs/coding-agent-integration.md)** — every
+WikiKit server serves its own agent hooks installer:
+
+```bash
+curl -fsSL https://YOUR-WIKIKIT-HOST/install.sh | sh          # macOS / Linux
+powershell -ExecutionPolicy Bypass -c "irm https://YOUR-WIKIKIT-HOST/install.ps1 | iex"  # Windows
+```
 
 First mint a key for the agent. Don't hand it your bootstrap key — scopes are
 how you keep approval a human act:
@@ -202,8 +209,9 @@ two actions. The same public surface is implemented independently by WikiKit,
 ContentKit and SubKit: provider discovery, assertion exchange, generic
 start/callback/logout, OAuth discovery, DCR, authorize/consent, token and
 revocation. There are no provider-named routes or compatibility aliases.
-WikiKit verifies the selected provider and admits
-only the explicit provider/email allow-list. The operator session is
+WikiKit verifies the selected provider and admits only an exact configured
+OIDC subject or a configured provider-verified email. The immutable `sub` is
+the identity anchor; email is optional and an unverified email is ignored. The operator session is
 revocable, has an eight-hour idle/24-hour absolute limit, and the consent page
 can switch accounts. The client receives only a scoped, short-lived token;
 unrequested scopes are never displayed or granted and `knowledge:read` is a
@@ -365,6 +373,9 @@ own database under an advisory lock at boot.
 bun run gate            # everything CI runs, in ~60s (needs Docker)
 bun run hooks:install   # ...and run it automatically on every git push
 ```
+
+(`hooks:install` sets up this repository's **git** pre-push hooks for
+contributors — unrelated to the agent hooks installer served at `/install.sh`.)
 
 The gate is lint → typecheck → unit + contract → integration (real Postgres) →
 e2e (the real AI SDK against a stub endpoint). Individual tiers, benchmarks and

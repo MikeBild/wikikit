@@ -105,11 +105,19 @@ registration, allow-list and permission ceiling.
     "client_id": "<public-or-confidential-client-id>",
     "client_secret": "<optional-confidential-client-secret>",
     "scopes": "openid profile email",
+    "allowed_subjects": ["00u123example"],
     "allowed_emails": ["reviewer@example.com"],
     "allowed_scopes": ["knowledge:read", "knowledge:propose", "knowledge:review", "knowledge:approve"]
   }
 ]
 ```
+
+Every OIDC record must define at least one entry across `allowed_subjects` and
+`allowed_emails`. Subjects are exact, case-sensitive matches to the immutable
+OIDC `sub` claim. Email is optional; it participates in authorization and is
+stored only when the provider supplies `email_verified=true`. This permits
+providers that expose only `sub` without weakening WikiKit into tenant-wide
+just-in-time access.
 
 Do not put this JSON in version control when it has a `client_secret`; inject
 it through the production secret store. Register
@@ -122,7 +130,8 @@ adapters use only `/v1/identity/login/start`,
 `protocol`, opaque `id`, canonical `label` (`SSO` or `API key`) and the
 protocol metadata needed by a client (`login_url` or `issuer`).
 `POST /v1/identity/sessions` accepts only a configured `provider_id` plus an
-`identity_token` and returns `{api_key,principal_id,context_id,email}`. It never
+`identity_token` and returns `{api_key,principal_id,context_id,email}`; `email`
+is null when the provider supplied no verified email. It never
 accepts a caller-supplied issuer or a provider-specific payload shape.
 
 ## Privacy-safe usage telemetry

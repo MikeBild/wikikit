@@ -4,6 +4,7 @@
 import * as oidc from 'openid-client'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { OidcProviderConfig } from '../config.ts'
+import { oidcIdentityFromClaims, type OidcIdentity } from './identity-policy.ts'
 
 export interface OidcStart {
   authorizationUrl: string
@@ -51,11 +52,6 @@ export async function startOidcLogin(args: {
     code_challenge_method: 'S256',
   })
   return { authorizationUrl: authorizationUrl.toString(), nonce, codeVerifier }
-}
-
-export interface OidcIdentity {
-  subject: string
-  email: string
 }
 
 const assertionMetadata = new Map<string, Promise<{ issuer: string; jwks_uri: string }>>()
@@ -107,13 +103,7 @@ export async function verifyOidcIdentityToken(args: {
     issuer: metadata.issuer,
     audience: args.provider.clientId,
   })
-  const subject = typeof payload.sub === 'string' ? payload.sub : ''
-  const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : ''
-  if (!subject || !email || payload.email_verified !== true) {
-    throw new Error('OIDC identity must contain sub, email and email_verified=true')
-  }
-  if (!args.provider.allowedEmails.includes(email)) throw new Error('OIDC account is not allowed to access WikiKit')
-  return { subject, email }
+  return oidcIdentityFromClaims(args.provider, payload)
 }
 
 export async function finishOidcLogin(args: {
@@ -133,12 +123,5 @@ export async function finishOidcLogin(args: {
     pkceCodeVerifier: args.codeVerifier,
   })
   const claims = tokens.claims() as { sub?: unknown; email?: unknown; email_verified?: unknown } | undefined
-  const subject = typeof claims?.sub === 'string' ? claims.sub : ''
-  const email = typeof claims?.email === 'string' ? claims.email.trim().toLowerCase() : ''
-  // Email is the policy anchor. Requiring the verified standard claim avoids
-  // treating a mutable profile attribute as account proof.
-  const verified = claims?.email_verified === true
-  if (!subject || !email || !verified) throw new Error('OIDC identity must contain sub, email and email_verified=true')
-  if (!args.provider.allowedEmails.includes(email)) throw new Error('OIDC account is not allowed to access WikiKit')
-  return { subject, email }
+  return oidcIdentityFromClaims(args.provider, claims)
 }

@@ -17,6 +17,9 @@
 # Setup: see docs/coding-agent-integration.md
 set -uo pipefail
 
+# shellcheck disable=SC1091
+[ -r "$HOME/.wikikit/env" ] && . "$HOME/.wikikit/env"
+
 : "${WIKIKIT_URL:=http://127.0.0.1:4060}"
 : "${WIKIKIT_SPACE:=default}"
 : "${WIKIKIT_API_KEY:=}"

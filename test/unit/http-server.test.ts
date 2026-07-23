@@ -352,6 +352,28 @@ describe('http server', () => {
     }
   })
 
+  test('installers serve with the base-URL placeholder resolved to publicUrl', async () => {
+    for (const path of ['/install.sh', '/install.ps1']) {
+      const res = await fetch(`${base}${path}`)
+      expect(res.status, path).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/plain')
+      const text = await res.text()
+      expect(text, path).not.toContain('__WIKIKIT_BASE_URL__')
+      expect(text, path).toContain('http://127.0.0.1:0')
+    }
+  })
+
+  test('hook scripts serve verbatim; unknown names are 400, not 404 probing', async () => {
+    const res = await fetch(`${base}/install/hooks/wikikit-context.sh`)
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('/v1/agent/context')
+    expect(text).toContain('exit 0')
+
+    const evil = await fetch(`${base}/install/hooks/evil.sh`)
+    expect(evil.status).toBe(400)
+  })
+
   test('draining: probes stay up, API refuses with 503 draining, /ready flips', async () => {
     app.state.draining = true
     try {

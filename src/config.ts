@@ -178,6 +178,7 @@ export interface OidcProviderConfig {
   readonly clientSecret?: string
   readonly scopes: string
   readonly allowedEmails: string[]
+  readonly allowedSubjects: string[]
   readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
 }
 
@@ -237,6 +238,12 @@ function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthP
           .map((email) => email.trim().toLowerCase())
           .filter(Boolean)
       : []
+    const subjects = Array.isArray(item.allowed_subjects)
+      ? item.allowed_subjects
+          .filter((subject): subject is string => typeof subject === 'string')
+          .map((subject) => subject.trim())
+          .filter(Boolean)
+      : []
     const scopes = Array.isArray(item.allowed_scopes)
       ? parseIdentityScopes(
           item.allowed_scopes.join(','),
@@ -244,7 +251,9 @@ function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthP
           globalScopes,
         )
       : globalScopes
-    if (!emails.length) throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}].allowed_emails must not be empty`)
+    if (!emails.length && !subjects.length) {
+      throw new Error(`WIKIKIT_OAUTH_PROVIDERS[${index}] must configure allowed_emails, allowed_subjects, or both`)
+    }
 
     const issuer = typeof item.issuer_url === 'string' ? item.issuer_url.trim().replace(/\/$/, '') : ''
     const clientId = typeof item.client_id === 'string' ? item.client_id.trim() : ''
@@ -270,7 +279,8 @@ function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthP
       clientId,
       clientSecret: typeof item.client_secret === 'string' && item.client_secret ? item.client_secret : undefined,
       scopes: requestedScopes,
-      allowedEmails: emails,
+      allowedEmails: [...new Set(emails)],
+      allowedSubjects: [...new Set(subjects)],
       allowedScopes: scopes,
     }
   })

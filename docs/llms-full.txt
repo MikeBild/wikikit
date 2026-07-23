@@ -125,6 +125,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/llms-full.txt`                              | public            | This file |
 | GET    | `/.well-known/llms.txt`                       | public            | Well-known alias of `/llms.txt` |
 | GET    | `/.well-known/llms-full.txt`                  | public            | Well-known alias of `/llms-full.txt` |
+| GET    | `/install.sh`                                 | public            | Agent hooks installer (macOS/Linux) — `curl -fsSL <host>/install.sh \| sh` wires Claude Code, Codex and Cursor |
+| GET    | `/install.ps1`                                | public            | Agent hooks installer (Windows, PowerShell 5.1) — `irm <host>/install.ps1 \| iex` |
+| GET    | `/install/hooks/{script}`                     | public            | One lifecycle hook script (closed set of six: briefing/context/capture as `.sh` and `.ps1`) |
 
 MCP (Streamable HTTP) is mounted at POST /mcp — intentionally outside the
 REST/OpenAPI surface. Local clients use scoped API keys; remote MCP clients
@@ -363,8 +366,9 @@ Remote human login is configured only by the provider-neutral
 `WIKIKIT_OAUTH_PROVIDERS` JSON list. It accepts one API-key plus multiple named
 direct OIDC adapters concurrently; product names are configuration values.
 WikiKit owns each OIDC client, callback, secret and policy; no cross-product
-authentication runtime is involved. Each OIDC adapter applies an explicit
-verified-email allow-list. The interactive permission ceiling
+authentication runtime is involved. Each OIDC adapter requires the immutable
+`sub` claim and applies an explicit exact-subject or provider-verified-email
+allow-list. Email is optional and unverified email is ignored. The interactive permission ceiling
 defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
 review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
@@ -378,7 +382,8 @@ actions. Authorize redirects through the generic
 `/v1/identity/login/start?login_state=<opaque>` funnel. Provider discovery is
 `GET /v1/identity/providers`; assertion exchange is
 `POST /v1/identity/sessions` with `{provider_id,identity_token}` and the exact
-response `{api_key,principal_id,context_id,email}`. Only the generic
+response `{api_key,principal_id,context_id,email}`; `email` is nullable and
+contains only a provider-verified address. Only the generic
 start/callback/logout routes exist—there are no provider-named or legacy
 aliases. WikiKit returns `context_id:null` and keeps space authorization in the
 issued key.
@@ -430,7 +435,12 @@ SessionEnd/Stop hook
 posts the transcript to `POST /v1/spaces/{space}/agent/sessions`, which distils
 ONLY durable rules a human explicitly taught and stages them as a proposal.
 A routine session answers `no_learnings` and writes nothing; the transcript is
-distilled and dropped, never archived.
+distilled and dropped, never archived. Claude Code, Codex and Cursor expose
+equivalent lifecycle events; example hook scripts ship as `.sh`/`.ps1` pairs
+(`examples/agent-hooks/`, scripts `wikikit-briefing`/`wikikit-context`/
+`wikikit-capture`) and every server serves its own agent hooks installer at
+`GET /install.sh` (macOS/Linux) and `GET /install.ps1` (Windows) — unrelated
+to the repository's git pre-push `hooks:install`.
 
 **Self-description**: `initialize` returns `instructions` (how the tools fit
 together; the staging-not-publishing rule), and the server advertises a
@@ -623,7 +633,10 @@ auto-provisioning, `DATABASE_URL` and `WIKIKIT_KEY_PEPPER` are mandatory.
 `WIKIKIT_OAUTH_PROVIDERS` is a JSON array with unique `id`, `protocol`, and
 `label`. API-key records select a product-local key policy; direct OIDC records
 add HTTPS `issuer_url`, `client_id`, optional `client_secret`,
-`scopes` (including `openid`), and optional identity-policy overrides. Register
+`scopes` (including `openid`), `allowed_subjects` and/or `allowed_emails`, and
+optional identity-policy overrides. At least one subject or email entry is
+required; subject matching is exact and email matching requires
+`email_verified=true`. Register
 `${WIKIKIT_PUBLIC_URL}/v1/identity/login/callback` with each OIDC provider. Keep
 client secrets in the production secret store, never in the repository.
 

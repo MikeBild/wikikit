@@ -156,6 +156,7 @@ describe('POST /v1/oauth/authorize/decision', () => {
             clientId: 'wikikit-test',
             scopes: 'openid email profile',
             allowedEmails: ['mike@example.com'],
+            allowedSubjects: [],
             allowedScopes: ['knowledge:read', 'knowledge:propose'],
           },
         ],

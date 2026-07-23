@@ -22,6 +22,7 @@ describe('GET /v1/identity/providers', () => {
           clientId: 'wikikit-test',
           scopes: 'openid email profile',
           allowedEmails: [],
+          allowedSubjects: ['operator-subject'],
           allowedScopes: ['knowledge:read'],
         },
       ],

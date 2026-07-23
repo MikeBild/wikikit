@@ -64,6 +64,9 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/llms-full.txt', null],
   ['get', '/.well-known/llms.txt', null],
   ['get', '/.well-known/llms-full.txt', null],
+  ['get', '/install.sh', null],
+  ['get', '/install.ps1', null],
+  ['get', '/install/hooks/{script}', null],
 ]
 
 describe('ROUTES registry', () => {

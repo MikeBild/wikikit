@@ -57,6 +57,20 @@ export const zIdParams = z.object({ id: z.uuid() })
 export const zSpaceIdParams = zSpaceParams.extend({ id: z.uuid() })
 export const zConceptParams = zSpaceParams.extend({ slug: z.string().regex(CONCEPT_SLUG) })
 
+// Closed set — the servable agent-hook scripts. Unknown names fail validation
+// (400) instead of reaching the handler, and the drift test in
+// install-embedded.test.ts pins this enum to the embedded assets.
+export const zInstallHookScriptParams = z.object({
+  script: z.enum([
+    'wikikit-briefing.sh',
+    'wikikit-context.sh',
+    'wikikit-capture.sh',
+    'wikikit-briefing.ps1',
+    'wikikit-context.ps1',
+    'wikikit-capture.ps1',
+  ]),
+})
+
 // ---------------------------------------------------------------------------
 // Query strings (z.coerce — query values arrive as strings)
 // ---------------------------------------------------------------------------
@@ -687,6 +701,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIdParams,
   zSpaceIdParams,
   zConceptParams,
+  zInstallHookScriptParams,
   zDecisionParams,
   zListQuery,
   zSearchQuery,
