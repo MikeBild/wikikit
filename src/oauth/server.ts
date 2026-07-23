@@ -11,9 +11,9 @@ import { hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
-import { isOidcIdentityAllowed } from './identity-policy.ts'
+import { isOidcIdentityAllowed, type OidcIdentity } from './identity-policy.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
-import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderProviderChoice } from './ui.ts'
+import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderErrorPage, renderProviderChoice } from './ui.ts'
 
 const OAUTH_SCOPES = [
   'knowledge:read',
@@ -27,6 +27,13 @@ const OAUTH_SCOPES = [
 const DEFAULT_SCOPE = 'knowledge:read knowledge:propose offline_access'
 const DCR_MAX_PER_MINUTE = 10
 const MAX_FORM_BYTES = 32 * 1024
+// Human-facing GET surfaces of the browser login funnel. Failures here render
+// an HTML error page in the shared TOKENS shell; the JSON {error,
+// error_description} envelope stays reserved for the non-browser endpoints
+// (token/register/API) and for callers that ask for application/json.
+const BROWSER_FUNNEL_PATHS = ['/v1/oauth/authorize', '/v1/identity/login/start', '/v1/identity/login/callback']
+const NOT_AUTHORIZED_MESSAGE = 'Your account is not authorized for WikiKit. Contact the operator.'
+const STATE_PROBLEM_MESSAGE = 'This sign-in attempt expired or was already used. Please sign in again.'
 
 interface ClientRow {
   client_id: string
@@ -164,6 +171,25 @@ function writeResponseHeaders(res: ServerResponse, response: Response): void {
 function oauthError(error: unknown): Response {
   const known = error instanceof OAuthError ? error : new OAuthError('server_error', 'authorization server error', 500)
   return json({ error: known.error, error_description: known.description }, known.status)
+}
+
+function wantsJson(request: Request): boolean {
+  return (request.headers.get('accept') ?? '').includes('application/json')
+}
+
+function browserErrorMessage(error: OAuthError): string {
+  if (error.error === 'access_denied') return NOT_AUTHORIZED_MESSAGE
+  if (/state/i.test(error.description)) return STATE_PROBLEM_MESSAGE
+  return error.description
+}
+
+// RFC 6749 §4.1.2.1 error redirect for the waiting OAuth client — the same
+// shape the consent deny path issues, but as a URL the error page can link.
+function clientErrorRedirectUrl(redirectUri: string, clientState: string | null): string {
+  const target = new URL(redirectUri)
+  target.searchParams.set('error', 'access_denied')
+  if (clientState) target.searchParams.set('state', clientState)
+  return target.toString()
 }
 
 function redirectWith(redirectUri: string, values: Record<string, string | undefined>): Response {
@@ -575,6 +601,39 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     return rows[0] ?? null
   }
 
+  // A dead login state renders a human-readable page instead of raw JSON.
+  // When the row still physically exists (consumed or past TTL but not yet
+  // swept), the waiting OAuth client is known and validated, so "Sign in
+  // again" carries the RFC 6749 access_denied redirect back to the client's
+  // redirect_uri — MCP connectors unblock instead of hanging on a callback
+  // that will never come.
+  async function loginStateErrorResponse(request: Request, rawState: string): Promise<Response> {
+    if (wantsJson(request)) {
+      return oauthError(new OAuthError('invalid_request', 'login state is expired, unknown or already used'))
+    }
+    let retryHref: string | undefined
+    if (/^wkl_[A-Za-z0-9_-]{43}$/.test(rawState)) {
+      const { rows } = await deps.db.query<{ client_id: string; redirect_uri: string; client_state: string | null }>(
+        `SELECT client_id, redirect_uri, client_state
+           FROM wk_oauth_login_states
+          WHERE state_hash = $1
+          LIMIT 1`,
+        [hashApiKey(rawState, config.keyPepper)],
+      )
+      const row = rows[0]
+      if (row) {
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${row.client_id}`,
+          limit: 1,
+        })
+        if (client && !client.revoked_at && client.redirect_uris.includes(row.redirect_uri)) {
+          retryHref = clientErrorRedirectUrl(row.redirect_uri, row.client_state)
+        }
+      }
+    }
+    return authHtmlResponse(renderErrorPage({ message: STATE_PROBLEM_MESSAGE, retryHref }), 400)
+  }
+
   function loginResponse(rawState: string): Response {
     const options = loginOptions(config)
     if (!options.length) throw new OAuthError('server_error', 'no OAuth login method is configured', 500)
@@ -778,26 +837,40 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           throw new OAuthError('invalid_request', 'valid login state is required')
         const configuredProvider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
         const state = await loadLoginState(loginState)
-        if (!state) throw new OAuthError('invalid_request', 'authorization state expired')
+        if (!state) return await loginStateErrorResponse(request, loginState)
         if (!providerId) return loginResponse(loginState)
         if (configuredProvider?.protocol === 'api_key') {
           return authHtmlResponse(renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id }))
         }
         const provider = oidcProvider(config, providerId)
         if (!provider) throw new OAuthError('not_found', 'identity provider is not available', 404)
+        // Every "Continue with SSO" click mints its OWN login state carrying
+        // its own nonce and PKCE verifier. Overwriting the pending row would
+        // break the Back-button flow: the first IdP callback fails its nonce
+        // check the moment a second click rotates the stored values. The
+        // chooser state is never touched and stays valid until its TTL.
+        const ssoState = randomToken('wkl_')
         const started = await startOidcLogin({
           provider,
           redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
-          state: loginState,
+          state: ssoState,
         }).catch(() => {
           throw new OAuthError('temporarily_unavailable', 'OIDC provider discovery is unavailable', 503)
         })
-        const changed = await deps.db.update(
-          'wk_oauth_login_states',
-          { state_hash: `eq.${hashApiKey(loginState, config.keyPepper)}`, consumed_at: 'is.null' },
-          { provider_id: provider.id, oidc_nonce: started.nonce, oidc_code_verifier: started.codeVerifier },
-        )
-        if (!changed.length) throw new OAuthError('invalid_request', 'OAuth login state is expired or already used')
+        const [ssoRow] = await deps.db.insert<IdentityLoginStateRow>('wk_oauth_login_states', {
+          state_hash: hashApiKey(ssoState, config.keyPepper),
+          client_id: state.client_id,
+          redirect_uri: state.redirect_uri,
+          scopes: state.scopes,
+          code_challenge: state.code_challenge,
+          resource: state.resource,
+          client_state: state.client_state,
+          provider_id: provider.id,
+          oidc_nonce: started.nonce,
+          oidc_code_verifier: started.codeVerifier,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        })
+        if (!ssoRow) throw new OAuthError('server_error', 'authorization state could not be created', 500)
         return new Response(null, {
           status: 302,
           headers: { location: started.authorizationUrl, 'cache-control': 'no-store' },
@@ -818,18 +891,44 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         const state = rows[0]
         const provider = oidcProvider(config, state?.provider_id)
         if (!state || !provider || !state.oidc_nonce || !state.oidc_code_verifier) {
-          throw new OAuthError('invalid_request', 'OIDC login state is expired or invalid')
+          return await loginStateErrorResponse(request, loginState)
         }
-        const identity = await finishOidcLogin({
-          provider,
-          redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
-          callbackUrl: url,
-          state: loginState,
-          nonce: state.oidc_nonce,
-          codeVerifier: state.oidc_code_verifier,
-        }).catch((error) => {
-          throw new OAuthError('access_denied', error instanceof Error ? error.message : 'OIDC login was rejected', 403)
+        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
+          client_id: `eq.${state.client_id}`,
+          limit: 1,
         })
+        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+        let identity: OidcIdentity
+        try {
+          identity = await finishOidcLogin({
+            provider,
+            redirectUri: `${config.publicUrl}/v1/identity/login/callback`,
+            callbackUrl: url,
+            state: loginState,
+            nonce: state.oidc_nonce,
+            codeVerifier: state.oidc_code_verifier,
+          })
+        } catch (error) {
+          // Identity-policy denial or code-exchange failure in the browser
+          // funnel: the human gets a readable page, and — reusing the consent
+          // deny-path contract — the validated waiting client gets the RFC
+          // 6749 error=access_denied redirect behind "Sign in again", so MCP
+          // clients never hang. The state is consumed like any denial.
+          await deps.db.update(
+            'wk_oauth_login_states',
+            { id: `eq.${state.id}`, consumed_at: 'is.null' },
+            { consumed_at: new Date().toISOString() },
+            { returning: false },
+          )
+          const denied = error instanceof Error && /not allowed/.test(error.message)
+          const retryHref = client.redirect_uris.includes(state.redirect_uri)
+            ? clientErrorRedirectUrl(state.redirect_uri, state.client_state)
+            : undefined
+          return authHtmlResponse(
+            renderErrorPage({ message: denied ? NOT_AUTHORIZED_MESSAGE : STATE_PROBLEM_MESSAGE, retryHref }),
+            denied ? 403 : 400,
+          )
+        }
         const authenticated = await deps.db.update(
           'wk_oauth_login_states',
           { id: `eq.${state.id}`, consumed_at: 'is.null' },
@@ -839,7 +938,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             authenticated_at: new Date().toISOString(),
           },
         )
-        if (!authenticated.length) throw new OAuthError('invalid_request', 'OIDC login state was already consumed')
+        if (!authenticated.length) return await loginStateErrorResponse(request, loginState)
         await deps.db.query(
           `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
            VALUES ($1, $2, $3, now())
@@ -847,11 +946,6 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
              SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null`,
           [identity.subject, identity.email, provider.id],
         )
-        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
-          client_id: `eq.${state.client_id}`,
-          limit: 1,
-        })
-        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
         const session = await createOperatorSession({
           principalKind: 'identity',
           principalKeyId: `identity:${provider.id}:${identity.subject}`,
@@ -1141,6 +1235,14 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           path,
           error: error instanceof Error ? error.message : String(error),
         })
+      }
+      // Browser-funnel GETs answer humans with an HTML error page in the
+      // shared shell; JSON remains for non-browser endpoints and for callers
+      // that explicitly Accept: application/json.
+      if (request.method === 'GET' && BROWSER_FUNNEL_PATHS.includes(path) && !wantsJson(request)) {
+        const known =
+          error instanceof OAuthError ? error : new OAuthError('server_error', 'authorization server error', 500)
+        return authHtmlResponse(renderErrorPage({ message: browserErrorMessage(known) }), known.status)
       }
       return oauthError(error)
     }

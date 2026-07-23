@@ -1270,6 +1270,16 @@ A provider-neutral `302` from authorize leads to
 always presents `Continue with SSO` before `Continue with API key`; product
 branding, scopes, policy and data stay WikiKit-owned. Provider labels cannot
 change these actions.
+Each `Continue with SSO` click mints its own login state (own nonce and PKCE
+verifier); a pending state row is never rewritten, and earlier states stay
+valid until their TTL so the browser Back button cannot poison an in-flight
+IdP round trip. Browser `GET` failures in this funnel — denied identity
+policy, unknown/expired/consumed login state, code-exchange errors — render a
+`Sign-in failed` HTML page in the same shared shell; when the waiting OAuth
+client's `redirect_uri` is validated and known, the page's `Sign in again`
+action carries the RFC 6749 `error=access_denied` redirect back to the client
+so MCP connectors never hang. The JSON `{error,error_description}` envelope
+remains for non-browser endpoints and for `Accept: application/json`.
 WikiKit performs OIDC discovery and Authorization Code + PKCE itself. The
 immutable `sub` is mandatory; access requires an exact subject allow-list
 match or a provider-verified email allow-list match. Unverified email claims
