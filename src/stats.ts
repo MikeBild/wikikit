@@ -435,6 +435,7 @@ interface UsageRow {
   client_errors?: unknown
   server_errors?: unknown
   rejected?: unknown
+  no_answer?: unknown
   unique_actors?: unknown
   unique_sessions?: unknown
   duration_ms_total?: unknown
@@ -462,6 +463,7 @@ function usageMetrics(row: UsageRow) {
   const clientErrors = number(row.client_errors)
   const serverErrors = number(row.server_errors)
   const rejected = number(row.rejected)
+  const noAnswer = number(row.no_answer)
   const durationSamples = calls
   const requestSamples = number(row.request_size_count)
   const responseSamples = number(row.response_size_count)
@@ -472,6 +474,10 @@ function usageMetrics(row: UsageRow) {
     client_errors: metric(clientErrors, 'count'),
     server_errors: metric(serverErrors, 'count'),
     rejected: metric(rejected, 'count'),
+    // Demand-vs-coverage: /query calls the knowledge base answered honestly
+    // with "not covered". A 200 on the wire, but an unanswered question.
+    no_answer: metric(noAnswer, 'count'),
+    no_answer_ratio: ratio(noAnswer, calls),
     success_ratio: ratio(success, calls),
     error_ratio: ratio(clientErrors + serverErrors, calls),
     unique_actors: metric(number(row.unique_actors), 'count'),
@@ -507,6 +513,7 @@ const USAGE_SELECT = `count(*)::double precision AS calls,
   count(*) FILTER (WHERE outcome = 'client_error')::double precision AS client_errors,
   count(*) FILTER (WHERE outcome = 'server_error')::double precision AS server_errors,
   count(*) FILTER (WHERE outcome = 'rejected')::double precision AS rejected,
+  count(*) FILTER (WHERE outcome = 'no_answer')::double precision AS no_answer,
   count(DISTINCT actor_hmac)::double precision AS unique_actors,
   count(DISTINCT session_hmac)::double precision AS unique_sessions,
   coalesce(sum(duration_ms), 0)::double precision AS duration_ms_total,

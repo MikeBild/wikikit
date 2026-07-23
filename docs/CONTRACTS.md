@@ -1113,6 +1113,11 @@ Usage telemetry contract:
   dimensions. Totals MUST be queried across the exact full window; bucket
   uniques/percentiles MUST NOT be summed. Ratio metrics carry numerator and
   denominator; value state distinguishes zero from missing; `sampled=false`.
+- Outcome `no_answer` marks a `/query` call the knowledge base answered
+  honestly with "not covered" (HTTP 200; recorded on the knowledge-surface
+  row only, transport rows keep status semantics). `no_answer` /
+  `no_answer_ratio` in usage stats are the demand-vs-coverage signal: demand
+  the curated base does not yet cover.
 - Actor/session HMAC scope is WikiKit-local. Collectors and Cockpit MUST NOT
   cross-join identities with another product.
 

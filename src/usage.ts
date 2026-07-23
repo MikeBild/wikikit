@@ -9,13 +9,20 @@ export type TrafficClass = 'organic' | 'synthetic' | 'internal'
 export type RequestSource = 'api' | 'gateway' | 'scheduler' | 'manual' | 'mcp'
 export type UsageSurface = 'http' | 'mcp' | 'knowledge' | 'review'
 export type UsageOutcome =
-  'success' | 'client_error' | 'server_error' | 'rejected' | 'timeout' | 'cancelled' | 'handoff'
+  'success' | 'client_error' | 'server_error' | 'rejected' | 'timeout' | 'cancelled' | 'handoff' | 'no_answer'
 
 interface UsageContext {
   spaceId?: string
   actorId?: string
   sessionId?: string
   requestSource?: RequestSource
+  /**
+   * Handler-declared outcome for the CLASSIFIED (knowledge/review) row only.
+   * The http-surface row keeps transport semantics (a 200 stays 'success');
+   * this exists so /query can report 'no_answer' when the knowledge base did
+   * not cover the question — the demand-vs-coverage signal.
+   */
+  outcome?: UsageOutcome
 }
 
 export interface UsageQuality {
@@ -207,7 +214,12 @@ export function createUsageTelemetry(config: Config, db: Db, logger: Logger): Us
     const saved = await write({ ...base, surface: 'http', operation: 'request' })
     const classified = classifiedOperation(input.route, req.method ?? 'GET')
     if (classified && context.spaceId) {
-      await write({ ...base, surface: classified.surface, operation: classified.operation })
+      await write({
+        ...base,
+        outcome: res.statusCode < 400 && context.outcome ? context.outcome : base.outcome,
+        surface: classified.surface,
+        operation: classified.operation,
+      })
     }
     return saved
   }

@@ -178,6 +178,12 @@ export const EMBEDDED_JOURNAL: { version: string; dialect: string; entries: Embe
       when: 1784995200000,
       breakpoints: true,
     },
+    {
+      idx: 25,
+      tag: '0025_wk_usage_no_answer',
+      when: 1784998800000,
+      breakpoints: true,
+    },
   ],
 }
 
@@ -232,6 +238,8 @@ const SQL_BY_TAG: Record<string, string> = {
     "-- Cross-space federation — qualified references, never knowledge copies.\n--\n--   * Spaces stay the tenancy and review boundary; federation links\n--     KNOWLEDGE across them: a relation may now point at a concept in\n--     another space ('mikebild-platform:contentkit'-style qualified slugs at\n--     the boundary), provided the target space is DECLARED in the source\n--     space's settings.imports and the staging principal can see both\n--     spaces.\n--   * to_space_id is a nullable denormalized column (null = intra-space, the\n--     overwhelmingly common row): to_concept_id is already a globally unique\n--     uuid, so the row shape supports foreign targets as-is — a second graph\n--     table would duplicate the entire staged/active/removed lifecycle\n--     machinery for no gain. wk_apply_proposal / wk_reject_proposal flip by\n--     proposal_id and need NO change.\n--   * Citations stay strictly intra-space (createProposal's tenant check is\n--     untouched): federation links knowledge, never provenance.\n--   * No backfill: every existing row is intra-space and NULL is that\n--     encoding.\nalter table public.wk_relations\n  add column if not exists to_space_id uuid references public.wk_spaces(id) on delete cascade;\n\ncreate index if not exists wk_relations_to_space_idx\n  on public.wk_relations (to_space_id)\n  where to_space_id is not null;\n",
   '0024_wk_oauth_identity_signup':
     "-- Per-identity permission ceiling for self-signup (WIKIKIT_OAUTH_ENABLE_SIGNUP).\n-- NULL means the identity is admitted through the provider allowlist and\n-- inherits the provider's allowed_scopes. A non-null array is the identity's\n-- own ceiling, written exactly once when an unknown identity self-registers\n-- at the minimal knowledge:read role. Allowlist logins reset the column to\n-- NULL so removing an allowlist entry keeps revoking access.\nalter table public.wk_oauth_identities\n  add column if not exists allowed_scopes text[];\n",
+  '0025_wk_usage_no_answer':
+    "-- 'no_answer': a /query call completed correctly (HTTP 200) but the knowledge\n-- base did not cover the question — the answer said so instead of inventing\n-- content. Counted separately from 'success' on the knowledge surface so\n-- operators can measure demand the curated base does not yet cover\n-- (demand-vs-coverage); the http-surface row keeps transport semantics.\nalter table public.wk_usage_events\n  drop constraint if exists wk_usage_events_outcome_check;\nalter table public.wk_usage_events\n  add constraint wk_usage_events_outcome_check\n    check (outcome in ('success', 'client_error', 'server_error', 'rejected', 'timeout', 'cancelled', 'handoff', 'no_answer'));\n",
 }
 
 export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = EMBEDDED_JOURNAL.entries

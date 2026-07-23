@@ -1120,6 +1120,10 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const body = input.body as { question: string; top_k?: number; mode?: 'approved_only' | 'approved_then_sources' }
     const answer = await answerQuestion(deps.db, space.id, deps.llm, body, { vector: deps.vector })
+    // Demand-vs-coverage telemetry: an honest "the knowledge base does not
+    // cover this" is a successful transport but an unanswered question — the
+    // knowledge-surface usage row records it as 'no_answer'.
+    if (answer.not_in_knowledge_base) markUsageContext(input.req, { outcome: 'no_answer' })
     return { status: 200, body: answer }
   },
 

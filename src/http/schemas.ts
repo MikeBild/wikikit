@@ -856,6 +856,8 @@ const zUsageMetrics = z.strictObject({
   client_errors: zMetricValue,
   server_errors: zMetricValue,
   rejected: zMetricValue,
+  no_answer: zMetricValue,
+  no_answer_ratio: zMetricValue,
   success_ratio: zMetricValue,
   error_ratio: zMetricValue,
   unique_actors: zMetricValue,

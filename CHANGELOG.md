@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.15.0 - 2026-07-23
+
+### Added
+
+- Demand-vs-coverage telemetry (migration `0025_wk_usage_no_answer`): when a
+  query call answers honestly that the knowledge base does not cover the
+  question, the knowledge-surface usage row records the new outcome
+  `no_answer` instead of `success` (transport rows keep their status
+  semantics — a 200 stays a 200). Usage stats gain `no_answer` and
+  `no_answer_ratio` metrics, measuring demand the curated base does not yet
+  cover. Failed requests are never counted as `no_answer`.
+
 ## 0.14.0 - 2026-07-23
 
 ### Added

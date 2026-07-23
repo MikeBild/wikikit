@@ -56,6 +56,37 @@ describe('privacy-safe usage telemetry', () => {
     expect(JSON.stringify(writes)).not.toMatch(/raw-secret|raw-session|raw-key-id|never-stored/)
   })
 
+  test("handler-declared 'no_answer' reaches only the knowledge row, and never on transport errors", async () => {
+    const writes: Record<string, unknown>[] = []
+    const db = {
+      async insert(_table: string, row: Record<string, unknown>) {
+        writes.push(row)
+        return []
+      },
+    } as unknown as Db
+    const usage = createUsageTelemetry(config, db, logger)
+    const query = (statusCode: number) => {
+      const req = { method: 'POST', headers: {} } as unknown as IncomingMessage
+      markUsagePrincipal(req, { keyId: 'key', name: 'reader', scopes: ['knowledge:read'], spaceId: null })
+      markUsageContext(req, { spaceId: '11111111-1111-4111-8111-111111111111', outcome: 'no_answer' })
+      return usage.recordHttp(req, response(statusCode), { route: '/v1/spaces/{space}/query', durationMs: 3 })
+    }
+
+    await query(200)
+    // Transport row keeps its status semantics; the knowledge projection
+    // carries the demand-vs-coverage signal.
+    expect(writes[0]!.surface).toBe('http')
+    expect(writes[0]!.outcome).toBe('success')
+    expect(writes[1]!.surface).toBe('knowledge')
+    expect(writes[1]!.operation).toBe('query')
+    expect(writes[1]!.outcome).toBe('no_answer')
+
+    writes.length = 0
+    await query(503)
+    // A failed request is an error, never an honest no-answer.
+    expect(writes[1]!.outcome).toBe('server_error')
+  })
+
   test('never fingerprints anonymous HTTP and classifies reporting as internal', async () => {
     const writes: Record<string, unknown>[] = []
     const usage = createUsageTelemetry(

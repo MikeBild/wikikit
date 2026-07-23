@@ -153,6 +153,9 @@ query, so unique actors/sessions and percentiles are exact instead of sums of
 buckets. Metric values declare `value_kind`, `value_state`, sample size and,
 for ratios, numerator/denominator. `quality` declares `sampled:false`, exact
 unique counting, retention/dropped events and `content_captured:false`.
+Outcome `no_answer` (with `no_answer`/`no_answer_ratio` metrics) counts
+query calls the knowledge base honestly answered with "not covered" — the
+demand-vs-coverage signal; it appears on the knowledge surface only.
 
 Collection is off by default. Enable `WIKIKIT_USAGE_TELEMETRY_ENABLED` only
 with an independent `WIKIKIT_USAGE_HMAC_SECRET`. Stored events contain
