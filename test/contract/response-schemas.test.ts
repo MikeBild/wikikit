@@ -141,6 +141,14 @@ function stubDb(): Db {
         if (text.startsWith('INSERT INTO wk_relations') || text.startsWith('INSERT INTO wk_decisions')) return []
         if (text.includes('unnest(')) return [] // findContradictions persisted side
 
+        // Coverage stats (stats/coverage) -----------------------------------
+        if (text.includes("status = 'disputed'")) return [{ open: 1, oldest_days: 3 }]
+        if (text.includes('AS median_hours')) return [{ decided: 2, approved: 1, rejected: 1, median_hours: 5.5 }]
+        if (text.includes('AS stale_over_90d')) return [{ concepts: 3, stale_over_90d: 1 }]
+        if (text.includes('FROM wk_concept_reads')) return [{ slug: 'wikikit', title: 'WikiKit', reads: 12 }]
+        if (text.includes('AS inbound_relations')) return [{ slug: 'wikikit', title: 'WikiKit', inbound_relations: 4 }]
+        if (text.includes('FROM wk_coverage_gaps')) return [{ lexeme: 'sofa', count: 2 }]
+
         // getProposal claim/citation/source companions -----------------------
         if (text.includes('SELECT ci.claim_id, ci.source_id, ci.quote')) {
           return [
@@ -759,6 +767,12 @@ const CASES: RouteCase[] = [
     url: `/v1/spaces/demo/stats/${name}?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z`,
     status: 200,
   })),
+  {
+    template: '/v1/spaces/{space}/stats/coverage',
+    method: 'get' as const,
+    url: '/v1/spaces/demo/stats/coverage?from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-08T00%3A00%3A00.000Z&top=5',
+    status: 200,
+  },
   {
     template: '/v1/stats/mcp',
     method: 'get' as const,

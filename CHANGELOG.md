@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.16.0 - 2026-07-23
+
+### Added
+
+- Coverage insights endpoint `GET /v1/spaces/{space}/stats/coverage`
+  (migration `0026_wk_coverage_stats`, schema `wikikit.coverage-stats.v1`):
+  open disputed claims with the age of the oldest one, review latency and
+  approve/reject counts for a window, concept freshness (share not updated
+  for 90+ days), the most-read concepts (per-day aggregate read counters for
+  explicit REST/MCP concept reads — actor-free by design), the most-linked
+  concepts (inbound active relations), and — opt-in via
+  `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` (default `false`) — the stemmed
+  lexemes of questions the base could not answer (never the question text;
+  rows expire with the usage retention window).
+
 ## 0.15.0 - 2026-07-23
 
 ### Added

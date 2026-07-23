@@ -184,6 +184,12 @@ export const EMBEDDED_JOURNAL: { version: string; dialect: string; entries: Embe
       when: 1784998800000,
       breakpoints: true,
     },
+    {
+      idx: 26,
+      tag: '0026_wk_coverage_stats',
+      when: 1785002400000,
+      breakpoints: true,
+    },
   ],
 }
 
@@ -240,6 +246,8 @@ const SQL_BY_TAG: Record<string, string> = {
     "-- Per-identity permission ceiling for self-signup (WIKIKIT_OAUTH_ENABLE_SIGNUP).\n-- NULL means the identity is admitted through the provider allowlist and\n-- inherits the provider's allowed_scopes. A non-null array is the identity's\n-- own ceiling, written exactly once when an unknown identity self-registers\n-- at the minimal knowledge:read role. Allowlist logins reset the column to\n-- NULL so removing an allowlist entry keeps revoking access.\nalter table public.wk_oauth_identities\n  add column if not exists allowed_scopes text[];\n",
   '0025_wk_usage_no_answer':
     "-- 'no_answer': a /query call completed correctly (HTTP 200) but the knowledge\n-- base did not cover the question — the answer said so instead of inventing\n-- content. Counted separately from 'success' on the knowledge surface so\n-- operators can measure demand the curated base does not yet cover\n-- (demand-vs-coverage); the http-surface row keeps transport semantics.\nalter table public.wk_usage_events\n  drop constraint if exists wk_usage_events_outcome_check;\nalter table public.wk_usage_events\n  add constraint wk_usage_events_outcome_check\n    check (outcome in ('success', 'client_error', 'server_error', 'rejected', 'timeout', 'cancelled', 'handoff', 'no_answer'));\n",
+  '0026_wk_coverage_stats':
+    "-- Coverage-insight primitives for the maintainer report\n-- (GET /v1/spaces/{space}/stats/coverage):\n--\n--   * wk_concept_reads — per-day aggregate counters for EXPLICIT concept\n--     reads (REST read_concept + MCP wikikit_read). Internal loads (answer\n--     evidence, ingest pipeline) never count. Deliberately actor-free: a\n--     counter per (concept, day) can never profile a reader, so it lives\n--     outside the wk_usage_events privacy envelope.\n--   * wk_coverage_gaps — opt-in via WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED\n--     (default off): when /query answers honestly that the base does not\n--     cover a question, the question's STEMMED LEXEMES (space search config:\n--     stopwords stripped, words stemmed) are stored — never the question\n--     text. Rows expire with the usage retention window.\ncreate table if not exists public.wk_concept_reads (\n  concept_id uuid not null references public.wk_concepts(id) on delete cascade,\n  space_id uuid not null references public.wk_spaces(id) on delete cascade,\n  day date not null,\n  reads integer not null default 0,\n  primary key (concept_id, day)\n);\n\ncreate index if not exists wk_concept_reads_space_day_idx\n  on public.wk_concept_reads (space_id, day);\n\ncreate table if not exists public.wk_coverage_gaps (\n  id uuid primary key default gen_random_uuid(),\n  space_id uuid not null references public.wk_spaces(id) on delete cascade,\n  lexeme text not null check (char_length(lexeme) between 1 and 60),\n  created_at timestamptz not null default now()\n);\n\ncreate index if not exists wk_coverage_gaps_space_created_idx\n  on public.wk_coverage_gaps (space_id, created_at);\n",
 }
 
 export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = EMBEDDED_JOURNAL.entries

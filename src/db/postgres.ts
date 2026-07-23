@@ -47,6 +47,8 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_ingest_jobs',
   'wk_agent_runs',
   'wk_usage_events',
+  'wk_concept_reads',
+  'wk_coverage_gaps',
 ])
 
 /** Whitelisted SQL function names — the ONLY write path for review decisions. */

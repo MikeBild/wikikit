@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config } from './config.ts'
+import { cleanupCoverageGaps } from './domain/coverage.ts'
 import type { Db } from './db/postgres.ts'
 import type { Principal } from './http/auth.ts'
 import type { Logger } from './logger.ts'
@@ -273,6 +274,8 @@ export function createUsageTelemetry(config: Config, db: Db, logger: Logger): Us
          ) SELECT count(*)::int AS deleted FROM deleted`,
         [retentionDays],
       )
+      // Coverage-gap lexemes share the raw-event retention window.
+      await cleanupCoverageGaps(db, retentionDays).catch(() => {})
       return Number(rows[0]?.deleted ?? 0)
     } catch (error) {
       logger.warn('usage telemetry retention cleanup failed', {

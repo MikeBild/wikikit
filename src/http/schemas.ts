@@ -893,6 +893,40 @@ export const zUsageStatsResponse = z.strictObject({
   }),
 })
 
+// Coverage insights (maintainer report) --------------------------------------
+
+export const zCoverageStatsQuery = z.object({
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  top: z.coerce.number().int().min(1).max(25).default(10),
+})
+export const zCoverageStatsResponse = z.strictObject({
+  schema_version: z.literal('wikikit.coverage-stats.v1'),
+  from: z.iso.datetime(),
+  to: z.iso.datetime(),
+  disputed: z.strictObject({ open: z.number().int().nonnegative(), oldest_days: z.number().nullable() }),
+  review_latency: z.strictObject({
+    decided: z.number().int().nonnegative(),
+    approved: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    median_hours: z.number().nullable(),
+  }),
+  freshness: z.strictObject({
+    concepts: z.number().int().nonnegative(),
+    stale_over_90d: z.number().int().nonnegative(),
+  }),
+  top_read_concepts: z.array(
+    z.strictObject({ slug: z.string(), title: z.string(), reads: z.number().int().nonnegative() }),
+  ),
+  top_linked_concepts: z.array(
+    z.strictObject({ slug: z.string(), title: z.string(), inbound_relations: z.number().int().nonnegative() }),
+  ),
+  gap_topics: z.strictObject({
+    enabled: z.boolean(),
+    items: z.array(z.strictObject({ lexeme: z.string(), count: z.number().int().nonnegative() })),
+  }),
+})
+
 // ---------------------------------------------------------------------------
 // Name → schema index (introspection surface for openapi.ts + drift tests)
 // ---------------------------------------------------------------------------
@@ -968,4 +1002,6 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zLlmStatsResponse,
   zWebhookStatsResponse,
   zUsageStatsResponse,
+  zCoverageStatsQuery,
+  zCoverageStatsResponse,
 }

@@ -115,6 +115,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
 | GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
 | GET    | `/v1/spaces/{space}/stats/usage`             | knowledge:read    | Cross-transport search/read/query/ingest/proposal behavior |
+| GET    | `/v1/spaces/{space}/stats/coverage`          | knowledge:read    | Coverage insights: disputed claims, review latency, freshness, read/link hubs, gap topics |
 | GET    | `/v1/spaces/{space}/stats/reviews`           | knowledge:read    | Cross-transport proposal inspection and review behavior |
 | GET    | `/v1/spaces/{space}/stats/ingests`           | knowledge:read    | Time-bucketed ingest lifecycle and duration aggregates |
 | GET    | `/v1/spaces/{space}/stats/knowledge`         | knowledge:read    | Time-bucketed knowledge growth and review activity |
@@ -622,6 +623,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_USAGE_TELEMETRY_ENABLED` | enable privacy-bounded usage collection | `false` |
 | `WIKIKIT_USAGE_HMAC_SECRET` | independent product-local HMAC secret; required when enabled | (unset) |
 | `WIKIKIT_USAGE_RETENTION_DAYS` | raw usage retention (31–365 days) | `90` |
+| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | opt-in: store stemmed lexemes (never text) of unanswered queries | `false` |
 | `WIKIKIT_OAUTH_DCR_ENABLED` | RFC 7591 dynamic registration for remote MCP clients | `true` |
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |

@@ -56,6 +56,7 @@ import {
   resolveStatsWindow,
   resolveUsageStatsWindow,
 } from '../stats.ts'
+import { getCoverageStats, recordConceptRead, recordCoverageGap } from '../domain/coverage.ts'
 import { answerQuestion } from '../query/answer.ts'
 import { search, searchAcrossImports } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
@@ -538,6 +539,18 @@ export const ROUTES: RouteDef[] = [
     responses: {
       200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'Knowledge usage statistics' },
       400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/stats/coverage',
+    scope: 'knowledge:read',
+    summary: 'Coverage insights: disputed claims, review latency, freshness, read/link hubs, gap topics',
+    handler: 'coverageStatsHandler',
+    request: { params: 'zSpaceParams', query: 'zCoverageStatsQuery' },
+    responses: {
+      200: { schema: 'zCoverageStatsResponse', type: 'application/json', desc: 'Coverage statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid coverage statistics query' },
     },
   },
   {
@@ -1080,6 +1093,8 @@ export const HANDLERS: Record<string, Handler> = {
   async getConceptHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const concept = await getConcept(deps.db, space.id, { slug: input.params.slug! })
+    // Fire-and-forget read counter (coverage insights) — never fails a read.
+    void recordConceptRead(deps.db, space.id, input.params.slug!).catch(() => {})
     // Explicit wire mapping shared with MCP wikikit_read (toConceptResponse):
     // ConceptDetail carries more than the §5.3 response contract — serve
     // exactly the contract, no accidental surface, on BOTH transports.
@@ -1123,7 +1138,13 @@ export const HANDLERS: Record<string, Handler> = {
     // Demand-vs-coverage telemetry: an honest "the knowledge base does not
     // cover this" is a successful transport but an unanswered question — the
     // knowledge-surface usage row records it as 'no_answer'.
-    if (answer.not_in_knowledge_base) markUsageContext(input.req, { outcome: 'no_answer' })
+    if (answer.not_in_knowledge_base) {
+      markUsageContext(input.req, { outcome: 'no_answer' })
+      // Opt-in gap topics: store the question's stemmed lexemes, never its text.
+      if (deps.config.coverageGapTopicsEnabled) {
+        void recordCoverageGap(deps.db, space.id, body.question).catch(() => {})
+      }
+    }
     return { status: 200, body: answer }
   },
 
@@ -1397,6 +1418,26 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const window = resolveUsageStatsWindow(input.query, 'http')
     return { status: 200, body: await getHttpUsageStats(deps.db, space.id, window, deps.usage.quality()) }
+  },
+
+  async coverageStatsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { from: string; to: string; top: number }
+    const stats = await getCoverageStats(deps.db, space.id, query)
+    return {
+      status: 200,
+      body: {
+        schema_version: 'wikikit.coverage-stats.v1',
+        from: query.from,
+        to: query.to,
+        disputed: stats.disputed,
+        review_latency: stats.review_latency,
+        freshness: stats.freshness,
+        top_read_concepts: stats.top_read_concepts,
+        top_linked_concepts: stats.top_linked_concepts,
+        gap_topics: { enabled: deps.config.coverageGapTopicsEnabled === true, items: stats.gap_topics },
+      },
+    }
   },
 
   async knowledgeUsageStatsHandler(deps, input) {

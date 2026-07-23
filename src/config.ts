@@ -142,6 +142,8 @@ export interface Config {
   readonly usageHmacSecret?: string
   /** Raw event retention; aggregate report artifacts may live longer downstream. */
   readonly usageRetentionDays?: number
+  /** Opt-in: store stemmed lexemes (never text) of unanswered questions for coverage-gap topics. */
+  readonly coverageGapTopicsEnabled?: boolean
   /** OAuth authorization-code lifetime; optional on injected test configs. */
   readonly oauthAuthorizationCodeTtlMs?: number
   /** OAuth access-token lifetime; optional on injected test configs. */
@@ -410,6 +412,7 @@ export function loadConfig(): Config {
     usageTelemetryEnabled: bool('WIKIKIT_USAGE_TELEMETRY_ENABLED', false),
     usageHmacSecret: str('WIKIKIT_USAGE_HMAC_SECRET'),
     usageRetentionDays: integer('WIKIKIT_USAGE_RETENTION_DAYS', 90, { min: 31, max: 365 }),
+    coverageGapTopicsEnabled: bool('WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED', false),
     oauthAuthorizationCodeTtlMs: integer('WIKIKIT_OAUTH_CODE_TTL_MS', 10 * 60 * 1000, {
       min: 60_000,
       max: 15 * 60 * 1000,

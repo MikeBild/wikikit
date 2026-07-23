@@ -21,6 +21,7 @@ import { buildAgentBriefing } from '../agent/briefing.ts'
 import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
+import { recordConceptRead } from '../domain/coverage.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
 import {
   ConflictError,
@@ -409,6 +410,8 @@ export const TOOLS: McpToolDef[] = [
       // the SAME wire mapping REST uses, so the transports cannot drift and
       // the internal-only ConceptDetail fields never reach an MCP client.
       const concept = await getConcept(deps.db, space.id, { slug: args.slug })
+      // Fire-and-forget read counter (coverage insights) — never fails a read.
+      void recordConceptRead(deps.db, space.id, args.slug).catch(() => {})
       // 0023 eliding (mirrors REST): space-scoped keys never see foreign
       // relation targets.
       if (principal.spaceId) {

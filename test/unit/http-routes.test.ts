@@ -54,6 +54,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/stats/mcp', 'admin'],
   ['get', '/v1/spaces/{space}/stats/http', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/usage', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/stats/coverage', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/reviews', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/ingests', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/knowledge', 'knowledge:read'],
