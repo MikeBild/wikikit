@@ -18,7 +18,7 @@ and this project adheres to
   `no_answer_ratio` metrics, measuring demand the curated base does not yet
   cover. Failed requests are never counted as `no_answer`.
 
-## Unreleased
+## 0.15.1 - 2026-07-23
 
 ### Fixed
 
