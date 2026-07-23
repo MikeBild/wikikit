@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.13.1 - 2026-07-23
+
+### Fixed
+
+- Browser GET failures in the OAuth login funnel (denied identity policy,
+  unknown/expired/consumed login state, code-exchange errors) now answer
+  humans with a "Sign-in failed" page in the shared auth shell instead of a
+  raw JSON body; when the waiting OAuth client is known, the page's
+  "Sign in again" action carries the RFC 6749 `error=access_denied` redirect
+  so MCP connectors never hang. JSON stays the contract for
+  token/register/API and `Accept: application/json`.
+
+- Every "Continue with SSO" click now inserts its own login state with its
+  own nonce and PKCE verifier instead of rewriting the pending row; earlier
+  states stay valid until TTL, keeping the Back button safe.
+
 ## 0.13.0 - 2026-07-23
 
 ### Added
