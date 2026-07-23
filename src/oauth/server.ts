@@ -27,6 +27,14 @@ const OAUTH_SCOPES = [
   'knowledge:approve',
   'offline_access',
 ] as const
+/**
+ * Scope set the /mcp 401 WWW-Authenticate challenge advertises: the FULL
+ * knowledge permission set from scopes_supported, so MCP clients also offer
+ * review/approve checkboxes on their consent surface (clamping to the
+ * identity's actual ceiling stays in the consent logic). offline_access is a
+ * token-mechanics scope, not a permission, and is deliberately not advertised.
+ */
+export const OAUTH_CHALLENGE_SCOPE = OAUTH_SCOPES.filter((scope) => scope !== 'offline_access').join(' ')
 // A client must opt in to the review right. Adding support must never silently
 // turn existing read/propose integrations into approvers on reconnect.
 const DEFAULT_SCOPE = 'knowledge:read knowledge:propose offline_access'

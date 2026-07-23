@@ -46,6 +46,7 @@ import type { Auth } from '../http/auth.ts'
 import { readDocsFile } from '../http/docs-embedded.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
+import { OAUTH_CHALLENGE_SCOPE } from '../oauth/server.ts'
 import { toToolError } from './error-adapter.ts'
 import {
   createSessionManager,
@@ -398,9 +399,12 @@ function sessionNotFound(): Response {
 function errorEnvelopeResponse(error: DomainError, requestId: string, config?: Config): Response {
   const headers: Record<string, string> = { 'content-type': 'application/json', 'x-request-id': requestId }
   if (error instanceof UnauthorizedError) {
+    // The challenge advertises the FULL knowledge scope set (scopes_supported
+    // minus the offline_access mechanics scope) — consent still clamps to the
+    // identity's ceiling.
     headers['www-authenticate'] = config?.publicUrl
-      ? `Bearer resource_metadata="${config.publicUrl}/.well-known/oauth-protected-resource", scope="knowledge:read knowledge:propose"`
-      : 'Bearer scope="knowledge:read knowledge:propose"'
+      ? `Bearer resource_metadata="${config.publicUrl}/.well-known/oauth-protected-resource", scope="${OAUTH_CHALLENGE_SCOPE}"`
+      : `Bearer scope="${OAUTH_CHALLENGE_SCOPE}"`
   }
   return new Response(
     JSON.stringify({

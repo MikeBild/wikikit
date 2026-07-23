@@ -1419,7 +1419,10 @@ serialized into the tool result (`isError: true`), never bare strings.
 
 Unauthenticated `/mcp` responses advertise the protected resource through
 `WWW-Authenticate` and `/.well-known/oauth-protected-resource` (including the
-path-qualified variant). The canonical `WIKIKIT_PUBLIC_URL` is the issuer and
+path-qualified variant). The challenge names the complete knowledge scope set
+from `scopes_supported` (read/propose/review/approve, never the
+`offline_access` mechanics scope); consent still clamps grants to the
+identity's ceiling. The canonical `WIKIKIT_PUBLIC_URL` is the issuer and
 the exact resource audience `${WIKIKIT_PUBLIC_URL}/mcp`. The authorization
 server metadata is at `/.well-known/oauth-authorization-server`.
 

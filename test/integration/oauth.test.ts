@@ -139,6 +139,9 @@ describe('MCP OAuth 2.1 (integration)', () => {
     })
     expect(unauthenticated.status).toBe(401)
     expect(unauthenticated.headers.get('www-authenticate')).toContain(`${ISSUER}/.well-known/oauth-protected-resource`)
+    expect(unauthenticated.headers.get('www-authenticate')).toContain(
+      'scope="knowledge:read knowledge:propose knowledge:review knowledge:approve"',
+    )
 
     const registered = await fetch(`${base}/v1/oauth/register`, {
       method: 'POST',

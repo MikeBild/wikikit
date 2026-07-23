@@ -18,6 +18,18 @@ and this project adheres to
   `no_answer_ratio` metrics, measuring demand the curated base does not yet
   cover. Failed requests are never counted as `no_answer`.
 
+## Unreleased
+
+### Fixed
+
+- The `/mcp` 401 `WWW-Authenticate` challenge now advertises the complete
+  knowledge permission set from `scopes_supported`
+  (`knowledge:read knowledge:propose knowledge:review knowledge:approve`)
+  instead of only read/propose, so MCP clients offer review/approve on their
+  consent surface too. `offline_access` is a token-mechanics scope and stays
+  out of the challenge. Actual grants are still clamped to the identity's
+  ceiling by the unchanged consent logic.
+
 ## 0.14.0 - 2026-07-23
 
 ### Added

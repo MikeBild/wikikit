@@ -145,6 +145,13 @@ describe('createMcpMount', () => {
     const mount = buildMount({ good: READ_PRINCIPAL })
     const response = await mount.handler(rpc(INITIALIZE))
     expect(response.status).toBe(401)
+    // Exact challenge contract: the full knowledge scope set from
+    // scopes_supported (no offline_access — a mechanics scope, not a
+    // permission), so MCP clients offer review/approve on consent too.
+    expect(response.headers.get('www-authenticate')).toBe(
+      'Bearer resource_metadata="https://wikikit.example.dev/.well-known/oauth-protected-resource", ' +
+        'scope="knowledge:read knowledge:propose knowledge:review knowledge:approve"',
+    )
     const envelope = (await response.json()) as Record<string, unknown>
     expect(envelope.code).toBe('unauthorized')
     expect(typeof envelope.request_id).toBe('string')
