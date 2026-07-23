@@ -6,6 +6,7 @@ import {
   SCHEMAS,
   zCreateApiKeyRequest,
   zCreateProposalRequest,
+  zCreateSpaceRequest,
   zErrorEnvelope,
   zIngestRequest,
   zListQuery,
@@ -13,6 +14,7 @@ import {
   zReadyResponse,
   zReviewRequest,
   zSearchQuery,
+  zUpdateSpaceSettingsRequest,
 } from '../../src/http/schemas.ts'
 
 describe('http schemas', () => {
@@ -51,6 +53,21 @@ describe('http schemas', () => {
       source_id: '00000000-0000-0000-0000-000000000001',
     })
     expect((parsed as Record<string, unknown>).source_id).toBe('00000000-0000-0000-0000-000000000001')
+  })
+
+  test('space settings validate the retrieval-critical language key, stay free-form otherwise', () => {
+    // Must match the CHECK/CASE lists in migration 0016 (wk_space_search_config).
+    expect(zUpdateSpaceSettingsRequest.safeParse({ settings: { language: 'de' } }).success).toBe(true)
+    expect(zUpdateSpaceSettingsRequest.safeParse({ settings: { language: 'simple' } }).success).toBe(true)
+    expect(zUpdateSpaceSettingsRequest.safeParse({ settings: { language: 'fr' } }).success).toBe(false)
+    expect(zUpdateSpaceSettingsRequest.safeParse({ settings: { language: 42 } }).success).toBe(false)
+    expect(zUpdateSpaceSettingsRequest.safeParse({ settings: { anything: { nested: true } } }).success).toBe(true)
+    expect(zCreateSpaceRequest.safeParse({ slug: 'blog-de', name: 'Blog', settings: { language: 'xx' } }).success).toBe(
+      false,
+    )
+    expect(zCreateSpaceRequest.safeParse({ slug: 'blog-de', name: 'Blog', settings: { language: 'de' } }).success).toBe(
+      true,
+    )
   })
 
   test('zCreateApiKeyRequest rejects unknown scopes and empty scope lists', () => {
@@ -104,5 +121,18 @@ describe('http schemas', () => {
     for (const [name, schema] of Object.entries(SCHEMAS)) {
       expect(() => z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' }), name).not.toThrow()
     }
+  })
+})
+
+describe('zCreateApiKeyRequest — role presets (0-migration)', () => {
+  test('exactly one of role or scopes', () => {
+    expect(zCreateApiKeyRequest.safeParse({ name: 'k', role: 'reviewer' }).success).toBe(true)
+    expect(zCreateApiKeyRequest.safeParse({ name: 'k', scopes: ['knowledge:read'] }).success).toBe(true)
+    expect(zCreateApiKeyRequest.safeParse({ name: 'k' }).success).toBe(false)
+    expect(zCreateApiKeyRequest.safeParse({ name: 'k', role: 'reader', scopes: ['knowledge:read'] }).success).toBe(
+      false,
+    )
+    // No approver preset — knowledge:approve must be spelled out.
+    expect(zCreateApiKeyRequest.safeParse({ name: 'k', role: 'approver' }).success).toBe(false)
   })
 })

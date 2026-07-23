@@ -136,8 +136,22 @@ describe('golden snapshots', () => {
   test('answer.v1 system prompt', () => {
     expect(answerV1.system).toMatchSnapshot()
   })
-  test('answer.v1 render with evidence', () => {
-    expect(answerV1.render(answerInput)).toMatchSnapshot()
+  test('answer.v1 render with two-tier evidence', () => {
+    expect(
+      answerV1.render({
+        ...answerInput,
+        evidence: [
+          ...answerInput.evidence,
+          {
+            kind: 'source_chunk',
+            slug: null,
+            source_id: '00000000-0000-4000-8000-000000000042',
+            text: 'Source: Meeting notes\n## Rollout\nThe rollout was postponed to Q3.',
+            status: null,
+          },
+        ],
+      }),
+    ).toMatchSnapshot()
   })
   test('answer.v1 render with empty evidence', () => {
     expect(answerV1.render(answerInputNoEvidence)).toMatchSnapshot()

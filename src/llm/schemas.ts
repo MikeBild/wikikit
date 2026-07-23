@@ -34,15 +34,19 @@ export interface SynthesizeInput {
   source: { id: string; title: string | null; markdown: string }
   /** The space's controlled predicate vocabulary (wk_spaces.settings.predicates). */
   predicates: string[]
+  /** Typed registry entries (settings.predicate_defs) — rendered instead of the bare names when present. */
+  predicateDefs?: import('../domain/normalize.ts').PredicateDef[]
   /** Optional source classification; when 'meeting', decision mining is on. */
   sourceKind?: SourceKind
 }
 
 export interface AnswerEvidence {
-  kind: 'concept' | 'claim'
+  kind: 'concept' | 'claim' | 'source_chunk'
   slug: string | null
   text: string
   status: string | null
+  /** Set for kind='source_chunk' — the archive row the excerpt came from. */
+  source_id?: string | null
 }
 
 export interface AnswerInput {
@@ -93,6 +97,11 @@ export const zSynthesizeOutput = z.object({
       // verbatim excerpt — a claim the model cannot quote is a claim we drop.
       quote: z.string().min(1),
       confidence: z.number().min(0).max(1),
+      // v2 semantics — ONLY when the source states them (defaulted so the
+      // model may omit).
+      valid_from: z.iso.datetime().nullable().default(null),
+      valid_until: z.iso.datetime().nullable().default(null),
+      context: z.string().min(1).max(200).nullable().default(null),
     }),
   ),
   relations: z.array(z.object({ to_slug: zSlug, kind: zRelationKind })),
@@ -120,6 +129,9 @@ export const zAnswerOutput = z.object({
   answer_markdown: z.string().min(1),
   cited_slugs: z.array(z.string()),
   not_in_knowledge_base: z.boolean(),
+  // Source-evidence citations: archive source ids the answer
+  // leaned on. Defaulted so provider outputs missing the field stay valid.
+  cited_source_ids: z.array(z.string()).default([]),
 })
 export type AnswerOutput = z.infer<typeof zAnswerOutput>
 

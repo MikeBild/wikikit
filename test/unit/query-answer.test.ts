@@ -187,6 +187,7 @@ describe('answerQuestion', () => {
         answer_markdown: 'See [okf] and [ghost].',
         cited_slugs: ['okf', 'ghost', 'okf'],
         not_in_knowledge_base: false,
+        cited_source_ids: [],
       }),
     })
     const result = await answerQuestion(db, SPACE, llm, { question: 'okf?' })
@@ -215,5 +216,78 @@ describe('answerQuestion', () => {
     const evidence = (llm.calls[0]!.input as { evidence: AnswerEvidence[] }).evidence
     expect(evidence[0]!.text.length).toBeLessThan(bigMarkdown.length)
     expect(evidence[0]!.text).toContain('truncated')
+  })
+})
+
+describe('answerQuestion — source-evidence tier (approved_then_sources)', () => {
+  const CHUNK_HIT = {
+    source_id: 'b1b0c9d8-0000-4000-8000-000000000002',
+    chunk_id: 'c2b0c9d8-0000-4000-8000-000000000003',
+    chunk_index: 0,
+    title: 'Meeting notes',
+    url: null,
+    heading: '## Rollout',
+    headline: 'postponed',
+    rank: 0.8,
+  }
+
+  function tierRoutes(): Route[] {
+    return [
+      // Order matters: the generic /FROM public\.wk_search/ pattern would
+      // also match wk_search_sources — the specific route comes first.
+      { match: /FROM public\.wk_search_sources/, rows: [CHUNK_HIT] },
+      {
+        match: /SELECT \* FROM "public"\."wk_source_chunks"/,
+        rows: [{ content: 'The rollout was postponed to Q3.', heading: '## Rollout' }],
+      },
+      ...routes(),
+    ]
+  }
+
+  test('chunk hits become labeled evidence and cited source ids survive the filter', async () => {
+    const { db } = fakeDb(tierRoutes())
+    const llm = createFakeProvider()
+    const result = await answerQuestion(db, SPACE, llm, {
+      question: 'When is the rollout?',
+      mode: 'approved_then_sources',
+    })
+
+    const evidence = (llm.calls[0]!.input as { evidence: AnswerEvidence[] }).evidence
+    const chunkEvidence = evidence.filter((entry) => entry.kind === 'source_chunk')
+    expect(chunkEvidence).toHaveLength(1)
+    expect(chunkEvidence[0]!.source_id).toBe(CHUNK_HIT.source_id)
+    expect(chunkEvidence[0]!.text).toContain('Source: Meeting notes')
+    expect(chunkEvidence[0]!.text).toContain('The rollout was postponed to Q3.')
+
+    // The fake provider cites every source-chunk evidence item; the mapping
+    // resolves it back to {source_id, chunk_id, title}.
+    expect(result.source_citations).toEqual([
+      { source_id: CHUNK_HIT.source_id, chunk_id: CHUNK_HIT.chunk_id, title: 'Meeting notes' },
+    ])
+  })
+
+  test('approved_only never queries the source tier and returns empty source_citations', async () => {
+    const { db, calls } = fakeDb(tierRoutes())
+    const llm = createFakeProvider()
+    const result = await answerQuestion(db, SPACE, llm, { question: 'When is the rollout?' })
+    expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
+    expect(result.source_citations).toEqual([])
+  })
+
+  test('a cited source id that was never evidence is dropped', async () => {
+    const { db } = fakeDb(tierRoutes())
+    const llm = createFakeProvider({
+      answer: () => ({
+        answer_markdown: 'See [source:ghost].',
+        cited_slugs: [],
+        not_in_knowledge_base: false,
+        cited_source_ids: ['ghost'],
+      }),
+    })
+    const result = await answerQuestion(db, SPACE, llm, {
+      question: 'rollout?',
+      mode: 'approved_then_sources',
+    })
+    expect(result.source_citations).toEqual([])
   })
 })

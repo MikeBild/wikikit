@@ -41,10 +41,11 @@ import { randomUUID } from 'node:crypto'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptIndex } from '../domain/concepts.ts'
-import { findContradictions, type ClaimTriple } from '../domain/claims.ts'
+import { findContradictions, getPredicateRegistry, type IncomingClaim } from '../domain/claims.ts'
 import { ConflictError, LlmNotConfiguredError } from '../domain/errors.ts'
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
-import { createSource, sha256Hex } from '../domain/sources.ts'
+import { createSource, persistSourceChunks, sha256Hex } from '../domain/sources.ts'
+import { recordStreamVersion } from '../domain/source-streams.ts'
 import type { LlmProvider, LlmRunMeta } from '../llm/provider.ts'
 import { PROMPT_VERSIONS } from '../llm/prompts/index.ts'
 import type { Logger } from '../logger.ts'
@@ -55,9 +56,21 @@ import { fitTokenBudget } from './chunk.ts'
 export type IngestRequest = IngestInput
 export { zIngestInput }
 
+/** Sync fast-path result: nothing new for the LLM — the stream head advanced (or already pointed here). */
+export interface IngestUnchanged {
+  status: 'unchanged'
+  source_id: string
+  stream_id: string
+}
+
 export interface IngestPipeline {
-  /** Insert a queued wk_ingest_jobs row and return its id (fast, no LLM). */
-  enqueue(db: Db, spaceId: string, args: IngestRequest): Promise<{ ingest_id: string }>
+  /**
+   * Insert a queued wk_ingest_jobs row and return its id (fast, no LLM).
+   * Sync inputs (external_source_id) may short-circuit to
+   * {status:'unchanged'} when the content is already archived — connectors
+   * retry blindly, so known content is a head-pointer advance, never a 409.
+   */
+  enqueue(db: Db, spaceId: string, args: IngestRequest): Promise<{ ingest_id: string } | IngestUnchanged>
   /** Start the background worker loops (config.ingestConcurrency of them). */
   start(): void
   /** Stop claiming new jobs and wait for in-flight ones to finish. */
@@ -99,6 +112,10 @@ const DEFAULT_POLL_MS = 1000
 // requeues it once resume_at passes and stops claiming until then, so a
 // 20-job backlog costs ONE error line instead of 20 dead jobs.
 const QUOTA_FALLBACK_RESUME_MS = 6 * 60 * 60 * 1000
+
+// Upper bound on adjudication calls per job: adjudication refines the
+// reviewer summary, it must never turn one ingest into an unbounded fan-out.
+const ADJUDICATION_CAP = 10
 
 /** Anthropic's usage-limit message (and generic quota phrasing) — never model refusals or 5xx. */
 function isQuotaExhausted(message: string): boolean {
@@ -359,7 +376,7 @@ export function createIngestPipeline(
     // only conflicts while the earlier source is still doing work; otherwise
     // the archived row is REUSED so a transiently failed job can be recovered
     // by re-submitting the same content (§9.1).
-    const { source, created } = await createSource(db, job.space_id, {
+    const sourceArgs = {
       kind: acquired.kind,
       url: acquired.url ?? undefined,
       title: acquired.title ?? undefined,
@@ -368,12 +385,52 @@ export function createIngestPipeline(
       // Optional hint (meeting/article/note); persisted on the source metadata
       // and passed to synthesis, where 'meeting' turns on decision mining.
       sourceKind: input.source_kind,
-    })
-    if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
-      throw new ConflictError('already_ingested', `content already ingested as source ${source.id}`, {
-        details: { source_id: source.id },
-      })
+      language: input.language,
     }
+    let source
+    let created
+    if (input.external_source_id) {
+      // Sync inputs archive through the stream (head advance + write-once
+      // version columns); mostly reached for kind='url', where the body is
+      // only known after the fetch (direct bodies short-circuit in enqueue).
+      const recorded = await recordStreamVersion(db, job.space_id, {
+        externalSourceId: input.external_source_id,
+        sourceVersion: input.source_version ?? null,
+        observedAt: input.observed_at,
+        effectiveAt: input.effective_at,
+        source: sourceArgs,
+      })
+      source = recorded.source
+      created = recorded.created
+      if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
+        // Converge instead of 409: connectors retry blindly. The head already
+        // advanced above; hand back whatever proposal the earlier work
+        // produced (null when it was rejected/archived-only).
+        const { rows } = await db.query<{ id: string }>(
+          `SELECT id FROM wk_change_proposals
+            WHERE space_id = $1 AND status IN ('pending', 'approved') AND $2::uuid = ANY(source_ids)
+            ORDER BY created_at DESC LIMIT 1`,
+          [job.space_id, source.id],
+        )
+        return { sourceId: source.id, proposalId: rows[0]?.id ?? null }
+      }
+    } else {
+      const result = await createSource(db, job.space_id, sourceArgs)
+      source = result.source
+      created = result.created
+      if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
+        throw new ConflictError('already_ingested', `content already ingested as source ${source.id}`, {
+          details: { source_id: source.id },
+        })
+      }
+    }
+
+    // Retrieval index (wk_source_chunks): derived rows for the
+    // source-evidence tier, written right where the source is archived so a
+    // fresh source is searchable in approved_then_sources mode immediately.
+    // Idempotent (no-op on the created:false reuse path when chunks exist);
+    // legacy/import sources are healed by the backfill scan worker.
+    await persistSourceChunks(db, job.space_id, source)
 
     // 3. Budget: the ARCHIVE keeps the full document; only what the models
     // read is capped (WIKIKIT_MAX_INGEST_TOKENS, plan §15.4).
@@ -446,7 +503,7 @@ export function createIngestPipeline(
     }
 
     const proposalConcepts: CreateProposalArgs['concepts'] = []
-    const allTriples: ClaimTriple[] = []
+    const allTriples: IncomingClaim[] = []
     // Decisions surface per synthesis call (a meeting touching two concepts can
     // report the same decision twice); dedupe first-wins by slug because
     // zCreateProposalArgs refuses duplicate decision slugs — two proposed rows
@@ -455,11 +512,17 @@ export function createIngestPipeline(
     const decisionSlugs = new Set<string>()
     const usage = { input_tokens: 0, output_tokens: 0 }
 
+    // Typed registry (0021): rendered into the synthesize vocabulary when the
+    // space declares one; quantity predicates then ask for number + unit.
+    const registry = await getPredicateRegistry(db, job.space_id)
+    const predicateDefs = [...registry.values()]
+
     for (const target of conceptInputs) {
       const synthesized = await llm.synthesize({
         concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
         source: { id: source.id, title: source.title, markdown: budget.markdown },
         predicates: space.predicates,
+        ...(predicateDefs.length ? { predicateDefs } : {}),
         sourceKind: input.source_kind,
       })
       runs.push({ kind: 'synthesize', run: synthesized.run })
@@ -481,6 +544,10 @@ export function createIngestPipeline(
           predicate: claim.predicate,
           object: claim.object,
           confidence: claim.confidence,
+          // v2 semantics — only present when the SOURCE stated them.
+          valid_from: claim.valid_from,
+          valid_until: claim.valid_until,
+          context: claim.context,
           citations: [{ source_id: source.id, quote: claim.quote }],
         }))
       const dropped = rawClaims.length - claims.length
@@ -494,7 +561,16 @@ export function createIngestPipeline(
           kept: claims.length,
         })
       }
-      allTriples.push(...claims.map(({ subject, predicate, object }) => ({ subject, predicate, object })))
+      allTriples.push(
+        ...claims.map(({ subject, predicate, object, context, valid_from, valid_until }) => ({
+          subject,
+          predicate,
+          object,
+          context,
+          valid_from,
+          valid_until,
+        })),
+      )
 
       proposalConcepts.push({
         slug: target.slug,
@@ -516,16 +592,76 @@ export function createIngestPipeline(
       }
     }
 
-    // 6. Deterministic contradiction detection (exact frame: same subject +
-    // predicate, different object) — run here so the proposal SUMMARY warns
-    // the reviewer up front. The staging tx re-runs the same matcher for the
+    // 6. Deterministic contradiction detection (frame + context + interval +
+    // normalized object) — run here so the proposal SUMMARY warns the
+    // reviewer up front. The staging tx re-runs the same matcher for the
     // event payload, and wk_apply_proposal applies the dispute flip at
     // approval; all three share one rule, so they can never disagree.
-    // Haiku adjudication (contradictory vs temporal vs complementary) ships
-    // as adjudicate.v1 but stays unwired: every LlmProvider method is a
-    // deliberate contract change (CONTRACTS §3.1) — wiring it is one of those,
-    // not a pipeline patch.
     const contradictions = await findContradictions(db, job.space_id, { claims: allTriples })
+
+    // 6b. Adjudication (adjudicate.v1): classify WHY the persisted-side pairs
+    // differ. Advisory refinement, strictly bounded (cap per job) and
+    // fail-open to 'contradictory' — the safe default is the human-review
+    // dispute path, never a silently un-flagged collision.
+    //   contradictory → keep the dispute pair (counts below, flip 5 disputes)
+    //   complementary → stamp adjudication on the incoming claim (flip 5
+    //                   exempts it) and drop the pair from the summary
+    //   temporal      → stage supersedes_claim_id (flip 5c deprecates the old
+    //                   claim deterministically at approval)
+    let contradictionCount = 0
+    let supersessionCount = 0
+    let adjudicated = 0
+    const claimByTriple = new Map(
+      proposalConcepts.flatMap((entry) =>
+        (entry.claims ?? []).map(
+          (claim) => [`${claim.subject}\u0000${claim.predicate}\u0000${claim.object}`, claim] as const,
+        ),
+      ),
+    )
+    for (const pair of contradictions) {
+      if (!pair.existing_claim_id || adjudicated >= ADJUDICATION_CAP) {
+        if (pair.existing_claim_id || pair.existing_claim_id === null) contradictionCount += 1
+        continue
+      }
+      adjudicated += 1
+      const staged = claimByTriple.get(`${pair.subject}\u0000${pair.predicate}\u0000${pair.proposed_object}`)
+      let verdict: 'contradictory' | 'temporal' | 'complementary' = 'contradictory'
+      try {
+        const result = await llm.adjudicate({
+          subject: pair.subject,
+          predicate: pair.predicate,
+          existing: { object: pair.existing_object, quote: pair.existing_quote },
+          incoming: {
+            object: pair.proposed_object,
+            quote: (() => {
+              const citation = staged?.citations?.[0]
+              return citation && 'quote' in citation ? citation.quote : null
+            })(),
+          },
+        })
+        runs.push({ kind: 'adjudicate', run: result.run })
+        verdict = result.output.verdict
+      } catch (error) {
+        // Advisory stage: any failure (invalid output, refusal, 5xx) falls
+        // back to the deterministic dispute path and never fails the job.
+        logger.warn('adjudication failed — falling back to contradictory', {
+          ingest_id: job.id,
+          error: (error as Error).message,
+        })
+      }
+      if (staged && verdict === 'complementary') {
+        staged.adjudication = 'complementary'
+        continue // resolved: not a contradiction, drop from the summary
+      }
+      if (staged && verdict === 'temporal') {
+        staged.adjudication = 'temporal'
+        staged.supersedes_claim_id = pair.existing_claim_id
+        supersessionCount += 1
+        continue
+      }
+      if (staged && verdict === 'contradictory') staged.adjudication = 'contradictory'
+      contradictionCount += 1
+    }
 
     // Every staged claim contributed exactly one triple above.
     const claimsCount = allTriples.length
@@ -533,8 +669,11 @@ export function createIngestPipeline(
       `Synthesized ${proposalConcepts.length} concept${proposalConcepts.length === 1 ? '' : 's'}`,
       `${claimsCount} claim${claimsCount === 1 ? '' : 's'}`,
     ]
-    if (contradictions.length > 0) {
-      summaryParts.push(`${contradictions.length} contradiction${contradictions.length === 1 ? '' : 's'} detected`)
+    if (contradictionCount > 0) {
+      summaryParts.push(`${contradictionCount} contradiction${contradictionCount === 1 ? '' : 's'} detected`)
+    }
+    if (supersessionCount > 0) {
+      summaryParts.push(`${supersessionCount} supersession${supersessionCount === 1 ? '' : 's'}`)
     }
     if (proposalDecisions.length > 0) {
       summaryParts.push(`${proposalDecisions.length} decision${proposalDecisions.length === 1 ? '' : 's'}`)
@@ -747,7 +886,11 @@ export function createIngestPipeline(
   }
 
   return {
-    async enqueue(enqueueDb: Db, spaceId: string, args: IngestRequest): Promise<{ ingest_id: string }> {
+    async enqueue(
+      enqueueDb: Db,
+      spaceId: string,
+      args: IngestRequest,
+    ): Promise<{ ingest_id: string } | IngestUnchanged> {
       const input = zIngestInput.parse(args)
 
       // Fail fast instead of queuing a job that can only fail: the 503 must
@@ -755,12 +898,6 @@ export function createIngestPipeline(
       // features work without a key, ingest tells you why it cannot).
       if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
 
-      // Synchronous dedup pre-check for direct bodies (§4.1): the content is
-      // in hand, so the 409 must not cost the client an enqueue-poll round
-      // trip. URL ingests defer to the worker — the body is unknown here.
-      // A hash hit only 409s while the archived source is still doing work
-      // (see module header); after a failed job the re-submit proceeds and
-      // the worker reuses the archived row.
       const body = input.markdown ?? input.text
       if (body !== undefined) {
         const contentHash = sha256Hex(body)
@@ -769,7 +906,37 @@ export function createIngestPipeline(
           content_hash: `eq.${contentHash}`,
           limit: 1,
         })
-        if (existing && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
+        if (input.external_source_id) {
+          // Sync fast-path (§ sync matrix): connectors retry blindly, so a
+          // known-content push is a head-pointer advance answered 200, never
+          // a 409 — UNLESS the earlier work failed and nothing references
+          // the source (then the re-push is the documented recovery path and
+          // proceeds to a fresh job). The version-conflict check (same
+          // marker, different bytes) lives inside recordStreamVersion.
+          if (existing && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
+            const { stream, source } = await recordStreamVersion(enqueueDb, spaceId, {
+              externalSourceId: input.external_source_id,
+              sourceVersion: input.source_version ?? null,
+              observedAt: input.observed_at,
+              effectiveAt: input.effective_at,
+              source: {
+                kind: input.markdown !== undefined ? 'markdown' : 'text',
+                title: input.title,
+                raw: body,
+                markdown: body,
+                sourceKind: input.source_kind,
+                language: input.language,
+              },
+            })
+            return { status: 'unchanged', source_id: source.id, stream_id: stream.id }
+          }
+        } else if (existing && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
+          // Synchronous dedup pre-check for direct bodies (§4.1): the content
+          // is in hand, so the 409 must not cost the client an enqueue-poll
+          // round trip. URL ingests defer to the worker — the body is unknown
+          // here. A hash hit only 409s while the archived source is still
+          // doing work (see module header); after a failed job the re-submit
+          // proceeds and the worker reuses the archived row.
           throw new ConflictError('already_ingested', `content already ingested as source ${existing.id}`, {
             details: { source_id: existing.id },
             nextBestActions: [`GET /v1/spaces/{space}/sources/${existing.id} to see the existing source`],

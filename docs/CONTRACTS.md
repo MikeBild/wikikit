@@ -33,7 +33,7 @@ CREATE TABLE wk_spaces (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug        text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
   name        text NOT NULL,
-  settings    jsonb NOT NULL DEFAULT '{}',           -- predicates + functional_predicates cardinality contract
+  settings    jsonb NOT NULL DEFAULT '{}',           -- predicates + functional_predicates cardinality contract; language ('en'|'de'|'simple') selects the search configuration
   epoch       bigint NOT NULL DEFAULT 0,             -- bumped on every approved proposal; drives ETag on list endpoints
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
@@ -53,11 +53,56 @@ CREATE TABLE wk_sources (
   raw_content   text NOT NULL,                       -- archived verbatim, never mutated
   markdown      text NOT NULL,                       -- normalized markdown projection (identical to raw for kind='markdown')
   metadata      jsonb NOT NULL DEFAULT '{}',
+  language      text CHECK (language IS NULL OR language IN ('en','de','simple')),  -- retrieval-index override (0016)
+  -- Sync contract (0019): write-once at INSERT, set only by recordStreamVersion.
+  stream_id             uuid REFERENCES wk_source_streams(id) ON DELETE SET NULL,
+  source_version        text,          -- the version under which this content was FIRST observed
+  observed_at           timestamptz,
+  effective_at          timestamptz,
+  supersedes_source_id  uuid REFERENCES wk_sources(id),
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (space_id, content_hash)
 );
 CREATE INDEX wk_sources_space_created_idx ON wk_sources (space_id, created_at DESC);
 ```
+
+### 1.2a `wk_source_streams` (connector sync contract)
+
+```sql
+-- The MUTABLE identity of one external document (external_source_id, e.g.
+-- 'gdrive:file123'). Every pushed version is an immutable wk_sources row;
+-- the stream's head pointer carries current truth. A content REVERT moves
+-- the head back to the old row (content-hash dedup refuses a duplicate).
+-- deleted_at is the tombstone: soft, idempotent, resurrected by a later
+-- push. Cited sources stay undeletable (wk_citations RESTRICT) — the
+-- 'tombstoned-sources' lint rule surfaces affected visible claims; whether a
+-- claim gets deprecated is a human decision through a normal proposal.
+CREATE TABLE wk_source_streams (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  space_id            uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
+  external_source_id  text NOT NULL CHECK (length(external_source_id) BETWEEN 1 AND 500),
+  latest_source_id    uuid REFERENCES wk_sources(id),   -- head pointer
+  latest_version      text,
+  latest_observed_at  timestamptz,
+  metadata            jsonb NOT NULL DEFAULT '{}',      -- connector-owned
+  deleted_at          timestamptz,                      -- tombstone
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (space_id, external_source_id)
+);
+```
+
+Sync matrix (ingest with `external_source_id`): same id + same version + same
+content → `200 {status:'unchanged'}` (head advance, no job, no LLM); same
+version + different content → `409 sync_version_conflict` (connector bug,
+loud); new version + known content (revert/no-change save) → `200 unchanged`
+with the head moved; new version + new content → normal pipeline with the
+`supersedes_source_id` chain; known content whose earlier work is still
+pending → converge on that proposal instead of 409 (connectors retry
+blindly). Ingests WITHOUT `external_source_id` keep the byte-exact 409
+semantics. Endpoints: `GET /v1/spaces/{space}/source-streams`
+(knowledge:read), `DELETE /v1/spaces/{space}/source-streams/{external_source_id}`
+(knowledge:propose, idempotent tombstone).
 
 ### 1.3 `wk_concepts`
 
@@ -169,6 +214,21 @@ CREATE TABLE wk_relations (
   UNIQUE (space_id, from_concept_id, to_concept_id, kind)
 );
 ```
+
+#### Federation (0023)
+
+`wk_relations.to_space_id` (nullable, `NULL` = intra-space) lets a relation
+point at a concept in another space. Staging accepts qualified
+`other-space:slug` targets when (1) the target space is declared in the
+source space's `settings.imports` AND (2) the staging principal can see both
+spaces (space-scoped keys → 403). The target must already EXIST as a
+readable concept — no cross-space writes, ever; citations stay strictly
+intra-space (federation links knowledge, never provenance). Reads label the
+target space (`relations[].space`), space-scoped keys get foreign targets
+elided, `GET /v1/spaces/{space}/search?include_imports=true` fans out over
+declared imports with per-hit provenance (`space`, `searched_spaces`), and
+the `broken-cross-space-links` lint rule (warn) flags dangling
+`[[space:slug]]` markdown links. Briefings label concepts as `space:slug`.
 
 ### 1.8 `wk_decisions`
 
@@ -371,7 +431,7 @@ CREATE FUNCTION wk_apply_proposal(
   p_note text DEFAULT NULL,
   p_review_channel text DEFAULT 'rest'
 )
-RETURNS jsonb;  -- {proposal_id, status:'approved', review_channel, concepts:[slug,...], claims_verified:int, claims_disputed:int, relations_removed:int}
+RETURNS jsonb;  -- {proposal_id, status:'approved', review_channel, concepts:[slug,...], claims_verified:int, claims_disputed:int, claims_deprecated:int, relations_removed:int}
 
 -- Atomic reject. Proposed rows KEEP their rows (audit) but flip:
 -- revisions → 'rejected', claims stay 'proposed' pinned to the rejected proposal
@@ -391,8 +451,73 @@ RETURNS jsonb;  -- {proposal_id, status:'rejected', review_channel}
 -- FTS over current revisions + visible claims. Proposed content is invisible
 -- BY CONSTRUCTION: the revision join goes through wk_concepts.current_revision_id.
 -- p_kind: NULL | 'concept' | 'claim'.
+-- The text search configuration is per space: wk_spaces.settings.language
+-- ('en' | 'de' | 'simple', default 'en') selects wk_english / wk_german /
+-- simple — both built with unaccent as a filtering dictionary, so indexing,
+-- query parsing and headlines are accent-insensitive symmetrically. A
+-- pg_trgm fallback matches typo'd concept slugs (similarity >= 0.45) and
+-- titles (word_similarity >= 0.6) with fixed rank contributions (5.0 * slug
+-- similarity, 3.0 * title word-similarity) below the exact-slug boost (10.0).
 CREATE FUNCTION wk_search(p_space_id uuid, p_query text, p_kind text DEFAULT NULL, p_limit int DEFAULT 20)
 RETURNS TABLE (kind text, concept_slug text, claim_id uuid, title text, headline text, rank real);
+
+-- Recomputes one space's derived search vectors (revisions + claims +
+-- source chunks) under its CURRENT settings.language. Idempotent. Called by
+-- the settings handler whenever the effective language changes; also a
+-- manual repair tool.
+CREATE FUNCTION wk_reindex_space(p_space_id uuid)
+RETURNS jsonb;  -- {space_id, revisions:int, claims:int, chunks:int}
+
+-- Ranked FTS over archived source chunks (wk_source_chunks) — the
+-- 'source_evidence' retrieval tier. Everything archived is searchable here
+-- BY DESIGN: the tier surfaces not-yet-curated material and is composed in
+-- TypeScript strictly AFTER approved hits, only when the caller passes
+-- mode=approved_then_sources. Never merged with wk_search: ts_rank values
+-- across corpora are not comparable; the tier separation IS the
+-- explainability story. Chunks are heading-aligned derived rows written at
+-- archive time (chunkForRetrieval), healed by the backfill scan worker, and
+-- rebuilt by wk_reindex_space; chunk vectors resolve per SOURCE
+-- (wk_sources.language overrides the space default).
+CREATE FUNCTION wk_search_sources(p_space_id uuid, p_query text, p_limit int DEFAULT 20)
+RETURNS TABLE (source_id uuid, chunk_id uuid, chunk_index int, title text, url text, heading text, headline text, rank real);
+
+-- OPTIONAL hybrid variants (exist only when pgvector is installed —
+-- migration 0018 guards all vector DDL). Lexical + cosine arms fused by
+-- Reciprocal Rank Fusion (k=60) over rank positions; rank = the RRF score,
+-- matched_via ∈ lexical|vector|both. Visibility joins are restated in the
+-- vector arm, so proposed content stays invisible by construction there too.
+-- TypeScript calls these only after the startup pgvector probe AND with a
+-- configured embedding provider (WIKIKIT_EMBEDDING_PROVIDER); any embedding
+-- failure falls back to the lexical functions — retrieval never 503s.
+CREATE FUNCTION wk_search_hybrid(p_space_id uuid, p_query text, p_embedding text, p_kind text DEFAULT NULL, p_limit int DEFAULT 20)
+RETURNS TABLE (kind text, concept_slug text, claim_id uuid, title text, headline text, rank real, matched_via text);
+
+CREATE FUNCTION wk_search_sources_hybrid(p_space_id uuid, p_query text, p_embedding text, p_limit int DEFAULT 20)
+RETURNS TABLE (source_id uuid, chunk_id uuid, chunk_index int, title text, url text, heading text, headline text, rank real, matched_via text);
+
+-- Review operations (0020). Split moves staged rows (revisions, claims —
+-- citations ride on claim_id —, proposed relations, 0014 removal markers,
+-- decisions) to child proposals by re-pointing proposal_id, atomically with
+-- the parent flip and the outbox event. Full split (p_concepts NULL): one
+-- pending child per staged concept plus one for decisions/leftover markers;
+-- parent → terminal status 'split'. Subset = DEFER: named concepts move to
+-- ONE child, the parent stays pending with a re-salted input_hash (a fresh
+-- full re-ingest stages a NEW complete proposal instead of converging on the
+-- partial one). Child input_hash = sha256(parent_hash + ':' + slug) —
+-- deterministic, never trips the pending-dedup index.
+-- Errors: proposal_not_found, proposal_not_pending, unknown_split_slug,
+-- split_nothing_left, invalid_review_channel.
+CREATE FUNCTION wk_split_proposal(p_proposal_id uuid, p_reviewer text, p_concepts text[] DEFAULT NULL, p_review_channel text DEFAULT 'rest')
+RETURNS jsonb;  -- {parent:{id,status}, children:[{proposal_id, concepts}]}
+
+-- Terminal reject + machine-readable changes_requested flag; the note is
+-- MANDATORY (error 'note_required') — it is the agent's revision brief for a
+-- fresh proposal. Rewrites the just-emitted rejected outbox event to
+-- wikikit.proposal.changes_requested in the same transaction. Deliberately
+-- NOT a fifth non-terminal proposal state: WikiKit has no rebase, so acting
+-- on feedback IS a new proposal.
+CREATE FUNCTION wk_request_changes(p_proposal_id uuid, p_reviewer text, p_note text, p_review_channel text DEFAULT 'rest')
+RETURNS jsonb;  -- reject result || {changes_requested: true}
 ```
 
 ---
@@ -407,12 +532,33 @@ export interface Db {
   query<R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number }>
   /** Run fn inside a transaction; the passed Db is transaction-bound. Nested tx = savepoint or error, builder's choice — document it. */
   tx<T>(fn: (tx: Db) => Promise<T>): Promise<T>
-  /** Whitelisted SQL function call. ONLY 'wk_apply_proposal' | 'wk_reject_proposal' | 'wk_search'. Anything else throws. */
+  /** Whitelisted SQL function call. ONLY the WhitelistedFn names below. Anything else throws. */
   call<R = Record<string, unknown>>(fn: WhitelistedFn, args: unknown[]): Promise<R[]>
   /** Insert an outbox event inside the CURRENT transaction (must be called on a tx-bound Db for atomicity). */
   emitEvent(spaceId: string, eventType: WebhookEventType, payload: Record<string, unknown>): Promise<void>
 }
-export type WhitelistedFn = 'wk_apply_proposal' | 'wk_reject_proposal' | 'wk_search'
+// Role presets (POST /v1/api-keys accepts role XOR scopes; expansion happens
+// at creation, scopes stay the only stored truth — no role is ever persisted
+// and requireScope never sees one):
+//   reader      → knowledge:read
+//   contributor → knowledge:read, knowledge:propose
+//   reviewer    → knowledge:read, knowledge:propose, knowledge:review
+// Deliberately NO 'approver' preset: knowledge:approve is the human gate and
+// must be granted as an explicit, spelled-out scope. A future org model
+// (principals/groups keyed off the provider-neutral identities, per-space
+// grants) would move role evaluation into requireScope — possible precisely
+// because scopes remain the ground truth today.
+
+export type WhitelistedFn =
+  | 'wk_apply_proposal'
+  | 'wk_reject_proposal'
+  | 'wk_search'
+  | 'wk_search_sources'
+  | 'wk_search_hybrid'
+  | 'wk_search_sources_hybrid'
+  | 'wk_reindex_space'
+  | 'wk_split_proposal'
+  | 'wk_request_changes'
 
 export interface Database {
   db: Db
@@ -757,6 +903,7 @@ export interface LintFinding {
     | 'empty-concepts'
     | 'unreviewed-proposals'
     | 'dangling-sources'
+    | 'tombstoned-sources'
   severity: 'error' | 'warn' | 'info'
   message: string
   concept_slug?: string
@@ -770,14 +917,21 @@ export interface LintReport {
 ```
 
 Severity mapping is fixed: `contradictions`/`missing-citations`/`broken-relations`
-= error; `stale-claims`/`orphan-concepts` = warn; the rest = info.
+= error; `stale-claims`/`orphan-concepts`/`tombstoned-sources` = warn; the rest
+= info. `tombstoned-sources` flags visible claims citing sources whose stream
+the connector tombstoned (upstream document deleted) — surfacing only, never an
+automatic status flip: whether the claim gets deprecated is a human decision
+made through a normal proposal.
 
 ### 4.1 Ingest pipeline (`src/ingest/pipeline.ts`)
 
 ```ts
 export interface IngestPipeline {
-  /** Insert a queued wk_ingest_jobs row and return its id (fast, no LLM). */
-  enqueue(db: Db, spaceId: string, args: IngestRequest): Promise<{ ingest_id: string }>
+  /** Insert a queued wk_ingest_jobs row and return its id (fast, no LLM). Sync
+   *  inputs (external_source_id) may short-circuit to {status:'unchanged',
+   *  source_id, stream_id} when the content is already archived — connectors
+   *  retry blindly, so known content is a head-pointer advance, never a 409. */
+  enqueue(db: Db, spaceId: string, args: IngestRequest): Promise<{ ingest_id: string } | IngestUnchanged>
   /** Worker loop: claim queued jobs (FOR UPDATE SKIP LOCKED), run acquire→archive→dedup→classify→synthesize→detect→propose. */
   start(): void
   stop(): Promise<void>
@@ -1176,6 +1330,9 @@ wikikit.proposal.approved
 wikikit.proposal.rejected
 wikikit.concept.updated
 wikikit.ingest.failed
+wikikit.source.tombstoned
+wikikit.proposal.split
+wikikit.proposal.changes_requested
 ```
 
 ### 6.2 Delivery envelope
@@ -1196,13 +1353,16 @@ Body (`zWebhookEnvelope`):
 
 ### 6.3 Payload `data` schemas (`zWebhookPayloads` in `src/http/schemas.ts`)
 
-| Event                       | `data` shape                                                                                                                                                               |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wikikit.proposal.created`  | `{ proposal_id, space, title, source_ids: string[], concepts: string[] /* slugs */, claims_count: number, contradictions_count: number, relations_removed_count: number }` |
-| `wikikit.proposal.approved` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation', concepts: string[] }`                                                  |
-| `wikikit.proposal.rejected` | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation' }`                                                                      |
-| `wikikit.concept.updated`   | `{ space, slug, rev: number, proposal_id }`                                                                                                                                |
-| `wikikit.ingest.failed`     | `{ ingest_id, space, error: { code, message } }`                                                                                                                           |
+| Event                                | `data` shape                                                                                                                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wikikit.proposal.created`           | `{ proposal_id, space, title, source_ids: string[], concepts: string[] /* slugs */, claims_count: number, contradictions_count: number, relations_removed_count: number }` |
+| `wikikit.proposal.approved`          | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation', concepts: string[] }`                                                  |
+| `wikikit.proposal.rejected`          | `{ proposal_id, space, reviewer, note: string \| null, review_channel: 'rest' \| 'mcp_elicitation' }`                                                                      |
+| `wikikit.concept.updated`            | `{ space, slug, rev: number, proposal_id }`                                                                                                                                |
+| `wikikit.ingest.failed`              | `{ ingest_id, space, error: { code, message } }`                                                                                                                           |
+| `wikikit.source.tombstoned`          | `{ space, external_source_id, stream_id, source_id: string \| null }`                                                                                                      |
+| `wikikit.proposal.split`             | `{ space, parent_id, parent_status: 'split' \| 'pending', children: [{ proposal_id, concepts: string[] }], reviewer }`                                                     |
+| `wikikit.proposal.changes_requested` | rejected shape `\|\| { changes_requested: true }`                                                                                                                          |
 
 Delivery worker: poll `wk_outbox_events` where `dispatched_at IS NULL`, fan out
 one `wk_webhook_deliveries` row per matching active endpoint, exponential
@@ -1469,6 +1629,8 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_MODEL_SYNTHESIS`            | `claude-sonnet-5`                                                  |                                                             |
 | `WIKIKIT_MODEL_CLASSIFY`             | `claude-haiku-4-5`                                                 |                                                             |
 | `WIKIKIT_MODEL_ANSWER`               | `claude-sonnet-5`                                                  |                                                             |
+| `WIKIKIT_EMBEDDING_PROVIDER`         | `none`                                                             | `none` \| `openai` \| `google`; hybrid ranker opt-in        |
+| `WIKIKIT_MODEL_EMBEDDING`            | `text-embedding-3-small`                                           | must be 1536-dim (google default: `gemini-embedding-001`)   |
 | `WIKIKIT_MAX_BODY_BYTES`             | `10485760`                                                         | 1 KiB – 250 MiB                                             |
 | `WIKIKIT_MAX_INGEST_TOKENS`          | `100000`                                                           | chunking threshold                                          |
 | `WIKIKIT_INGEST_CONCURRENCY`         | `2`                                                                | 1–16                                                        |

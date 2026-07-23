@@ -22,7 +22,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
 import { ForbiddenError, NotFoundError, ValidationError } from '../domain/errors.ts'
-import { lintSpace } from '../domain/lint.ts'
+import { lintProposal, lintSpace } from '../domain/lint.ts'
 import {
   approveProposal,
   createProposal,
@@ -30,10 +30,14 @@ import {
   listProposals,
   rejectProposal,
   renderProposalMarkdown,
+  requestChanges,
+  splitProposal,
+  stagesCrossSpaceRelations,
   toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
 import { getSource, isoString, listSources } from '../domain/sources.ts'
+import { listStreams, tombstoneStream } from '../domain/source-streams.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
 import { extractDocument } from '../ingest/extract.ts'
 import type { IngestPipeline } from '../ingest/pipeline.ts'
@@ -53,8 +57,9 @@ import {
   resolveUsageStatsWindow,
 } from '../stats.ts'
 import { answerQuestion } from '../query/answer.ts'
-import { search } from '../query/search.ts'
+import { search, searchAcrossImports } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
+import { ROLE_SCOPES, type RoleName } from './auth.ts'
 import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
@@ -157,6 +162,11 @@ export const ROUTES: RouteDef[] = [
     handler: 'createIngestHandler',
     request: { params: 'zSpaceParams', body: 'zIngestRequest' },
     responses: {
+      200: {
+        schema: 'zIngestUnchangedResponse',
+        type: 'application/json',
+        desc: 'Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll',
+      },
       202: {
         schema: 'zIngestAcceptedResponse',
         type: 'application/json',
@@ -165,7 +175,7 @@ export const ROUTES: RouteDef[] = [
       409: {
         schema: 'zErrorEnvelope',
         type: 'application/json',
-        desc: 'already_ingested (envelope carries source_id)',
+        desc: 'already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)',
       },
       503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
     },
@@ -230,6 +240,26 @@ export const ROUTES: RouteDef[] = [
     handler: 'getSourceHandler',
     request: { params: 'zSpaceIdParams' },
     responses: { 200: { schema: 'zSourceResponse', type: 'application/json', desc: 'Source' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/source-streams',
+    scope: 'knowledge:read',
+    summary: 'List connector source streams (sync contract): head pointer, latest version, tombstone state',
+    handler: 'listSourceStreamsHandler',
+    request: { params: 'zSpaceParams', query: 'zSourceStreamListQuery' },
+    responses: { 200: { schema: 'zSourceStreamListResponse', type: 'application/json', desc: 'Streams' } },
+  },
+  {
+    method: 'delete',
+    path: '/v1/spaces/{space}/source-streams/{external_source_id}',
+    scope: 'knowledge:propose',
+    summary: 'Tombstone a source stream (idempotent soft delete — the upstream document is gone)',
+    handler: 'tombstoneSourceStreamHandler',
+    request: { params: 'zSourceStreamParams' },
+    responses: {
+      200: { schema: 'zSourceStreamTombstoneResponse', type: 'application/json', desc: 'Tombstoned (idempotent)' },
+    },
   },
   {
     method: 'get',
@@ -356,6 +386,40 @@ export const ROUTES: RouteDef[] = [
       200: { schema: 'zProposalReviewResponse', type: 'application/json', desc: 'Rejected' },
       409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'proposal_not_pending' },
     },
+  },
+  {
+    method: 'post',
+    path: '/v1/proposals/{id}/split',
+    scope: 'knowledge:review',
+    summary: 'Split a pending proposal: full per-concept split, or defer a subset into one child',
+    handler: 'splitProposalHandler',
+    request: { params: 'zIdParams', body: 'zSplitProposalRequest' },
+    responses: {
+      200: { schema: 'zProposalSplitResponse', type: 'application/json', desc: 'Parent + pending children' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'proposal_not_pending' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/proposals/{id}/request-changes',
+    scope: 'knowledge:review',
+    summary: 'Terminal reject with a mandatory revision note — agents re-propose against the feedback',
+    handler: 'requestChangesHandler',
+    request: { params: 'zIdParams', body: 'zRequestChangesRequest' },
+    responses: {
+      200: { schema: 'zRequestChangesResponse', type: 'application/json', desc: 'Rejected with changes_requested' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'proposal_not_pending' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/proposals/{id}/lint',
+    scope: 'knowledge:read',
+    altScopes: ['knowledge:review'],
+    summary: 'Lint the STAGED content of one proposal (uncited claims, collisions, stale base, dangling links)',
+    handler: 'lintProposalHandler',
+    request: { params: 'zIdParams' },
+    responses: { 200: { schema: 'zProposalLintResponse', type: 'application/json', desc: 'Findings + counts' } },
   },
   {
     method: 'get',
@@ -755,6 +819,8 @@ export interface HttpDeps {
   metrics: Metrics
   usage: UsageTelemetry
   state: { draining: boolean }
+  /** pgvector capability (start()-time probe); gates the hybrid search arms. */
+  vector?: { available: boolean }
 }
 
 export interface HandlerInput {
@@ -838,14 +904,21 @@ export const HANDLERS: Record<string, Handler> = {
 
   async updateSpaceSettingsHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'admin')
-    return {
-      status: 200,
-      body: await updateSpaceSettings(
-        deps.db,
-        space,
-        input.body as { settings: Record<string, unknown>; replace: boolean },
-      ),
+    const updated = await updateSpaceSettings(
+      deps.db,
+      space,
+      input.body as { settings: Record<string, unknown>; replace: boolean },
+    )
+    // A changed language means every stored search_vector was stemmed under
+    // the old configuration — recompute them now. Idempotent, so a crash
+    // between the settings write and the reindex heals on the next settings
+    // write (or a manual wk_reindex_space call).
+    const effectiveLanguage = (settings: Record<string, unknown>) =>
+      typeof settings.language === 'string' ? settings.language : 'en'
+    if (effectiveLanguage(updated.settings) !== effectiveLanguage(space.settings)) {
+      await deps.db.call('wk_reindex_space', [space.id])
     }
+    return { status: 200, body: updated }
   },
 
   async agentBriefingHandler(deps, input) {
@@ -889,11 +962,14 @@ export const HANDLERS: Record<string, Handler> = {
 
   async createIngestHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:propose')
-    const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, input.body as never)
+    const result = await deps.ingest.enqueue(deps.db, space.id, input.body as never)
+    // Sync fast-path: known content under an external_source_id is a 200
+    // head-advance, not a queued job — there is nothing to poll.
+    if ('status' in result) return { status: 200, body: result }
     return {
       status: 202,
-      body: { ingest_id, status: 'queued' as const },
-      headers: { location: `/v1/ingests/${ingest_id}` },
+      body: { ingest_id: result.ingest_id, status: 'queued' as const },
+      headers: { location: `/v1/ingests/${result.ingest_id}` },
     }
   },
 
@@ -906,11 +982,15 @@ export const HANDLERS: Record<string, Handler> = {
     // the SAME ingest path a pasted markdown source takes — dedup, classify,
     // synthesize, grounding all apply unchanged. The filename becomes the title.
     const doc = await extractDocument(bytes, query.filename)
-    const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, {
+    // Document uploads carry no external_source_id, so enqueue always queues
+    // a job here — the narrowing is a type-level formality.
+    const enqueued = await deps.ingest.enqueue(deps.db, space.id, {
       markdown: doc.markdown,
       title: doc.title,
       source_kind: query.source_kind,
     })
+    if ('status' in enqueued) return { status: 200, body: enqueued }
+    const ingest_id = enqueued.ingest_id
     return {
       status: 202,
       body: { ingest_id, status: 'queued' as const },
@@ -945,6 +1025,20 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const source = await getSource(deps.db, space.id, { id: input.params.id! })
     return { status: 200, body: source }
+  },
+
+  async listSourceStreamsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { external_source_id?: string; include_deleted?: boolean; limit?: number }
+    return { status: 200, body: await listStreams(deps.db, space.id, query) }
+  },
+
+  async tombstoneSourceStreamHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    const result = await tombstoneStream(deps.db, space.id, {
+      externalSourceId: input.params.external_source_id!,
+    })
+    return { status: 200, body: { status: 'tombstoned' as const, ...result } }
   },
 
   async listDecisionsHandler(deps, input) {
@@ -1000,15 +1094,32 @@ export const HANDLERS: Record<string, Handler> = {
 
   async searchHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const query = input.query as { q: string; kind?: 'concept' | 'claim'; limit?: number }
-    const hits = await search(deps.db, space.id, query)
-    return { status: 200, body: { hits } }
+    const query = input.query as {
+      q: string
+      kind?: 'concept' | 'claim'
+      limit?: number
+      mode?: 'approved_only' | 'approved_then_sources'
+      include_imports?: boolean
+    }
+    if (query.include_imports && input.principal!.spaceId) {
+      throw new ForbiddenError('this key is scoped to a single space and cannot search imported spaces')
+    }
+    const searchDeps = { llm: deps.llm, vector: deps.vector }
+    if (query.include_imports) {
+      const result = await searchAcrossImports(deps.db, space, query, searchDeps)
+      return { status: 200, body: result }
+    }
+    const hits = await search(deps.db, space.id, query, searchDeps)
+    return {
+      status: 200,
+      body: { hits: hits.map((hit) => ({ ...hit, space: space.slug })), searched_spaces: [space.slug] },
+    }
   },
 
   async queryHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const body = input.body as { question: string; top_k?: number }
-    const answer = await answerQuestion(deps.db, space.id, deps.llm, body)
+    const body = input.body as { question: string; top_k?: number; mode?: 'approved_only' | 'approved_then_sources' }
+    const answer = await answerQuestion(deps.db, space.id, deps.llm, body, { vector: deps.vector })
     return { status: 200, body: answer }
   },
 
@@ -1022,6 +1133,11 @@ export const HANDLERS: Record<string, Handler> = {
   async createProposalHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:propose')
     const body = input.body as Record<string, unknown>
+    // 0023 key-visibility gate: a space-scoped key sees one space and may
+    // never stage across spaces. Deterministic 403, never silent skipping.
+    if (input.principal!.spaceId && stagesCrossSpaceRelations(body)) {
+      throw new ForbiddenError('this key is scoped to a single space and cannot stage cross-space relations')
+    }
     // Manual provenance stamp (§1.14): a proposal posted without agent_meta
     // is by definition human/agent-authored — never leave the audit blank.
     const agentMeta =
@@ -1046,6 +1162,40 @@ export const HANDLERS: Record<string, Handler> = {
       }
     }
     return { status: 200, body: toProposalWire(detail) }
+  },
+
+  async splitProposalHandler(deps, input) {
+    const detail = await getProposal(deps.db, { id: input.params.id! })
+    // Review scope, not approve: splitting reorganizes the review unit, it
+    // publishes nothing (approve implies review, so approvers keep it).
+    requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
+    const body = input.body as { concepts?: string[] } | undefined
+    const result = await splitProposal(deps.db, {
+      id: detail.id,
+      reviewer: input.principal!.name,
+      concepts: body?.concepts,
+      reviewChannel: 'rest',
+    })
+    return { status: 200, body: result }
+  },
+
+  async requestChangesHandler(deps, input) {
+    const detail = await getProposal(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
+    const body = input.body as { note: string }
+    const result = await requestChanges(deps.db, {
+      id: detail.id,
+      reviewer: input.principal!.name,
+      note: body.note,
+      reviewChannel: 'rest',
+    })
+    return { status: 200, body: result }
+  },
+
+  async lintProposalHandler(deps, input) {
+    const detail = await getProposal(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, ['knowledge:read', 'knowledge:review'], detail.space_id)
+    return { status: 200, body: await lintProposal(deps.db, detail.space_id, detail.id) }
   },
 
   async approveProposalHandler(deps, input) {
@@ -1135,7 +1285,10 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   async createApiKeyHandler(deps, input) {
-    const body = input.body as { name: string; scopes: string[]; space?: string }
+    const body = input.body as { name: string; scopes?: string[]; role?: RoleName; space?: string }
+    // Role presets expand HERE and nowhere else — the stored key carries only
+    // scopes (the ground truth), the response echoes the expansion.
+    const scopes = body.scopes ?? [...ROLE_SCOPES[body.role!]]
     // A space-scoped ADMIN key may only mint keys for its own space —
     // otherwise scoping would be self-escalating.
     let spaceId: string | null = null
@@ -1148,8 +1301,8 @@ export const HANDLERS: Record<string, Handler> = {
     if (input.principal!.spaceId && input.principal!.spaceId !== spaceId) {
       throw new ForbiddenError('a space-scoped key can only mint keys for its own space')
     }
-    const { id, key } = await deps.auth.createKey({ name: body.name, scopes: body.scopes, spaceId })
-    return { status: 201, body: { id, name: body.name, key, scopes: body.scopes, space: spaceSlug } }
+    const { id, key } = await deps.auth.createKey({ name: body.name, scopes, spaceId })
+    return { status: 201, body: { id, name: body.name, key, scopes, space: spaceSlug } }
   },
 
   async listApiKeysHandler(deps, input) {

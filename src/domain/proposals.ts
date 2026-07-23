@@ -17,12 +17,21 @@
 // instead of stacking review work.
 import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
-import { findContradictions, zClaimTriple, type ClaimStatus, type ClaimTriple } from './claims.ts'
+import {
+  findContradictions,
+  getPredicateRegistry,
+  zClaimTriple,
+  type ClaimStatus,
+  type ClaimTriple,
+  type IncomingClaim,
+} from './claims.ts'
+import { normalizeObject, resolveAlias } from './normalize.ts'
+import { parseQualifiedSlug, readImports, QUALIFIED_SLUG_PATTERN } from './space-refs.ts'
 import { ConflictError, NotFoundError, ValidationError } from './errors.ts'
 import { RELATION_KINDS, type RelationKind } from './relations.ts'
-import { clampLimit, isoString, sha256Hex } from './sources.ts'
+import { clampLimit, isoString, resolveChunkCitation, sha256Hex } from './sources.ts'
 
-export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed'
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'split'
 export const REVIEW_CHANNELS = ['rest', 'mcp_elicitation'] as const
 export type ReviewChannel = (typeof REVIEW_CHANNELS)[number]
 
@@ -35,6 +44,19 @@ export interface ProposalSummary {
   reviewer: string | null
   review_channel: ReviewChannel | null
   reviewed_at: string | null
+  /** Terminal reject that explicitly asks for a revised re-proposal (0020). */
+  changes_requested: boolean
+  /** Set on children created by wk_split_proposal. */
+  parent_proposal_id: string | null
+}
+
+/** One staged claim with its provenance, as the review surfaces need it. */
+export interface ClaimDiff extends ClaimTriple {
+  status: ClaimStatus
+  confidence: number
+  /** Pending only: exact-frame collision with an existing visible claim. */
+  collides: boolean
+  citations: { source_id: string; quote: string; locator: string; source_title: string | null }[]
 }
 
 /** Per-concept structured diff — the shape of zProposalDetailResponse.concepts. */
@@ -43,9 +65,17 @@ export interface ConceptDiff {
   is_new: boolean
   old_markdown: string | null
   new_markdown: string
+  /**
+   * Pending only: the concept's current revision moved past this proposal's
+   * base_revision_id — approval WILL fail with stale_base. Surfaced so the
+   * review page can explain the remedy (re-ingest) instead of a blind 409.
+   */
+  stale: boolean
   claims_added: ClaimTriple[]
   claims_disputed: ClaimTriple[]
   claims_deprecated: ClaimTriple[]
+  /** Full staged claims with citations (quote + source title) — additive to the triple groups above. */
+  claims: ClaimDiff[]
   relations_added: { to_slug: string; kind: string }[]
 }
 
@@ -75,6 +105,10 @@ export interface ProposalDetail {
   reviewed_at: string | null
   source_ids: string[]
   agent_meta: Record<string, unknown>
+  changes_requested: boolean
+  parent_proposal_id: string | null
+  /** Resolved source rows for source_ids ∪ cited sources — replaces bare-uuid review UX. */
+  sources: { id: string; title: string | null; url: string | null; kind: string; created_at: string }[]
   concepts: ConceptDiff[]
   decisions: DecisionDiff[]
   /**
@@ -95,6 +129,8 @@ export interface ApplyResult {
   concepts: string[]
   claims_verified: number
   claims_disputed: number
+  /** Claims deprecated by explicit supersession (flip 5c, 0022). */
+  claims_deprecated: number
   /** Active relations deactivated by this approval (Flip 6b row count). */
   relations_removed: number
   review_channel: ReviewChannel
@@ -144,20 +180,51 @@ export const zCreateProposalArgs = z
             .array(
               zClaimTriple.extend({
                 confidence: z.number().min(0).max(1).default(0.5),
+                // 0021 semantics — all optional and additive. Validity is only
+                // recorded when the SOURCE states it; context partitions the
+                // frame ('region:eu', 'v2.x'); supersedes_claim_id stages a
+                // deterministic succession the reviewer sees and approval
+                // executes (deprecate the target, flip 5c).
+                valid_from: z.iso.datetime().nullable().optional(),
+                valid_until: z.iso.datetime().nullable().optional(),
+                context: z.string().min(1).max(200).nullable().optional(),
+                supersedes_claim_id: z.uuid().nullable().optional(),
+                // Adjudication verdict stamped by the pipeline (never
+                // caller-meaningful beyond audit): 'complementary' exempts
+                // this claim from the apply-time dispute flip.
+                adjudication: z.enum(['contradictory', 'temporal', 'complementary']).optional(),
                 citations: z
                   .array(
-                    z.object({
-                      source_id: z.uuid(),
-                      quote: z.string().min(1),
-                      locator: z.string().max(500).default(''),
-                    }),
+                    z.union([
+                      z.object({
+                        source_id: z.uuid(),
+                        quote: z.string().min(1),
+                        locator: z.string().max(500).default(''),
+                      }),
+                      // Source-chunk citation (propose-from-evidence): the
+                      // chunk id resolves to its canonical {source_id, quote}
+                      // at staging time — chunk content IS a verbatim slice
+                      // of the archived source, so the quote contract holds
+                      // by construction.
+                      z.object({
+                        chunk_id: z.uuid(),
+                        locator: z.string().max(500).default(''),
+                      }),
+                    ]),
                   )
                   .default([]),
               }),
             )
             .default([]),
           relations: z
-            .array(z.object({ to_slug: z.string().regex(SLUG_PATTERN), kind: z.enum(RELATION_KINDS) }))
+            .array(
+              z.object({
+                // Plain slug or 'other-space:slug' (0023) — qualified targets
+                // must exist in a DECLARED import of this space.
+                to_slug: z.string().regex(QUALIFIED_SLUG_PATTERN),
+                kind: z.enum(RELATION_KINDS),
+              }),
+            )
             .default([]),
         }),
       )
@@ -248,6 +315,8 @@ export async function listProposals(
     reviewer: string | null
     review_channel: ReviewChannel | null
     reviewed_at: Date | string | null
+    changes_requested: boolean
+    parent_proposal_id: string | null
   }>('wk_change_proposals', {
     space_id: `eq.${spaceId}`,
     ...(args.status ? { status: `eq.${args.status}` } : {}),
@@ -263,6 +332,8 @@ export async function listProposals(
     reviewer: row.reviewer,
     review_channel: row.review_channel,
     reviewed_at: row.reviewed_at === null ? null : isoString(row.reviewed_at),
+    changes_requested: row.changes_requested === true,
+    parent_proposal_id: row.parent_proposal_id ?? null,
   }))
 }
 
@@ -343,6 +414,33 @@ export async function createProposal(
       })
       if (pending) return { proposal_id: pending.id, status: 'pending' as const }
 
+      // Chunk citations resolve FIRST: {chunk_id} → the chunk's canonical
+      // {source_id, quote}. The lookup is space-scoped, so a foreign or
+      // nonexistent chunk id fails as a 400 before anything is staged; the
+      // locator records the chunk for provenance when the caller gave none.
+      for (const entry of input.concepts) {
+        for (const claim of entry.claims) {
+          claim.citations = await Promise.all(
+            claim.citations.map(async (citation) => {
+              if (!('chunk_id' in citation)) return citation
+              try {
+                const resolved = await resolveChunkCitation(tx, spaceId, citation.chunk_id)
+                return {
+                  source_id: resolved.source_id,
+                  quote: resolved.quote,
+                  locator: citation.locator || `chunk:${citation.chunk_id}`,
+                }
+              } catch (error) {
+                if (error instanceof NotFoundError) {
+                  throw new ValidationError(`source chunk not found in this space: ${citation.chunk_id}`)
+                }
+                throw error
+              }
+            }),
+          )
+        }
+      }
+
       // Space-ownership check on every referenced source id (proposal-level
       // source_ids AND per-citation source_ids): 'no wk_ row access without
       // space_id' applies to the row a citation POINTS AT too. Without this a
@@ -355,7 +453,9 @@ export async function createProposal(
         ...new Set([
           ...input.source_ids,
           ...input.concepts.flatMap((entry) =>
-            entry.claims.flatMap((claim) => claim.citations.map((citation) => citation.source_id)),
+            entry.claims.flatMap((claim) =>
+              claim.citations.flatMap((citation) => ('source_id' in citation ? [citation.source_id] : [])),
+            ),
           ),
         ]),
       ]
@@ -381,7 +481,75 @@ export async function createProposal(
       })
       const proposalId = proposal!.id
 
-      const allTriples: ClaimTriple[] = []
+      // 0021 semantics, resolved ONCE per staging: the alias map canonicalizes
+      // claim subjects (stored claims are always canonical — apply/lint/frame
+      // index need zero alias awareness) and the predicate registry drives the
+      // server-side object normalization (never caller-supplied).
+      const [settingsRow] = await tx.select<{ settings: Record<string, unknown> }>('wk_spaces', {
+        id: `eq.${spaceId}`,
+        limit: 1,
+      })
+      const aliases =
+        typeof settingsRow?.settings?.['aliases'] === 'object' && settingsRow.settings['aliases'] !== null
+          ? (settingsRow.settings['aliases'] as Record<string, unknown>)
+          : undefined
+      const registry = await getPredicateRegistry(tx, spaceId)
+
+      // Cross-space relation targets (0023): must name a space DECLARED in
+      // settings.imports and an EXISTING, reader-visible concept there.
+      // Resolution only — never creation: no cross-space writes, ever.
+      const imports = new Set(readImports(settingsRow?.settings))
+      const foreignTargets = new Map<string, { id: string; space_id: string }>()
+      for (const entry of input.concepts) {
+        for (const relation of entry.relations) {
+          const parsed = parseQualifiedSlug(relation.to_slug)
+          if (!parsed?.space || foreignTargets.has(relation.to_slug)) continue
+          if (!imports.has(parsed.space)) {
+            throw new ValidationError(
+              `space '${parsed.space}' is not declared in settings.imports of this space — cross-space relations require a declared import`,
+            )
+          }
+          const { rows: found } = await tx.query<{ id: string; space_id: string }>(
+            `SELECT c.id, c.space_id
+               FROM wk_concepts c
+               JOIN wk_spaces s ON s.id = c.space_id
+              WHERE s.slug = $1 AND c.slug = $2 AND c.current_revision_id IS NOT NULL`,
+            [parsed.space, parsed.slug],
+          )
+          if (!found[0]) {
+            throw new ValidationError(
+              `cross-space relation target '${relation.to_slug}' does not exist as a readable concept`,
+            )
+          }
+          foreignTargets.set(relation.to_slug, found[0])
+        }
+      }
+
+      // Space-ownership check for supersedes targets: succession may only
+      // deprecate a VISIBLE claim of this space.
+      const supersedeIds = [
+        ...new Set(
+          input.concepts.flatMap((entry) =>
+            entry.claims.flatMap((claim) => (claim.supersedes_claim_id ? [claim.supersedes_claim_id] : [])),
+          ),
+        ),
+      ]
+      if (supersedeIds.length) {
+        const known = await tx.query<{ id: string }>(
+          `SELECT id FROM wk_claims
+            WHERE space_id = $1 AND id = ANY($2::uuid[]) AND status IN ('verified', 'disputed')`,
+          [spaceId, supersedeIds],
+        )
+        const visible = new Set(known.rows.map((row) => row.id))
+        const missing = supersedeIds.filter((id) => !visible.has(id))
+        if (missing.length) {
+          throw new ValidationError(
+            `supersedes_claim_id(s) not found as visible claims in this space: ${missing.join(', ')}`,
+          )
+        }
+      }
+
+      const allTriples: IncomingClaim[] = []
       const conceptSlugs: string[] = []
       let claimsCount = 0
 
@@ -396,6 +564,10 @@ export async function createProposal(
       const titleBySlug = new Map<string, string>()
       for (const entry of input.concepts) {
         for (const relation of entry.relations) {
+          // Qualified targets never join the local lock/create pass — no
+          // cross-space writes means no foreign lock ordering problem, and a
+          // foreign placeholder concept must never be invented.
+          if (parseQualifiedSlug(relation.to_slug)?.space) continue
           if (relation.to_slug !== entry.slug && !titleBySlug.has(relation.to_slug)) {
             titleBySlug.set(relation.to_slug, relation.to_slug)
           }
@@ -461,28 +633,53 @@ export async function createProposal(
 
         for (const claim of entry.claims) {
           claimsCount += 1
-          allTriples.push({ subject: claim.subject, predicate: claim.predicate, object: claim.object })
+          const subject = resolveAlias(aliases, claim.subject)
+          const normalized = normalizeObject(registry.get(claim.predicate), claim.object)
+          allTriples.push({
+            subject,
+            predicate: claim.predicate,
+            object: claim.object,
+            context: claim.context ?? null,
+            valid_from: claim.valid_from ?? null,
+            valid_until: claim.valid_until ?? null,
+          })
           const [claimRow] = await tx.insert<{ id: string }>('wk_claims', {
             space_id: spaceId,
             concept_id: concept.id,
-            subject: claim.subject,
+            subject,
             predicate: claim.predicate,
             object: claim.object,
+            object_normalized: normalized.normalized,
+            object_value_num: normalized.valueNum,
+            object_unit: normalized.unit,
+            context: claim.context ?? null,
+            valid_from: claim.valid_from ?? null,
+            valid_until: claim.valid_until ?? null,
+            supersedes_claim_id: claim.supersedes_claim_id ?? null,
             status: 'proposed',
             confidence: claim.confidence,
-            agent_meta: JSON.stringify(input.agent_meta),
+            agent_meta: JSON.stringify(
+              claim.adjudication ? { ...input.agent_meta, adjudication: claim.adjudication } : input.agent_meta,
+            ),
             proposal_id: proposalId,
           })
           if (claim.citations.length) {
             await tx.insert(
               'wk_citations',
-              claim.citations.map((citation) => ({
-                space_id: spaceId,
-                claim_id: claimRow!.id,
-                source_id: citation.source_id,
-                quote: citation.quote,
-                locator: citation.locator,
-              })),
+              claim.citations.map((citation) => {
+                // Chunk citations were resolved to source_id/quote above —
+                // this narrowing is a type-level formality, not a runtime path.
+                if (!('source_id' in citation)) {
+                  throw new Error(`unresolved chunk citation: ${citation.chunk_id}`)
+                }
+                return {
+                  space_id: spaceId,
+                  claim_id: claimRow!.id,
+                  source_id: citation.source_id,
+                  quote: citation.quote,
+                  locator: citation.locator,
+                }
+              }),
               { returning: false },
             )
           }
@@ -490,7 +687,9 @@ export async function createProposal(
 
         for (const relation of entry.relations) {
           if (relation.to_slug === entry.slug) continue // self-relations are noise, drop silently
-          const target = conceptBySlug.get(relation.to_slug)!
+          const foreign = foreignTargets.get(relation.to_slug)
+          const target = foreign ?? conceptBySlug.get(relation.to_slug)!
+          const targetSpaceId = foreign ? foreign.space_id : null
           // A pending REMOVAL of the same edge is an explicit conflict, not a
           // silent one: re-asserting an active edge stages nothing (the
           // upsert below no-ops), so if the pending removal were approved
@@ -522,12 +721,12 @@ export async function createProposal(
           // proposal_id matches, so a once-rejected relation could never
           // become active again.
           await tx.query(
-            `INSERT INTO wk_relations (space_id, from_concept_id, to_concept_id, kind, status, proposal_id)
-             VALUES ($1, $2, $3, $4, 'proposed', $5)
+            `INSERT INTO wk_relations (space_id, from_concept_id, to_concept_id, kind, status, proposal_id, to_space_id)
+             VALUES ($1, $2, $3, $4, 'proposed', $5, $6)
              ON CONFLICT (space_id, from_concept_id, to_concept_id, kind)
              DO UPDATE SET status = 'proposed', proposal_id = EXCLUDED.proposal_id
              WHERE wk_relations.status <> 'active'`,
-            [spaceId, concept.id, target.id, relation.kind, proposalId],
+            [spaceId, concept.id, target.id, relation.kind, proposalId, targetSpaceId],
           )
         }
       }
@@ -635,6 +834,8 @@ interface ProposalRow {
   review_note: string | null
   review_channel: ReviewChannel | null
   reviewed_at: Date | string | null
+  changes_requested: boolean
+  parent_proposal_id: string | null
   created_at: Date | string
 }
 
@@ -659,8 +860,10 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     markdown: string
     base_revision_id: string | null
     old_markdown: string | null
+    stale: boolean
   }>(
-    `SELECT r.concept_id, c.slug, r.markdown, r.base_revision_id, base.markdown AS old_markdown
+    `SELECT r.concept_id, c.slug, r.markdown, r.base_revision_id, base.markdown AS old_markdown,
+            (r.status = 'proposed' AND c.current_revision_id IS DISTINCT FROM r.base_revision_id) AS stale
        FROM wk_concept_revisions r
        JOIN wk_concepts c ON c.id = r.concept_id
        LEFT JOIN wk_concept_revisions base ON base.id = r.base_revision_id
@@ -673,14 +876,16 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
   // same frame rule as wk_apply_proposal flip 5 — used only while pending
   // (after approval the persisted 'disputed' status is the truth).
   const claims = await db.query<{
+    id: string
     concept_id: string
     subject: string
     predicate: string
     object: string
     status: ClaimStatus
+    confidence: number
     collides: boolean
   }>(
-    `SELECT cl.concept_id, cl.subject, cl.predicate, cl.object, cl.status,
+    `SELECT cl.id, cl.concept_id, cl.subject, cl.predicate, cl.object, cl.status, cl.confidence,
             EXISTS (
               SELECT 1 FROM wk_claims other
                WHERE other.space_id = cl.space_id
@@ -693,6 +898,24 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
        FROM wk_claims cl
       WHERE cl.proposal_id = $1
       ORDER BY cl.created_at ASC`,
+    [args.id],
+  )
+
+  // Citations for every staged claim, with the source title resolved — the
+  // review surfaces show quote + source side by side.
+  const citations = await db.query<{
+    claim_id: string
+    source_id: string
+    quote: string
+    locator: string
+    source_title: string | null
+  }>(
+    `SELECT ci.claim_id, ci.source_id, ci.quote, ci.locator, s.title AS source_title
+       FROM wk_citations ci
+       JOIN wk_claims cl ON cl.id = ci.claim_id
+       JOIN wk_sources s ON s.id = ci.source_id
+      WHERE cl.proposal_id = $1
+      ORDER BY ci.created_at ASC`,
     [args.id],
   )
 
@@ -732,6 +955,17 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
   )
 
   const pending = proposal.status === 'pending'
+  const citationsByClaim = new Map<string, ClaimDiff['citations']>()
+  for (const citation of citations.rows) {
+    const list = citationsByClaim.get(citation.claim_id) ?? []
+    list.push({
+      source_id: citation.source_id,
+      quote: citation.quote,
+      locator: citation.locator,
+      source_title: citation.source_title,
+    })
+    citationsByClaim.set(citation.claim_id, list)
+  }
   const concepts: ConceptDiff[] = revisions.rows.map((revision) => {
     const own = claims.rows.filter((claim) => claim.concept_id === revision.concept_id)
     const triple = (claim: ClaimTriple): ClaimTriple => ({
@@ -744,14 +978,38 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
       is_new: revision.base_revision_id === null,
       old_markdown: revision.old_markdown,
       new_markdown: revision.markdown,
+      stale: pending && revision.stale === true,
       claims_added: own.map(triple),
       claims_disputed: own.filter((claim) => (pending ? claim.collides : claim.status === 'disputed')).map(triple),
       claims_deprecated: own.filter((claim) => claim.status === 'deprecated').map(triple),
+      claims: own.map((claim) => ({
+        subject: claim.subject,
+        predicate: claim.predicate,
+        object: claim.object,
+        status: claim.status,
+        confidence: Number(claim.confidence ?? 0.5),
+        collides: pending && claim.collides,
+        citations: citationsByClaim.get(claim.id) ?? [],
+      })),
       relations_added: relations.rows
         .filter((relation) => relation.from_concept_id === revision.concept_id)
         .map((relation) => ({ to_slug: relation.to_slug, kind: relation.kind })),
     }
   })
+
+  // Resolve the source rows behind source_ids ∪ cited ids: the review
+  // surfaces show titles, not bare uuids.
+  const sourceIds = [
+    ...new Set([...(proposal.source_ids ?? []), ...citations.rows.map((citation) => citation.source_id)]),
+  ]
+  const sources = sourceIds.length
+    ? await db.query<{ id: string; title: string | null; url: string | null; kind: string; created_at: Date | string }>(
+        `SELECT id, title, url, kind, created_at FROM wk_sources WHERE id = ANY($1::uuid[]) ORDER BY created_at ASC`,
+        [sourceIds],
+      )
+    : {
+        rows: [] as { id: string; title: string | null; url: string | null; kind: string; created_at: Date | string }[],
+      }
 
   return {
     id: proposal.id,
@@ -767,6 +1025,15 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     reviewed_at: proposal.reviewed_at === null ? null : isoString(proposal.reviewed_at),
     source_ids: proposal.source_ids ?? [],
     agent_meta: proposal.agent_meta ?? {},
+    changes_requested: proposal.changes_requested === true,
+    parent_proposal_id: proposal.parent_proposal_id ?? null,
+    sources: sources.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      url: row.url,
+      kind: row.kind,
+      created_at: isoString(row.created_at),
+    })),
     concepts,
     decisions: decisions.rows.map((decision) => ({
       slug: decision.slug,
@@ -809,6 +1076,10 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
   }
   if (detail.review_channel) lines.push(`- **review channel:** ${detail.review_channel}`)
   if (detail.review_note) lines.push(`- **review note:** ${detail.review_note}`)
+  if (detail.changes_requested) {
+    lines.push(`- **changes requested:** yes — revise per the review note and submit a FRESH proposal`)
+  }
+  if (detail.parent_proposal_id) lines.push(`- **split from:** ${detail.parent_proposal_id}`)
   if (detail.source_ids.length) lines.push(`- **sources:** ${detail.source_ids.join(', ')}`)
   const meta = detail.agent_meta as { model?: unknown; prompt_version?: unknown }
   if (meta.model) lines.push(`- **agent:** ${String(meta.model)} (${String(meta.prompt_version ?? 'unknown')})`)
@@ -821,7 +1092,15 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
 
   for (const concept of detail.concepts) {
     lines.push('')
-    lines.push(`## Concept \`${concept.slug}\` — ${concept.is_new ? 'new' : 'update'}`)
+    lines.push(
+      `## Concept \`${concept.slug}\` — ${concept.is_new ? 'new' : 'update'}${concept.stale ? ' ⚠ STALE' : ''}`,
+    )
+    if (concept.stale) {
+      lines.push('')
+      lines.push(
+        '> ⚠ The concept moved on since this proposal was synthesized — approval will fail with stale_base. Remedy: re-ingest the source against the current revision.',
+      )
+    }
     if (!concept.is_new && concept.old_markdown !== null) {
       lines.push('')
       lines.push('### Old revision')
@@ -840,7 +1119,21 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
       lines.push('')
       lines.push(`### Claims added (${concept.claims_added.length})`)
       lines.push('')
-      for (const claim of concept.claims_added) lines.push(bullet(claim))
+      for (const claim of concept.claims_added) {
+        lines.push(bullet(claim))
+        // Quote + source title beside the claim — the citation IS the review
+        // evidence; a reviewer should never chase a bare uuid.
+        const full = concept.claims.find(
+          (candidate) =>
+            candidate.subject === claim.subject &&
+            candidate.predicate === claim.predicate &&
+            candidate.object === claim.object,
+        )
+        const citation = full?.citations[0]
+        if (citation) {
+          lines.push(`  - quote: "${citation.quote}"${citation.source_title ? ` — ${citation.source_title}` : ''}`)
+        }
+      }
     }
     if (concept.claims_disputed.length) {
       lines.push('')
@@ -925,7 +1218,91 @@ function mapReviewError(error: unknown): never {
       ],
     })
   }
+  if (message === 'unknown_split_slug') {
+    throw new ValidationError('concepts must name slugs staged by this proposal')
+  }
+  if (message === 'split_nothing_left') {
+    throw new ValidationError(
+      'nothing to split: the subset covers every staged concept (or the proposal has a single reviewable unit)',
+    )
+  }
+  if (message === 'note_required') {
+    throw new ValidationError('request-changes requires a non-empty note — the note IS the requested change')
+  }
   throw error
+}
+
+/**
+ * True when the (already-validated or raw) proposal body stages any
+ * cross-space relation. Transports use this for the key-visibility half of
+ * the 0023 gate: a space-scoped key sees exactly one space and may therefore
+ * never stage across spaces (403-not-404 discipline).
+ */
+export function stagesCrossSpaceRelations(body: unknown): boolean {
+  const concepts = (body as { concepts?: { relations?: { to_slug?: unknown }[] }[] } | undefined)?.concepts
+  if (!Array.isArray(concepts)) return false
+  return concepts.some(
+    (entry) =>
+      Array.isArray(entry?.relations) &&
+      entry.relations.some((relation) => typeof relation?.to_slug === 'string' && relation.to_slug.includes(':')),
+  )
+}
+
+export interface SplitResult {
+  parent: { id: string; status: 'split' | 'pending' }
+  children: { proposal_id: string; concepts: string[] }[]
+}
+
+/**
+ * ⚠ Global-id wrapper over db.call('wk_split_proposal'). Full split
+ * (no concepts arg): one pending child per staged concept (+ one for
+ * decisions/leftover removal markers), parent → terminal 'split'. Subset
+ * (defer): the named concepts move to ONE child; the parent keeps its id and
+ * remainder and stays pending with a re-salted input_hash.
+ */
+export async function splitProposal(
+  db: Db,
+  args: { id: string; reviewer: string; concepts?: string[]; reviewChannel?: ReviewChannel },
+): Promise<SplitResult> {
+  if (!args.reviewer) throw new ValidationError('reviewer is required')
+  try {
+    const [result] = await db.call<SplitResult>('wk_split_proposal', [
+      args.id,
+      args.reviewer,
+      args.concepts && args.concepts.length ? args.concepts : null,
+      args.reviewChannel ?? 'rest',
+    ])
+    return result!
+  } catch (error) {
+    mapReviewError(error)
+  }
+}
+
+export interface RequestChangesResult extends RejectResult {
+  changes_requested: true
+}
+
+/**
+ * ⚠ Global-id wrapper over db.call('wk_request_changes') — a terminal reject
+ * plus the machine-readable changes_requested flag. The note is mandatory:
+ * agents read it as the revision brief for a fresh proposal.
+ */
+export async function requestChanges(
+  db: Db,
+  args: { id: string; reviewer: string; note: string; reviewChannel?: ReviewChannel },
+): Promise<RequestChangesResult> {
+  if (!args.reviewer) throw new ValidationError('reviewer is required')
+  try {
+    const [result] = await db.call<RequestChangesResult>('wk_request_changes', [
+      args.id,
+      args.reviewer,
+      args.note,
+      args.reviewChannel ?? 'rest',
+    ])
+    return result!
+  } catch (error) {
+    mapReviewError(error)
+  }
 }
 
 /**

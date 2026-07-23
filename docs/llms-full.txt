@@ -86,6 +86,8 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
+| GET    | `/v1/spaces/{space}/source-streams`           | knowledge:read    | List connector source streams (sync contract): head pointer, latest version, tombstone state |
+| DELETE | `/v1/spaces/{space}/source-streams/{external_source_id}` | knowledge:propose | Tombstone a source stream (idempotent soft delete — the upstream document is gone) |
 | GET    | `/v1/spaces/{space}/decisions`                | knowledge:read    | List decisions (active/superseded), newest first — the decision log |
 | GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read    | Read one decision: context, decision, rationale, rejected alternatives |
 | GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
@@ -98,6 +100,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | Structured proposal diff incl. relations added/removed; `text/markdown` via Accept header |
 | POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve | Approve a pending proposal (atomic apply) |
 | POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve | Reject a pending proposal (staged rows kept for audit) |
+| POST   | `/v1/proposals/{id}/split`                    | knowledge:review  | Split a pending proposal: full per-concept split, or defer a subset into one child |
+| POST   | `/v1/proposals/{id}/request-changes`          | knowledge:review  | Terminal reject with a mandatory revision note — agents re-propose against the feedback |
+| GET    | `/v1/proposals/{id}/lint`                     | knowledge:read    | Lint the STAGED content of one proposal (uncited claims, collisions, stale base, dangling links) |
 | GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly |
 | GET    | `/v1/spaces/{space}/export`                   | knowledge:read    | Export the space as a zip bundle (`?format=md\|okf`) |
 | POST   | `/v1/spaces/{space}/import`                   | knowledge:propose | Import a bundle (zip): sources archived, knowledge staged as ONE proposal |
@@ -595,6 +600,8 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_MODEL_SYNTHESIS` | synthesis model | `claude-sonnet-5` |
 | `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation | `claude-haiku-4-5` |
 | `WIKIKIT_MODEL_ANSWER` | grounded-answer model | `claude-sonnet-5` |
+| `WIKIKIT_EMBEDDING_PROVIDER` | optional hybrid-retrieval embedding provider: `none`/`openai`/`google` | `none` (lexical-only) |
+| `WIKIKIT_MODEL_EMBEDDING` | embedding model (must produce 1536-dim vectors) | `text-embedding-3-small` |
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
 | `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
 | `WIKIKIT_INGEST_CONCURRENCY` | parallel ingest workers (1–16) | `2` |

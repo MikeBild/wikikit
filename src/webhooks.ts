@@ -45,6 +45,9 @@ export const WEBHOOK_EVENT_TYPES = [
   'wikikit.proposal.rejected',
   'wikikit.concept.updated',
   'wikikit.ingest.failed',
+  'wikikit.source.tombstoned',
+  'wikikit.proposal.split',
+  'wikikit.proposal.changes_requested',
 ] as const satisfies readonly WebhookEventType[]
 
 export const zProposalCreatedData = z.object({
@@ -88,6 +91,31 @@ export const zIngestFailedData = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 })
 
+// Sync contract (§1.2a): the connector reported the upstream document gone.
+// source_id is the stream's head at tombstone time (null for a stream that
+// never recorded a version).
+export const zSourceTombstonedData = z.object({
+  space: z.string(),
+  external_source_id: z.string(),
+  stream_id: z.uuid(),
+  source_id: z.uuid().nullable(),
+})
+
+// Split (0020): the parent's staged rows moved to child proposals.
+export const zProposalSplitData = z.object({
+  space: z.string(),
+  parent_id: z.uuid(),
+  parent_status: z.enum(['split', 'pending']),
+  children: z.array(z.object({ proposal_id: z.uuid(), concepts: z.array(z.string()) })),
+  reviewer: z.string(),
+})
+
+// Request-changes (0020): a terminal reject whose payload carries the flag —
+// same fields as rejected (the reject core wrote them) plus changes_requested.
+export const zProposalChangesRequestedData = zProposalRejectedData.extend({
+  changes_requested: z.literal(true),
+})
+
 /** Per-event `data` schema — keyed by the exact wire event name. */
 export const zWebhookPayloads = {
   'wikikit.proposal.created': zProposalCreatedData,
@@ -95,6 +123,9 @@ export const zWebhookPayloads = {
   'wikikit.proposal.rejected': zProposalRejectedData,
   'wikikit.concept.updated': zConceptUpdatedData,
   'wikikit.ingest.failed': zIngestFailedData,
+  'wikikit.source.tombstoned': zSourceTombstonedData,
+  'wikikit.proposal.split': zProposalSplitData,
+  'wikikit.proposal.changes_requested': zProposalChangesRequestedData,
 } as const satisfies Record<WebhookEventType, z.ZodType>
 
 /** The full POST body: `{ type, timestamp (ISO 8601), data }`, discriminated on `type`. */
@@ -104,6 +135,17 @@ export const zWebhookEnvelope = z.discriminatedUnion('type', [
   z.object({ type: z.literal('wikikit.proposal.rejected'), timestamp: z.iso.datetime(), data: zProposalRejectedData }),
   z.object({ type: z.literal('wikikit.concept.updated'), timestamp: z.iso.datetime(), data: zConceptUpdatedData }),
   z.object({ type: z.literal('wikikit.ingest.failed'), timestamp: z.iso.datetime(), data: zIngestFailedData }),
+  z.object({
+    type: z.literal('wikikit.source.tombstoned'),
+    timestamp: z.iso.datetime(),
+    data: zSourceTombstonedData,
+  }),
+  z.object({ type: z.literal('wikikit.proposal.split'), timestamp: z.iso.datetime(), data: zProposalSplitData }),
+  z.object({
+    type: z.literal('wikikit.proposal.changes_requested'),
+    timestamp: z.iso.datetime(),
+    data: zProposalChangesRequestedData,
+  }),
 ])
 export type WebhookEnvelope = z.infer<typeof zWebhookEnvelope>
 

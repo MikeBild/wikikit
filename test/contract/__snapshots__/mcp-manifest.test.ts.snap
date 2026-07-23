@@ -177,10 +177,14 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "include_imports": {
+          "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
+          "type": "boolean",
+        },
         "kind": {
           "description": "Restrict hits to one kind",
           "enum": [
@@ -190,10 +194,18 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
           "type": "string",
         },
         "limit": {
-          "description": "Max hits (default 20)",
+          "description": "Max hits per tier (default 20)",
           "maximum": 50,
           "minimum": 1,
           "type": "integer",
+        },
+        "mode": {
+          "description": "Retrieval tiers: 'approved_only' (default) searches reviewed knowledge; 'approved_then_sources' additionally returns archived source chunks, labeled tier:'source_evidence' after all approved hits",
+          "enum": [
+            "approved_only",
+            "approved_then_sources",
+          ],
+          "type": "string",
         },
         "q": {
           "description": "Full-text query",
@@ -431,8 +443,35 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "effective_at": {
+          "description": "When the content is "as of" (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "external_source_id": {
+          "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "language": {
+          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "enum": [
+            "en",
+            "de",
+            "simple",
+          ],
+          "type": "string",
+        },
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "observed_at": {
+          "description": "When the connector saw this content (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
         "source_kind": {
@@ -442,6 +481,12 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
             "article",
             "note",
           ],
+          "type": "string",
+        },
+        "source_version": {
+          "description": "Connector version marker (etag/revision); same id + same version + same content = no-op",
+          "maxLength": 200,
+          "minLength": 1,
           "type": "string",
         },
         "space": {
@@ -549,31 +594,62 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
                 "items": {
                   "additionalProperties": false,
                   "properties": {
+                    "adjudication": {
+                      "enum": [
+                        "contradictory",
+                        "temporal",
+                        "complementary",
+                      ],
+                      "type": "string",
+                    },
                     "citations": {
                       "default": [],
                       "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "locator": {
-                            "default": "",
-                            "maxLength": 500,
-                            "type": "string",
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              "quote": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "source_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "source_id",
+                              "quote",
+                            ],
+                            "type": "object",
                           },
-                          "quote": {
-                            "minLength": 1,
-                            "type": "string",
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "chunk_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "chunk_id",
+                            ],
+                            "type": "object",
                           },
-                          "source_id": {
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                            "type": "string",
-                          },
-                        },
-                        "required": [
-                          "source_id",
-                          "quote",
                         ],
-                        "type": "object",
                       },
                       "type": "array",
                     },
@@ -582,6 +658,18 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
                       "maximum": 1,
                       "minimum": 0,
                       "type": "number",
+                    },
+                    "context": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                     "object": {
                       "maxLength": 2000,
@@ -597,6 +685,42 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
                       "maxLength": 500,
                       "minLength": 1,
                       "type": "string",
+                    },
+                    "supersedes_claim_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_until": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "required": [
@@ -628,7 +752,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
                       "type": "string",
                     },
                     "to_slug": {
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "pattern": "^(?:[a-z0-9][a-z0-9-]{0,62}:)?[a-z0-9][a-z0-9-]{0,126}$",
                       "type": "string",
                     },
                   },
@@ -966,10 +1090,14 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "include_imports": {
+          "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
+          "type": "boolean",
+        },
         "kind": {
           "description": "Restrict hits to one kind",
           "enum": [
@@ -979,10 +1107,18 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "type": "string",
         },
         "limit": {
-          "description": "Max hits (default 20)",
+          "description": "Max hits per tier (default 20)",
           "maximum": 50,
           "minimum": 1,
           "type": "integer",
+        },
+        "mode": {
+          "description": "Retrieval tiers: 'approved_only' (default) searches reviewed knowledge; 'approved_then_sources' additionally returns archived source chunks, labeled tier:'source_evidence' after all approved hits",
+          "enum": [
+            "approved_only",
+            "approved_then_sources",
+          ],
+          "type": "string",
         },
         "q": {
           "description": "Full-text query",
@@ -1215,8 +1351,35 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "effective_at": {
+          "description": "When the content is "as of" (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "external_source_id": {
+          "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "language": {
+          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "enum": [
+            "en",
+            "de",
+            "simple",
+          ],
+          "type": "string",
+        },
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "observed_at": {
+          "description": "When the connector saw this content (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
         "source_kind": {
@@ -1226,6 +1389,12 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
             "article",
             "note",
           ],
+          "type": "string",
+        },
+        "source_version": {
+          "description": "Connector version marker (etag/revision); same id + same version + same content = no-op",
+          "maxLength": 200,
+          "minLength": 1,
           "type": "string",
         },
         "space": {
@@ -1333,31 +1502,62 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
                 "items": {
                   "additionalProperties": false,
                   "properties": {
+                    "adjudication": {
+                      "enum": [
+                        "contradictory",
+                        "temporal",
+                        "complementary",
+                      ],
+                      "type": "string",
+                    },
                     "citations": {
                       "default": [],
                       "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "locator": {
-                            "default": "",
-                            "maxLength": 500,
-                            "type": "string",
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              "quote": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "source_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "source_id",
+                              "quote",
+                            ],
+                            "type": "object",
                           },
-                          "quote": {
-                            "minLength": 1,
-                            "type": "string",
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "chunk_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "chunk_id",
+                            ],
+                            "type": "object",
                           },
-                          "source_id": {
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                            "type": "string",
-                          },
-                        },
-                        "required": [
-                          "source_id",
-                          "quote",
                         ],
-                        "type": "object",
                       },
                       "type": "array",
                     },
@@ -1366,6 +1566,18 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
                       "maximum": 1,
                       "minimum": 0,
                       "type": "number",
+                    },
+                    "context": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                     "object": {
                       "maxLength": 2000,
@@ -1381,6 +1593,42 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
                       "maxLength": 500,
                       "minLength": 1,
                       "type": "string",
+                    },
+                    "supersedes_claim_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_until": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "required": [
@@ -1412,7 +1660,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
                       "type": "string",
                     },
                     "to_slug": {
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "pattern": "^(?:[a-z0-9][a-z0-9-]{0,62}:)?[a-z0-9][a-z0-9-]{0,126}$",
                       "type": "string",
                     },
                   },
@@ -1844,10 +2092,14 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "include_imports": {
+          "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
+          "type": "boolean",
+        },
         "kind": {
           "description": "Restrict hits to one kind",
           "enum": [
@@ -1857,10 +2109,18 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "type": "string",
         },
         "limit": {
-          "description": "Max hits (default 20)",
+          "description": "Max hits per tier (default 20)",
           "maximum": 50,
           "minimum": 1,
           "type": "integer",
+        },
+        "mode": {
+          "description": "Retrieval tiers: 'approved_only' (default) searches reviewed knowledge; 'approved_then_sources' additionally returns archived source chunks, labeled tier:'source_evidence' after all approved hits",
+          "enum": [
+            "approved_only",
+            "approved_then_sources",
+          ],
+          "type": "string",
         },
         "q": {
           "description": "Full-text query",
@@ -2093,8 +2353,35 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "effective_at": {
+          "description": "When the content is "as of" (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "external_source_id": {
+          "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "language": {
+          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "enum": [
+            "en",
+            "de",
+            "simple",
+          ],
+          "type": "string",
+        },
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "observed_at": {
+          "description": "When the connector saw this content (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
         "source_kind": {
@@ -2104,6 +2391,12 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
             "article",
             "note",
           ],
+          "type": "string",
+        },
+        "source_version": {
+          "description": "Connector version marker (etag/revision); same id + same version + same content = no-op",
+          "maxLength": 200,
+          "minLength": 1,
           "type": "string",
         },
         "space": {
@@ -2211,31 +2504,62 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
                 "items": {
                   "additionalProperties": false,
                   "properties": {
+                    "adjudication": {
+                      "enum": [
+                        "contradictory",
+                        "temporal",
+                        "complementary",
+                      ],
+                      "type": "string",
+                    },
                     "citations": {
                       "default": [],
                       "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "locator": {
-                            "default": "",
-                            "maxLength": 500,
-                            "type": "string",
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              "quote": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "source_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "source_id",
+                              "quote",
+                            ],
+                            "type": "object",
                           },
-                          "quote": {
-                            "minLength": 1,
-                            "type": "string",
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "chunk_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "chunk_id",
+                            ],
+                            "type": "object",
                           },
-                          "source_id": {
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                            "type": "string",
-                          },
-                        },
-                        "required": [
-                          "source_id",
-                          "quote",
                         ],
-                        "type": "object",
                       },
                       "type": "array",
                     },
@@ -2244,6 +2568,18 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
                       "maximum": 1,
                       "minimum": 0,
                       "type": "number",
+                    },
+                    "context": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                     "object": {
                       "maxLength": 2000,
@@ -2259,6 +2595,42 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
                       "maxLength": 500,
                       "minLength": 1,
                       "type": "string",
+                    },
+                    "supersedes_claim_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_until": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "required": [
@@ -2290,7 +2662,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
                       "type": "string",
                     },
                     "to_slug": {
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "pattern": "^(?:[a-z0-9][a-z0-9-]{0,62}:)?[a-z0-9][a-z0-9-]{0,126}$",
                       "type": "string",
                     },
                   },
@@ -2717,10 +3089,14 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "include_imports": {
+          "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
+          "type": "boolean",
+        },
         "kind": {
           "description": "Restrict hits to one kind",
           "enum": [
@@ -2730,10 +3106,18 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "type": "string",
         },
         "limit": {
-          "description": "Max hits (default 20)",
+          "description": "Max hits per tier (default 20)",
           "maximum": 50,
           "minimum": 1,
           "type": "integer",
+        },
+        "mode": {
+          "description": "Retrieval tiers: 'approved_only' (default) searches reviewed knowledge; 'approved_then_sources' additionally returns archived source chunks, labeled tier:'source_evidence' after all approved hits",
+          "enum": [
+            "approved_only",
+            "approved_then_sources",
+          ],
+          "type": "string",
         },
         "q": {
           "description": "Full-text query",
@@ -2966,8 +3350,35 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "effective_at": {
+          "description": "When the content is "as of" (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "external_source_id": {
+          "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "language": {
+          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "enum": [
+            "en",
+            "de",
+            "simple",
+          ],
+          "type": "string",
+        },
         "markdown": {
           "minLength": 1,
+          "type": "string",
+        },
+        "observed_at": {
+          "description": "When the connector saw this content (ISO 8601)",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
         "source_kind": {
@@ -2977,6 +3388,12 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
             "article",
             "note",
           ],
+          "type": "string",
+        },
+        "source_version": {
+          "description": "Connector version marker (etag/revision); same id + same version + same content = no-op",
+          "maxLength": 200,
+          "minLength": 1,
           "type": "string",
         },
         "space": {
@@ -3084,31 +3501,62 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
                 "items": {
                   "additionalProperties": false,
                   "properties": {
+                    "adjudication": {
+                      "enum": [
+                        "contradictory",
+                        "temporal",
+                        "complementary",
+                      ],
+                      "type": "string",
+                    },
                     "citations": {
                       "default": [],
                       "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "locator": {
-                            "default": "",
-                            "maxLength": 500,
-                            "type": "string",
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                              "quote": {
+                                "minLength": 1,
+                                "type": "string",
+                              },
+                              "source_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "source_id",
+                              "quote",
+                            ],
+                            "type": "object",
                           },
-                          "quote": {
-                            "minLength": 1,
-                            "type": "string",
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "chunk_id": {
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                                "type": "string",
+                              },
+                              "locator": {
+                                "default": "",
+                                "maxLength": 500,
+                                "type": "string",
+                              },
+                            },
+                            "required": [
+                              "chunk_id",
+                            ],
+                            "type": "object",
                           },
-                          "source_id": {
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                            "type": "string",
-                          },
-                        },
-                        "required": [
-                          "source_id",
-                          "quote",
                         ],
-                        "type": "object",
                       },
                       "type": "array",
                     },
@@ -3117,6 +3565,18 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
                       "maximum": 1,
                       "minimum": 0,
                       "type": "number",
+                    },
+                    "context": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                     "object": {
                       "maxLength": 2000,
@@ -3132,6 +3592,42 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
                       "maxLength": 500,
                       "minLength": 1,
                       "type": "string",
+                    },
+                    "supersedes_claim_id": {
+                      "anyOf": [
+                        {
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_from": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                    },
+                    "valid_until": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
                     },
                   },
                   "required": [
@@ -3163,7 +3659,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
                       "type": "string",
                     },
                     "to_slug": {
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                      "pattern": "^(?:[a-z0-9][a-z0-9-]{0,62}:)?[a-z0-9][a-z0-9-]{0,126}$",
                       "type": "string",
                     },
                   },

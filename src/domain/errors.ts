@@ -63,7 +63,7 @@ export class NotFoundError extends DomainError {
 }
 
 /** 409 — code narrows to the three canonical conflicts. */
-export type ConflictCode = 'already_ingested' | 'proposal_not_pending' | 'stale_base'
+export type ConflictCode = 'already_ingested' | 'proposal_not_pending' | 'stale_base' | 'sync_version_conflict'
 
 export class ConflictError extends DomainError {
   constructor(

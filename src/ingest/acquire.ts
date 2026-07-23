@@ -43,10 +43,40 @@ export const zIngestInput = z
       .enum(['meeting', 'article', 'note'])
       .optional()
       .describe("What the source is: 'meeting' sources are mined for explicit decision statements"),
+    // Per-source retrieval-language override; absent → the space's
+    // settings.language decides how this source's chunks are stemmed.
+    language: z
+      .enum(['en', 'de', 'simple'])
+      .optional()
+      .describe("Language of this source's content for the retrieval index; defaults to the space language"),
+    // Sync contract (migration 0019): a connector-scoped stable document id
+    // turns one-shot ingests into idempotent versioned syncs. Version and
+    // timestamps only make sense WITH an external id — the refine below
+    // enforces that.
+    external_source_id: z
+      .string()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe("Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync"),
+    source_version: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Connector version marker (etag/revision); same id + same version + same content = no-op'),
+    observed_at: z.iso.datetime().optional().describe('When the connector saw this content (ISO 8601)'),
+    effective_at: z.iso.datetime().optional().describe('When the content is "as of" (ISO 8601)'),
   })
   .refine((value) => [value.markdown, value.text, value.url].filter(Boolean).length === 1, {
     message: 'exactly one of markdown|text|url is required',
   })
+  .refine(
+    (value) =>
+      value.external_source_id !== undefined ||
+      (value.source_version === undefined && value.observed_at === undefined && value.effective_at === undefined),
+    { message: 'source_version, observed_at and effective_at require external_source_id' },
+  )
 
 export type IngestInput = z.input<typeof zIngestInput>
 

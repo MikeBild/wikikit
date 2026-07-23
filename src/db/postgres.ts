@@ -23,6 +23,9 @@ const { Pool } = pg
 export const TABLES: ReadonlySet<string> = new Set([
   'wk_spaces',
   'wk_sources',
+  'wk_source_chunks',
+  'wk_source_streams',
+  'wk_embeddings',
   'wk_concepts',
   'wk_concept_revisions',
   'wk_claims',
@@ -47,7 +50,16 @@ export const TABLES: ReadonlySet<string> = new Set([
 ])
 
 /** Whitelisted SQL function names — the ONLY write path for review decisions. */
-export type WhitelistedFn = 'wk_apply_proposal' | 'wk_reject_proposal' | 'wk_search'
+export type WhitelistedFn =
+  | 'wk_apply_proposal'
+  | 'wk_reject_proposal'
+  | 'wk_search'
+  | 'wk_search_sources'
+  | 'wk_search_hybrid'
+  | 'wk_search_sources_hybrid'
+  | 'wk_reindex_space'
+  | 'wk_split_proposal'
+  | 'wk_request_changes'
 
 /** Outbox event names (CONTRACTS §6.1) — the payload `type` field and wk_outbox_events.event_type. */
 export type WebhookEventType =
@@ -56,6 +68,9 @@ export type WebhookEventType =
   | 'wikikit.proposal.rejected'
   | 'wikikit.concept.updated'
   | 'wikikit.ingest.failed'
+  | 'wikikit.source.tombstoned'
+  | 'wikikit.proposal.split'
+  | 'wikikit.proposal.changes_requested'
 
 const EVENT_TYPES: ReadonlySet<string> = new Set([
   'wikikit.proposal.created',
@@ -63,6 +78,9 @@ const EVENT_TYPES: ReadonlySet<string> = new Set([
   'wikikit.proposal.rejected',
   'wikikit.concept.updated',
   'wikikit.ingest.failed',
+  'wikikit.source.tombstoned',
+  'wikikit.proposal.split',
+  'wikikit.proposal.changes_requested',
 ])
 
 interface QueryResultLike {
@@ -97,6 +115,75 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
   wk_reject_proposal: {
     sql: 'SELECT public.wk_reject_proposal($1, $2, $3, $4) AS result',
     normalize: (args) => reviewArgs('wk_reject_proposal', args),
+    result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
+  },
+  wk_search_hybrid: {
+    sql: 'SELECT * FROM public.wk_search_hybrid($1, $2, $3, $4, $5)',
+    normalize: (args) => {
+      if (args.length < 3 || args.length > 5) {
+        throw new Error(
+          `wk_search_hybrid expects [space_id, query, embedding, kind?, limit?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2], args[3] ?? null, args[4] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_search_sources_hybrid: {
+    sql: 'SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4)',
+    normalize: (args) => {
+      if (args.length < 3 || args.length > 4) {
+        throw new Error(
+          `wk_search_sources_hybrid expects [space_id, query, embedding, limit?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2], args[3] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_split_proposal: {
+    sql: 'SELECT public.wk_split_proposal($1, $2, $3, $4) AS result',
+    normalize: (args) => {
+      if (args.length < 2 || args.length > 4) {
+        throw new Error(
+          `wk_split_proposal expects [proposal_id, reviewer, concepts?, review_channel?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2] ?? null, args[3] ?? 'rest']
+    },
+    result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
+  },
+  wk_request_changes: {
+    sql: 'SELECT public.wk_request_changes($1, $2, $3, $4) AS result',
+    normalize: (args) => {
+      if (args.length < 3 || args.length > 4) {
+        throw new Error(
+          `wk_request_changes expects [proposal_id, reviewer, note, review_channel?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2], args[3] ?? 'rest']
+    },
+    result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
+  },
+  wk_search_sources: {
+    sql: 'SELECT * FROM public.wk_search_sources($1, $2, $3)',
+    normalize: (args) => {
+      if (args.length < 2 || args.length > 3) {
+        throw new Error(`wk_search_sources expects [space_id, query, limit?] — got ${args.length} args`)
+      }
+      // Same LIMIT NULL guard as wk_search: mirror the SQL default here.
+      return [args[0], args[1], args[2] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_reindex_space: {
+    sql: 'SELECT public.wk_reindex_space($1) AS result',
+    normalize: (args) => {
+      if (args.length !== 1) {
+        throw new Error(`wk_reindex_space expects [space_id] — got ${args.length} args`)
+      }
+      return [args[0]]
+    },
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },
   wk_search: {

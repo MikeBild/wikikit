@@ -27,6 +27,7 @@ import { search } from './search.ts'
 const zAnswerArgs = z.object({
   question: z.string().min(1).max(2000),
   top_k: z.number().int().min(1).max(50).default(8),
+  mode: z.enum(['approved_only', 'approved_then_sources']).default('approved_only'),
 })
 
 export type AnswerArgs = z.input<typeof zAnswerArgs>
@@ -37,8 +38,14 @@ export interface QueryAnswer {
   citations: { slug: string; title: string }[]
   /** True → the answer says so; no hallucinated content. */
   not_in_knowledge_base: boolean
-  /** wk_agent_runs row of the answer.v1 call — the audit anchor. */
+  /** wk_agent_runs row of the answer call — the audit anchor. */
   agent_run_id: string
+  /**
+   * Archive material the answer leaned on that exists ONLY in a source, not
+   * in approved knowledge (approved_then_sources mode; empty otherwise). The
+   * prompt forces such statements to be labeled as uncurated in the text.
+   */
+  source_citations: { source_id: string; chunk_id: string; title: string | null }[]
 }
 
 // Per-concept evidence cap. Separate from WIKIKIT_MAX_INGEST_TOKENS on
@@ -47,6 +54,11 @@ export interface QueryAnswer {
 // page gets a fixed slice. 4k tokens × 8 concepts ≈ 32k — comfortable, and a
 // concept page that large is a lint smell anyway.
 const EVIDENCE_TOKENS_PER_CONCEPT = 4000
+
+// Cap on distinct source-chunk evidence items (approved_then_sources mode).
+// Chunks are <= ~400 tokens each by construction (chunkForRetrieval), so six
+// of them add at most ~2.4k tokens to the prompt.
+const EVIDENCE_SOURCE_CHUNKS = 6
 
 /**
  * Answer a question from the knowledge base with citations. Throws
@@ -58,14 +70,23 @@ export async function answerQuestion(
   spaceId: string,
   llm: LlmProvider,
   args: AnswerArgs,
+  deps: { vector?: { available: boolean } } = {},
 ): Promise<QueryAnswer> {
   const input = zAnswerArgs.parse(args)
   if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
 
   // Retrieval: the question itself is the FTS query (websearch syntax is
   // forgiving of natural language). Claim hits and concept hits both resolve
-  // to their concept — the concept page is the evidence unit.
-  const hits = await search(db, spaceId, { q: input.question, limit: input.top_k })
+  // to their concept — the concept page is the evidence unit. In
+  // approved_then_sources mode the same call also returns the labeled
+  // source-chunk tier (appended after all approved hits). Hybrid ranking
+  // engages automatically when pgvector + an embedding provider are present.
+  const hits = await search(
+    db,
+    spaceId,
+    { q: input.question, limit: input.top_k, mode: input.mode },
+    { llm, vector: deps.vector },
+  )
   const slugs = [...new Set(hits.flatMap((hit) => (hit.slug ? [hit.slug] : [])))]
 
   const evidence: AnswerEvidence[] = []
@@ -109,6 +130,30 @@ export async function answerQuestion(
     }
   }
 
+  // Source-evidence tier: chunk hits travel as their own evidence items,
+  // capped in count (each chunk is already <= ~400 tokens by construction).
+  // The prompt (answer.v1) forces statements grounded ONLY here to be
+  // labeled uncurated and cited as [source:<id>].
+  const chunkTitles = new Map<string, { source_id: string; chunk_id: string; title: string | null }>()
+  for (const hit of hits) {
+    if (hit.kind !== 'source_chunk' || !hit.source_id || !hit.chunk_id) continue
+    if (chunkTitles.size >= EVIDENCE_SOURCE_CHUNKS) break
+    const [chunk] = await db.select<{ content: string; heading: string | null }>('wk_source_chunks', {
+      id: `eq.${hit.chunk_id}`,
+      space_id: `eq.${spaceId}`,
+      limit: 1,
+    })
+    if (!chunk) continue
+    chunkTitles.set(hit.source_id, { source_id: hit.source_id, chunk_id: hit.chunk_id, title: hit.title || null })
+    evidence.push({
+      kind: 'source_chunk',
+      slug: null,
+      source_id: hit.source_id,
+      text: `${hit.title ? `Source: ${hit.title}\n` : ''}${chunk.heading ? `${chunk.heading}\n` : ''}${chunk.content}`,
+      status: null,
+    })
+  }
+
   const result = await llm.answer({ question: input.question, evidence })
 
   // Audit ledger — EVERY LLM call lands in wk_agent_runs (CONTRACTS §1.13).
@@ -130,10 +175,17 @@ export async function answerQuestion(
     .filter((slug) => titles.has(slug))
     .map((slug) => ({ slug, title: titles.get(slug)! }))
 
+  // Same anti-hallucination rule for the source tier: a cited source id we
+  // never loaded as evidence is dropped.
+  const sourceCitations = [...new Set(result.output.cited_source_ids)]
+    .filter((sourceId) => chunkTitles.has(sourceId))
+    .map((sourceId) => chunkTitles.get(sourceId)!)
+
   return {
     answer_markdown: result.output.answer_markdown,
     citations,
     not_in_knowledge_base: result.output.not_in_knowledge_base,
     agent_run_id: run!.id,
+    source_citations: sourceCitations,
   }
 }

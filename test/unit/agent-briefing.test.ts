@@ -32,7 +32,7 @@ describe('agent briefing', () => {
       800,
     )
     expect(result.spaces).toEqual(['contentkit', 'blog-de'])
-    expect(result.concepts_included).toEqual(['build', 'templates', 'house-style'])
+    expect(result.concepts_included).toEqual(['contentkit:build', 'contentkit:templates', 'blog-de:house-style'])
     expect(result.markdown).toContain('search and read reviewed WikiKit knowledge')
     expect(result.used_tokens).toBeLessThanOrEqual(800)
   })

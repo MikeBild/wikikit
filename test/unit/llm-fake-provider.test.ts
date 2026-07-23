@@ -59,7 +59,16 @@ describe('defaults', () => {
     expect(output.markdown).toBe(synthesizeInput.source.markdown)
     expect(output.relations).toEqual([])
     expect(output.claims).toEqual([
-      { subject: 'okf', predicate: 'is', object: 'described', quote: 'OKF is a draft.', confidence: 0.9 },
+      {
+        subject: 'okf',
+        predicate: 'is',
+        object: 'described',
+        quote: 'OKF is a draft.',
+        confidence: 0.9,
+        valid_from: null,
+        valid_until: null,
+        context: null,
+      },
     ])
     expect(zSynthesizeOutput.safeParse(output).success).toBe(true)
   })

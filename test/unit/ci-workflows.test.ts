@@ -127,7 +127,7 @@ describe('ci.yml', () => {
   test('integration service container mirrors the scripts/start-local.ts contract', () => {
     const service = job(ci, 'integration').services?.postgres
     if (!service) throw new Error('integration job must define a postgres service')
-    expect(service.image).toBe('postgres:16-alpine')
+    expect(service.image).toBe('pgvector/pgvector:pg18')
 
     // The suites connect to LOCAL_DATABASE_URL verbatim — derive every
     // expectation from it instead of repeating literals that could drift too.

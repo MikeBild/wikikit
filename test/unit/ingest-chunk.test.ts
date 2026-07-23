@@ -3,7 +3,7 @@
 // edge cases (fenced headings, structureless walls of text, tiny budgets) are
 // tested explicitly.
 import { describe, expect, test } from 'bun:test'
-import { estimateTokens, fitTokenBudget, splitMarkdown } from '../../src/ingest/chunk.ts'
+import { chunkForRetrieval, estimateTokens, fitTokenBudget, splitMarkdown } from '../../src/ingest/chunk.ts'
 
 describe('estimateTokens', () => {
   test('ceil(chars / 4), deterministic', () => {
@@ -92,5 +92,45 @@ describe('fitTokenBudget', () => {
 
   test('rejects a non-positive budget', () => {
     expect(() => fitTokenBudget('x', 0)).toThrow()
+  })
+})
+
+describe('chunkForRetrieval', () => {
+  test('keeps small heading sections whole', () => {
+    const doc = '# Title\n\nIntro.\n\n## A\n\nBody A.\n\n## B\n\nBody B.'
+    const chunks = chunkForRetrieval(doc)
+    expect(chunks.map((chunk) => chunk.heading)).toEqual(['# Title', '## A', '## B'])
+    expect(chunks[1]!.text).toContain('Body A.')
+  })
+
+  test('subdivides an oversized section at paragraph boundaries, packing up to the cap', () => {
+    const paragraphs = Array.from({ length: 10 }, (_, i) => `Paragraph ${i} ${'x'.repeat(350)}`)
+    const doc = `## Big\n\n${paragraphs.join('\n\n')}` // each para ~90 tokens
+    const chunks = chunkForRetrieval(doc, 200)
+    expect(chunks.length).toBeGreaterThan(1)
+    for (const chunk of chunks) {
+      expect(chunk.heading).toBe('## Big')
+      expect(chunk.tokens).toBeLessThanOrEqual(200 + 1)
+    }
+    // Nothing lost: every paragraph appears in exactly one chunk.
+    const joined = chunks.map((chunk) => chunk.text).join('\n\n')
+    for (let i = 0; i < 10; i++) expect(joined).toContain(`Paragraph ${i}`)
+  })
+
+  test('is deterministic — same input, byte-identical chunks (backfill contract)', () => {
+    const doc = '# T\n\nA.\n\n## S\n\nB.\n\nC.'
+    expect(chunkForRetrieval(doc)).toEqual(chunkForRetrieval(doc))
+  })
+
+  test('respects fenced code blocks like splitMarkdown does', () => {
+    const doc = '## Code\n\n```md\n# not a heading\n```\n\nAfter.'
+    const chunks = chunkForRetrieval(doc)
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]!.text).toContain('# not a heading')
+  })
+
+  test('caps the chunk count for pathological documents', () => {
+    const doc = Array.from({ length: 700 }, (_, i) => `## H${i}\n\nBody ${i}.`).join('\n\n')
+    expect(chunkForRetrieval(doc).length).toBeLessThanOrEqual(500)
   })
 })

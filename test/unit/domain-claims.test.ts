@@ -111,6 +111,7 @@ describe('findContradictions — exact-frame matcher', () => {
         existing_claim_id: 'cl-old',
         existing_concept_id: 'con-old',
         existing_status: 'verified',
+        existing_quote: null,
       },
     ])
     // Only verified/disputed on the persisted side — mirrors wk_apply_proposal.

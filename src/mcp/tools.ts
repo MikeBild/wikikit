@@ -37,13 +37,15 @@ import {
   getProposal,
   listProposals,
   rejectProposal,
+  stagesCrossSpaceRelations,
   toProposalWire,
   zCreateProposalArgs,
 } from '../domain/proposals.ts'
 import { isoString } from '../domain/sources.ts'
 import { zIngestInput, type IngestPipeline } from '../ingest/pipeline.ts'
+import type { LlmProvider } from '../llm/provider.ts'
 import { readDocsFile } from '../http/docs-embedded.ts'
-import { search } from '../query/search.ts'
+import { search, searchAcrossImports } from '../query/search.ts'
 import { zodToJsonSchema7 } from './json-schema.ts'
 import { elicitProposalReview, type ElicitForm } from './elicitation.ts'
 import type { UsageOutcome } from '../usage.ts'
@@ -90,6 +92,10 @@ export interface ToolDeps {
   config: Config
   db: Db
   ingest: IngestPipeline
+  /** Optional hybrid-retrieval wiring: the LLM provider (for query embeddings)
+   *  and the pgvector capability probe. Absent → search stays lexical. */
+  llm?: LlmProvider
+  vector?: { available: boolean }
 }
 
 /** Request-local MCP features supplied by server.ts. Ordinary tools ignore it. */
@@ -124,7 +130,21 @@ export const zSearchToolInput = z.object({
   space: zSpaceSlug,
   q: z.string().min(1).max(1000).describe('Full-text query'),
   kind: z.enum(['concept', 'claim']).optional().describe('Restrict hits to one kind'),
-  limit: z.number().int().min(1).max(50).optional().describe('Max hits (default 20)'),
+  limit: z.number().int().min(1).max(50).optional().describe('Max hits per tier (default 20)'),
+  mode: z
+    .enum(['approved_only', 'approved_then_sources'])
+    .optional()
+    .describe(
+      "Retrieval tiers: 'approved_only' (default) searches reviewed knowledge; 'approved_then_sources' " +
+        "additionally returns archived source chunks, labeled tier:'source_evidence' after all approved hits",
+    ),
+  include_imports: z
+    .boolean()
+    .optional()
+    .describe(
+      'Also search the spaces declared in this space\u2019s settings.imports; every hit carries its origin space. ' +
+        'Requires a key that can see all spaces (space-scoped keys get 403)',
+    ),
 })
 
 export const zSpacesToolInput = z.object({})
@@ -353,6 +373,8 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_search',
     description:
       'Ranked full-text search over the knowledge base (current concept revisions and visible claims). ' +
+      "mode:'approved_then_sources' additionally searches archived source chunks — those hits carry " +
+      "tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). " +
       'Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.',
     scope: 'knowledge:read',
     inputSchema: zSearchToolInput,
@@ -360,8 +382,16 @@ export const TOOLS: McpToolDef[] = [
     async execute(deps, principal, input) {
       const args = zSearchToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
-      const hits = await search(deps.db, space.id, { q: args.q, kind: args.kind, limit: args.limit })
-      return { hits }
+      const searchArgs = { q: args.q, kind: args.kind, limit: args.limit, mode: args.mode }
+      const searchDeps = { llm: deps.llm, vector: deps.vector }
+      if (args.include_imports) {
+        if (principal.spaceId) {
+          throw new ForbiddenError('this key is scoped to a single space and cannot search imported spaces')
+        }
+        return searchAcrossImports(deps.db, space, searchArgs, searchDeps)
+      }
+      const hits = await search(deps.db, space.id, searchArgs, searchDeps)
+      return { hits: hits.map((hit) => ({ ...hit, space: space.slug })), searched_spaces: [space.slug] }
     },
   },
   {
@@ -378,7 +408,13 @@ export const TOOLS: McpToolDef[] = [
       // §7.1 binds this tool's output to the §5.3 zConceptResponse shape —
       // the SAME wire mapping REST uses, so the transports cannot drift and
       // the internal-only ConceptDetail fields never reach an MCP client.
-      return toConceptResponse(await getConcept(deps.db, space.id, { slug: args.slug }))
+      const concept = await getConcept(deps.db, space.id, { slug: args.slug })
+      // 0023 eliding (mirrors REST): space-scoped keys never see foreign
+      // relation targets.
+      if (principal.spaceId) {
+        concept.relations = concept.relations.filter((relation) => relation.space === null)
+      }
+      return toConceptResponse(concept)
     },
   },
   {
@@ -496,9 +532,12 @@ export const TOOLS: McpToolDef[] = [
       if (!deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
       const space = await resolveSpace(deps.db, principal, args.space)
       const { space: _space, ...request } = args
-      const { ingest_id } = await deps.ingest.enqueue(deps.db, space.id, request)
+      const enqueued = await deps.ingest.enqueue(deps.db, space.id, request)
+      // Sync fast-path (external_source_id + known content): terminal answer,
+      // nothing to poll — the stream head advanced.
+      if ('status' in enqueued) return enqueued
       // Async-ack contract (§7.1): never block an MCP call on LLM latency.
-      return { status: 'running' as const, ingest_id, poll_with: 'wikikit_ingest_status' as const }
+      return { status: 'running' as const, ingest_id: enqueued.ingest_id, poll_with: 'wikikit_ingest_status' as const }
     },
   },
   {
@@ -552,6 +591,11 @@ export const TOOLS: McpToolDef[] = [
     async execute(deps, principal, input) {
       const args = zProposeToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
+      // 0023 key-visibility gate (mirrors REST): a space-scoped key may never
+      // stage across spaces.
+      if (principal.spaceId && stagesCrossSpaceRelations(args)) {
+        throw new ForbiddenError('this key is scoped to a single space and cannot stage cross-space relations')
+      }
       const { space: _space, ...proposal } = args
       return createProposal(deps.db, space.id, {
         ...proposal,
@@ -636,9 +680,11 @@ export const TOOLS: McpToolDef[] = [
               `directly: ${reviewUrl} Confirm the recorded outcome via wikikit_proposals afterwards.`
             : 'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
               `The proposal stays pending. Give the user this link so they can review and decide themselves: ${reviewUrl} ` +
+              'The page also supports deferring single concepts into child proposals and requesting changes with a revision note. ' +
               'Do not ask for the decision in chat, do not pass a decision to any tool, ' +
               'and do not call the REST approve/reject endpoints on the human’s behalf. ' +
-              'Check wikikit_proposals later to see whether the human has decided.',
+              'Check wikikit_proposals later to see whether the human has decided — a rejected proposal with ' +
+              'changes_requested:true carries a review_note that is your revision brief for a FRESH proposal.',
         }
       }
       context.setSpaceSlug(proposal.space)

@@ -12,6 +12,8 @@ import {
   encodeCursor,
   getSource,
   listSources,
+  persistSourceChunks,
+  resolveChunkCitation,
   sha256Hex,
 } from '../../src/domain/sources.ts'
 
@@ -166,5 +168,62 @@ describe('getSource', () => {
     await expect(getSource(db, 'space-1', { id: 'src-1' })).rejects.toBeInstanceOf(NotFoundError)
     expect(calls[0]!.sql).toContain('"space_id" = $2')
     expect(calls[0]!.values).toEqual(['src-1', 'space-1', 1])
+  })
+})
+
+describe('persistSourceChunks', () => {
+  const source = { id: 'src-1', markdown: '# Title\n\nIntro.\n\n## A\n\nBody A.' }
+
+  test('inserts one row per retrieval chunk with sequential indexes', async () => {
+    const { db, calls } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [] },
+      { match: /INSERT INTO "public"\."wk_source_chunks"/, rows: [] },
+    ])
+    const written = await persistSourceChunks(db, 'space-1', source)
+    expect(written).toBe(2)
+    const insert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_source_chunks"'))!
+    // Plain insert, no ON CONFLICT DO UPDATE: the INSERT-only trigger owns
+    // search_vector; races converge via the 23505 catch instead.
+    expect(insert.sql).not.toContain('ON CONFLICT')
+    expect(insert.values).toContain('# Title')
+    expect(insert.values).toContain('## A')
+  })
+
+  test('a chunk-insert race (23505) converges silently', async () => {
+    const { db } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [] },
+      {
+        match: /INSERT INTO "public"\."wk_source_chunks"/,
+        error: Object.assign(new Error('duplicate'), { code: '23505' }),
+      },
+    ])
+    expect(await persistSourceChunks(db, 'space-1', source)).toBe(0)
+  })
+
+  test('no-ops when chunks already exist (reuse/backfill path)', async () => {
+    const { db, calls } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [{ id: 'chunk-1' }] }])
+    expect(await persistSourceChunks(db, 'space-1', source)).toBe(0)
+    expect(calls.some((call) => call.sql.includes('INSERT'))).toBe(false)
+  })
+})
+
+describe('resolveChunkCitation', () => {
+  test('resolves a chunk to its canonical source_id + verbatim quote', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_source_chunks"/,
+        rows: [{ source_id: 'src-9', content: '## Rollout\n\nPostponed to Q3.' }],
+      },
+    ])
+    const resolved = await resolveChunkCitation(db, 'space-1', 'chunk-9')
+    expect(resolved).toEqual({ source_id: 'src-9', quote: '## Rollout\n\nPostponed to Q3.' })
+    // Space-scoped lookup — a foreign chunk can never resolve.
+    expect(calls[0]!.values).toContain('space-1')
+    expect(calls[0]!.values).toContain('chunk-9')
+  })
+
+  test('404s an unknown or foreign chunk id', async () => {
+    const { db } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [] }])
+    await expect(resolveChunkCitation(db, 'space-1', 'ghost')).rejects.toBeInstanceOf(NotFoundError)
   })
 })

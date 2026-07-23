@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg18
         # Credentials/port mirror the zero-config contract in
         # scripts/start-local.ts (LOCAL_DATABASE_URL,
         # postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit) — the
@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: wikikit-local
           POSTGRES_DB: wikikit

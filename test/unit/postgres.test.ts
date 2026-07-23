@@ -208,10 +208,40 @@ describe('call() — whitelisted SQL functions', () => {
     expect(calls[0]!.values).toEqual(['space-1', 'okf', null, 20])
   })
 
+  test('wk_search_sources fills limit=20 default (never LIMIT NULL)', async () => {
+    const { db, calls } = makeFixture()
+    await db.call('wk_search_sources', ['space-1', 'rollout'])
+    expect(calls[0]!.sql).toBe('SELECT * FROM public.wk_search_sources($1, $2, $3)')
+    expect(calls[0]!.values).toEqual(['space-1', 'rollout', 20])
+    await expect(db.call('wk_search_sources', ['s'])).rejects.toThrow('wk_search_sources expects')
+  })
+
+  test('hybrid functions pin statements and mirror SQL defaults', async () => {
+    const { db, calls } = makeFixture()
+    await db.call('wk_search_hybrid', ['space-1', 'okf', '[0.1,0.2]'])
+    expect(calls[0]!.sql).toBe('SELECT * FROM public.wk_search_hybrid($1, $2, $3, $4, $5)')
+    expect(calls[0]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', null, 20])
+    await db.call('wk_search_sources_hybrid', ['space-1', 'okf', '[0.1,0.2]', 5])
+    expect(calls[1]!.sql).toBe('SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4)')
+    expect(calls[1]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', 5])
+    await expect(db.call('wk_search_hybrid', ['s', 'q'])).rejects.toThrow('wk_search_hybrid expects')
+    await expect(db.call('wk_search_sources_hybrid', ['s', 'q'])).rejects.toThrow('wk_search_sources_hybrid expects')
+  })
+
+  test('wk_reindex_space pins statement and unwraps the jsonb result', async () => {
+    const { db, calls } = makeFixture([{ result: { space_id: 's1', revisions: 3, claims: 5 } }])
+    const rows = await db.call('wk_reindex_space', ['s1'])
+    expect(calls[0]!.sql).toBe('SELECT public.wk_reindex_space($1) AS result')
+    expect(calls[0]!.values).toEqual(['s1'])
+    expect(rows).toEqual([{ space_id: 's1', revisions: 3, claims: 5 }])
+  })
+
   test('arity is validated', async () => {
     const { db } = makeFixture()
     await expect(db.call('wk_apply_proposal', ['only-one'])).rejects.toThrow('wk_apply_proposal expects')
     await expect(db.call('wk_search', ['s', 'q', null, 10, 'extra'])).rejects.toThrow('wk_search expects')
+    await expect(db.call('wk_reindex_space', [])).rejects.toThrow('wk_reindex_space expects')
+    await expect(db.call('wk_reindex_space', ['s', 'extra'])).rejects.toThrow('wk_reindex_space expects')
   })
 })
 

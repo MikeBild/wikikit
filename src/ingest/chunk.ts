@@ -77,6 +77,51 @@ export function splitMarkdown(markdown: string): MarkdownChunk[] {
   return chunks
 }
 
+// Retrieval chunks are smaller than budget sections: a whole '## Deployment'
+// section can be thousands of tokens, but a search hit should point at a
+// quotable passage. 400 tokens ≈ two or three paragraphs.
+const RETRIEVAL_CHUNK_TOKENS = 400
+
+// Hard cap per source — a backstop against pathological documents producing
+// tens of thousands of rows, not a tuning knob. What is cut is only the TAIL
+// of the retrieval index; the archive itself is never truncated.
+const RETRIEVAL_CHUNK_CAP = 500
+
+/**
+ * Split markdown into retrieval-sized chunks for the source-evidence index
+ * (wk_source_chunks): heading-aligned first, oversized sections subdivided at
+ * paragraph boundaries so every chunk stays under maxTokens and remains a
+ * verbatim, quotable slice of the source. Deterministic — the persisted rows
+ * are derived data and must be reproducible for backfill and reindex.
+ */
+export function chunkForRetrieval(markdown: string, maxTokens = RETRIEVAL_CHUNK_TOKENS): MarkdownChunk[] {
+  const chunks: MarkdownChunk[] = []
+  for (const section of splitMarkdown(markdown)) {
+    if (section.tokens <= maxTokens) {
+      chunks.push(section)
+      continue
+    }
+    // Pack consecutive paragraphs back together up to the cap so a section of
+    // many short paragraphs does not shatter into confetti.
+    let parts: string[] = []
+    let used = 0
+    const flush = () => {
+      if (!parts.length) return
+      const text = parts.join('\n\n')
+      chunks.push({ heading: section.heading, text, tokens: estimateTokens(text) })
+      parts = []
+      used = 0
+    }
+    for (const paragraph of splitParagraphs(section.text, section.heading)) {
+      if (used > 0 && used + paragraph.tokens > maxTokens) flush()
+      parts.push(paragraph.text)
+      used += paragraph.tokens
+    }
+    flush()
+  }
+  return chunks.slice(0, RETRIEVAL_CHUNK_CAP)
+}
+
 export interface BudgetResult {
   /** The (possibly truncated) markdown that fits the budget. */
   markdown: string

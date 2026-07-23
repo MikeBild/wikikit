@@ -104,7 +104,9 @@ export async function buildAgentBriefing(
     spaces: spaces.map((space) => space.slug),
     budget_tokens: budget,
     used_tokens: estimatedTokens(markdown),
-    concepts_included: selected.map((entry) => entry.slug),
+    // Qualified provenance (0023): multi-space briefings must say WHICH
+    // space each concept came from.
+    concepts_included: selected.map((entry) => `${entry.space}:${entry.slug}`),
     concepts_omitted: omitted,
   }
 }

@@ -88,10 +88,16 @@ export const zSearchQuery = z.object({
   q: z.string().min(1).max(500),
   kind: z.enum(['concept', 'claim']).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
+  // approved_then_sources appends the archived source-chunk tier
+  // ('source_evidence') after every approved hit; limit applies per tier.
+  mode: z.enum(['approved_only', 'approved_then_sources']).optional(),
+  // 0023: additionally search the spaces declared in settings.imports.
+  // Space-scoped keys get a deterministic 403 (they see exactly one space).
+  include_imports: z.coerce.boolean().optional(),
 })
 
 export const zProposalListQuery = z.object({
-  status: z.enum(['pending', 'approved', 'rejected', 'failed']).optional(),
+  status: z.enum(['pending', 'approved', 'rejected', 'failed', 'split']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 })
 
@@ -116,14 +122,47 @@ export const zAgentContextRequest = z.object({
 // Spaces
 // ---------------------------------------------------------------------------
 
+/**
+ * Valid settings.language values — must match the CHECK/CASE lists in
+ * migration 0016 (wk_space_search_config). Settings stay free-form except
+ * for retrieval-critical keys, which are validated at the boundary.
+ */
+export const SPACE_LANGUAGES = ['en', 'de', 'simple'] as const
+
+const zSpaceSettings = z.record(z.string(), z.unknown()).superRefine((settings, ctx) => {
+  if ('language' in settings && !SPACE_LANGUAGES.includes(settings.language as never)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['language'],
+      message: `settings.language must be one of: ${SPACE_LANGUAGES.join(', ')}`,
+    })
+  }
+  // 0023: imports must be an array of valid space slugs. Naming a space that
+  // does not exist YET is allowed (declaration of intent — it degrades to
+  // skipped); a malformed slug is not.
+  if ('imports' in settings) {
+    const imports = settings.imports
+    if (
+      !Array.isArray(imports) ||
+      imports.some((value) => typeof value !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['imports'],
+        message: 'settings.imports must be an array of space slugs',
+      })
+    }
+  }
+})
+
 export const zCreateSpaceRequest = z.object({
   slug: z.string().regex(SPACE_SLUG),
   name: z.string().min(1).max(200),
-  settings: z.record(z.string(), z.unknown()).optional(),
+  settings: zSpaceSettings.optional(),
 })
 
 export const zUpdateSpaceSettingsRequest = z.object({
-  settings: z.record(z.string(), z.unknown()),
+  settings: zSpaceSettings,
   replace: z.boolean().default(false),
 })
 
@@ -172,6 +211,17 @@ export const zAgentContextResponse = zAgentBriefingResponse.extend({
 export const zIngestRequest = zIngestInput
 
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z.literal('queued') })
+
+/**
+ * Sync fast-path answer (200, not 202): the pushed content is already
+ * archived — the stream head advanced (or already pointed here), no job, no
+ * LLM, nothing to poll. Connectors treat this as success.
+ */
+export const zIngestUnchangedResponse = z.object({
+  status: z.literal('unchanged'),
+  source_id: z.uuid(),
+  stream_id: z.uuid(),
+})
 
 // Document upload (raw bytes body): the filename gives the extension used to
 // pick the extractor (pdf/docx/xlsx/md/txt/csv).
@@ -225,6 +275,48 @@ export const zSourceResponse = zSourceSummary.extend({
   raw_content: z.string(),
   markdown: z.string(),
   metadata: z.record(z.string(), z.unknown()),
+  // Per-source retrieval-language override (null = space default).
+  language: z.enum(SPACE_LANGUAGES).nullable(),
+  // Sync-contract provenance (all null for non-connector sources).
+  stream_id: z.uuid().nullable(),
+  source_version: z.string().nullable(),
+  observed_at: z.string().nullable(),
+  effective_at: z.string().nullable(),
+  supersedes_source_id: z.uuid().nullable(),
+})
+
+// ---------------------------------------------------------------------------
+// Source streams (connector sync contract, §1.2a)
+// ---------------------------------------------------------------------------
+
+export const zSourceStreamParams = zSpaceParams.extend({
+  external_source_id: z.string().min(1).max(500),
+})
+
+export const zSourceStreamListQuery = z.object({
+  external_source_id: z.string().min(1).max(500).optional(),
+  include_deleted: z.coerce.boolean().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+})
+
+export const zSourceStreamResponse = z.object({
+  id: z.uuid(),
+  external_source_id: z.string(),
+  latest_source_id: z.uuid().nullable(),
+  latest_version: z.string().nullable(),
+  latest_observed_at: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  deleted_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+})
+
+export const zSourceStreamListResponse = z.object({ items: z.array(zSourceStreamResponse) })
+
+export const zSourceStreamTombstoneResponse = z.object({
+  status: z.literal('tombstoned'),
+  stream_id: z.uuid(),
+  already_tombstoned: z.boolean(),
 })
 
 // ---------------------------------------------------------------------------
@@ -288,7 +380,7 @@ export const zConceptResponse = z.object({
       citations: z.array(z.object({ source_id: z.uuid(), quote: z.string(), locator: z.string() })),
     }),
   ),
-  relations: z.array(z.object({ to_slug: z.string(), kind: zRelationKind })),
+  relations: z.array(z.object({ to_slug: z.string(), kind: zRelationKind, space: z.string().nullable() })),
   agent_meta: z.record(z.string(), z.unknown()),
 })
 
@@ -316,19 +408,33 @@ export const zConceptHistoryResponse = z.object({
 export const zSearchResponse = z.object({
   hits: z.array(
     z.object({
-      kind: z.enum(['concept', 'claim']),
+      kind: z.enum(['concept', 'claim', 'source_chunk']),
+      // 'approved' = reviewed knowledge; 'source_evidence' = found only in an
+      // archived source chunk (not yet curated). Approved hits always come
+      // first — tiers are ranked independently, never interleaved.
+      tier: z.enum(['approved', 'source_evidence']),
       slug: z.string().nullable(),
       claim_id: z.uuid().nullable(),
       title: z.string(),
       headline: z.string(),
       rank: z.number(),
+      source_id: z.uuid().nullable(),
+      chunk_id: z.uuid().nullable(),
+      url: z.string().nullable(),
+      heading: z.string().nullable(),
+      // Provenance (0023): which space produced the hit. Always present —
+      // equals the request space for local hits.
+      space: z.string(),
     }),
   ),
+  /** Spaces actually searched (request space first, then visible imports). */
+  searched_spaces: z.array(z.string()),
 })
 
 export const zQueryRequest = z.object({
   question: z.string().min(1).max(2000),
   top_k: z.number().int().min(1).max(50).default(8),
+  mode: z.enum(['approved_only', 'approved_then_sources']).optional(),
 })
 
 export const zQueryResponse = z.object({
@@ -336,6 +442,16 @@ export const zQueryResponse = z.object({
   citations: z.array(z.object({ slug: z.string(), title: z.string() })),
   not_in_knowledge_base: z.boolean(),
   agent_run_id: z.uuid(),
+  // Source-evidence citations (approved_then_sources mode): material the
+  // answer used that exists ONLY in archived sources, not in approved
+  // knowledge. Always present; empty in approved_only mode.
+  source_citations: z.array(
+    z.object({
+      source_id: z.uuid(),
+      chunk_id: z.uuid(),
+      title: z.string().nullable(),
+    }),
+  ),
 })
 
 // ---------------------------------------------------------------------------
@@ -348,13 +464,15 @@ export const zProposalListResponse = z.object({
   items: z.array(
     z.object({
       id: z.uuid(),
-      status: z.enum(['pending', 'approved', 'rejected', 'failed']),
+      status: z.enum(['pending', 'approved', 'rejected', 'failed', 'split']),
       title: z.string(),
       summary: z.string(),
       created_at: z.string(),
       reviewer: z.string().nullable(),
       review_channel: zReviewChannel.nullable(),
       reviewed_at: z.string().nullable(),
+      changes_requested: z.boolean(),
+      parent_proposal_id: z.uuid().nullable(),
     }),
   ),
 })
@@ -374,7 +492,7 @@ export const zProposalCreatedResponse = z.object({
 export const zProposalDetailResponse = z.object({
   id: z.uuid(),
   space: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected', 'failed']),
+  status: z.enum(['pending', 'approved', 'rejected', 'failed', 'split']),
   title: z.string(),
   summary: z.string(),
   created_at: z.string(),
@@ -384,15 +502,42 @@ export const zProposalDetailResponse = z.object({
   reviewed_at: z.string().nullable(),
   source_ids: z.array(z.uuid()),
   agent_meta: z.record(z.string(), z.unknown()),
+  changes_requested: z.boolean(),
+  parent_proposal_id: z.uuid().nullable(),
+  sources: z.array(
+    z.object({
+      id: z.uuid(),
+      title: z.string().nullable(),
+      url: z.string().nullable(),
+      kind: z.string(),
+      created_at: z.string(),
+    }),
+  ),
   concepts: z.array(
     z.object({
       slug: z.string(),
       is_new: z.boolean(),
       old_markdown: z.string().nullable(),
       new_markdown: z.string(),
+      stale: z.boolean(),
       claims_added: z.array(zClaimTriple),
       claims_disputed: z.array(zClaimTriple),
       claims_deprecated: z.array(zClaimTriple),
+      claims: z.array(
+        zClaimTriple.extend({
+          status: z.string(),
+          confidence: z.number(),
+          collides: z.boolean(),
+          citations: z.array(
+            z.object({
+              source_id: z.uuid(),
+              quote: z.string(),
+              locator: z.string(),
+              source_title: z.string().nullable(),
+            }),
+          ),
+        }),
+      ),
       relations_added: z.array(z.object({ to_slug: z.string(), kind: z.string() })),
     }),
   ),
@@ -419,11 +564,54 @@ export const zProposalReviewResponse = z.discriminatedUnion('status', [
     concepts: z.array(z.string()),
     claims_verified: z.number().int(),
     claims_disputed: z.number().int(),
+    claims_deprecated: z.number().int(),
     relations_removed: z.number().int(),
     review_channel: zReviewChannel,
   }),
   z.object({ proposal_id: z.uuid(), status: z.literal('rejected'), review_channel: zReviewChannel }),
 ])
+
+// Review operations (0020) ---------------------------------------------------
+
+export const zSplitProposalRequest = z
+  .object({
+    // Named slugs = defer (subset into ONE child, parent stays pending);
+    // absent/empty = full per-concept split (parent → terminal 'split').
+    concepts: z.array(z.string().min(1).max(127)).max(100).optional(),
+  })
+  .default({})
+
+export const zProposalSplitResponse = z.object({
+  parent: z.object({ id: z.uuid(), status: z.enum(['split', 'pending']) }),
+  children: z.array(z.object({ proposal_id: z.uuid(), concepts: z.array(z.string()) })),
+})
+
+export const zRequestChangesRequest = z.object({
+  // Mandatory: the note IS the requested change — a bounce without guidance
+  // is just a reject.
+  note: z.string().min(1).max(2000),
+})
+
+export const zRequestChangesResponse = z.object({
+  proposal_id: z.uuid(),
+  status: z.literal('rejected'),
+  review_channel: zReviewChannel,
+  changes_requested: z.literal(true),
+})
+
+export const zProposalLintResponse = z.object({
+  findings: z.array(
+    z.object({
+      rule: z.enum(['missing-citations', 'contradictions', 'stale-base', 'broken-relations', 'stale-claims']),
+      severity: z.enum(['error', 'warn', 'info']),
+      message: z.string(),
+      concept_slug: z.string().optional(),
+      claim_id: z.uuid().optional(),
+      details: z.record(z.string(), z.unknown()).optional(),
+    }),
+  ),
+  counts: z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() }),
+})
 
 // ---------------------------------------------------------------------------
 // Lint
@@ -441,6 +629,8 @@ export const zLintResponse = z.object({
         'empty-concepts',
         'unreviewed-proposals',
         'dangling-sources',
+        'tombstoned-sources',
+        'broken-cross-space-links',
       ]),
       severity: z.enum(['error', 'warn', 'info']),
       message: z.string(),
@@ -497,14 +687,24 @@ export const zDeliveryListResponse = z.object({
 // API keys
 // ---------------------------------------------------------------------------
 
-export const zCreateApiKeyRequest = z.object({
-  name: z.string().min(1).max(200),
-  scopes: z
-    .array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve', 'admin']))
-    .min(1),
-  /** Space slug; omitted = key valid for all spaces. */
-  space: z.string().regex(SPACE_SLUG).optional(),
-})
+export const zCreateApiKeyRequest = z
+  .object({
+    name: z.string().min(1).max(200),
+    scopes: z
+      .array(z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve', 'admin']))
+      .min(1)
+      .optional(),
+    // Role preset (expanded to scopes at creation; scopes stay the ground
+    // truth): reader → read; contributor → read+propose; reviewer →
+    // read+propose+review. Deliberately no 'approver' preset —
+    // knowledge:approve must be spelled out explicitly.
+    role: z.enum(['reader', 'contributor', 'reviewer']).optional(),
+    /** Space slug; omitted = key valid for all spaces. */
+    space: z.string().regex(SPACE_SLUG).optional(),
+  })
+  .refine((value) => (value.role !== undefined) !== (value.scopes !== undefined), {
+    message: 'provide exactly one of role or scopes',
+  })
 
 /** The plaintext `key` is shown here once and never stored (§1.10). */
 export const zApiKeyCreatedResponse = z.object({
@@ -718,11 +918,17 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestRequest,
   zIngestDocumentQuery,
   zIngestAcceptedResponse,
+  zIngestUnchangedResponse,
   zIngestStatusResponse,
   zCaptureSessionRequest,
   zCaptureSessionResponse,
   zSourceListResponse,
   zSourceResponse,
+  zSourceStreamParams,
+  zSourceStreamListQuery,
+  zSourceStreamResponse,
+  zSourceStreamListResponse,
+  zSourceStreamTombstoneResponse,
   zDecisionListResponse,
   zDecisionResponse,
   zConceptListResponse,
@@ -737,6 +943,11 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zProposalDetailResponse,
   zReviewRequest,
   zProposalReviewResponse,
+  zSplitProposalRequest,
+  zProposalSplitResponse,
+  zRequestChangesRequest,
+  zRequestChangesResponse,
+  zProposalLintResponse,
   zLintResponse,
   zWebhookListResponse,
   zCreateWebhookRequest,

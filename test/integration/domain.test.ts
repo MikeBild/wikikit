@@ -165,7 +165,7 @@ describe('domain modules (integration)', () => {
     expect(concept.claims.length).toBe(1)
     expect(concept.claims[0]).toMatchObject({ status: 'verified', object: 'draft-v0.1' })
     expect(concept.claims[0]!.citations[0]).toMatchObject({ source_id: source.id, locator: 'heading: 1' })
-    expect(concept.relations).toEqual([{ to_slug: 'graph-store', kind: 'related' }])
+    expect(concept.relations).toEqual([{ to_slug: 'graph-store', kind: 'related', space: null }])
 
     // The relation target 'graph-store' has NO revision — it stays unreadable
     // (identity row only) and shows up in lint as a broken relation.

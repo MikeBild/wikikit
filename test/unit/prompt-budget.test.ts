@@ -27,7 +27,7 @@ import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
 const BUDGETS: [string, string, number][] = [
   ['classify.v1', classifyV1.system, 380],
   ['synthesize.v1', synthesizeV1.system, 1100],
-  ['answer.v1', answerV1.system, 360],
+  ['answer.v1', answerV1.system, 600],
   ['distill.v1', distillV1.system, 660],
   ['adjudicate.v1', adjudicateV1.system, 300],
 ]

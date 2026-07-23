@@ -58,6 +58,8 @@ const SPACE = {
   updated_at: NOW,
 }
 
+const STREAM_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
 const SOURCE_ROW = {
   id: SOURCE_ID,
   space_id: SPACE_ID,
@@ -68,7 +70,26 @@ const SOURCE_ROW = {
   raw_content: '# A note\n\nbody',
   markdown: '# A note\n\nbody',
   metadata: {},
+  language: 'en',
+  stream_id: STREAM_ID,
+  source_version: 'v1',
+  observed_at: NOW,
+  effective_at: null,
+  supersedes_source_id: null,
   created_at: NOW,
+}
+
+const STREAM_ROW = {
+  id: STREAM_ID,
+  space_id: SPACE_ID,
+  external_source_id: 'gdrive:file123',
+  latest_source_id: SOURCE_ID,
+  latest_version: 'v1',
+  latest_observed_at: NOW,
+  metadata: {},
+  deleted_at: null,
+  created_at: NOW,
+  updated_at: NOW,
 }
 
 const AGENT_META = {
@@ -120,6 +141,22 @@ function stubDb(): Db {
         if (text.startsWith('INSERT INTO wk_relations') || text.startsWith('INSERT INTO wk_decisions')) return []
         if (text.includes('unnest(')) return [] // findContradictions persisted side
 
+        // getProposal claim/citation/source companions -----------------------
+        if (text.includes('SELECT ci.claim_id, ci.source_id, ci.quote')) {
+          return [
+            {
+              claim_id: CLAIM_ID,
+              source_id: SOURCE_ID,
+              quote: 'WikiKit is headless.',
+              locator: 'lines 1-2',
+              source_title: 'A note',
+            },
+          ]
+        }
+        if (text.includes('FROM wk_sources WHERE id = ANY($1::uuid[])')) {
+          return [{ id: SOURCE_ID, title: 'A note', url: null, kind: 'markdown', created_at: NOW }]
+        }
+
         // getProposal (structured diff) -------------------------------------
         if (text.includes('FROM wk_concept_revisions r') && text.includes('r.proposal_id = $1')) {
           return [
@@ -135,11 +172,13 @@ function stubDb(): Db {
         if (text.includes('FROM wk_claims cl') && text.includes('cl.proposal_id = $1')) {
           return [
             {
+              id: CLAIM_ID,
               concept_id: CONCEPT_ID,
               subject: 'wikikit',
               predicate: 'is',
               object: 'headless',
               status: 'proposed',
+              confidence: 0.9,
               collides: false,
             },
           ]
@@ -163,9 +202,14 @@ function stubDb(): Db {
           ]
         }
 
+        // lint: cross-space-link scan over current revisions ----------------
+        if (text.includes('SELECT c.slug, r.markdown')) {
+          return [{ slug: 'wikikit', markdown: '# WikiKit\n\nBody.' }]
+        }
+
         // getConcept relations (active only) --------------------------------
         if (text.includes('FROM wk_relations rel') && text.includes("rel.status = 'active'")) {
-          return [{ to_slug: 'open-knowledge-format', kind: 'related' }]
+          return [{ to_slug: 'open-knowledge-format', kind: 'related', space: null }]
         }
 
         // getConcept (slug-addressed) vs listConcepts (paged) ---------------
@@ -190,6 +234,9 @@ function stubDb(): Db {
         if (text.includes('FROM wk_concepts c') && text.includes('JOIN wk_concept_revisions r')) {
           return [{ slug: 'wikikit', title: 'WikiKit', summary: 'Headless knowledge system.', rev: 3, updated_at: NOW }]
         }
+
+        // source streams (sync contract) -------------------------------------
+        if (text.includes('FROM wk_source_streams')) return [STREAM_ROW]
 
         // listSources --------------------------------------------------------
         if (text.includes('FROM wk_sources') && text.includes('ORDER BY created_at DESC')) return [SOURCE_ROW]
@@ -242,6 +289,7 @@ function stubDb(): Db {
             concepts: ['wikikit'],
             claims_verified: 1,
             claims_disputed: 0,
+            claims_deprecated: 0,
             relations_removed: 0,
             review_channel: 'rest',
           },
@@ -249,6 +297,19 @@ function stubDb(): Db {
       }
       if (fn === 'wk_reject_proposal') {
         return [{ proposal_id: PROPOSAL_ID, status: 'rejected', review_channel: 'rest' }] as R[]
+      }
+      if (fn === 'wk_split_proposal') {
+        return [
+          {
+            parent: { id: PROPOSAL_ID, status: 'pending' },
+            children: [{ proposal_id: JOB_ID, concepts: ['wikikit'] }],
+          },
+        ] as R[]
+      }
+      if (fn === 'wk_request_changes') {
+        return [
+          { proposal_id: PROPOSAL_ID, status: 'rejected', review_channel: 'rest', changes_requested: true },
+        ] as R[]
       }
       throw new Error(`unexpected db.call(${fn})`)
     },
@@ -263,6 +324,8 @@ function stubDb(): Db {
             if (q.slug !== undefined && q.slug !== `eq.${SPACE.slug}`) return []
             if (q.id !== undefined && q.id !== `eq.${SPACE.id}`) return []
             return [SPACE]
+          case 'wk_source_streams':
+            return [STREAM_ROW]
           case 'wk_sources':
             if (q.content_hash !== undefined) return [] // dedup pre-checks: nothing ingested yet
             if (q.id !== undefined) return q.id === `eq.${SOURCE_ID}` ? [SOURCE_ROW] : []
@@ -415,6 +478,7 @@ function stubDb(): Db {
     },
 
     async update<R>(table: string, _filters: Record<string, unknown>, body: Record<string, unknown>): Promise<R[]> {
+      if (table === 'wk_source_streams') return [{ ...STREAM_ROW, ...body }] as R[]
       if (table === 'wk_spaces') {
         return [
           {
@@ -554,6 +618,18 @@ const CASES: RouteCase[] = [
     url: `/v1/spaces/demo/sources/${SOURCE_ID}`,
     status: 200,
   },
+  {
+    template: '/v1/spaces/{space}/source-streams',
+    method: 'get',
+    url: '/v1/spaces/demo/source-streams',
+    status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/source-streams/{external_source_id}',
+    method: 'delete',
+    url: '/v1/spaces/demo/source-streams/gdrive%3Afile123',
+    status: 200,
+  },
   { template: '/v1/spaces/{space}/decisions', method: 'get', url: '/v1/spaces/demo/decisions', status: 200 },
   {
     template: '/v1/spaces/{space}/decisions/{slug}',
@@ -583,6 +659,21 @@ const CASES: RouteCase[] = [
     body: { question: 'What is WikiKit?' },
   },
   { template: '/v1/spaces/{space}/proposals', method: 'get', url: '/v1/spaces/demo/proposals', status: 200 },
+  {
+    template: '/v1/proposals/{id}/split',
+    method: 'post',
+    url: `/v1/proposals/${PROPOSAL_ID}/split`,
+    status: 200,
+    body: { concepts: ['wikikit'] },
+  },
+  {
+    template: '/v1/proposals/{id}/request-changes',
+    method: 'post',
+    url: `/v1/proposals/${PROPOSAL_ID}/request-changes`,
+    status: 200,
+    body: { note: 'quote the firmware version from the source' },
+  },
+  { template: '/v1/proposals/{id}/lint', method: 'get', url: `/v1/proposals/${PROPOSAL_ID}/lint`, status: 200 },
   {
     template: '/v1/spaces/{space}/proposals',
     method: 'post',

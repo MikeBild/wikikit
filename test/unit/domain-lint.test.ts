@@ -35,6 +35,8 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'empty-concepts': 'info',
       'unreviewed-proposals': 'info',
       'dangling-sources': 'info',
+      'tombstoned-sources': 'warn',
+      'broken-cross-space-links': 'warn',
     })
   })
 })
@@ -47,14 +49,18 @@ describe('lintSpace', () => {
       rows: [{ settings: { functional_predicates: ['has_status'] } }],
     },
     {
-      match: /GROUP BY cl\.subject, cl\.predicate/,
+      match: /a\.id < b\.id/,
       rows: [
         {
           subject: 'okf',
           predicate: 'has_status',
-          objects: ['draft', 'final'],
-          claim_ids: ['cl-1', 'cl-2'],
-          slugs: ['okf'],
+          context: '',
+          a_id: 'cl-1',
+          b_id: 'cl-2',
+          a_object: 'draft',
+          b_object: 'final',
+          a_slug: 'okf',
+          b_slug: 'okf',
         },
       ],
     },
@@ -86,6 +92,20 @@ describe('lintSpace', () => {
       rows: [{ id: 'prop-1', title: 'Pending one', created_at: new Date('2026-07-01T00:00:00Z') }],
     },
     {
+      match: /st\.deleted_at IS NOT NULL/,
+      rows: [
+        {
+          id: 'cl-9',
+          subject: 'okf',
+          predicate: 'hosted_at',
+          object: 'drive',
+          slug: 'okf',
+          external_source_id: 'gdrive:file123',
+          source_id: 'src-9',
+        },
+      ],
+    },
+    {
       match: /FROM wk_sources s/,
       rows: [{ id: 'src-1', title: null, kind: 'url' }],
     },
@@ -101,14 +121,17 @@ describe('lintSpace', () => {
       'broken-relations',
       'stale-claims',
       'orphan-concepts',
+      'tombstoned-sources',
       'empty-concepts',
       'unreviewed-proposals',
       'dangling-sources',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 2, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 3, info: 3 })
 
-    // Every rule query is space-scoped with the SAME parameter.
-    expect(calls.length).toBe(9)
+    // Every rule query is space-scoped with the SAME parameter. (The
+    // cross-space-link scan found no [[space:slug]] links, so it issued only
+    // its revision scan — no follow-up queries.)
+    expect(calls.length).toBe(11)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -133,6 +156,12 @@ describe('lintSpace', () => {
     expect(byRule.get('empty-concepts')).toMatchObject({ concept_slug: 'stub' })
     expect(byRule.get('unreviewed-proposals')!.details).toMatchObject({ proposal_id: 'prop-1' })
     expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })
+    expect(byRule.get('tombstoned-sources')).toMatchObject({
+      severity: 'warn',
+      claim_id: 'cl-9',
+      concept_slug: 'okf',
+      details: { source_id: 'src-9', external_source_id: 'gdrive:file123' },
+    })
   })
 
   test('a clean space reports zero findings and zero counts', async () => {
@@ -140,18 +169,20 @@ describe('lintSpace', () => {
     expect(await lintSpace(db, 'space-1')).toEqual({ findings: [], counts: { error: 0, warn: 0, info: 0 } })
   })
 
-  test('contradictions groups ALL visible claims by frame, not only disputed ones', async () => {
+  test('contradictions pairs ALL visible claims (0021: context + interval + normalized object)', async () => {
     // Two colliding claims approved inside one proposal both stay 'verified'
     // (the apply-time dispute flip only joins across proposals) — lint must
-    // still see the frame, so the rule groups verified+disputed with more
-    // than one distinct object instead of filtering on status='disputed'.
+    // still see the frame; the pairwise join covers verified+disputed on
+    // BOTH sides and mirrors the apply-time flip-5 semantics exactly.
     const { db, calls } = fakeDb(routes)
     await lintSpace(db, 'space-1')
-    const sql = calls.find((call) => call.sql.includes('GROUP BY cl.subject, cl.predicate'))!.sql
-    expect(sql).toContain("cl.status IN ('verified', 'disputed')")
-    expect(sql).toContain('cl.predicate = ANY($2::text[])')
-    expect(sql).toContain('HAVING count(DISTINCT cl.object) > 1')
-    expect(sql).not.toContain("cl.status = 'disputed'")
+    const sql = calls.find((call) => call.sql.includes('a.id < b.id'))!.sql
+    expect(sql).toContain("a.status IN ('verified', 'disputed')")
+    expect(sql).toContain("b.status IN ('verified', 'disputed')")
+    expect(sql).toContain('a.predicate = ANY($2::text[])')
+    expect(sql).toContain("coalesce(b.context, '') = coalesce(a.context, '')")
+    expect(sql).toContain('coalesce(a.object_normalized, a.object) <> coalesce(b.object_normalized, b.object)')
+    expect(sql).toContain("coalesce(a.valid_from, '-infinity'::timestamptz)")
   })
 
   test('a space with no functional predicates reports no frame contradictions', async () => {

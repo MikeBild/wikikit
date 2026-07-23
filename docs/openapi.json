@@ -258,6 +258,10 @@
         "summary": "Ingest a source (markdown|text|url) — async; returns an ingest job to poll",
         "operationId": "createIngest",
         "responses": {
+          "200": {
+            "description": "Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestUnchangedResponse" } } }
+          },
           "202": {
             "description": "Queued; poll the Location header (/v1/ingests/{id})",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestAcceptedResponse" } } }
@@ -279,7 +283,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "409": {
-            "description": "already_ingested (envelope carries source_id)",
+            "description": "already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "500": {
@@ -574,6 +578,113 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/source-streams": {
+      "get": {
+        "summary": "List connector source streams (sync contract): head pointer, latest version, tombstone state",
+        "operationId": "listSourceStreams",
+        "responses": {
+          "200": {
+            "description": "Streams",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zSourceStreamListResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "external_source_id",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          { "name": "include_deleted", "in": "query", "required": false, "schema": { "type": "boolean" } },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/source-streams/{external_source_id}": {
+      "delete": {
+        "summary": "Tombstone a source stream (idempotent soft delete — the upstream document is gone)",
+        "operationId": "tombstoneSourceStream",
+        "responses": {
+          "200": {
+            "description": "Tombstoned (idempotent)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zSourceStreamTombstoneResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "external_source_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/spaces/{space}/decisions": {
@@ -878,7 +989,14 @@
             "in": "query",
             "required": false,
             "schema": { "type": "integer", "minimum": 1, "maximum": 50 }
-          }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["approved_only", "approved_then_sources"] }
+          },
+          { "name": "include_imports", "in": "query", "required": false, "schema": { "type": "boolean" } }
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
@@ -975,7 +1093,7 @@
             "name": "status",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] }
+            "schema": { "type": "string", "enum": ["pending", "approved", "rejected", "failed", "split"] }
           },
           {
             "name": "limit",
@@ -1186,6 +1304,161 @@
         },
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:approve"
+      }
+    },
+    "/v1/proposals/{id}/split": {
+      "post": {
+        "summary": "Split a pending proposal: full per-concept split, or defer a subset into one child",
+        "operationId": "splitProposal",
+        "responses": {
+          "200": {
+            "description": "Parent + pending children",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalSplitResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "proposal_not_pending",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSplitProposalRequest" } } }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:review"
+      }
+    },
+    "/v1/proposals/{id}/request-changes": {
+      "post": {
+        "summary": "Terminal reject with a mandatory revision note — agents re-propose against the feedback",
+        "operationId": "requestChanges",
+        "responses": {
+          "200": {
+            "description": "Rejected with changes_requested",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zRequestChangesResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "proposal_not_pending",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zRequestChangesRequest" } } }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:review"
+      }
+    },
+    "/v1/proposals/{id}/lint": {
+      "get": {
+        "summary": "Lint the STAGED content of one proposal (uncited claims, collisions, stale base, dangling links)",
+        "operationId": "lintProposal",
+        "responses": {
+          "200": {
+            "description": "Findings + counts",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zProposalLintResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read",
+        "x-accepted-scopes": ["knowledge:read", "knowledge:review"]
       }
     },
     "/v1/spaces/{space}/lint": {
@@ -2791,8 +3064,55 @@
             "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
             "type": "string",
             "enum": ["meeting", "article", "note"]
+          },
+          "language": {
+            "description": "Language of this source's content for the retrieval index; defaults to the space language",
+            "type": "string",
+            "enum": ["en", "de", "simple"]
+          },
+          "external_source_id": {
+            "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "source_version": {
+            "description": "Connector version marker (etag/revision); same id + same version + same content = no-op",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "observed_at": {
+            "description": "When the connector saw this content (ISO 8601)",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "effective_at": {
+            "description": "When the content is \"as of\" (ISO 8601)",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
           }
         }
+      },
+      "zIngestUnchangedResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "const": "unchanged" },
+          "source_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "stream_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["status", "source_id", "stream_id"],
+        "additionalProperties": false
       },
       "zIngestAcceptedResponse": {
         "type": "object",
@@ -2941,9 +3261,112 @@
           "created_at": { "type": "string" },
           "raw_content": { "type": "string" },
           "markdown": { "type": "string" },
-          "metadata": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+          "metadata": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+          "language": { "anyOf": [{ "type": "string", "enum": ["en", "de", "simple"] }, { "type": "null" }] },
+          "stream_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "source_version": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "observed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "effective_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "supersedes_source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          }
         },
-        "required": ["id", "kind", "url", "title", "content_hash", "created_at", "raw_content", "markdown", "metadata"],
+        "required": [
+          "id",
+          "kind",
+          "url",
+          "title",
+          "content_hash",
+          "created_at",
+          "raw_content",
+          "markdown",
+          "metadata",
+          "language",
+          "stream_id",
+          "source_version",
+          "observed_at",
+          "effective_at",
+          "supersedes_source_id"
+        ],
+        "additionalProperties": false
+      },
+      "zSourceStreamListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "external_source_id": { "type": "string" },
+                "latest_source_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "latest_version": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "latest_observed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "metadata": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+                "deleted_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "created_at": { "type": "string" },
+                "updated_at": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "external_source_id",
+                "latest_source_id",
+                "latest_version",
+                "latest_observed_at",
+                "metadata",
+                "deleted_at",
+                "created_at",
+                "updated_at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "zSourceStreamTombstoneResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "const": "tombstoned" },
+          "stream_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "already_tombstoned": { "type": "boolean" }
+        },
+        "required": ["status", "stream_id", "already_tombstoned"],
         "additionalProperties": false
       },
       "zDecisionListResponse": {
@@ -3069,9 +3492,10 @@
               "type": "object",
               "properties": {
                 "to_slug": { "type": "string" },
-                "kind": { "type": "string", "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"] }
+                "kind": { "type": "string", "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"] },
+                "space": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
               },
-              "required": ["to_slug", "kind"],
+              "required": ["to_slug", "kind", "space"],
               "additionalProperties": false
             }
           },
@@ -3147,7 +3571,8 @@
             "items": {
               "type": "object",
               "properties": {
-                "kind": { "type": "string", "enum": ["concept", "claim"] },
+                "kind": { "type": "string", "enum": ["concept", "claim", "source_chunk"] },
+                "tier": { "type": "string", "enum": ["approved", "source_evidence"] },
                 "slug": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "claim_id": {
                   "anyOf": [
@@ -3161,21 +3586,59 @@
                 },
                 "title": { "type": "string" },
                 "headline": { "type": "string" },
-                "rank": { "type": "number" }
+                "rank": { "type": "number" },
+                "source_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "chunk_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "heading": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "space": { "type": "string" }
               },
-              "required": ["kind", "slug", "claim_id", "title", "headline", "rank"],
+              "required": [
+                "kind",
+                "tier",
+                "slug",
+                "claim_id",
+                "title",
+                "headline",
+                "rank",
+                "source_id",
+                "chunk_id",
+                "url",
+                "heading",
+                "space"
+              ],
               "additionalProperties": false
             }
-          }
+          },
+          "searched_spaces": { "type": "array", "items": { "type": "string" } }
         },
-        "required": ["hits"],
+        "required": ["hits", "searched_spaces"],
         "additionalProperties": false
       },
       "zQueryRequest": {
         "type": "object",
         "properties": {
           "question": { "type": "string", "minLength": 1, "maxLength": 2000 },
-          "top_k": { "default": 8, "type": "integer", "minimum": 1, "maximum": 50 }
+          "top_k": { "default": 8, "type": "integer", "minimum": 1, "maximum": 50 },
+          "mode": { "type": "string", "enum": ["approved_only", "approved_then_sources"] }
         },
         "required": ["question"]
       },
@@ -3197,9 +3660,30 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "source_citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "chunk_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              },
+              "required": ["source_id", "chunk_id", "title"],
+              "additionalProperties": false
+            }
           }
         },
-        "required": ["answer_markdown", "citations", "not_in_knowledge_base", "agent_run_id"],
+        "required": ["answer_markdown", "citations", "not_in_knowledge_base", "agent_run_id", "source_citations"],
         "additionalProperties": false
       },
       "zProposalListResponse": {
@@ -3215,7 +3699,7 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] },
+                "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed", "split"] },
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
                 "created_at": { "type": "string" },
@@ -3223,7 +3707,18 @@
                 "review_channel": {
                   "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation"] }, { "type": "null" }]
                 },
-                "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "changes_requested": { "type": "boolean" },
+                "parent_proposal_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                }
               },
               "required": [
                 "id",
@@ -3233,7 +3728,9 @@
                 "created_at",
                 "reviewer",
                 "review_channel",
-                "reviewed_at"
+                "reviewed_at",
+                "changes_requested",
+                "parent_proposal_id"
               ],
               "additionalProperties": false
             }
@@ -3293,21 +3790,71 @@
                       "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
                       "object": { "type": "string", "minLength": 1, "maxLength": 2000 },
                       "confidence": { "default": 0.5, "type": "number", "minimum": 0, "maximum": 1 },
+                      "valid_from": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "valid_until": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "context": {
+                        "anyOf": [{ "type": "string", "minLength": 1, "maxLength": 200 }, { "type": "null" }]
+                      },
+                      "supersedes_claim_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          { "type": "null" }
+                        ]
+                      },
+                      "adjudication": { "type": "string", "enum": ["contradictory", "temporal", "complementary"] },
                       "citations": {
                         "default": [],
                         "type": "array",
                         "items": {
-                          "type": "object",
-                          "properties": {
-                            "source_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "source_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "quote": { "type": "string", "minLength": 1 },
+                                "locator": { "default": "", "type": "string", "maxLength": 500 }
+                              },
+                              "required": ["source_id", "quote"]
                             },
-                            "quote": { "type": "string", "minLength": 1 },
-                            "locator": { "default": "", "type": "string", "maxLength": 500 }
-                          },
-                          "required": ["source_id", "quote"]
+                            {
+                              "type": "object",
+                              "properties": {
+                                "chunk_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "locator": { "default": "", "type": "string", "maxLength": 500 }
+                              },
+                              "required": ["chunk_id"]
+                            }
+                          ]
                         }
                       }
                     },
@@ -3320,7 +3867,10 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "to_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" },
+                      "to_slug": {
+                        "type": "string",
+                        "pattern": "^(?:[a-z0-9][a-z0-9-]{0,62}:)?[a-z0-9][a-z0-9-]{0,126}$"
+                      },
                       "kind": {
                         "type": "string",
                         "enum": ["related", "part_of", "depends_on", "contradicts", "supersedes"]
@@ -3388,7 +3938,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "space": { "type": "string" },
-          "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed"] },
+          "status": { "type": "string", "enum": ["pending", "approved", "rejected", "failed", "split"] },
           "title": { "type": "string" },
           "summary": { "type": "string" },
           "created_at": { "type": "string" },
@@ -3407,6 +3957,36 @@
             }
           },
           "agent_meta": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+          "changes_requested": { "type": "boolean" },
+          "parent_proposal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "kind": { "type": "string" },
+                "created_at": { "type": "string" }
+              },
+              "required": ["id", "title", "url", "kind", "created_at"],
+              "additionalProperties": false
+            }
+          },
           "concepts": {
             "type": "array",
             "items": {
@@ -3416,6 +3996,7 @@
                 "is_new": { "type": "boolean" },
                 "old_markdown": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "new_markdown": { "type": "string" },
+                "stale": { "type": "boolean" },
                 "claims_added": {
                   "type": "array",
                   "items": {
@@ -3455,6 +4036,40 @@
                     "additionalProperties": false
                   }
                 },
+                "claims": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "subject": { "type": "string", "minLength": 1, "maxLength": 500 },
+                      "predicate": { "type": "string", "minLength": 1, "maxLength": 200 },
+                      "object": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                      "status": { "type": "string" },
+                      "confidence": { "type": "number" },
+                      "collides": { "type": "boolean" },
+                      "citations": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "source_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "quote": { "type": "string" },
+                            "locator": { "type": "string" },
+                            "source_title": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                          },
+                          "required": ["source_id", "quote", "locator", "source_title"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["subject", "predicate", "object", "status", "confidence", "collides", "citations"],
+                    "additionalProperties": false
+                  }
+                },
                 "relations_added": {
                   "type": "array",
                   "items": {
@@ -3470,9 +4085,11 @@
                 "is_new",
                 "old_markdown",
                 "new_markdown",
+                "stale",
                 "claims_added",
                 "claims_disputed",
                 "claims_deprecated",
+                "claims",
                 "relations_added"
               ],
               "additionalProperties": false
@@ -3521,6 +4138,9 @@
           "reviewed_at",
           "source_ids",
           "agent_meta",
+          "changes_requested",
+          "parent_proposal_id",
+          "sources",
           "concepts",
           "decisions",
           "relations_removed"
@@ -3546,6 +4166,7 @@
               "concepts": { "type": "array", "items": { "type": "string" } },
               "claims_verified": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "claims_deprecated": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "relations_removed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
             },
@@ -3555,6 +4176,7 @@
               "concepts",
               "claims_verified",
               "claims_disputed",
+              "claims_deprecated",
               "relations_removed",
               "review_channel"
             ],
@@ -3576,6 +4198,113 @@
           }
         ]
       },
+      "zSplitProposalRequest": {
+        "default": {},
+        "type": "object",
+        "properties": {
+          "concepts": {
+            "maxItems": 100,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 127 }
+          }
+        }
+      },
+      "zProposalSplitResponse": {
+        "type": "object",
+        "properties": {
+          "parent": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "status": { "type": "string", "enum": ["split", "pending"] }
+            },
+            "required": ["id", "status"],
+            "additionalProperties": false
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "proposal_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "concepts": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["proposal_id", "concepts"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["parent", "children"],
+        "additionalProperties": false
+      },
+      "zRequestChangesRequest": {
+        "type": "object",
+        "properties": { "note": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+        "required": ["note"]
+      },
+      "zRequestChangesResponse": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": { "type": "string", "const": "rejected" },
+          "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] },
+          "changes_requested": { "type": "boolean", "const": true }
+        },
+        "required": ["proposal_id", "status", "review_channel", "changes_requested"],
+        "additionalProperties": false
+      },
+      "zProposalLintResponse": {
+        "type": "object",
+        "properties": {
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": ["missing-citations", "contradictions", "stale-base", "broken-relations", "stale-claims"]
+                },
+                "severity": { "type": "string", "enum": ["error", "warn", "info"] },
+                "message": { "type": "string" },
+                "concept_slug": { "type": "string" },
+                "claim_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "details": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+              },
+              "required": ["rule", "severity", "message"],
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "error": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "warn": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "info": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+            },
+            "required": ["error", "warn", "info"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["findings", "counts"],
+        "additionalProperties": false
+      },
       "zLintResponse": {
         "type": "object",
         "properties": {
@@ -3594,7 +4323,9 @@
                     "orphan-concepts",
                     "empty-concepts",
                     "unreviewed-proposals",
-                    "dangling-sources"
+                    "dangling-sources",
+                    "tombstoned-sources",
+                    "broken-cross-space-links"
                   ]
                 },
                 "severity": { "type": "string", "enum": ["error", "warn", "info"] },
@@ -3662,7 +4393,10 @@
                 "wikikit.proposal.approved",
                 "wikikit.proposal.rejected",
                 "wikikit.concept.updated",
-                "wikikit.ingest.failed"
+                "wikikit.ingest.failed",
+                "wikikit.source.tombstoned",
+                "wikikit.proposal.split",
+                "wikikit.proposal.changes_requested"
               ]
             }
           }
@@ -3773,9 +4507,10 @@
               "enum": ["knowledge:read", "knowledge:propose", "knowledge:review", "knowledge:approve", "admin"]
             }
           },
+          "role": { "type": "string", "enum": ["reader", "contributor", "reviewer"] },
           "space": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
         },
-        "required": ["name", "scopes"]
+        "required": ["name"]
       },
       "zApiKeyCreatedResponse": {
         "type": "object",

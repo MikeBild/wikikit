@@ -122,14 +122,17 @@ export async function captureSession(
   if (learnings === 0) return { status: 'no_learnings', ingest_id: null, learnings: 0, agent_run_id }
 
   try {
-    const { ingest_id } = await deps.ingest.enqueue(db, spaceId, {
+    // No external_source_id on session captures, so the sync fast-path can
+    // never fire — the narrowing below is a type-level formality.
+    const enqueued = await deps.ingest.enqueue(db, spaceId, {
       markdown: renderLearnings(distilled.output.learnings),
       title: input.title ?? 'Session learnings',
       // Not a meeting: decision mining would turn "always use X" into decision
       // records with no context or alternatives. These are conventions.
       source_kind: 'note',
     })
-    return { status: 'queued', ingest_id, learnings, agent_run_id }
+    const ingestId = 'ingest_id' in enqueued ? enqueued.ingest_id : null
+    return { status: 'queued', ingest_id: ingestId, learnings, agent_run_id }
   } catch (error) {
     // Same rules taught again → same markdown → same content hash. That is a
     // success for a hook that fires after every session, not an error.

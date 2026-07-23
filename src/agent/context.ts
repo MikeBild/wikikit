@@ -1,5 +1,6 @@
 import type { AgentBriefingResult, BriefingSpace } from './briefing.ts'
 import { buildAgentBriefing, DEFAULT_BRIEFING_BUDGET_TOKENS } from './briefing.ts'
+import { readImports } from '../domain/space-refs.ts'
 import type { Db } from '../db/postgres.ts'
 
 export interface AgentContextOptions {
@@ -184,6 +185,22 @@ export async function buildAgentContext(
       .slice(0, maxSpaces - selected.length)
     selected.push(...matches.map((match) => bySlug.get(match.slug)!))
     if (primary) matches.unshift({ slug: primary.slug, name: primary.name, score: 100, reasons: ['primary'] })
+
+    // 0023: spaces reachable via the selected spaces' settings.imports join
+    // at LOWER priority when room remains — declared federation is a strong
+    // relevance signal, but never displaces a scored match. Deterministic:
+    // insertion order follows the selected spaces, then the declaration.
+    for (const space of [...selected]) {
+      if (selected.length >= maxSpaces) break
+      const imports = readImports(space.settings)
+      for (const importSlug of imports) {
+        if (selected.length >= maxSpaces) break
+        const imported = bySlug.get(importSlug)
+        if (!imported || excluded.has(importSlug) || selected.some((entry) => entry.slug === importSlug)) continue
+        selected.push(imported)
+        matches.push({ slug: imported.slug, name: imported.name, score: 4, reasons: [`import-of:${space.slug}`] })
+      }
+    }
   }
 
   const briefing = selected.length > 0 ? await buildAgentBriefing(db, selected, budget) : emptyBriefing(budget)

@@ -84,6 +84,27 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     space: 'demo',
     error: { code: 'already_ingested', message: 'content hash already archived' },
   },
+  'wikikit.source.tombstoned': {
+    space: 'demo',
+    external_source_id: 'gdrive:file123',
+    stream_id: PROPOSAL_ID,
+    source_id: SOURCE_ID,
+  },
+  'wikikit.proposal.split': {
+    space: 'demo',
+    parent_id: PROPOSAL_ID,
+    parent_status: 'split',
+    children: [{ proposal_id: SOURCE_ID, concepts: ['open-knowledge-format'] }],
+    reviewer: 'mike',
+  },
+  'wikikit.proposal.changes_requested': {
+    proposal_id: PROPOSAL_ID,
+    space: 'demo',
+    reviewer: 'mike',
+    note: 'quote the firmware version from the source',
+    review_channel: 'rest',
+    changes_requested: true,
+  },
 }
 
 describe('example payloads conform', () => {

@@ -158,6 +158,20 @@ export interface Config {
   readonly version: string
   /** True when the selected provider's key is configured — gates ingest/query (503 llm_not_configured otherwise). */
   readonly llmConfigured: boolean
+  /**
+   * Embedding provider for the OPTIONAL hybrid retrieval ranker. 'none'
+   * (default) keeps retrieval purely lexical — embeddings only ever ADD a
+   * ranker, they never gate a feature (search must not 503). Anthropic has
+   * no embeddings API, so this is independent of WIKIKIT_LLM_PROVIDER.
+   */
+  readonly embeddingProvider?: 'none' | 'openai' | 'google'
+  readonly modelEmbedding?: string
+  /** The embedding provider's API key ('' when provider is 'none'). */
+  readonly embeddingApiKey?: string
+  /** Env var name for the embedding key — the fail-fast/error messages name it. */
+  readonly embeddingApiKeyEnv?: string
+  /** True when embeddingProvider is set and its key is present — starts the embedder worker. */
+  readonly embeddingConfigured?: boolean
 }
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
@@ -320,6 +334,21 @@ export function loadConfig(): Config {
   }
   const llmApiKey = providerKeys[llmProvider]
 
+  // Embedding provider (hybrid retrieval ranker). Separate knob from the LLM
+  // provider: anthropic cannot embed, and lexical-only deployments are
+  // first-class ('none' default). A named provider without its key fails the
+  // boot — a half-configured ranker would silently never embed anything.
+  const EMBEDDING_PROVIDERS = ['none', 'openai', 'google'] as const
+  const embeddingProvider = str('WIKIKIT_EMBEDDING_PROVIDER', 'none') as 'none' | 'openai' | 'google'
+  if (!EMBEDDING_PROVIDERS.includes(embeddingProvider)) {
+    throw new Error(`WIKIKIT_EMBEDDING_PROVIDER must be one of ${EMBEDDING_PROVIDERS.join(', ')}`)
+  }
+  if (embeddingProvider !== 'none' && !providerKeys[embeddingProvider]) {
+    throw new Error(
+      `WIKIKIT_EMBEDDING_PROVIDER=${embeddingProvider} requires ${LLM_PROVIDER_KEY_ENV[embeddingProvider]}`,
+    )
+  }
+
   const ingestLeaseMs = integer('WIKIKIT_INGEST_LEASE_MS', 15 * 60 * 1000, { min: 10_000, max: 24 * 3600 * 1000 })
   const ingestHeartbeatMs = integer('WIKIKIT_INGEST_HEARTBEAT_MS', 30_000, { min: 1000, max: 3600 * 1000 })
   if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
@@ -390,6 +419,17 @@ export function loadConfig(): Config {
     logLevel: str('LOG_LEVEL', 'info'),
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
+    embeddingProvider,
+    // 1536 dimensions is pinned in the wk_embeddings schema — both defaults
+    // produce (or are configured to produce) 1536-dim vectors.
+    modelEmbedding: str(
+      'WIKIKIT_MODEL_EMBEDDING',
+      embeddingProvider === 'google' ? 'gemini-embedding-001' : 'text-embedding-3-small',
+    ),
+    embeddingApiKey: embeddingProvider === 'none' ? '' : providerKeys[embeddingProvider],
+    embeddingApiKeyEnv:
+      embeddingProvider === 'none' ? 'WIKIKIT_EMBEDDING_PROVIDER' : LLM_PROVIDER_KEY_ENV[embeddingProvider],
+    embeddingConfigured: embeddingProvider !== 'none' && providerKeys[embeddingProvider].length > 0,
   })
 
   if (config.usageTelemetryEnabled && !config.usageHmacSecret) {

@@ -12,6 +12,8 @@
 // keeping it transport- and storage-agnostic.
 import { createHash } from 'node:crypto'
 import type {
+  AdjudicateInput,
+  AdjudicateOutput,
   AnswerInput,
   AnswerOutput,
   ClassifyInput,
@@ -42,6 +44,16 @@ export interface LlmResult<T> {
   run: LlmRunMeta
 }
 
+export interface EmbedInput {
+  texts: string[]
+}
+
+export interface EmbedOutput {
+  /** One vector per input text, in order. */
+  embeddings: number[][]
+  dimensions: number
+}
+
 export interface LlmProvider {
   /** False when the selected provider's key is unset — callers answer 503 llm_not_configured. FakeProvider: true. */
   readonly configured: boolean
@@ -63,6 +75,21 @@ export interface LlmProvider {
    * config.modelClassify (this is a filter, like classify).
    */
   distill(input: DistillInput): Promise<LlmResult<DistillOutput>>
+  /**
+   * Classify WHY two same-frame claims carry different objects
+   * (contradictory | temporal | complementary). Advisory refinement of the
+   * deterministic matcher — the pipeline falls back to 'contradictory' on
+   * any failure. Model: config.modelClassify (cheap, tiny output).
+   */
+  adjudicate(input: AdjudicateInput): Promise<LlmResult<AdjudicateOutput>>
+  /**
+   * False when no embedding provider is configured (WIKIKIT_EMBEDDING_PROVIDER
+   * 'none' or missing key). Embeddings are an OPTIONAL ranker: consumers must
+   * degrade to lexical retrieval, never 503, when this is false.
+   */
+  readonly embedConfigured: boolean
+  /** Batch text → vectors (config.modelEmbedding, 1536 dims — the wk_embeddings pin). */
+  embed(input: EmbedInput): Promise<LlmResult<EmbedOutput>>
 }
 
 // ---------------------------------------------------------------------------

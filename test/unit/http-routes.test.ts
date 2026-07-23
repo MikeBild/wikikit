@@ -25,6 +25,8 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/ingests/{id}', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/sources', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources/{id}', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/source-streams', 'knowledge:read'],
+  ['delete', '/v1/spaces/{space}/source-streams/{external_source_id}', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/decisions', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/decisions/{slug}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts', 'knowledge:read'],
@@ -37,6 +39,9 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/proposals/{id}', 'knowledge:read'],
   ['post', '/v1/proposals/{id}/approve', 'knowledge:approve'],
   ['post', '/v1/proposals/{id}/reject', 'knowledge:approve'],
+  ['post', '/v1/proposals/{id}/split', 'knowledge:review'],
+  ['post', '/v1/proposals/{id}/request-changes', 'knowledge:review'],
+  ['get', '/v1/proposals/{id}/lint', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/lint', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/export', 'knowledge:read'],
   ['post', '/v1/spaces/{space}/import', 'knowledge:propose'],
@@ -239,6 +244,38 @@ describe('createSpaceHandler — space-binding guard (§5.2)', () => {
   })
 })
 
+describe('updateSpaceSettingsHandler — language change triggers a reindex', () => {
+  function settingsDb(updatedSettings: Record<string, unknown>) {
+    return fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_spaces"/, rows: [SPACE_ROW] },
+      { match: /UPDATE "public"\."wk_spaces"/, rows: [{ ...SPACE_ROW, settings: updatedSettings }] },
+      { match: /wk_reindex_space/, rows: [{ result: { space_id: SPACE_ROW.id, revisions: 2, claims: 3 } }] },
+    ])
+  }
+
+  test('changing settings.language recomputes the space vectors via wk_reindex_space', async () => {
+    const { db, calls } = settingsDb({ language: 'de' })
+    const input = handlerInput({
+      params: { space: 'demo' },
+      body: { settings: { language: 'de' }, replace: false },
+    })
+    const result = await HANDLERS.updateSpaceSettingsHandler!(handlerDeps(db), input)
+    expect(result!.status).toBe(200)
+    expect(calls.some((call) => call.sql === 'SELECT public.wk_reindex_space($1) AS result')).toBe(true)
+  })
+
+  test('a language-neutral settings write does not reindex', async () => {
+    const { db, calls } = settingsDb({ purpose: 'docs' })
+    const input = handlerInput({
+      params: { space: 'demo' },
+      body: { settings: { purpose: 'docs' }, replace: false },
+    })
+    const result = await HANDLERS.updateSpaceSettingsHandler!(handlerDeps(db), input)
+    expect(result!.status).toBe(200)
+    expect(calls.some((call) => call.sql.includes('wk_reindex_space'))).toBe(false)
+  })
+})
+
 describe('listConceptsHandler — If-None-Match (RFC 9110 list semantics)', () => {
   function conceptsDb() {
     return fakeDb([
@@ -288,5 +325,31 @@ describe('listConceptsHandler — If-None-Match (RFC 9110 list semantics)', () =
     expect((miss.result as { headers: Record<string, string> }).headers.etag).toBe('"7"')
     const bare = await run(undefined)
     expect((bare.result as { status: number }).status).toBe(200)
+  })
+})
+
+describe('createApiKeyHandler — role presets expand to scopes (ground truth)', () => {
+  test('role: reviewer mints a key with read+propose+review, never approve', async () => {
+    const { db } = fakeDb([])
+    let created: { scopes: string[] } | null = null
+    const deps = {
+      ...handlerDeps(db),
+      auth: {
+        requireScope: () => {},
+        createKey: async (args: { scopes: string[] }) => {
+          created = args as never
+          return { id: '11111111-1111-4111-8111-111111111111', key: 'wk_test' }
+        },
+      },
+    } as unknown as HttpDeps
+    const result = await HANDLERS.createApiKeyHandler!(deps, handlerInput({ body: { name: 'rev', role: 'reviewer' } }))
+    expect(result!.status).toBe(201)
+    expect(created!.scopes).toEqual(['knowledge:read', 'knowledge:propose', 'knowledge:review'])
+    expect((result!.body as { scopes: string[] }).scopes).toEqual([
+      'knowledge:read',
+      'knowledge:propose',
+      'knowledge:review',
+    ])
+    expect(created!.scopes).not.toContain('knowledge:approve')
   })
 })

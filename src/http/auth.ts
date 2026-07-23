@@ -83,6 +83,24 @@ const VALID_SCOPES: ReadonlySet<string> = new Set([
   '*',
 ])
 
+/**
+ * Role presets (0-migration feature): three UNDERSTANDABLE bundles expanded
+ * at key-creation time. Scopes stay the ONLY ground truth — nothing stores a
+ * role, requireScope never sees one, and a future org model can move
+ * evaluation into requireScope precisely because of that.
+ *
+ * Deliberately NO 'approver' preset: knowledge:approve is the sacred human
+ * gate and must remain an explicit, spelled-out grant. Reviewer includes
+ * propose so a reviewer can re-propose after a changes_requested bounce.
+ */
+export const ROLE_SCOPES = {
+  reader: ['knowledge:read'],
+  contributor: ['knowledge:read', 'knowledge:propose'],
+  reviewer: ['knowledge:read', 'knowledge:propose', 'knowledge:review'],
+} as const
+
+export type RoleName = keyof typeof ROLE_SCOPES
+
 interface KeyRow {
   id: string
   name: string

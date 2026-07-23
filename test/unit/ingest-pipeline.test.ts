@@ -202,7 +202,7 @@ describe('enqueue', () => {
     const { db, calls } = fakeDb([{ match: /INSERT INTO "public"\."wk_ingest_jobs"/, rows: [{ id: 'job-2' }] }])
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
     const result = await pipeline.enqueue(db, 'space-1', { url: 'https://example.com/a' })
-    expect(result.ingest_id).toBe('job-2')
+    expect(result).toEqual({ ingest_id: 'job-2' })
     expect(calls.some((call) => call.sql.includes('wk_sources'))).toBe(false)
   })
 })
@@ -328,13 +328,25 @@ describe('worker — happy path (new concept from a markdown source)', () => {
         summary: 's',
         markdown: '# OKF',
         claims: [
-          { subject: 'okf', predicate: 'is', object: 'draft', quote: 'OKF is a draft spec.', confidence: 0.9 },
+          {
+            subject: 'okf',
+            predicate: 'is',
+            object: 'draft',
+            quote: 'OKF is a draft spec.',
+            confidence: 0.9,
+            valid_from: null,
+            valid_until: null,
+            context: null,
+          },
           {
             subject: 'okf',
             predicate: 'has_status',
             object: 'production',
             quote: 'OKF is production ready.',
             confidence: 0.9,
+            valid_from: null,
+            valid_until: null,
+            context: null,
           },
         ],
         relations: [],
@@ -376,7 +388,18 @@ describe('worker — happy path (new concept from a markdown source)', () => {
         title: input.concept.title,
         summary: 's',
         markdown: '# body',
-        claims: [{ subject: 'okf', predicate: 'is', object: 'unquotable', quote: '   ', confidence: 0.9 }],
+        claims: [
+          {
+            subject: 'okf',
+            predicate: 'is',
+            object: 'unquotable',
+            quote: '   ',
+            confidence: 0.9,
+            valid_from: null,
+            valid_until: null,
+            context: null,
+          },
+        ],
         relations: [],
         decisions: [],
       }),
@@ -651,5 +674,83 @@ describe('start/stop lifecycle', () => {
     const before = Date.now()
     await pipeline.stop()
     expect(Date.now() - before).toBeLessThan(1000)
+  })
+})
+
+describe('worker — adjudication (0021)', () => {
+  // A persisted-side frame collision must trigger ONE adjudicate call whose
+  // verdict routes the staged claim: complementary → exempt stamp, temporal →
+  // supersedes_claim_id, contradictory/failure → dispute path.
+  function collisionRoutes(): Route[] {
+    const routes = workerRoutes()
+    return [
+      // Functional predicate declared → the matcher considers 'is'.
+      {
+        match: /SELECT \* FROM "public"\."wk_spaces"/,
+        rows: [{ slug: 'dev', settings: { functional_predicates: ['is'] } }],
+      },
+      // Persisted collision for the fake's default claim (okf is described).
+      {
+        match: /unnest/,
+        rows: [
+          {
+            id: '9a1e0dcb-5f0e-4b1a-9c1c-00000000c01d',
+            concept_id: 'con-old',
+            subject: 'okf',
+            predicate: 'is',
+            object: 'something-else',
+            object_normalized: null,
+            context: null,
+            valid_from: null,
+            valid_until: null,
+            status: 'verified',
+            quote: 'old quote',
+          },
+        ],
+      },
+      ...routes.filter((route) => !String(route.match).includes('wk_spaces')),
+    ]
+  }
+
+  test('temporal verdict stages supersedes_claim_id and reports a supersession', async () => {
+    const { db, calls } = fakeDb(collisionRoutes())
+    const llm = createFakeProvider({ adjudicate: () => ({ verdict: 'temporal', reason: 'version moved on' }) })
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+
+    expect(llm.calls.filter((call) => call.method === 'adjudicate')).toHaveLength(1)
+    const claimInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_claims"'))!
+    expect(claimInsert.values).toContain('9a1e0dcb-5f0e-4b1a-9c1c-00000000c01d') // supersedes target staged
+    const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposalInsert.values[2])).toContain('1 supersession')
+    expect(String(proposalInsert.values[2])).not.toContain('contradiction')
+  })
+
+  test('complementary verdict stamps the exemption and drops the contradiction from the summary', async () => {
+    const { db, calls } = fakeDb(collisionRoutes())
+    const llm = createFakeProvider({ adjudicate: () => ({ verdict: 'complementary', reason: 'both hold' }) })
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+
+    const claimInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_claims"'))!
+    expect(claimInsert.values.some((value) => String(value).includes('"adjudication":"complementary"'))).toBe(true)
+    const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposalInsert.values[2])).not.toContain('contradiction')
+  })
+
+  test('adjudication failure falls back to the contradictory dispute path — the job never fails', async () => {
+    const { db, calls } = fakeDb(collisionRoutes())
+    const llm = createFakeProvider({
+      adjudicate: () => {
+        throw new Error('provider exploded')
+      },
+    })
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+    await pipeline.runOnce()
+
+    const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposalInsert.values[2])).toContain('1 contradiction')
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(jobUpdate.values).toContain('done')
   })
 })

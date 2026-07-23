@@ -9,8 +9,8 @@
 // product regression).
 export const PROMPT_VERSIONS = {
   classify: 'classify.v1',
-  synthesize: 'synthesize.v1',
-  answer: 'answer.v1',
+  synthesize: 'synthesize.v1', // explicit temporal validity + context, typed vocabulary
+  answer: 'answer.v1', // two-tier evidence (approved vs source_evidence)
   distill: 'distill.v1', // coding-agent session transcript → durable rules
   adjudicate: 'adjudicate.v1', // optional Haiku contradiction adjudication (cuttable)
 } as const

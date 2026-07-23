@@ -45,7 +45,7 @@ export interface ConceptDetail {
   revision_id: string
   updated_at: string
   claims: ClaimWithCitations[]
-  relations: { to_slug: string; kind: RelationKindValue }[]
+  relations: { to_slug: string; kind: RelationKindValue; space: string | null }[]
   agent_meta: Record<string, unknown>
 }
 
@@ -176,10 +176,16 @@ export async function getConcept(db: Db, spaceId: string, args: { slug: string }
 
   // Outgoing relations only, per zConceptResponse ({to_slug, kind}) — the
   // bidirectional view lives in relations.listRelations.
-  const relations = await db.query<{ to_slug: string; kind: RelationKindValue }>(
-    `SELECT t.slug AS to_slug, rel.kind
+  // Cross-space targets (0023) carry the target space slug for provenance;
+  // a dangling foreign target (space deleted, cascade removed the row) simply
+  // no longer joins. Targets that lost their readable page are filtered like
+  // local ones never were — lint surfaces those.
+  const relations = await db.query<{ to_slug: string; kind: RelationKindValue; space: string | null }>(
+    `SELECT t.slug AS to_slug, rel.kind,
+            CASE WHEN rel.to_space_id IS NULL THEN NULL ELSE ts.slug END AS space
        FROM wk_relations rel
        JOIN wk_concepts t ON t.id = rel.to_concept_id
+       LEFT JOIN wk_spaces ts ON ts.id = rel.to_space_id
       WHERE rel.space_id = $1 AND rel.from_concept_id = $2 AND rel.status = 'active'
       ORDER BY t.slug ASC, rel.kind ASC`,
     [spaceId, concept.concept_id],

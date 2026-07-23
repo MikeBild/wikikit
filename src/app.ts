@@ -10,6 +10,8 @@ import type { Server } from 'node:http'
 import { loadConfig, type Config } from './config.ts'
 import { createPostgres, type Database } from './db/postgres.ts'
 import { runMigrations } from './db/migrate.ts'
+import { createChunkBackfill, type ChunkBackfill } from './ingest/chunker.ts'
+import { createEmbedder, probeVectorSupport, type Embedder } from './ingest/embedder.ts'
 import { createIngestPipeline, type IngestPipeline } from './ingest/pipeline.ts'
 import { createLlmProvider } from './llm/aisdk.ts'
 import type { LlmProvider } from './llm/provider.ts'
@@ -31,14 +33,20 @@ export interface AppDeps {
   metrics: Metrics
   outbox: OutboxWorker
   ingest: IngestPipeline
+  chunker: ChunkBackfill
+  embedder: Embedder
   usage: UsageTelemetry
 }
 
 export interface App {
   server: Server
   state: { draining: boolean }
+  /** pgvector capability, probed by start() after migrations. Hybrid search keys off it. */
+  vector: { available: boolean }
   outbox: OutboxWorker
   ingest: IngestPipeline
+  chunker: ChunkBackfill
+  embedder: Embedder
   database: Database
   auth: Auth
   logger: Logger
@@ -78,10 +86,15 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const auth = deps.auth ?? createAuth(config, db)
   const outbox = deps.outbox ?? createOutboxWorker(config, db, logger, { metrics })
   const ingest = deps.ingest ?? createIngestPipeline(config, db, llm, logger, { metrics })
+  const chunker = deps.chunker ?? createChunkBackfill(db, logger)
+  const embedder = deps.embedder ?? createEmbedder(db, llm, config, logger)
   const usage = deps.usage ?? createUsageTelemetry(config, db, logger)
   const state = { draining: false }
+  // Filled by start() after migrations (createApp is inert and sync); until
+  // probed, retrieval behaves lexically — the safe floor.
+  const vector = { available: false }
 
-  const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, usage, state }
+  const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, usage, state, vector }
   const http = createHttpServer(httpDeps)
 
   // Mount the MCP Streamable-HTTP transport at /mcp — the composition-root
@@ -90,7 +103,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // tested in isolation: /mcp lives OUTSIDE the ROUTES registry (§5.2), so only
   // this raw mount attaches it. The regression is guarded by an initialize
   // check in test/integration/http.test.ts against the real createApp server.
-  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger, usage })
+  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger, usage, llm, vector })
   http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
 
   // ChatGPT and other remote MCP clients discover and complete OAuth without
@@ -120,8 +133,11 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   return {
     server: http.server,
     state,
+    vector,
     outbox,
     ingest,
+    chunker,
+    embedder,
     database,
     auth,
     logger,
@@ -138,6 +154,8 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       mcp.stop() // stop the session sweeper + close live MCP sessions
       usage.stop()
       outbox.stop()
+      chunker.stop()
+      embedder.stop()
       await ingest.stop()
       // Bounded drain: server.close() alone waits for keep-alive sockets
       // that client fetch pools may idle for minutes (and Bun's node:http
@@ -203,8 +221,19 @@ export async function start(config: Config = loadConfig()): Promise<App> {
     await app.close().catch(() => {})
     throw error
   }
+  // pgvector capability probe — after migrations (0018 may have just created
+  // the extension), before workers. Failure means "no hybrid", never "no boot".
+  try {
+    app.vector.available = await probeVectorSupport(app.database.db)
+  } catch {
+    app.vector.available = false
+  }
   app.outbox.start()
   app.ingest.start()
+  app.chunker.start()
+  // The embedder needs both halves: a configured embedding provider AND the
+  // pgvector schema objects to write into.
+  if (config.embeddingConfigured && app.vector.available) app.embedder.start()
   app.usage.start()
   logger.info('wikikit listening', {
     url: `http://${config.host}:${config.port}`,

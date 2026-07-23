@@ -23,7 +23,7 @@
 //   flaky call no longer fails an ingest job on the first blip.
 // - Lazy model construction: an unconfigured provider (no key) is a valid object
 //   that throws LlmNotConfiguredError on use — the 503 path.
-import { generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai'
+import { embedMany, generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -35,6 +35,8 @@ import {
   LlmNotConfiguredError,
   LlmOutputInvalidError,
   LlmRefusedError,
+  type EmbedInput,
+  type EmbedOutput,
   type LlmProvider,
   type LlmResult,
   type LlmUsage,
@@ -44,11 +46,15 @@ import * as classifyV1 from './prompts/classify.v1.ts'
 import * as synthesizeV1 from './prompts/synthesize.v1.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
+import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
 import {
+  zAdjudicateOutput,
   zAnswerOutput,
   zClassifyOutput,
   zDistillOutput,
   zSynthesizeOutput,
+  type AdjudicateInput,
+  type AdjudicateOutput,
   type AnswerInput,
   type AnswerOutput,
   type ClassifyInput,
@@ -62,7 +68,7 @@ import type { z } from 'zod'
 
 // Output ceilings per call kind (maxOutputTokens): classify emits tiny JSON;
 // synthesis carries a full page body; answers are a few paragraphs.
-const MAX_TOKENS = { classify: 2048, synthesize: 32_000, answer: 8192, distill: 4096 } as const
+const MAX_TOKENS = { classify: 2048, synthesize: 32_000, answer: 8192, distill: 4096, adjudicate: 1024 } as const
 
 interface PromptModule<I> {
   system: string
@@ -152,7 +158,7 @@ export function createLlmProvider(
   }
 
   async function call<I, T>(args: {
-    kind: 'classify' | 'synthesize' | 'answer' | 'distill'
+    kind: 'classify' | 'synthesize' | 'answer' | 'distill' | 'adjudicate'
     model: string
     promptVersion: string
     prompt: PromptModule<I>
@@ -216,12 +222,67 @@ export function createLlmProvider(
     return { output: result.object, run }
   }
 
+  // Embedding vectors are pinned to 1536 dims by the wk_embeddings schema —
+  // a mismatched model must fail loudly, not write unusable vectors.
+  const EMBEDDING_DIMENSIONS = 1536
+
   return {
     get configured() {
       return config.llmConfigured
     },
     get apiKeyEnv() {
       return config.llmApiKeyEnv
+    },
+    get embedConfigured() {
+      return config.embeddingConfigured === true
+    },
+    async embed(input: EmbedInput): Promise<LlmResult<EmbedOutput>> {
+      if (!config.embeddingConfigured) {
+        throw new LlmNotConfiguredError(config.embeddingApiKeyEnv ?? 'WIKIKIT_EMBEDDING_PROVIDER')
+      }
+      const embeddingModel = config.modelEmbedding ?? 'text-embedding-3-small'
+      const started = Date.now()
+      // The embedding provider is its own knob (anthropic cannot embed), so
+      // the model resolves from embeddingProvider/embeddingApiKey — not from
+      // the chat provider above.
+      const model =
+        config.embeddingProvider === 'google'
+          ? createGoogleGenerativeAI({ apiKey: config.embeddingApiKey }).textEmbeddingModel(embeddingModel)
+          : createOpenAI({ apiKey: config.embeddingApiKey }).textEmbeddingModel(embeddingModel)
+      let result
+      try {
+        result = await embedMany({
+          model,
+          values: input.texts,
+          maxRetries: 2,
+          // Google's gemini embedding models default to other dimensionalities;
+          // request the pinned 1536. OpenAI's text-embedding-3-small is 1536
+          // natively and ignores this option.
+          providerOptions: { google: { outputDimensionality: EMBEDDING_DIMENSIONS } },
+        })
+      } catch (error) {
+        deps.metrics?.llmCall('embed', embeddingModel, {}, 'error', Date.now() - started)
+        throw error
+      }
+      const duration_ms = Date.now() - started
+      if (result.embeddings.some((embedding) => embedding.length !== EMBEDDING_DIMENSIONS)) {
+        deps.metrics?.llmCall('embed', embeddingModel, {}, 'error', duration_ms)
+        throw new LlmOutputInvalidError(
+          `embed: expected ${EMBEDDING_DIMENSIONS}-dim vectors, got ${result.embeddings[0]?.length ?? 0} — ` +
+            'WIKIKIT_MODEL_EMBEDDING must name a 1536-dimension model',
+        )
+      }
+      const run = {
+        model: embeddingModel,
+        // No prompt module: the version constant + joined inputs are the
+        // canonical hashed form ('embed.v1' is an audit label, not a prompt).
+        prompt_version: 'embed.v1',
+        input_hash: computeInputHash('embed.v1', '', input.texts.join('\n ')),
+        usage: { input_tokens: result.usage?.tokens ?? 0, output_tokens: 0 },
+        duration_ms,
+      }
+      deps.metrics?.llmCall('embed', run.model, run.usage, 'success', duration_ms)
+      return { output: { embeddings: result.embeddings as number[][], dimensions: EMBEDDING_DIMENSIONS }, run }
     },
     classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>> {
       return call({
@@ -251,6 +312,17 @@ export function createLlmProvider(
         prompt: answerV1,
         input,
         schema: zAnswerOutput,
+      })
+    },
+    adjudicate(input: AdjudicateInput): Promise<LlmResult<AdjudicateOutput>> {
+      return call({
+        // Filter-shaped like classify: cheap model, tiny structured verdict.
+        kind: 'adjudicate',
+        model: config.modelClassify,
+        promptVersion: PROMPT_VERSIONS.adjudicate,
+        prompt: adjudicateV1,
+        input,
+        schema: zAdjudicateOutput,
       })
     },
     distill(input: DistillInput): Promise<LlmResult<DistillOutput>> {

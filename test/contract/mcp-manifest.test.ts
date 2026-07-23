@@ -135,7 +135,7 @@ describe('wikikit_read output contract (§7.1 → §5.3)', () => {
         }
       }
       if (text.includes("rel.status = 'active'")) {
-        return { rows: [{ to_slug: 'open-knowledge-format', kind: 'related' }], rowCount: 1 }
+        return { rows: [{ to_slug: 'open-knowledge-format', kind: 'related', space: null }], rowCount: 1 }
       }
       return { rows: [], rowCount: 0 }
     },

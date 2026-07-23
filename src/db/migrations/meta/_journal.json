@@ -97,6 +97,54 @@
       "tag": "0015_wk_optional_identity_email",
       "when": 1784880000000,
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "tag": "0016_wk_search_multilingual",
+      "when": 1784966400000,
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "tag": "0017_wk_source_chunks",
+      "when": 1784970000000,
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "tag": "0018_wk_embeddings",
+      "when": 1784973600000,
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "tag": "0019_wk_source_sync",
+      "when": 1784977200000,
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "tag": "0020_wk_review_operations",
+      "when": 1784980800000,
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "tag": "0021_wk_claim_semantics",
+      "when": 1784984400000,
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "tag": "0022_wk_apply_claim_semantics",
+      "when": 1784988000000,
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "tag": "0023_wk_space_refs",
+      "when": 1784991600000,
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,146 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Role presets for API keys (no migration): `POST /v1/api-keys` accepts
+  `role: reader | contributor | reviewer` as an alternative to explicit
+  scopes — three understandable bundles instead of a least-privilege maze.
+  Roles expand to scopes at creation time and are never stored; scopes stay
+  the only ground truth. Deliberately no `approver` preset:
+  `knowledge:approve` remains an explicit, spelled-out grant.
+
+- Cross-space federation (migration `0023_wk_space_refs`): relations can now
+  point at concepts in OTHER spaces via qualified `other-space:slug` targets
+  — allowed only when the target space is declared in the source space's
+  `settings.imports` and the key can see both spaces (space-scoped keys get
+  a deterministic 403), and only for targets that already exist as readable
+  concepts (no cross-space writes, ever; citations stay strictly
+  intra-space). Reads carry provenance (`relations[].space`; foreign targets
+  are elided for space-scoped keys), search gains
+  `include_imports=true` (fan-out over declared imports, every hit tagged
+  with its origin `space` plus `searched_spaces`), briefings qualify
+  concepts as `space:slug` and the context selector may add import-declared
+  spaces at lower priority. A new `broken-cross-space-links` lint rule
+  (warn) flags dangling `[[space:slug]]` markdown links. Knowledge is never
+  copied between spaces.
+
+- Richer claim semantics (migrations `0021_wk_claim_semantics` +
+  `0022_wk_apply_claim_semantics`): claims can carry explicit temporal validity
+  (`valid_from`/`valid_until` — written only when the source states them),
+  a `context` partition of the frame (`region:eu`, `v2.x`), server-computed
+  normalized objects (typed predicate registry
+  `settings.predicate_defs` with explicit unit-conversion factors — no
+  built-in ontology) and a staged, reviewer-visible `supersedes_claim_id`.
+  The contradiction rule is now interval-, context- and normalization-aware
+  everywhere it lives (pre-review matcher, staged-content lint, space lint,
+  approval flip): disjoint validity is succession, not contradiction;
+  `1 GiB` no longer contradicts `1024 MiB`; different regions coexist.
+  Approval executes supersession deterministically (deprecate the target +
+  `supersedes` relation; `claims_deprecated` in the result). Subject aliases
+  (`settings.aliases`) resolve once at staging — stored claims are always
+  canonical. The previously unwired `adjudicate.v1` prompt is now live: the
+  pipeline classifies persisted-side frame collisions (capped per job,
+  fail-open to the dispute path) — `complementary` verdicts exempt the claim
+  from the dispute flip, `temporal` verdicts stage the supersession, and the
+  proposal summary reports supersessions separately from contradictions.
+  The synthesize prompt is evolved in place (temporal/context extraction,
+  typed vocabulary rendering) — golden snapshots carry the reviewed diff.
+
+- Review operations (migration `0020_wk_review_operations`): pending
+  proposals can be **split** — fully (one pending child per concept plus one
+  for decisions, parent → new terminal status `split`) or partially
+  (**defer**: named concepts move to one child while the parent keeps its id
+  and remainder) — via `POST /v1/proposals/{id}/split` (`knowledge:review`),
+  atomically re-pointing every staged row including relation-removal
+  markers. **Request-changes** (`POST /v1/proposals/{id}/request-changes`,
+  note mandatory) rejects terminally with a machine-readable
+  `changes_requested` flag — agents read the note as the revision brief for
+  a fresh proposal. New `GET /v1/proposals/{id}/lint` checks STAGED content
+  (uncited claims, frame collisions, stale base, dangling relation targets).
+  The proposal wire gains `changes_requested`, `parent_proposal_id`,
+  resolved `sources`, per-concept `stale` and full `claims` with citation
+  quotes; new webhook events `wikikit.proposal.split` and
+  `wikikit.proposal.changes_requested`.
+- The human review page grew into a thin knowledge-ops surface: real line
+  diffs (dependency-free LCS, CSP unchanged — zero external bytes), claims
+  tables with expandable citation quotes and collision highlighting, a
+  stale-base banner naming the moved concepts and the re-ingest remedy,
+  staged-content lint, resolved sources, per-concept defer buttons and a
+  request-changes action. Review-only keys (`knowledge:review`) can inspect,
+  defer and request changes; approve/reject stay `knowledge:approve`.
+
+- Versioned source-sync contract for external connectors (migration
+  `0019_wk_source_sync`): ingest accepts `external_source_id`,
+  `source_version`, `observed_at` and `effective_at`; every external
+  document gets a `wk_source_streams` row (mutable head pointer + latest
+  version + tombstone) while `wk_sources` stays a fully immutable
+  append-only archive with write-once `supersedes_source_id` chains.
+  Idempotent re-sync semantics: known content answers
+  `200 {status:'unchanged'}` (head advance, no LLM) instead of 409 —
+  connectors retry blindly; re-using a version marker for different content
+  is a loud `409 sync_version_conflict`; content reverts move the head back
+  without new rows. New endpoints `GET /v1/spaces/{space}/source-streams`
+  and idempotent `DELETE /v1/spaces/{space}/source-streams/{external_source_id}`
+  (tombstone; emits `wikikit.source.tombstoned`, resurrected by a later
+  push). Tombstones never touch claims automatically — the new
+  `tombstoned-sources` lint rule (warn) surfaces visible claims citing
+  upstream-deleted documents for human review. Ingests without an external
+  id keep today's semantics byte-for-byte.
+
+- Optional hybrid retrieval (migration `0018_wk_embeddings`): with pgvector
+  installed and `WIKIKIT_EMBEDDING_PROVIDER=openai|google` configured
+  (Anthropic has no embeddings API), a background embedder fills a
+  `wk_embeddings` side table for current revisions, visible claims and
+  source chunks, and searches fuse the lexical and cosine arms via
+  Reciprocal Rank Fusion (k=60) — deterministic, explainable
+  (`matched_via: lexical|vector|both` on every hit), with visibility
+  restated in the vector arm so proposed content stays invisible by
+  construction. Everything degrades to pure lexical retrieval without
+  pgvector, without a provider, or on any embedding failure — search never
+  returns 503 because of embeddings. Local/CI Postgres image moves to
+  `pgvector/pgvector:pg18` (plain-postgres deployments keep working: all
+  vector DDL is guarded).
+
+- Two retrieval tiers (migration `0017_wk_source_chunks`): archived sources
+  are now chunked into a persisted, per-source-language retrieval index
+  (`wk_source_chunks`, written at archive time and healed for existing
+  sources by a background scan worker). Search and `/query` accept
+  `mode: approved_only | approved_then_sources` — the default stays
+  byte-identical to today; the opt-in mode appends archived source chunks as
+  a separate `tier: 'source_evidence'` after every approved hit, never
+  interleaved. Query answers (answer prompt evolved in place) must label statements
+  grounded only in source evidence as uncurated and cite them as
+  `[source:<id>]`; the wire gains `source_citations`. A found chunk feeds
+  straight back into curation: proposal citations now accept `{ chunk_id }`,
+  resolved server-side to the canonical `{source_id, verbatim quote}`.
+  Ingest accepts an optional per-source `language` override.
+
+- Multilingual search (migration `0016_wk_search_multilingual`): the space
+  setting `settings.language` (`en` | `de` | `simple`, default `en`) now
+  selects the PostgreSQL text search configuration per space — the v0.2
+  landing zone named in migration 0001 becoming real. New configurations
+  `wk_english`/`wk_german` install `unaccent` as a filtering dictionary, so
+  indexing, `websearch` query parsing and headlines are accent-insensitive
+  symmetrically; a query-side repair strips the German stopwords that
+  survive unaccenting (`für` → `fur` etc.) from parsed queries. `pg_trgm`
+  adds a deterministic typo-tolerance arm on concept slugs and titles with
+  fixed, documented rank constants. Sources gain a nullable `language`
+  column for per-source overrides. Changing a space's language recomputes
+  its search vectors via the new whitelisted `wk_reindex_space` function.
+  The migration re-vectorizes every existing revision and claim once — on
+  large deployments expect the migration to hold locks noticeably longer
+  than previous ones.
+- German retrieval-quality benchmark: a seeded corpus and 30 golden queries
+  with reviewed gating thresholds
+  (`test/fixtures/retrieval/{corpus,golden}.de.json`), a CI gate
+  (`test/integration/retrieval-eval.test.ts`, RUN_INTEGRATION=1) and a
+  verbose tuning table (`bun scripts/retrieval-eval.ts`). Measured effect of
+  the multilingual migration on the German set: recall@10 and MRR moved from
+  0.467 (english stemming) to 0.967.
+
 ## 0.12.2 - 2026-07-23
 
 ### Changed

@@ -134,7 +134,7 @@ describe('createProposal — staging in one transaction', () => {
     const relationInsert = calls.find((call) => call.sql.includes('INSERT INTO wk_relations'))!
     expect(relationInsert.sql).toContain("DO UPDATE SET status = 'proposed', proposal_id = EXCLUDED.proposal_id")
     expect(relationInsert.sql).toContain("WHERE wk_relations.status <> 'active'")
-    expect(relationInsert.values).toEqual(['space-1', 'con-okf', 'con-graph-store', 'related', 'prop-1'])
+    expect(relationInsert.values).toEqual(['space-1', 'con-okf', 'con-graph-store', 'related', 'prop-1', null])
 
     // Removal staging is a MARKER on the still-active row — pinned to the
     // exact SQL so it can never silently regress into a status flip, and
@@ -431,15 +431,20 @@ describe('renderProposalMarkdown', () => {
     reviewed_at: null,
     source_ids: ['src-1'],
     agent_meta: { model: 'claude-sonnet-5', prompt_version: 'synthesize.v1' },
+    changes_requested: false,
+    parent_proposal_id: null,
+    sources: [],
     concepts: [
       {
         slug: 'okf',
         is_new: false,
         old_markdown: '# old body',
         new_markdown: '# new body',
+        stale: false,
         claims_added: [{ subject: 'okf', predicate: 'has_status', object: 'draft-v0.1' }],
         claims_disputed: [{ subject: 'okf', predicate: 'has_status', object: 'draft-v0.1' }],
         claims_deprecated: [],
+        claims: [],
         relations_added: [{ to_slug: 'graph-store', kind: 'related' }],
       },
     ],

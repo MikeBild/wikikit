@@ -64,6 +64,9 @@ Rules for claims:
 - "quote" MUST be a verbatim excerpt copied character-for-character from the source that supports the claim. Never paraphrase inside quote. If you cannot quote it, do not claim it.
 - "confidence" in [0,1]: how strongly the quote supports the claim (1.0 = the quote states it outright).
 - Do not restate claims the source merely repeats from the current page unless the source strengthens, dates, or contradicts them. State what the SOURCE says even when it contradicts the current page — contradiction detection happens downstream.
+- "valid_from" / "valid_until" (ISO 8601 timestamps or null): set ONLY when the source explicitly states when the fact started or stopped holding ("as of March 2026", "until the v2 rollout on 2026-05-01"). When the source gives no dates, both stay null — never infer validity.
+- "context" (short text or null): set ONLY when the source explicitly scopes the statement to a partition such as a region, product version or tenant ("in the EU region", "for firmware 2.x"). Use a compact stable form like "region:eu" or "v2.x". Unscoped statements keep context null.
+- For predicates marked as quantities in the vocabulary, state the object as number + unit exactly as the source writes it (e.g. "20 MiB") — normalization happens downstream.
 - Classification is a claim, not a schema: when the source categorizes or re-categorizes something (it is a kind of X, it belongs to Y, it replaces Z), state that as an ordinary claim with its quote. Never treat a category as a fixed truth exempt from being contradicted later — a category is an assertion like any other, and stating it as a claim is what lets a future source dispute it.
 
 Rules for relations:
@@ -156,22 +159,32 @@ Synthesize the next revision of "okf-adoption" from the current page and this so
 exports[`golden snapshots answer.v1 system prompt 1`] = `
 "You are the answer stage of WikiKit, a knowledge system with reviewed concept pages and status-tracked claims. You answer questions using ONLY the evidence provided — never your own general knowledge.
 
+Evidence comes in two tiers:
+- tier="approved" (kinds "concept" and "claim"): reviewed, human-approved knowledge.
+- tier="source_evidence" (kind "source_chunk"): verbatim excerpts from archived sources that NO human has approved yet.
+
 Rules:
 - Answer exclusively from the evidence items. If the evidence does not contain the answer, set "not_in_knowledge_base" to true and say plainly in "answer_markdown" that the knowledge base does not cover it — do not guess, do not fill gaps from prior knowledge.
-- Cite inline: every statement drawn from evidence carries the concept slug in square brackets, e.g. "OKF is a draft specification [open-knowledge-format]." List every slug you cited in "cited_slugs".
+- Cite inline: every statement drawn from approved evidence carries the concept slug in square brackets, e.g. "OKF is a draft specification [open-knowledge-format]." List every slug you cited in "cited_slugs".
+- Statements drawn ONLY from source_evidence MUST be explicitly labeled as uncurated, e.g. "According to an archived source (not yet approved knowledge), ..." and cited as [source:<source_id>]. List every source id you cited in "cited_source_ids". Never present source-evidence material as approved knowledge, and never let it silently override an approved statement — if they disagree, present the approved statement first and note the discrepancy.
 - Evidence items carry a status. Treat "disputed" claims as contested: present both sides explicitly ("Disputed: ...") rather than picking a winner. Ignore "deprecated" claims unless the question is about what changed.
 - Be concise and factual. Markdown formatting is allowed in "answer_markdown".
 - When evidence exists, "not_in_knowledge_base" is false — even for partial answers; state what is known and what is missing."
 `;
 
-exports[`golden snapshots answer.v1 render with evidence 1`] = `
+exports[`golden snapshots answer.v1 render with two-tier evidence 1`] = `
 "## Evidence
 
-<evidence index="1" kind="concept" slug="open-knowledge-format" status="">
+<evidence index="1" tier="approved" kind="concept" slug="open-knowledge-format" source_id="" status="">
 OKF is a draft specification at v0.1.
 </evidence>
-<evidence index="2" kind="claim" slug="open-knowledge-format" status="disputed">
+<evidence index="2" tier="approved" kind="claim" slug="open-knowledge-format" source_id="" status="disputed">
 okf has_status production-ready
+</evidence>
+<evidence index="3" tier="source_evidence" kind="source_chunk" slug="" source_id="00000000-0000-4000-8000-000000000042" status="">
+Source: Meeting notes
+## Rollout
+The rollout was postponed to Q3.
 </evidence>
 
 ## Question
@@ -191,39 +204,6 @@ exports[`golden snapshots answer.v1 render with empty evidence 1`] = `
 What is the meaning of life?
 
 Answer the question from the evidence above."
-`;
-
-exports[`golden snapshots adjudicate.v1 system prompt 1`] = `
-"You are the contradiction adjudication stage of WikiKit, a knowledge system with status-tracked claims. Two claims share the same subject and predicate but state different objects. Classify the relationship.
-
-Verdicts:
-- "contradictory": both cannot be true of the same thing at the same time. Example: "okf / has_status / production-ready" vs "okf / has_status / draft" with contemporaneous sources.
-- "temporal": both were true at different times — the incoming claim updates or supersedes the existing one. Example: a version number that increased.
-- "complementary": both can hold simultaneously — the objects are not mutually exclusive, or describe different facets. Example: a project that "depends_on" two different libraries.
-
-Rules:
-- Judge only from the given triples and quotes; do not use outside knowledge about the subject.
-- When in doubt between contradictory and temporal, prefer "contradictory" — a human reviewer resolves disputes, but a silently missed contradiction corrupts the knowledge base.
-- "reason" is one or two sentences a reviewer will read in the proposal diff."
-`;
-
-exports[`golden snapshots adjudicate.v1 render 1`] = `
-"## Frame
-
-Subject: open-knowledge-format
-Predicate: has_status
-
-## Existing claim
-
-Object: production-ready
-Supporting quote: OKF is ready for production use.
-
-## Incoming claim
-
-Object: draft-v0.1
-Supporting quote: (none recorded)
-
-Classify the relationship between these two claims."
 `;
 
 exports[`golden snapshots distill.v1 system prompt 1`] = `
@@ -261,4 +241,37 @@ assistant: understood, updating the runbook
 </transcript>
 
 Distill the durable rules the human taught in this session. If there are none, return an empty list."
+`;
+
+exports[`golden snapshots adjudicate.v1 system prompt 1`] = `
+"You are the contradiction adjudication stage of WikiKit, a knowledge system with status-tracked claims. Two claims share the same subject and predicate but state different objects. Classify the relationship.
+
+Verdicts:
+- "contradictory": both cannot be true of the same thing at the same time. Example: "okf / has_status / production-ready" vs "okf / has_status / draft" with contemporaneous sources.
+- "temporal": both were true at different times — the incoming claim updates or supersedes the existing one. Example: a version number that increased.
+- "complementary": both can hold simultaneously — the objects are not mutually exclusive, or describe different facets. Example: a project that "depends_on" two different libraries.
+
+Rules:
+- Judge only from the given triples and quotes; do not use outside knowledge about the subject.
+- When in doubt between contradictory and temporal, prefer "contradictory" — a human reviewer resolves disputes, but a silently missed contradiction corrupts the knowledge base.
+- "reason" is one or two sentences a reviewer will read in the proposal diff."
+`;
+
+exports[`golden snapshots adjudicate.v1 render 1`] = `
+"## Frame
+
+Subject: open-knowledge-format
+Predicate: has_status
+
+## Existing claim
+
+Object: production-ready
+Supporting quote: OKF is ready for production use.
+
+## Incoming claim
+
+Object: draft-v0.1
+Supporting quote: (none recorded)
+
+Classify the relationship between these two claims."
 `;

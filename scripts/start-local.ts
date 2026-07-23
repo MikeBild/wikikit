@@ -46,8 +46,10 @@ export function ensureLocalPostgres(): void {
       '-p',
       '127.0.0.1:55442:5432',
       '-v',
-      `${LOCAL_VOLUME}:/var/lib/postgresql/data`,
-      'postgres:16-alpine',
+      // 18+ images store data in a major-version subdirectory — the mount
+      // moves up to /var/lib/postgresql (enables pg_upgrade --link later).
+      `${LOCAL_VOLUME}:/var/lib/postgresql`,
+      'pgvector/pgvector:pg18',
     )
     if (created.status !== 0) throw new Error(created.stderr.trim() || 'failed to start local PostgreSQL')
     return

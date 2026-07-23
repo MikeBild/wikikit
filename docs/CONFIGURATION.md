@@ -30,6 +30,8 @@ instead of producing a half-configured server.
 | `WIKIKIT_MODEL_SYNTHESIS`            | Model for concept synthesis (one call per affected concept)                                                    | `claude-sonnet-5`                                                  |
 | `WIKIKIT_MODEL_CLASSIFY`             | Cheap/filter model: source classification (one call per ingest) **and** session distillation (one per capture) | `claude-haiku-4-5`                                                 |
 | `WIKIKIT_MODEL_ANSWER`               | Model for grounded Q&A (`POST .../query`)                                                                      | `claude-sonnet-5`                                                  |
+| `WIKIKIT_EMBEDDING_PROVIDER`         | Optional hybrid-retrieval embedding provider: `none` \| `openai` \| `google`; needs pgvector + provider key    | `none` (retrieval stays lexical)                                   |
+| `WIKIKIT_MODEL_EMBEDDING`            | Embedding model — must produce 1536-dim vectors (the `wk_embeddings` pin)                                      | `text-embedding-3-small` (google: `gemini-embedding-001`)          |
 | `WIKIKIT_MAX_BODY_BYTES`             | Max request body size → `413` (1 KiB – 250 MiB)                                                                | `10485760` (10 MiB)                                                |
 | `WIKIKIT_MAX_INGEST_TOKENS`          | Chunking threshold for large sources (1 000 – 1 000 000)                                                       | `100000`                                                           |
 | `WIKIKIT_INGEST_CONCURRENCY`         | Parallel ingest pipeline workers (1–16)                                                                        | `2`                                                                |
@@ -200,6 +202,21 @@ credential or local aggregate checkpoint is required.
 
 `ANTHROPIC_API_KEY` stays deliberately optional in production: LLM-free
 deployments (search/read/lint/export as a knowledge mirror) are first-class.
+
+## Per-space settings (API, not environment)
+
+A few retrieval-critical knobs live on the space itself
+(`POST /v1/spaces/{space}/settings`, `admin` scope), not in the environment:
+
+- `settings.language` — `en` | `de` | `simple` (default `en`). Selects the
+  PostgreSQL text search configuration for the space's search vectors and
+  query parsing (`wk_english` / `wk_german`, both accent-insensitive via
+  `unaccent`). Changing it recomputes the space's search vectors in the same
+  request (`wk_reindex_space`); expect that write to take longer on large
+  spaces. Per-source overrides use the `wk_sources.language` column.
+- `settings.predicates` / `settings.functional_predicates` — the claim
+  vocabulary and its contradiction-cardinality contract (see
+  `docs/CONTRACTS.md` §1).
 
 ## Notes
 

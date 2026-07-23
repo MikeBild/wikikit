@@ -1,5 +1,10 @@
 // synthesize.v1 — produce a new concept revision from (current revision + source).
 //
+// Claims may carry explicit temporal validity (valid_from / valid_until) and
+// a context partition — ONLY when the source states them — and the predicate
+// vocabulary can arrive typed (quantity predicates ask for number + unit as
+// written in the source).
+//
 // Runs on the strong model (WIKIKIT_MODEL_SYNTHESIS, default claude-sonnet-5),
 // one call per affected concept, streamed (revisions can be long).
 //
@@ -43,6 +48,9 @@ Rules for claims:
 - "quote" MUST be a verbatim excerpt copied character-for-character from the source that supports the claim. Never paraphrase inside quote. If you cannot quote it, do not claim it.
 - "confidence" in [0,1]: how strongly the quote supports the claim (1.0 = the quote states it outright).
 - Do not restate claims the source merely repeats from the current page unless the source strengthens, dates, or contradicts them. State what the SOURCE says even when it contradicts the current page — contradiction detection happens downstream.
+- "valid_from" / "valid_until" (ISO 8601 timestamps or null): set ONLY when the source explicitly states when the fact started or stopped holding ("as of March 2026", "until the v2 rollout on 2026-05-01"). When the source gives no dates, both stay null — never infer validity.
+- "context" (short text or null): set ONLY when the source explicitly scopes the statement to a partition such as a region, product version or tenant ("in the EU region", "for firmware 2.x"). Use a compact stable form like "region:eu" or "v2.x". Unscoped statements keep context null.
+- For predicates marked as quantities in the vocabulary, state the object as number + unit exactly as the source writes it (e.g. "20 MiB") — normalization happens downstream.
 - Classification is a claim, not a schema: when the source categorizes or re-categorizes something (it is a kind of X, it belongs to Y, it replaces Z), state that as an ordinary claim with its quote. Never treat a category as a fixed truth exempt from being contradicted later — a category is an assertion like any other, and stating it as a claim is what lets a future source dispute it.
 
 Rules for relations:
@@ -71,7 +79,7 @@ ${current}
 
 ## Predicate vocabulary
 
-${input.predicates.map((p) => `- ${p}`).join('\n')}
+${input.predicateDefs?.length ? input.predicateDefs.map((def) => `- ${def.name} (${def.type}${def.functional ? ', functional' : ''}${def.unit ? `, canonical unit ${def.unit.canonical}` : ''})`).join('\n') : input.predicates.map((p) => `- ${p}`).join('\n')}
 
 ## Source (id: ${input.source.id}, kind: ${kind})
 

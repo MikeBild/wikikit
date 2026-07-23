@@ -196,3 +196,24 @@ describe('url acquisition — SSRF guard (strict posture)', () => {
     await expect(acquirer.acquire({ url: 'https://8.8.8.8/loop' })).rejects.toThrow('too many redirects')
   })
 })
+
+describe('zIngestInput — sync-contract fields', () => {
+  test('accepts a full sync push and bare external_source_id', () => {
+    expect(
+      zIngestInput.safeParse({
+        markdown: '# a',
+        external_source_id: 'gdrive:file123',
+        source_version: 'v7',
+        observed_at: '2026-07-23T10:00:00.000Z',
+        effective_at: '2026-07-01T00:00:00.000Z',
+      }).success,
+    ).toBe(true)
+    expect(zIngestInput.safeParse({ markdown: '# a', external_source_id: 'notion:page-1' }).success).toBe(true)
+  })
+
+  test('version/timestamps without external_source_id are rejected', () => {
+    expect(zIngestInput.safeParse({ markdown: '# a', source_version: 'v7' }).success).toBe(false)
+    expect(zIngestInput.safeParse({ markdown: '# a', observed_at: '2026-07-23T10:00:00.000Z' }).success).toBe(false)
+    expect(zIngestInput.safeParse({ markdown: '# a', effective_at: '2026-07-23T10:00:00.000Z' }).success).toBe(false)
+  })
+})

@@ -1,0 +1,190 @@
+{
+  "$comment": "German retrieval-eval corpus. Seeded by test/integration/retrieval-eval.test.ts through the real staging + wk_apply_proposal path. Content deliberately exercises umlauts, sharp s, plural/verb stemming, compounds and mixed German/English vocabulary.",
+  "space": {
+    "slug": "retrieval-eval-de",
+    "name": "Retrieval Eval DE",
+    "settings": { "language": "de" }
+  },
+  "concepts": [
+    {
+      "slug": "zugriffsschluessel",
+      "title": "Zugriffsschlüssel",
+      "summary": "Zugriffsschlüssel authentifizieren Clients und tragen Geltungsbereiche.",
+      "markdown": "# Zugriffsschlüssel\n\nJeder Schlüssel wird gehasht gespeichert und trägt eine Liste von Geltungsbereichen. Ein Schlüssel kann auf einen einzelnen Raum beschränkt werden.\n\n- Schlüssel niemals im Klartext protokollieren\n- Widerrufene Schlüssel bleiben zur Nachvollziehbarkeit erhalten",
+      "claims": [
+        { "subject": "zugriffsschluessel", "predicate": "wird gespeichert als", "object": "HMAC-Hash" }
+      ]
+    },
+    {
+      "slug": "schluesselrotation",
+      "title": "Schlüsselrotation",
+      "summary": "Regelmäßige Rotation begrenzt den Schaden kompromittierter Schlüssel.",
+      "markdown": "# Schlüsselrotation\n\nSchlüssel sollen alle neunzig Tage rotiert werden. Beim Rotieren wird zuerst ein neuer Schlüssel erzeugt, dann der alte widerrufen. Übergangsfristen vermeiden Ausfälle in angebundenen Diensten.",
+      "claims": [
+        { "subject": "schluesselrotation", "predicate": "empfohlener Zeitraum", "object": "90 Tage" }
+      ]
+    },
+    {
+      "slug": "wissensraum",
+      "title": "Wissensraum",
+      "summary": "Räume trennen Wissen verschiedener Projekte und Mandanten.",
+      "markdown": "# Wissensraum\n\nEin Raum bündelt Konzepte, Behauptungen und Quellen. Räume isolieren Wissen gegeneinander; ein raumgebundener Schlüssel sieht nur seinen eigenen Raum. Die Sprache lässt sich je Raum einstellen; auch Prädikatslisten leben am Raum.",
+      "claims": [
+        { "subject": "wissensraum", "predicate": "isoliert", "object": "Konzepte und Quellen je Mandant" }
+      ]
+    },
+    {
+      "slug": "quellenarchiv",
+      "title": "Quellenarchiv",
+      "summary": "Quellen werden unverändert und dauerhaft archiviert.",
+      "markdown": "# Quellenarchiv\n\nJede eingereichte Quelle wird wortwörtlich archiviert und nie verändert. Der Inhalts-Hash dient als Identität; zitierte Quellen können niemals gelöscht werden. Das Archiv ist die Beweisgrundlage aller Behauptungen.",
+      "claims": [
+        { "subject": "quellenarchiv", "predicate": "Identität über", "object": "Inhalts-Hash" }
+      ]
+    },
+    {
+      "slug": "freigabeprozess",
+      "title": "Freigabeprozess",
+      "summary": "Kein Wissen wird ohne menschliche Freigabe sichtbar.",
+      "markdown": "# Freigabeprozess\n\nÄnderungen entstehen als Vorschläge. Ein Mensch prüft den Vorschlag und kann ihn freigeben oder ablehnen. Erst die Freigabe macht Revisionen und Behauptungen sichtbar; abgelehnte Vorschläge bleiben zur Prüfung erhalten.",
+      "claims": [
+        { "subject": "freigabeprozess", "predicate": "erfordert", "object": "menschliche Freigabe" }
+      ]
+    },
+    {
+      "slug": "widerspruchserkennung",
+      "title": "Widerspruchserkennung",
+      "summary": "Behauptungen mit gleichem Subjekt und Prädikat, aber anderem Objekt gelten als Widerspruch.",
+      "markdown": "# Widerspruchserkennung\n\nDie Erkennung ist deterministisch: gleiches Subjekt, gleiches Prädikat, anderes Objekt. Nur funktionale Prädikate lösen Widersprüche aus. Beide Seiten eines Widerspruchs werden als strittig markiert.",
+      "claims": [
+        { "subject": "widerspruchserkennung", "predicate": "arbeitet", "object": "deterministisch" }
+      ]
+    },
+    {
+      "slug": "volltextsuche",
+      "title": "Volltextsuche",
+      "summary": "Die Suche arbeitet deterministisch über Stemming und Gewichtung.",
+      "markdown": "# Volltextsuche\n\nDie Volltextsuche durchsucht aktuelle Revisionen und sichtbare Behauptungen. Titel wiegen stärker als Fließtext. Vorgeschlagene Inhalte sind konstruktiv unsichtbar und tauchen in keinem Suchergebnis auf.",
+      "claims": [
+        { "subject": "volltextsuche", "predicate": "gewichtet", "object": "Titel vor Fließtext" }
+      ]
+    },
+    {
+      "slug": "datenbankmigrationen",
+      "title": "Datenbankmigrationen",
+      "summary": "Nummerierte Migrationen verändern das Schema nachvollziehbar.",
+      "markdown": "# Datenbankmigrationen\n\nJede Migration ist nummeriert und wird eingebettet ausgeliefert. Eine einmal veröffentlichte Migration wird nie umgeschrieben. Vor dem Ausrollen lassen sich Migrationen gegen das Journal prüfen; Abweichungen erkennt der Migrationslauf über Hashes.",
+      "claims": [
+        { "subject": "datenbankmigrationen", "predicate": "werden geprüft über", "object": "SHA-256-Hashes" }
+      ]
+    },
+    {
+      "slug": "groessenbeschraenkungen",
+      "title": "Größenbeschränkungen",
+      "summary": "Uploads und Anfragen unterliegen festen Größenbeschränkungen.",
+      "markdown": "# Größenbeschränkungen\n\nDie maximale Uploadgröße beträgt zwanzig Megabyte. Überschreitet ein Dokument die Beschränkung, wird die Anfrage abgewiesen. Die Maße gelten je Anfrage, nicht je Quelle.",
+      "claims": [
+        { "subject": "groessenbeschraenkungen", "predicate": "maximale Uploadgröße", "object": "20 Megabyte" }
+      ]
+    },
+    {
+      "slug": "gebaeudeverwaltung",
+      "title": "Gebäudeverwaltung",
+      "summary": "Beispielraum für Verwaltungswissen über Gebäude und Häuser.",
+      "markdown": "# Gebäudeverwaltung\n\nDie Verwaltung der Häuser umfasst die Wartung von Aufzügen, Heizungen und Dächern. Der Verwaltungssitz liegt in der Lieferstraße 12. Für jedes Gebäude existiert ein eigener Wartungskalender.",
+      "claims": [
+        { "subject": "gebaeudeverwaltung", "predicate": "Verwaltungssitz", "object": "Lieferstraße 12" }
+      ]
+    },
+    {
+      "slug": "laufzeitumgebung",
+      "title": "Laufzeitumgebung",
+      "summary": "Die Laufzeitumgebung führt Aufträge isoliert aus.",
+      "markdown": "# Laufzeitumgebung\n\nJeder Lauf erhält eine eigene Umgebung. Läufe werden protokolliert und können wiederholt werden. Abgebrochene Läufe hinterlassen keinen halbfertigen Zustand.",
+      "claims": [
+        { "subject": "laufzeitumgebung", "predicate": "isoliert", "object": "einzelne Läufe" }
+      ]
+    },
+    {
+      "slug": "berechtigungsmodell",
+      "title": "Berechtigungsmodell",
+      "summary": "Geltungsbereiche steuern Lesen, Vorschlagen, Prüfen und Freigeben.",
+      "markdown": "# Berechtigungsmodell\n\nVier Geltungsbereiche bilden das Modell: lesen, vorschlagen, prüfen, freigeben. Freigeben schließt Prüfen ein. Ein Administrator erhält alle Wissensbereiche, aber keine Sternberechtigung.",
+      "claims": [
+        { "subject": "berechtigungsmodell", "predicate": "freigeben impliziert", "object": "prüfen" }
+      ]
+    },
+    {
+      "slug": "sicherungskopien",
+      "title": "Sicherungskopien",
+      "summary": "Tägliche Sicherungen ermöglichen die Wiederherstellung.",
+      "markdown": "# Sicherungskopien\n\nDie Datenbank wird täglich gesichert. Eine Wiederherstellung wird vierteljährlich geprobt. Sicherungen werden verschlüsselt abgelegt und dreißig Tage aufbewahrt.",
+      "claims": [
+        { "subject": "sicherungskopien", "predicate": "Aufbewahrungsdauer", "object": "30 Tage" }
+      ]
+    },
+    {
+      "slug": "warteschlange",
+      "title": "Warteschlange",
+      "summary": "Aufträge laufen über eine Warteschlange in der Datenbank.",
+      "markdown": "# Warteschlange\n\nEingehende Aufträge landen in einer Warteschlange. Arbeiter beanspruchen den ältesten Auftrag zuerst. Verwaiste Aufträge werden von einem Aufräumer erkannt und neu eingereiht.",
+      "claims": [
+        { "subject": "warteschlange", "predicate": "Reihenfolge", "object": "älteste Aufträge zuerst" }
+      ]
+    },
+    {
+      "slug": "protokollierung",
+      "title": "Protokollierung",
+      "summary": "Ein Prüfpfad protokolliert jede maschinelle Entscheidung.",
+      "markdown": "# Protokollierung\n\nJeder Modellaufruf wird mit Modellname, Version und Verbrauch protokolliert. Der Prüfpfad ist unveränderlich. Protokolle enthalten niemals Klartextschlüssel.",
+      "claims": [
+        { "subject": "protokollierung", "predicate": "erfasst", "object": "jeden Modellaufruf" }
+      ]
+    },
+    {
+      "slug": "verschluesselung",
+      "title": "Verschlüsselung",
+      "summary": "Daten werden bei Übertragung und im Ruhezustand verschlüsselt.",
+      "markdown": "# Verschlüsselung\n\nAlle Verbindungen verschlüsseln den Transport. Gespeicherte Sicherungen werden zusätzlich verschlüsselt. Wer Daten verschlüsseln will, nutzt die vom Betreiber verwalteten Schlüssel.",
+      "claims": [
+        { "subject": "verschluesselung", "predicate": "gilt für", "object": "Übertragung und Ruhezustand" }
+      ]
+    },
+    {
+      "slug": "kostenabrechnung",
+      "title": "Kostenabrechnung",
+      "summary": "Gebühren werden je Modellaufruf erfasst und monatlich abgerechnet.",
+      "markdown": "# Kostenabrechnung\n\nDie Abrechnung erfolgt monatlich. Jeder Modellaufruf erzeugt einen Verbrauchseintrag. Rechnungen weisen die Gebühren je Raum getrennt aus.",
+      "claims": [
+        { "subject": "kostenabrechnung", "predicate": "Abrechnungszeitraum", "object": "monatlich" }
+      ]
+    },
+    {
+      "slug": "benachrichtigungen",
+      "title": "Benachrichtigungen",
+      "summary": "Webhooks melden Ereignisse an angebundene Systeme.",
+      "markdown": "# Benachrichtigungen\n\nEreignisse wie Freigaben und Ablehnungen werden über Webhooks zugestellt. Fehlgeschlagene Zustellungen werden mit wachsendem Abstand wiederholt. Empfänger prüfen die Signatur jeder Benachrichtigung.",
+      "claims": [
+        { "subject": "benachrichtigungen", "predicate": "Zustellung über", "object": "signierte Webhooks" }
+      ]
+    },
+    {
+      "slug": "workflow-orchestrierung",
+      "title": "Workflow-Orchestrierung",
+      "summary": "Deutsche Abläufe mit englischen Fachbegriffen wie Pipeline und Retry.",
+      "markdown": "# Workflow-Orchestrierung\n\nDie Pipeline verarbeitet Dokumente in Stufen. Ein fehlgeschlagener Schritt löst einen Retry mit Backoff aus. Das Deployment neuer Stufen erfolgt ohne Unterbrechung laufender Workflows.",
+      "claims": [
+        { "subject": "workflow-orchestrierung", "predicate": "Fehlerstrategie", "object": "Retry mit Backoff" }
+      ]
+    },
+    {
+      "slug": "datenexport",
+      "title": "Datenexport",
+      "summary": "Vollständige Exporte machen das Wissen portabel.",
+      "markdown": "# Datenexport\n\nEin Raum lässt sich vollständig exportieren; der Export enthält alle Konzepte, Behauptungen und Quellen als Archiv. Exporte lassen sich in eine andere Installation importieren. Die Portabilität verhindert die Bindung an einen Anbieter.",
+      "claims": [
+        { "subject": "datenexport", "predicate": "verhindert", "object": "Anbieterbindung" }
+      ]
+    }
+  ]
+}
