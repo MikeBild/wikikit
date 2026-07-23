@@ -440,6 +440,164 @@ describe('MCP OAuth 2.1 (integration)', () => {
     }
   })
 
+  it('manages SSO identity grants over the admin REST: stored ceiling wins, revoke kills live tokens, only restore re-admits', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('RS256')
+    const jwk = { ...(await exportJWK(publicKey)), kid: 'identity-grant-test', alg: 'RS256', use: 'sig' }
+    const identityServer = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json')
+      if (req.url === '/.well-known/openid-configuration') {
+        res.end(JSON.stringify({ issuer: identityBase, jwks_uri: `${identityBase}/jwks` }))
+      } else {
+        res.end(JSON.stringify({ keys: req.url === '/jwks' ? [jwk] : [] }))
+      }
+    })
+    await new Promise<void>((resolve) => identityServer.listen(0, '127.0.0.1', resolve))
+    const identityBase = `http://127.0.0.1:${(identityServer.address() as { port: number }).port}`
+    const grantApp = createApp(
+      {
+        ...config(app.config.databaseUrl),
+        oauthProviders: [
+          {
+            protocol: 'oidc',
+            id: 'workforce',
+            label: 'deployment identity',
+            issuer: identityBase,
+            clientId: 'wikikit-grant-test',
+            scopes: 'openid email profile',
+            allowedEmails: [],
+            allowedSubjects: [],
+            allowedScopes: ['knowledge:read', 'knowledge:propose'],
+          },
+        ],
+      },
+      { llm: createFakeProvider(), logger: createLogger({ level: 'error', write: () => {} }) },
+    )
+    await new Promise<void>((resolve) => grantApp.server.listen(0, '127.0.0.1', resolve))
+    const grantBase = `http://127.0.0.1:${(grantApp.server.address() as { port: number }).port}`
+    const admin = { authorization: `Bearer ${BOOTSTRAP}`, 'content-type': 'application/json' }
+    const signIdentity = (sub: string) =>
+      new SignJWT({})
+        .setProtectedHeader({ alg: 'RS256', kid: 'identity-grant-test' })
+        .setIssuer(identityBase)
+        .setAudience('wikikit-grant-test')
+        .setSubject(sub)
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(privateKey)
+    const login = async () =>
+      fetch(`${grantBase}/v1/identity/sessions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider_id: 'workforce', identity_token: await signIdentity('managed-subject') }),
+      })
+    const putGrant = (body: unknown) =>
+      fetch(`${grantBase}/v1/identities/workforce/managed-subject`, {
+        method: 'PUT',
+        headers: admin,
+        body: JSON.stringify(body),
+      })
+    try {
+      // Not allowlisted, no grant row, signup off → denied.
+      expect((await login()).status).toBe(403)
+
+      // role XOR scopes and provider validation are 422 (unprocessable).
+      expect((await putGrant({ role: 'reader', scopes: ['knowledge:read'] })).status).toBe(422)
+      expect(
+        (
+          await fetch(`${grantBase}/v1/identities/unknown-provider/managed-subject`, {
+            method: 'PUT',
+            headers: admin,
+            body: JSON.stringify({ role: 'reader' }),
+          })
+        ).status,
+      ).toBe(422)
+
+      // PUT without source stamps 'admin' — the seeder will skip this row.
+      const created = await putGrant({ role: 'reader', email: 'managed@example.test', display_name: 'Managed' })
+      expect(created.status).toBe(201)
+      const grant = (await created.json()) as { grant_source: string; allowed_scopes: string[]; revoked_at: null }
+      expect(grant.grant_source).toBe('admin')
+      expect(grant.allowed_scopes).toEqual(['knowledge:read'])
+
+      // Login now succeeds and the STORED ceiling caps the credential — not
+      // the provider's allowedScopes (which include knowledge:propose).
+      const admitted = await login()
+      expect(admitted.status).toBe(200)
+      const session = (await admitted.json()) as { api_key: string }
+      expect(
+        (await fetch(`${grantBase}/v1/spaces`, { headers: { authorization: `Bearer ${session.api_key}` } })).status,
+      ).toBe(200)
+      expect(
+        (
+          await fetch(`${grantBase}/v1/spaces/alpha/ingest`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${session.api_key}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ markdown: '# never allowed' }),
+          })
+        ).status,
+      ).toBe(403)
+
+      const listed = await fetch(`${grantBase}/v1/identities`, { headers: admin })
+      expect(listed.status).toBe(200)
+      const { items } = (await listed.json()) as {
+        items: { provider: string; subject: string; grant_source: string }[]
+      }
+      expect(items.some((row) => row.provider === 'workforce' && row.subject === 'managed-subject')).toBe(true)
+
+      // Plant a live OAuth access token bound to the identity, then revoke
+      // the grant: the token must die immediately.
+      const clientId = `wkc_grant_${randomBytes(8).toString('hex')}`
+      const accessToken = `wko_${randomBytes(32).toString('base64url')}`
+      await app.database.db.insert('wk_oauth_clients', {
+        client_id: clientId,
+        client_name: 'identity grant fixture',
+        redirect_uris: [REDIRECT],
+        token_endpoint_auth_method: 'none',
+      })
+      await app.database.db.insert('wk_oauth_access_tokens', {
+        token_hash: hashApiKey(accessToken, 'itest-oauth-pepper'),
+        client_id: clientId,
+        scopes: ['knowledge:read'],
+        resource: RESOURCE,
+        principal_name: 'managed@example.test',
+        principal_key_id: 'identity:workforce:managed-subject',
+        principal_key_hash: hashApiKey('identity:workforce:managed-subject', 'itest-oauth-pepper'),
+        principal_kind: 'identity',
+        family_id: randomUUID(),
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      })
+      expect(
+        (await fetch(`${grantBase}/v1/spaces`, { headers: { authorization: `Bearer ${accessToken}` } })).status,
+      ).toBe(200)
+
+      const revoked = await fetch(`${grantBase}/v1/identities/workforce/managed-subject`, {
+        method: 'DELETE',
+        headers: admin,
+      })
+      expect(revoked.status).toBe(200)
+      expect(
+        (await fetch(`${grantBase}/v1/spaces`, { headers: { authorization: `Bearer ${accessToken}` } })).status,
+      ).toBe(401)
+      expect((await login()).status).toBe(403)
+      // Idempotent revoke.
+      expect(
+        (await fetch(`${grantBase}/v1/identities/workforce/managed-subject`, { method: 'DELETE', headers: admin }))
+          .status,
+      ).toBe(200)
+
+      // A PUT on the revoked row without restore conflicts; only the explicit
+      // restore re-admits.
+      expect((await putGrant({ role: 'reader' })).status).toBe(409)
+      const restored = await putGrant({ role: 'reader', restore: true })
+      expect(restored.status).toBe(200)
+      expect(((await restored.json()) as { revoked_at: null }).revoked_at).toBeNull()
+      expect((await login()).status).toBe(200)
+    } finally {
+      await grantApp.close()
+      await new Promise<void>((resolve, reject) => identityServer.close((error) => (error ? reject(error) : resolve())))
+    }
+  })
+
   it('housekeeping retains replay evidence briefly and prunes expired OAuth rows in dependency order', async () => {
     const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString()
     const clientId = `wkc_cleanup_${randomBytes(8).toString('hex')}`

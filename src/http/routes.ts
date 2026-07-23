@@ -21,7 +21,7 @@ import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
-import { ForbiddenError, NotFoundError, ValidationError } from '../domain/errors.ts'
+import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError, ValidationError } from '../domain/errors.ts'
 import { lintProposal, lintSpace } from '../domain/lint.ts'
 import {
   approveProposal,
@@ -72,7 +72,7 @@ import { markUsageContext, type UsageTelemetry } from '../usage.ts'
 export type Scope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
 
 export interface RouteDef {
-  method: 'get' | 'post' | 'delete'
+  method: 'get' | 'put' | 'post' | 'delete'
   /** OpenAPI template style: '/v1/spaces/{space}/concepts/{slug}'. */
   path: string
   /** null = public (health/docs endpoints). */
@@ -507,6 +507,49 @@ export const ROUTES: RouteDef[] = [
   },
   {
     method: 'get',
+    path: '/v1/identities',
+    scope: 'admin',
+    summary: 'List SSO identity grants (scope ceiling, source, revocation) — never tokens or hashes',
+    handler: 'listIdentitiesHandler',
+    responses: { 200: { schema: 'zIdentityListResponse', type: 'application/json', desc: 'Identity grants' } },
+  },
+  {
+    method: 'put',
+    path: '/v1/identities/{provider}/{subject}',
+    scope: 'admin',
+    summary:
+      'Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation.',
+    handler: 'upsertIdentityHandler',
+    request: { params: 'zIdentityParams', body: 'zUpsertIdentityRequest' },
+    responses: {
+      200: { schema: 'zIdentityResponse', type: 'application/json', desc: 'Grant updated' },
+      201: { schema: 'zIdentityResponse', type: 'application/json', desc: 'Grant created' },
+      409: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'identity_revoked (PUT on a revoked grant without restore:true)',
+      },
+      422: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'unprocessable (role AND scopes | neither on a new grant | unknown oidc provider)',
+      },
+    },
+  },
+  {
+    method: 'delete',
+    path: '/v1/identities/{provider}/{subject}',
+    scope: 'admin',
+    summary:
+      'Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent; only an explicit restore over PUT re-admits)',
+    handler: 'revokeIdentityHandler',
+    request: { params: 'zIdentityParams' },
+    responses: {
+      200: { schema: 'zIdentityRevokedResponse', type: 'application/json', desc: 'Revocation timestamp (idempotent)' },
+    },
+  },
+  {
+    method: 'get',
     path: '/v1/stats/mcp',
     scope: 'admin',
     summary: 'Global privacy-safe MCP sessions, protocol operations, tools, outcomes and latency',
@@ -890,6 +933,47 @@ function requireSpaceAccess(
 
 /** The §1.14 stamp for human/agent-authored proposals. */
 const MANUAL_AGENT_META = { model: 'manual', prompt_version: 'manual' }
+
+// ---------------------------------------------------------------------------
+// SSO identity grants (wk_oauth_identities is the single AuthZ truth — 0028)
+// ---------------------------------------------------------------------------
+
+interface IdentityRow {
+  provider: string
+  subject: string
+  email: string | null
+  display_name: string
+  allowed_scopes: string[] | null
+  grant_source: string
+  created_at: Date | string
+  last_seen_at: Date | string | null
+  revoked_at: Date | string | null
+}
+
+const IDENTITY_FIELDS = `provider, provider_subject AS subject, email, display_name, allowed_scopes,
+              grant_source, created_at, last_seen_at, revoked_at`
+
+function toIdentityWire(row: IdentityRow): Record<string, unknown> {
+  const wireDate = (value: Date | string | null): string | null => (value === null ? null : isoString(value))
+  return {
+    provider: row.provider,
+    subject: row.subject,
+    email: row.email,
+    display_name: row.display_name,
+    allowed_scopes: row.allowed_scopes,
+    grant_source: row.grant_source,
+    created_at: isoString(row.created_at),
+    last_seen_at: wireDate(row.last_seen_at),
+    revoked_at: wireDate(row.revoked_at),
+  }
+}
+
+/** Identity grants are deployment-global operations — a space-scoped admin
+ *  key must not manage who can log in anywhere (same self-escalation logic
+ *  as space creation). */
+function requireGlobalIdentityAdmin(principal: Principal): void {
+  if (principal.spaceId) throw new ForbiddenError('a space-scoped key cannot manage identity grants')
+}
 
 // ---------------------------------------------------------------------------
 // Handlers (name → implementation; drift-tested against ROUTES)
@@ -1390,6 +1474,123 @@ export const HANDLERS: Record<string, Handler> = {
       await deps.db.update('wk_api_keys', { id: `eq.${id}`, revoked_at: 'is.null' }, { revoked_at: revokedAt })
     }
     return { status: 200, body: { id, revoked_at: revokedAt } }
+  },
+
+  async listIdentitiesHandler(deps, input) {
+    requireGlobalIdentityAdmin(input.principal!)
+    const { rows } = await deps.db.query<IdentityRow>(
+      `SELECT ${IDENTITY_FIELDS}
+         FROM wk_oauth_identities
+        ORDER BY provider, created_at DESC, provider_subject`,
+    )
+    return { status: 200, body: { items: rows.map(toIdentityWire) } }
+  },
+
+  async upsertIdentityHandler(deps, input) {
+    requireGlobalIdentityAdmin(input.principal!)
+    const providerId = input.params.provider!
+    const subject = input.params.subject!
+    // Grants only for providers this deployment actually authenticates
+    // against — a typo'd provider id would otherwise create a dead row that
+    // silently never matches a login.
+    if (!deps.config.oauthProviders?.some((entry) => entry.protocol === 'oidc' && entry.id === providerId)) {
+      throw new UnprocessableError(`'${providerId}' is not a configured oidc provider`)
+    }
+    const body = input.body as {
+      email?: string
+      display_name?: string
+      role?: RoleName
+      scopes?: string[]
+      source?: 'seed'
+      restore?: boolean
+    }
+    // role XOR scopes — the role shortcut is expanded HERE and never stored:
+    // the scope ceiling is the only truth the auth path ever reads.
+    if (body.role !== undefined && body.scopes !== undefined) {
+      throw new UnprocessableError('provide exactly one of role or scopes, not both')
+    }
+    const scopes = body.role !== undefined ? [...ROLE_SCOPES[body.role]] : (body.scopes ?? null)
+    // 'seed' may only be claimed explicitly (by the deploy seeder). A manual
+    // PUT without source stamps 'admin' — from then on the seeder leaves the
+    // row alone (it manages only its own 'seed' rows).
+    const source = body.source === 'seed' ? 'seed' : 'admin'
+    const { rows: existing } = await deps.db.query<{ revoked_at: Date | string | null }>(
+      `SELECT revoked_at FROM wk_oauth_identities
+        WHERE provider = $1 AND provider_subject = $2
+        LIMIT 1`,
+      [providerId, subject],
+    )
+    const current = existing[0]
+    if (current?.revoked_at && body.restore !== true) {
+      throw new ConflictError('identity_revoked', 'this identity grant is revoked — pass restore:true to re-admit it', {
+        nextBestActions: ['re-send the PUT with restore:true to deliberately clear the revocation'],
+      })
+    }
+    if (!current) {
+      if (!scopes) throw new UnprocessableError('a new identity grant requires role or scopes')
+      const { rows } = await deps.db.query<IdentityRow>(
+        `INSERT INTO wk_oauth_identities (provider, provider_subject, email, display_name, allowed_scopes, grant_source)
+         VALUES ($1, $2, $3, $4, $5::text[], $6)
+         RETURNING ${IDENTITY_FIELDS}`,
+        [providerId, subject, body.email ?? null, body.display_name ?? '', scopes, source],
+      )
+      return { status: 201, body: toIdentityWire(rows[0]!) }
+    }
+    const { rows } = await deps.db.query<IdentityRow>(
+      `UPDATE wk_oauth_identities
+          SET email = COALESCE($3, email),
+              display_name = COALESCE($4, display_name),
+              allowed_scopes = COALESCE($5::text[], allowed_scopes),
+              grant_source = $6,
+              revoked_at = CASE WHEN $7::boolean THEN NULL ELSE revoked_at END
+        WHERE provider = $1 AND provider_subject = $2
+        RETURNING ${IDENTITY_FIELDS}`,
+      [providerId, subject, body.email ?? null, body.display_name ?? null, scopes, source, body.restore === true],
+    )
+    return { status: 200, body: toIdentityWire(rows[0]!) }
+  },
+
+  async revokeIdentityHandler(deps, input) {
+    requireGlobalIdentityAdmin(input.principal!)
+    const providerId = input.params.provider!
+    const subject = input.params.subject!
+    const { rows } = await deps.db.query<{ revoked_at: Date | string | null }>(
+      `SELECT revoked_at FROM wk_oauth_identities
+        WHERE provider = $1 AND provider_subject = $2
+        LIMIT 1`,
+      [providerId, subject],
+    )
+    const row = rows[0]
+    if (!row) throw new NotFoundError(`identity '${providerId}:${subject}' not found`)
+    const revokedAt = row.revoked_at ? isoString(row.revoked_at) : new Date().toISOString()
+    if (!row.revoked_at) {
+      await deps.db.query(
+        `UPDATE wk_oauth_identities SET revoked_at = $3
+          WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL`,
+        [providerId, subject, revokedAt],
+      )
+    }
+    // Defense in depth: identityGrantIsCurrent already denies these tokens on
+    // their next request; killing them here makes the revocation absolute
+    // even if that per-request check ever regresses. Runs on repeat DELETEs
+    // too (idempotent) — principal_key_id format mirrors the token issuer.
+    const principalKeyId = `identity:${providerId}:${subject}`
+    await deps.db.query(
+      `UPDATE wk_oauth_access_tokens SET revoked_at = now()
+        WHERE principal_kind = 'identity' AND principal_key_id = $1 AND revoked_at IS NULL`,
+      [principalKeyId],
+    )
+    await deps.db.query(
+      `UPDATE wk_oauth_refresh_tokens SET revoked_at = now()
+        WHERE principal_kind = 'identity' AND principal_key_id = $1 AND revoked_at IS NULL`,
+      [principalKeyId],
+    )
+    await deps.db.query(
+      `UPDATE wk_oauth_authorization_codes SET consumed_at = now()
+        WHERE principal_kind = 'identity' AND principal_key_id = $1 AND consumed_at IS NULL`,
+      [principalKeyId],
+    )
+    return { status: 200, body: { provider: providerId, subject, revoked_at: revokedAt } }
   },
 
   async healthHandler() {

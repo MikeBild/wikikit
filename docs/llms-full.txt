@@ -113,6 +113,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/api-keys`                                | admin             | List visible API keys without plaintext or hashes |
 | POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
 | DELETE | `/v1/api-keys/{id}`                           | admin             | Revoke a DB-backed API key idempotently |
+| GET    | `/v1/identities`                              | admin             | List SSO identity grants (scope ceiling, source, revocation) — never tokens or hashes |
+| PUT    | `/v1/identities/{provider}/{subject}`         | admin             | Create/update an SSO identity grant (role XOR scopes; only `restore:true` clears a revocation) |
+| DELETE | `/v1/identities/{provider}/{subject}`         | admin             | Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent) |
 | GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
 | GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
 | GET    | `/v1/spaces/{space}/stats/usage`             | knowledge:read    | Cross-transport search/read/query/ingest/proposal behavior |

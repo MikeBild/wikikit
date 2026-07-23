@@ -62,8 +62,18 @@ export class NotFoundError extends DomainError {
   }
 }
 
-/** 409 — code narrows to the three canonical conflicts. */
-export type ConflictCode = 'already_ingested' | 'proposal_not_pending' | 'stale_base' | 'sync_version_conflict'
+/** 422 unprocessable — well-formed request whose semantics are invalid
+ *  (e.g. role AND scopes on an identity grant, or an unconfigured provider).
+ *  Distinct from 400 bad_request: the shape parsed fine, the meaning did not. */
+export class UnprocessableError extends DomainError {
+  constructor(message: string) {
+    super('unprocessable', message, 422)
+  }
+}
+
+/** 409 — code narrows to the canonical conflicts. */
+export type ConflictCode =
+  'already_ingested' | 'proposal_not_pending' | 'stale_base' | 'sync_version_conflict' | 'identity_revoked'
 
 export class ConflictError extends DomainError {
   constructor(

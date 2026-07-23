@@ -92,6 +92,9 @@ async function providerMetadata(provider: OidcProviderConfig): Promise<{ issuer:
 export async function verifyOidcIdentityToken(args: {
   provider: OidcProviderConfig
   identityToken: string
+  /** Return unknown identities instead of rejecting them — the caller's
+   *  admission logic (DB grant row / allowlist / signup) decides. */
+  allowUnknown?: boolean
 }): Promise<OidcIdentity> {
   const metadata = await providerMetadata(args.provider)
   let keySet = assertionKeys.get(metadata.jwks_uri)
@@ -103,7 +106,7 @@ export async function verifyOidcIdentityToken(args: {
     issuer: metadata.issuer,
     audience: args.provider.clientId,
   })
-  return oidcIdentityFromClaims(args.provider, payload)
+  return oidcIdentityFromClaims(args.provider, payload, { allowUnknown: args.allowUnknown })
 }
 
 export async function finishOidcLogin(args: {

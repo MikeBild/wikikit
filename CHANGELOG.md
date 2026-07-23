@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.18.0 - 2026-07-23
+
+### Added
+
+- Admin REST for SSO identity grants (migration
+  `0028_wk_identity_grants_admin`, scope `admin`):
+  - `GET /v1/identities` lists every grant (provider, subject, email,
+    display_name, `allowed_scopes` ceiling, `grant_source`, revocation and
+    seen timestamps) — never tokens or hashes.
+  - `PUT /v1/identities/{provider}/{subject}` idempotently creates/updates a
+    grant. `role` XOR `scopes`: the named roles `reader`/`contributor`/
+    `reviewer` are server-side shortcuts expanded into scope sets and never
+    stored; `knowledge:approve` deliberately has NO shortcut and must be
+    granted as an explicit scopes array. Sending both (or neither on a new
+    grant, or an unconfigured provider id) is `422 unprocessable`. A PUT on a
+    revoked grant without `restore:true` is `409 identity_revoked` —
+    `restore:true` is the only way to clear a revocation.
+  - `DELETE /v1/identities/{provider}/{subject}` revokes the grant and
+    additionally kills the identity's live OAuth access/refresh tokens and
+    pending authorization codes (idempotent).
+- `wk_oauth_identities` grows `display_name` and `grant_source`
+  (`admin`/`seed`/`signup`/`bootstrap`); pre-existing self-signup rows are
+  backfilled as `signup`, allowlist rows as `bootstrap`. The deploy seeder
+  manages only rows with `grant_source='seed'`; a manual PUT (stamped
+  `admin`) takes the row out of the seeder's hands permanently.
+
+### Changed
+
+- The `wk_oauth_identities` row is now the SINGLE AuthZ truth, effective
+  immediately (the auth path reads the row per request/token issue, no
+  restart): a stored `allowed_scopes` ceiling wins over the ENV allowlist,
+  and an allowlisted login mirrors the provider's `allowed_scopes` into the
+  row (`grant_source='bootstrap'`) instead of resetting the per-row ceiling
+  to NULL. Rows with `grant_source` `admin`/`seed`/`signup` are never
+  overwritten by the allowlist path. The ENV allowlist is bootstrap-only;
+  WikiKit warns at boot when it exceeds two entries.
+- `POST /v1/identity/sessions` admits identities through the same DB-grant
+  contract as the browser SSO callback: operator-granted identities work
+  without an ENV allowlist entry, and the issued identity API key carries the
+  stored ceiling (an unknown identity is now `403 access_denied` instead of
+  `401 invalid_token`).
+
+### Security
+
+- `revoked_at` always wins: a revoked identity is denied even while its
+  subject/email still stands in the ENV allowlist, and no login path
+  un-revokes a row (previously an allowlisted login reset `revoked_at` to
+  NULL, silently re-admitting revoked identities). Revocation also kills the
+  identity's live OAuth tokens; re-admission is exclusively the explicit
+  admin-REST restore.
+
 ## 0.17.0 - 2026-07-23
 
 ### Added

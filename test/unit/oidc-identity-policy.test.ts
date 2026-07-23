@@ -63,29 +63,90 @@ describe('OIDC identity policy', () => {
   })
 })
 
-describe('per-identity scope ceiling', () => {
+describe('per-identity scope ceiling (the grant row is the single AuthZ truth)', () => {
   test('an unregistered identity has no ceiling', () => {
     expect(oidcIdentityScopeCeiling(provider, 'anyone', undefined)).toBeNull()
   })
 
-  test('an allowlisted identity inherits the provider allowed_scopes and ignores the per-row ceiling', () => {
-    expect(oidcIdentityScopeCeiling(provider, 'subject-without-email', { email: null, allowed_scopes: null })).toEqual(
-      provider.allowedScopes,
-    )
+  test('a pre-0028 bootstrap row without a mirrored ceiling inherits the provider allowed_scopes while allowlisted', () => {
     expect(
-      oidcIdentityScopeCeiling(provider, 'other', { email: 'Reviewer@Example.Test', allowed_scopes: null }),
+      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
+        email: null,
+        allowed_scopes: null,
+        grant_source: 'bootstrap',
+      }),
     ).toEqual(provider.allowedScopes)
+    expect(
+      oidcIdentityScopeCeiling(provider, 'other', {
+        email: 'Reviewer@Example.Test',
+        allowed_scopes: null,
+        grant_source: 'bootstrap',
+      }),
+    ).toEqual(provider.allowedScopes)
+  })
+
+  test('an operator-managed grant beats the allowlist: the stored ceiling wins even for allowlisted subjects', () => {
+    expect(
+      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
+        email: null,
+        allowed_scopes: ['knowledge:read', 'knowledge:propose', 'knowledge:review'],
+        grant_source: 'admin',
+      }),
+    ).toEqual(['knowledge:read', 'knowledge:propose', 'knowledge:review'])
+    expect(
+      oidcIdentityScopeCeiling(provider, 'seeded-subject', {
+        email: null,
+        allowed_scopes: ['knowledge:read'],
+        grant_source: 'seed',
+      }),
+    ).toEqual(['knowledge:read'])
+  })
+
+  test('a mirrored bootstrap row is admitted through its stored ceiling', () => {
+    expect(
+      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
+        email: null,
+        allowed_scopes: ['knowledge:read'],
+        grant_source: 'bootstrap',
+      }),
+    ).toEqual(['knowledge:read'])
   })
 
   test('a signup identity is admitted through its own stored minimal ceiling', () => {
     expect(
-      oidcIdentityScopeCeiling(provider, 'signup-subject', { email: null, allowed_scopes: ['knowledge:read'] }),
+      oidcIdentityScopeCeiling(provider, 'signup-subject', {
+        email: null,
+        allowed_scopes: ['knowledge:read'],
+        grant_source: 'signup',
+      }),
     ).toEqual(['knowledge:read'])
   })
 
   test('a delisted identity without a per-row ceiling is not admitted', () => {
-    expect(oidcIdentityScopeCeiling(provider, 'delisted-subject', { email: null, allowed_scopes: null })).toBeNull()
-    expect(oidcIdentityScopeCeiling(provider, 'delisted-subject', { email: null, allowed_scopes: [] })).toBeNull()
+    expect(
+      oidcIdentityScopeCeiling(provider, 'delisted-subject', {
+        email: null,
+        allowed_scopes: null,
+        grant_source: 'bootstrap',
+      }),
+    ).toBeNull()
+    expect(
+      oidcIdentityScopeCeiling(provider, 'delisted-subject', {
+        email: null,
+        allowed_scopes: [],
+        grant_source: 'bootstrap',
+      }),
+    ).toBeNull()
+  })
+
+  test('an empty non-bootstrap ceiling never falls back to the provider set, allowlisted or not', () => {
+    expect(
+      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
+        email: null,
+        allowed_scopes: null,
+        grant_source: 'signup',
+      }),
+    ).toBeNull()
   })
 
   test('the signup ceiling is exactly the minimal read role', () => {

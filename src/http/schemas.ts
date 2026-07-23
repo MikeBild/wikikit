@@ -742,6 +742,58 @@ export const zApiKeyRevokedResponse = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// SSO identity grants (admin REST over wk_oauth_identities — 0028)
+// ---------------------------------------------------------------------------
+
+// Provider ids mirror the wk_oauth_identities provider CHECK; subjects are
+// opaque IdP strings (URL-encoded in the path segment).
+export const zIdentityParams = z.object({
+  provider: z.string().regex(SPACE_SLUG),
+  subject: z.string().min(1).max(500),
+})
+
+// Knowledge scopes only: 'admin'/'*' stay API-key territory, and there is
+// deliberately NO role shortcut that includes knowledge:approve — the human
+// review gate must be granted as an explicitly spelled-out scopes array.
+const zIdentityScope = z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'])
+
+// role XOR scopes is enforced in the handler (422 unprocessable, not 400):
+// the shape is fine, the meaning of sending both is not.
+export const zUpsertIdentityRequest = z
+  .object({
+    email: z.string().max(320).optional(),
+    display_name: z.string().max(200).optional(),
+    role: z.enum(['reader', 'contributor', 'reviewer']).optional(),
+    scopes: z.array(zIdentityScope).min(1).optional(),
+    /** Only the deploy seeder sends 'seed'; anything else is stamped 'admin'. */
+    source: z.literal('seed').optional(),
+    /** The ONLY way to clear revoked_at — a PUT without it 409s on a revoked row. */
+    restore: z.boolean().optional(),
+  })
+  .default({})
+
+export const zIdentityResponse = z.object({
+  provider: z.string(),
+  subject: z.string(),
+  email: z.string().nullable(),
+  display_name: z.string(),
+  /** The scope ceiling — the single stored AuthZ truth. null only on legacy bootstrap rows. */
+  allowed_scopes: z.array(z.string()).nullable(),
+  grant_source: z.enum(['admin', 'seed', 'signup', 'bootstrap']),
+  created_at: z.string(),
+  last_seen_at: z.string().nullable(),
+  revoked_at: z.string().nullable(),
+})
+
+export const zIdentityListResponse = z.object({ items: z.array(zIdentityResponse) })
+
+export const zIdentityRevokedResponse = z.object({
+  provider: z.string(),
+  subject: z.string(),
+  revoked_at: z.string(),
+})
+
+// ---------------------------------------------------------------------------
 // Ops
 // ---------------------------------------------------------------------------
 
@@ -1003,6 +1055,11 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zApiKeyResponse,
   zApiKeyListResponse,
   zApiKeyRevokedResponse,
+  zIdentityParams,
+  zUpsertIdentityRequest,
+  zIdentityResponse,
+  zIdentityListResponse,
+  zIdentityRevokedResponse,
   zReadyResponse,
   zStatsQuery,
   zUsageStatsQuery,

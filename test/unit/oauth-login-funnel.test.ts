@@ -391,9 +391,34 @@ describe('signup switch at the SSO callback (WIKIKIT_OAUTH_ENABLE_SIGNUP)', () =
     expect(res.status).toBe(200)
     const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
     expect(session!.body.scopes).toEqual(['knowledge:read', 'knowledge:propose'])
-    // Allowlist logins reset the per-row ceiling (allowed_scopes = null).
+    // Allowlist logins MIRROR the provider ceiling into the row (0028): the
+    // DB row is the single AuthZ truth, stamped as a bootstrap grant, and a
+    // concurrently revoked row is never resurrected.
     const upsert = queries.find((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))
-    expect(upsert!.sql).toContain('allowed_scopes = null')
+    expect(upsert!.sql).toContain("grant_source = 'bootstrap'")
+    expect(upsert!.sql).toContain('WHERE wk_oauth_identities.revoked_at IS NULL')
+    expect(upsert!.sql).not.toContain('revoked_at = null')
+    expect(upsert!.params).toEqual([
+      'any-subject',
+      'mike@example.com',
+      'workforce',
+      ['knowledge:read', 'knowledge:propose'],
+    ])
+  })
+
+  test('a revoked identity is denied even while still ENV-allowlisted — revoked_at always wins (0028)', async () => {
+    finishIdentity = { subject: 'any-subject', email: 'mike@example.com' }
+    const { db, queries } = stubDb({
+      live: ssoState(),
+      identity: { email: 'mike@example.com', allowed_scopes: null, revoked_at: new Date().toISOString() },
+    })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(403)
+    expect(await res.text()).toContain('Your account is not authorized for WikiKit. Contact the operator.')
+    // Nothing is upserted and nothing un-revokes: re-admission is exclusively
+    // an explicit admin-REST restore.
+    expect(queries.some((entry) => entry.sql.includes('INSERT INTO wk_oauth_identities'))).toBe(false)
   })
 })
 

@@ -131,15 +131,14 @@ async function identityGrantIsCurrent(
   const subject = match[2]!
   const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
   if (!provider || provider.protocol !== 'oidc') return false
-  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null }>(
-    `SELECT email, allowed_scopes FROM wk_oauth_identities
+  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
+    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
     [provider.id, subject],
   )
-  // Admitted via the allowlist or via the per-row signup ceiling — the
-  // WIKIKIT_OAUTH_ENABLE_SIGNUP switch governs only unknown identities, so
-  // already-registered signup identities keep their grants.
+  // The grant row is the single AuthZ truth (0028): a revoked or deleted row
+  // kills live tokens on the next request, whatever the ENV allowlist says.
   return oidcIdentityScopeCeiling(provider, subject, rows[0]) !== null
 }
 

@@ -140,6 +140,20 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // formats (JSON, form posts and the consent HTML); exact mounts keep the
   // ordinary REST registry and OpenAPI surface unchanged.
   const oauth = createOAuthMount(config, { db, auth, logger })
+  // The ENV allowlist is a bootstrap-only path since 0028: real access
+  // management lives on wk_oauth_identities via the admin REST
+  // (/v1/identities). A growing allowlist means grants are being managed in
+  // the wrong place — say so once at boot.
+  const allowlisted = (config.oauthProviders ?? []).reduce(
+    (count, provider) =>
+      provider.protocol === 'oidc' ? count + provider.allowedEmails.length + provider.allowedSubjects.length : count,
+    0,
+  )
+  if (allowlisted > 2) {
+    logger.warn('oidc ENV allowlist is bootstrap-only — manage identity grants via PUT /v1/identities instead', {
+      allowlisted_entries: allowlisted,
+    })
+  }
   for (const path of [
     '/.well-known/oauth-protected-resource',
     '/.well-known/oauth-protected-resource/mcp',

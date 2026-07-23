@@ -353,10 +353,9 @@ export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Ar
   })
 }
 
-// Per-identity permission ceiling: allowlisted identities inherit the
-// provider's allowed_scopes; a self-signup identity carries its own minimal
-// ceiling on the wk_oauth_identities row. null = the identity is not (or no
-// longer) admitted.
+// Per-identity permission ceiling: the wk_oauth_identities row is the single
+// AuthZ truth (0028). null = the identity is not (or no longer) admitted; a
+// revoked row denies here regardless of the ENV allowlist.
 async function identityCeiling(
   db: Db,
   config: Config,
@@ -365,8 +364,8 @@ async function identityCeiling(
 ): Promise<string[] | null> {
   const provider = oidcProvider(config, providerId)
   if (!provider || !subject) return null
-  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null }>(
-    `SELECT email, allowed_scopes FROM wk_oauth_identities
+  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
+    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
     [provider.id, subject],
@@ -385,16 +384,21 @@ async function identityGrantIsCurrent(
   return (await identityCeiling(db, config, match[1]!, match[2]!)) !== null
 }
 
-// Admission decision for an authenticated OIDC callback identity, including
-// its registration in wk_oauth_identities. Returns the identity's permission
-// ceiling, or null when the login must be denied.
+// Admission decision for an authenticated OIDC login identity, including its
+// registration in wk_oauth_identities. Returns the identity's permission
+// ceiling, or null when the login must be denied. The DB row is the single
+// AuthZ truth (0028):
 //
-// - Allowlisted (allowed_subjects/allowed_emails): registered/reactivated as
-//   before; ceiling = the provider's allowed_scopes. The per-row ceiling is
-//   reset so a later allowlist removal keeps revoking access.
-// - Already-registered signup identity (per-row allowed_scopes): admitted
-//   regardless of the switch position — WIKIKIT_OAUTH_ENABLE_SIGNUP governs
-//   only UNKNOWN identities. Operator revocation (revoked_at) always wins.
+// - revoked_at ALWAYS wins: a revoked row denies even an allowlisted
+//   identity, and no login path ever clears it — re-admission is exclusively
+//   the operator's explicit restore over the admin REST.
+// - ENV allowlist = bootstrap-only, mirrored into the DB: an allowlisted
+//   login upserts the row (ceiling := provider.allowedScopes,
+//   grant_source := 'bootstrap') ONLY while the row is missing or still
+//   'bootstrap'. Operator-managed rows ('admin'/'seed', and 'signup') keep
+//   their stored ceiling — only email/last_seen_at are refreshed.
+// - Already-registered identity (stored allowed_scopes): admitted through
+//   its row regardless of the allowlist and of the signup switch position.
 // - Unknown identity: the signup branch — admitted and registered at the
 //   minimal knowledge:read ceiling only when WIKIKIT_OAUTH_ENABLE_SIGNUP is
 //   true; denied otherwise (exact pre-signup behavior).
@@ -404,26 +408,37 @@ async function admitOidcCallbackIdentity(
   provider: OidcProviderConfig,
   identity: OidcIdentity,
 ): Promise<string[] | null> {
-  if (isOidcIdentityAllowed(provider, identity.subject, identity.email)) {
-    await db.query(
-      `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (provider, provider_subject) DO UPDATE
-         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null,
-             allowed_scopes = null`,
-      [identity.subject, identity.email, provider.id],
-    )
-    return provider.allowedScopes
-  }
-  const { rows } = await db.query<{ allowed_scopes: string[] | null; revoked_at: Date | string | null }>(
-    `SELECT allowed_scopes, revoked_at FROM wk_oauth_identities
+  const { rows } = await db.query<{
+    allowed_scopes: string[] | null
+    revoked_at: Date | string | null
+    grant_source: string
+  }>(
+    `SELECT allowed_scopes, revoked_at, grant_source FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2
       LIMIT 1`,
     [provider.id, identity.subject],
   )
   const registered = rows[0]
+  if (registered?.revoked_at) return null
+  if (
+    isOidcIdentityAllowed(provider, identity.subject, identity.email) &&
+    (!registered || registered.grant_source === 'bootstrap')
+  ) {
+    // The DO UPDATE re-checks revoked_at: a concurrent revoke must never be
+    // resurrected by an in-flight login.
+    await db.query(
+      `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at, allowed_scopes, grant_source)
+       VALUES ($1, $2, $3, now(), $4, 'bootstrap')
+       ON CONFLICT (provider, provider_subject) DO UPDATE
+         SET email = excluded.email, last_seen_at = excluded.last_seen_at,
+             allowed_scopes = excluded.allowed_scopes, grant_source = 'bootstrap'
+       WHERE wk_oauth_identities.revoked_at IS NULL`,
+      [identity.subject, identity.email, provider.id, provider.allowedScopes],
+    )
+    return provider.allowedScopes
+  }
   if (registered) {
-    if (registered.revoked_at || !registered.allowed_scopes?.length) return null
+    if (!registered.allowed_scopes?.length) return null
     await db.query(
       `UPDATE wk_oauth_identities SET email = $3, last_seen_at = now()
         WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL`,
@@ -433,8 +448,8 @@ async function admitOidcCallbackIdentity(
   }
   if (config.oauthSignupEnabled !== true) return null
   await db.query(
-    `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at, allowed_scopes)
-     VALUES ($1, $2, $3, now(), $4)
+    `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at, allowed_scopes, grant_source)
+     VALUES ($1, $2, $3, now(), $4, 'signup')
      ON CONFLICT (provider, provider_subject) DO NOTHING`,
     [identity.subject, identity.email, provider.id, [...OIDC_SIGNUP_SCOPES]],
   )
@@ -727,22 +742,17 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     if (provider.protocol === 'api_key') {
       throw new OAuthError('invalid_request', 'API key login does not accept identity assertions')
     }
-    const identity = await verifyOidcIdentityToken({ provider, identityToken }).catch(() => {
+    const identity = await verifyOidcIdentityToken({ provider, identityToken, allowUnknown: true }).catch(() => {
       throw new OAuthError('invalid_token', 'identity assertion was rejected', 401)
     })
-    // Allowlist-verified path (verifyOidcIdentityToken rejects unknown
-    // identities): the per-row signup ceiling is reset like at the callback.
-    await deps.db.query(
-      `INSERT INTO wk_oauth_identities (provider_subject, email, provider, last_seen_at)
-       VALUES ($1, $2, $3, now())
-       ON CONFLICT (provider, provider_subject) DO UPDATE
-         SET email = excluded.email, last_seen_at = excluded.last_seen_at, revoked_at = null,
-             allowed_scopes = null`,
-      [identity.subject, identity.email, provider.id],
-    )
+    // Same admission contract as the browser callback: the DB row is the
+    // single AuthZ truth, the ENV allowlist only bootstraps/mirrors it, and a
+    // revoked row denies — no login path resurrects it.
+    const ceiling = await admitOidcCallbackIdentity(deps.db, config, provider, identity)
+    if (!ceiling) throw new OAuthError('access_denied', 'identity is not allowed to access WikiKit', 403)
     const issued = await deps.auth.createKey({
       name: `SSO ${identity.email ?? identity.subject}`,
-      scopes: provider.allowedScopes,
+      scopes: ceiling,
       spaceId: null,
     })
     const principalId = `wki_${createHash('sha256')

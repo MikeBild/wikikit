@@ -48,6 +48,19 @@ const BOOTSTRAP = 'wk_response-schema-contract-bootstrap-key'
 const NOW = new Date('2026-07-15T12:00:00Z')
 const HEX64 = 'a'.repeat(64)
 
+// Canonical wk_oauth_identities wire row (admin identity-grant REST).
+const IDENTITY_ROW = {
+  provider: 'workforce',
+  subject: 'operator-subject',
+  email: 'operator@example.test',
+  display_name: 'Operator',
+  allowed_scopes: ['knowledge:read', 'knowledge:propose', 'knowledge:review'],
+  grant_source: 'admin',
+  created_at: NOW,
+  last_seen_at: NOW,
+  revoked_at: null,
+}
+
 const SPACE = {
   id: SPACE_ID,
   slug: 'demo',
@@ -128,6 +141,22 @@ function stubDb(): Db {
   const db: Db = {
     async query<R>(text: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number }> {
       const rows = ((): unknown[] => {
+        // identity grants (admin REST over wk_oauth_identities) -------------
+        if (text.includes('FROM wk_oauth_identities')) {
+          if (text.includes('SELECT revoked_at')) return [{ revoked_at: null }]
+          return [IDENTITY_ROW]
+        }
+        if (text.startsWith('INSERT INTO wk_oauth_identities') || text.startsWith('UPDATE wk_oauth_identities')) {
+          return [IDENTITY_ROW]
+        }
+        if (
+          text.includes('wk_oauth_access_tokens') ||
+          text.includes('wk_oauth_refresh_tokens') ||
+          text.includes('wk_oauth_authorization_codes')
+        ) {
+          return []
+        }
+
         // createProposal staging plumbing -----------------------------------
         if (text.includes('id = ANY($2::uuid[])')) {
           // Source-ownership check: every referenced id resolves in-space.
@@ -537,6 +566,21 @@ function testConfig(): Config {
     logLevel: 'error',
     version: '0.0.0-contract-test',
     llmConfigured: false,
+    // The identity-grant routes only accept providers this deployment
+    // actually authenticates against.
+    oauthProviders: [
+      {
+        protocol: 'oidc' as const,
+        id: 'workforce',
+        label: 'Workforce SSO',
+        issuer: 'https://identity.example.test',
+        clientId: 'wikikit',
+        scopes: 'openid email profile',
+        allowedEmails: [],
+        allowedSubjects: [],
+        allowedScopes: ['knowledge:read' as const],
+      },
+    ],
   }
 }
 
@@ -561,7 +605,7 @@ function fixtureBundleZip(): Uint8Array {
 // coverage test below proves this list stays complete as routes are added).
 interface RouteCase {
   template: string
-  method: 'get' | 'post' | 'delete'
+  method: 'get' | 'put' | 'post' | 'delete'
   url: string
   status: number
   body?: unknown
@@ -753,6 +797,20 @@ const CASES: RouteCase[] = [
     template: '/v1/api-keys/{id}',
     method: 'delete',
     url: `/v1/api-keys/${KEY_ID}`,
+    status: 200,
+  },
+  { template: '/v1/identities', method: 'get', url: '/v1/identities', status: 200 },
+  {
+    template: '/v1/identities/{provider}/{subject}',
+    method: 'put',
+    url: '/v1/identities/workforce/operator-subject',
+    status: 200,
+    body: { role: 'reviewer', display_name: 'Operator' },
+  },
+  {
+    template: '/v1/identities/{provider}/{subject}',
+    method: 'delete',
+    url: '/v1/identities/workforce/operator-subject',
     status: 200,
   },
   ...['ingests', 'knowledge', 'llm', 'webhooks'].map((name) => ({
