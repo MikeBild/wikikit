@@ -3800,7 +3800,10 @@
                 "created_at": { "type": "string" },
                 "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "review_channel": {
-                  "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation"] }, { "type": "null" }]
+                  "anyOf": [
+                    { "type": "string", "enum": ["rest", "mcp_elicitation", "url_elicitation"] },
+                    { "type": "null" }
+                  ]
                 },
                 "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "changes_requested": { "type": "boolean" },
@@ -4040,7 +4043,7 @@
           "reviewer": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "review_note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "review_channel": {
-            "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation"] }, { "type": "null" }]
+            "anyOf": [{ "type": "string", "enum": ["rest", "mcp_elicitation", "url_elicitation"] }, { "type": "null" }]
           },
           "reviewed_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "source_ids": {
@@ -4245,7 +4248,10 @@
       "zReviewRequest": {
         "default": {},
         "type": "object",
-        "properties": { "note": { "type": "string", "maxLength": 2000 } }
+        "properties": {
+          "note": { "type": "string", "maxLength": 2000 },
+          "via": { "type": "string", "enum": ["url_elicitation"] }
+        }
       },
       "zProposalReviewResponse": {
         "oneOf": [
@@ -4263,7 +4269,7 @@
               "claims_disputed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "claims_deprecated": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
               "relations_removed": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
+              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation", "url_elicitation"] }
             },
             "required": [
               "proposal_id",
@@ -4286,7 +4292,7 @@
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
               "status": { "type": "string", "const": "rejected" },
-              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] }
+              "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation", "url_elicitation"] }
             },
             "required": ["proposal_id", "status", "review_channel"],
             "additionalProperties": false
@@ -4342,7 +4348,10 @@
       },
       "zRequestChangesRequest": {
         "type": "object",
-        "properties": { "note": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+        "properties": {
+          "note": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "via": { "type": "string", "enum": ["url_elicitation"] }
+        },
         "required": ["note"]
       },
       "zRequestChangesResponse": {
@@ -4354,7 +4363,7 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
           "status": { "type": "string", "const": "rejected" },
-          "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation"] },
+          "review_channel": { "type": "string", "enum": ["rest", "mcp_elicitation", "url_elicitation"] },
           "changes_requested": { "type": "boolean", "const": true }
         },
         "required": ["proposal_id", "status", "review_channel", "changes_requested"],

@@ -21,6 +21,7 @@ import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
 import { createAuth, type Auth } from './http/auth.ts'
 import { createSpace, type HttpDeps } from './http/routes.ts'
 import { createHttpServer, type RawHandler } from './http/server.ts'
+import { createElicitationRegistry } from './mcp/elicitation-registry.ts'
 import { createMcpMount, toNodeRawHandler, type McpMount } from './mcp/server.ts'
 import { createOAuthMount } from './oauth/server.ts'
 import { createUsageTelemetry, type UsageTelemetry } from './usage.ts'
@@ -94,7 +95,25 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // probed, retrieval behaves lexically — the safe floor.
   const vector = { available: false }
 
-  const httpDeps: HttpDeps = { config, logger, db, auth, llm, ingest, metrics, usage, state, vector }
+  // Shared between the REST review endpoints and the MCP mount: URL-mode
+  // review elicitations register here, and the terminal review (which always
+  // lands over REST — the review page is a thin REST client) fires the
+  // pending notifications/elicitation/complete on the originating session.
+  const reviewElicitations = createElicitationRegistry({ logger })
+
+  const httpDeps: HttpDeps = {
+    config,
+    logger,
+    db,
+    auth,
+    llm,
+    ingest,
+    metrics,
+    usage,
+    state,
+    vector,
+    reviewElicitations,
+  }
   const http = createHttpServer(httpDeps)
 
   // Mount the MCP Streamable-HTTP transport at /mcp — the composition-root
@@ -103,7 +122,17 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // tested in isolation: /mcp lives OUTSIDE the ROUTES registry (§5.2), so only
   // this raw mount attaches it. The regression is guarded by an initialize
   // check in test/integration/http.test.ts against the real createApp server.
-  const mcp: McpMount = createMcpMount(config, { config, db, ingest, auth, logger, usage, llm, vector })
+  const mcp: McpMount = createMcpMount(config, {
+    config,
+    db,
+    ingest,
+    auth,
+    logger,
+    usage,
+    llm,
+    vector,
+    reviewElicitations,
+  })
   http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
 
   // ChatGPT and other remote MCP clients discover and complete OAuth without

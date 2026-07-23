@@ -16,6 +16,7 @@
 // stronger scope: an agent may stage with knowledge:propose, but only a
 // principal explicitly granted knowledge:approve can inspect the complete
 // diff and make the irreversible approve/reject decision.
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { buildAgentBriefing } from '../agent/briefing.ts'
 import { buildAgentContext } from '../agent/context.ts'
@@ -48,7 +49,13 @@ import type { LlmProvider } from '../llm/provider.ts'
 import { readDocsFile } from '../http/docs-embedded.ts'
 import { search, searchAcrossImports } from '../query/search.ts'
 import { zodToJsonSchema7 } from './json-schema.ts'
-import { elicitProposalReview, type ElicitForm } from './elicitation.ts'
+import {
+  FORM_FAST_CANCEL_MS,
+  elicitProposalReview,
+  urlReviewRequest,
+  type ElicitForm,
+  type ElicitUrl,
+} from './elicitation.ts'
 import type { UsageOutcome } from '../usage.ts'
 
 /**
@@ -104,7 +111,17 @@ export interface McpToolExecutionContext {
   /** Whether the connected client advertises elicitation.form — checked BEFORE
    *  attempting a form so a non-capable client gets a hand-off, not an error. */
   formElicitationSupported: boolean
+  /** Whether the client advertises elicitation.url (2025-11-25) — the
+   *  FALLBACK review channel for clients whose form is missing or provably
+   *  unrendered: the browser review page becomes the decision surface and the
+   *  server signals notifications/elicitation/complete when the review lands.
+   *  The native form stays primary — in a terminal client it IS the terminal
+   *  review dialog, exactly where the human already is. */
+  urlElicitationSupported: boolean
   elicitForm: ElicitForm
+  /** Send a URL-mode elicitation. On accept, server.ts registers a completion
+   *  notifier for the proposal (see elicitation-registry.ts). */
+  elicitUrl: ElicitUrl
   setOutcome(outcome: UsageOutcome): void
   setSpaceSlug(spaceSlug: string): void
 }
@@ -630,12 +647,16 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_review_proposal',
     description:
       'Start a human review for one pending ChangeProposal after inspecting it with wikikit_proposals. Input is { proposal_id } only. ' +
-      'The approve/reject decision and the optional audit note belong to the reviewing human and are collected through ' +
-      'WikiKit’s native elicitation form — never through tool arguments. ' +
-      'On a client without elicitation.form the proposal stays pending and the tool returns outcome "human_review_required" ' +
-      'with a review_url and instructions matched to this key’s scope: a knowledge:review key hands the link to the user, ' +
-      'while knowledge:approve (the operator’s opt-in) additionally allows executing the user’s explicit chat decision over REST. ' +
-      'Requires knowledge:review (implied by knowledge:approve). Decline, cancel, timeout, or a missing form capability never mutates knowledge.',
+      'The approve/reject decision and the optional audit note belong to the reviewing human and are never passed as tool arguments. ' +
+      'On a client with elicitation.form (the primary channel) the decision is collected in place through WikiKit’s native form — ' +
+      'in a terminal client that is the in-terminal review dialog. Only when the form is unavailable or the client provably ' +
+      'never rendered it does the tool fall back: with elicitation.url the human is sent to WikiKit’s review page ' +
+      '("url_review_started"; the server signals notifications/elicitation/complete once the review lands, wikikit_proposals ' +
+      'is the polling fallback); with no elicitation at all the proposal stays pending and the tool returns outcome ' +
+      '"human_review_required" with a review_url and instructions matched to this key’s scope: a knowledge:review key hands ' +
+      'the link to the user, while knowledge:approve (the operator’s opt-in) additionally allows executing the user’s explicit ' +
+      'chat decision over REST. Requires knowledge:review (implied by knowledge:approve). ' +
+      'Decline, cancel, timeout, or a missing elicitation capability never mutates knowledge.',
     scope: 'knowledge:review',
     inputSchema: zReviewProposalToolInput,
     annotations: REVIEW_ANNOTATIONS,
@@ -656,16 +677,16 @@ export const TOOLS: McpToolDef[] = [
           nextBestActions: ['call wikikit_proposals with proposal_id to inspect its terminal status'],
         })
       }
-      if (!context || !context.formElicitationSupported) {
-        // Hand-off, not an error: the pending proposal is the durable workflow
-        // object, and an error frame invites the agent to "fix" the call. The
-        // review page is the human's one-click path on exactly these clients.
-        // The KEY is the policy: knowledge:approve on an agent-held key is the
-        // operator's explicit opt-in to executing the human's chat decision
-        // over REST; a review-only key stays strictly hands-off.
+      const reviewUrl = `${deps.config.publicUrl}/review/${proposal.id}`
+      // Hand-off, not an error: the pending proposal is the durable workflow
+      // object, and an error frame invites the agent to "fix" the call. The
+      // review page is the human's one-click path on exactly these clients.
+      // The KEY is the policy: knowledge:approve on an agent-held key is the
+      // operator's explicit opt-in to executing the human's chat decision
+      // over REST; a review-only key stays strictly hands-off.
+      const handoff = (why: string) => {
         context?.setSpaceSlug(proposal.space)
         context?.setOutcome('handoff')
-        const reviewUrl = `${deps.config.publicUrl}/review/${proposal.id}`
         const chatDecisionSanctioned = holdsScope(principal.scopes, 'knowledge:approve')
         return {
           proposal_id: proposal.id,
@@ -675,13 +696,13 @@ export const TOOLS: McpToolDef[] = [
           review_url: reviewUrl,
           poll_with: 'wikikit_proposals',
           agent_instructions: chatDecisionSanctioned
-            ? 'This MCP client cannot present WikiKit’s native review form. This key holds knowledge:approve — the operator’s ' +
+            ? `${why} This key holds knowledge:approve — the operator’s ` +
               'explicit opt-in for executing the human’s decision from this conversation. If the user has clearly and explicitly ' +
               'instructed approve or reject for exactly this proposal, execute that instruction via REST ' +
               `(POST ${deps.config.publicUrl}/v1/proposals/${proposal.id}/approve or …/reject), quoting the user’s words in the note. ` +
               'Never decide, suggest, or default yourself. Without an explicit instruction, give the user this link so they decide ' +
               `directly: ${reviewUrl} Confirm the recorded outcome via wikikit_proposals afterwards.`
-            : 'This MCP client cannot present WikiKit’s native review form, so the approve/reject decision cannot be collected here. ' +
+            : `${why} The approve/reject decision cannot be collected here. ` +
               `The proposal stays pending. Give the user this link so they can review and decide themselves: ${reviewUrl} ` +
               'The page also supports deferring single concepts into child proposals and requesting changes with a revision note. ' +
               'Do not ask for the decision in chat, do not pass a decision to any tool, ' +
@@ -690,10 +711,61 @@ export const TOOLS: McpToolDef[] = [
               'changes_requested:true carries a review_note that is your revision brief for a FRESH proposal.',
         }
       }
+      if (!context || (!context.formElicitationSupported && !context.urlElicitationSupported)) {
+        return handoff('This MCP client cannot present WikiKit’s native review elicitation.')
+      }
       context.setSpaceSlug(proposal.space)
+      const wire = toProposalWire(proposal)
 
-      const review = await elicitProposalReview(context.elicitForm, toProposalWire(proposal))
+      // FALLBACK ONLY — never preferred over the native form: the in-client
+      // dialog (the terminal form in Claude Code/Codex) is where the human
+      // already is. URL mode exists for clients that have no form at all, or
+      // that advertise one and provably never render it (fast cancel below).
+      const urlFallback = async () => {
+        const elicitationId = randomUUID()
+        const consent = await context.elicitUrl(urlReviewRequest(wire, `${reviewUrl}?via=elicitation`, elicitationId), {
+          proposalId: proposal.id,
+        })
+        if (consent.action !== 'accept') {
+          // The user said no to reviewing NOW — a no-op, not a hand-off; the
+          // link still travels so they can pick the review up later.
+          context.setOutcome(consent.action === 'decline' ? 'rejected' : 'cancelled')
+          return { proposal_id: proposal.id, outcome: consent.action, mutation_applied: false, review_url: reviewUrl }
+        }
+        context.setOutcome('handoff')
+        return {
+          proposal_id: proposal.id,
+          status: 'pending',
+          outcome: 'url_review_started',
+          mutation_applied: false,
+          review_url: reviewUrl,
+          poll_with: 'wikikit_proposals',
+          agent_instructions:
+            'The user consented to open WikiKit’s review page; the decision happens there, out of band, and the proposal ' +
+            'stays pending until the human decides. The server sends notifications/elicitation/complete when the review ' +
+            'lands; check wikikit_proposals for the recorded outcome. Never supply, infer, or relay the decision yourself.',
+        }
+      }
+
+      // No form capability at all → the URL consent is the best remaining
+      // in-protocol channel before the fully manual hand-off.
+      if (!context.formElicitationSupported) {
+        return urlFallback()
+      }
+
+      const formStartedAt = Date.now()
+      const review = await elicitProposalReview(context.elicitForm, wire)
       if (review.action !== 'accept') {
+        if (review.action === 'cancel' && Date.now() - formStartedAt < FORM_FAST_CANCEL_MS) {
+          // Faster than any human could have read the form: the client
+          // advertised elicitation.form but never rendered it. Fall back to
+          // the URL consent (still in-protocol) or, without it, the hand-off —
+          // never report a decision nobody made.
+          if (context.urlElicitationSupported) return urlFallback()
+          return handoff(
+            'This MCP client advertises elicitation.form but cancelled the review form immediately without presenting it.',
+          )
+        }
         context.setOutcome(review.action === 'decline' ? 'rejected' : 'cancelled')
         return { proposal_id: proposal.id, outcome: review.action, mutation_applied: false }
       }

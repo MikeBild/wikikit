@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.17.0 - 2026-07-23
+
+### Added
+
+- URL-mode elicitation fallback for `wikikit_review_proposal` (MCP
+  2025-11-25): the native in-client form stays the primary review channel —
+  in a terminal client the in-terminal review dialog — and only when the
+  client has no `elicitation.form`, or advertises one and provably never
+  renders it, does the tool fall back to `elicitation.url`. The human
+  consents to open the embedded review page
+  (`GET /review/{id}?via=elicitation`), the tool returns
+  `outcome: "url_review_started"` without blocking, the decision lands on the
+  page with the reviewer's own key, and the server sends
+  `notifications/elicitation/complete` to exactly the originating session
+  (best-effort; `wikikit_proposals` polling stays the durable path).
+- New audited review channel `url_elicitation` (migration
+  `0027_wk_url_elicitation_channel`): the review page reports elicitation
+  provenance via an optional `via` body field on the REST review endpoints —
+  informational only, no auth effect.
+
+### Fixed
+
+- A form-mode cancel arriving faster than any human could read the form (a
+  client that advertises `elicitation.form` but auto-cancels without
+  rendering it) is no longer reported as a human cancel: the review degrades
+  to the URL consent or the `human_review_required` hand-off, so the agent
+  gets actionable instructions instead of repeated silent cancels.
+- Elicitation capability detection now follows the spec's backwards
+  compatibility rule: an empty `elicitation: {}` client capability counts as
+  form support.
+
 ## 0.16.1 - 2026-07-23
 
 ### Fixed

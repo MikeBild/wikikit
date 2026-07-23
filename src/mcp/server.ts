@@ -20,7 +20,10 @@
 // elicitation/create request while its tools/call POST is in flight. MCP
 // requires that server→client request and the client's response to travel on
 // the originating SSE stream. Long ingest work remains async-ack + polling;
-// only the bounded human review keeps a tool call open.
+// only the bounded human interaction keeps a tool call open — the form review
+// for its whole duration, the URL-mode review only for the consent (the
+// decision itself lands out of band over REST, and the later
+// notifications/elicitation/complete rides the standalone GET stream).
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -48,6 +51,7 @@ import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { OAUTH_CHALLENGE_SCOPE } from '../oauth/server.ts'
 import { toToolError } from './error-adapter.ts'
+import type { ElicitationRegistry } from './elicitation-registry.ts'
 import {
   createSessionManager,
   ownerKey,
@@ -77,6 +81,10 @@ export interface McpDeps extends ToolDeps {
   auth: McpAuth
   logger: Logger
   usage?: UsageTelemetry
+  /** URL-elicitation bridge shared with the REST surface (app.ts wiring):
+   *  accepted URL reviews register here; approve/reject fires the pending
+   *  notifications/elicitation/complete. Absent → polling only. */
+  reviewElicitations?: ElicitationRegistry
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +175,7 @@ Context: when a lifecycle hook has not already supplied WikiKit context, call wi
 
 Reading: wikikit_search finds raw evidence, wikikit_read fetches a full concept page, and wikikit_sources/wikikit_decisions/wikikit_history explain where something came from. Use the spaces selected by wikikit_context and fetch full knowledge only when needed. These tools never invent — if the answer is not in the base, say so rather than filling the gap.
 
-Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:review (implied by knowledge:approve) can use wikikit_proposals to inspect the full diff, then call wikikit_review_proposal with only the proposal id. WikiKit asks the human for approve/reject and an optional note through native MCP form elicitation; the agent must never supply, infer, or relay that decision — not as tool arguments, not from chat, not via any other API. One deliberate exception exists: a key holding knowledge:approve is the operator's explicit opt-in, and only with it may the agent execute the human's clearly stated approve/reject instruction from the conversation over REST, quoting it in the note. On a client without form elicitation the review tool returns outcome "human_review_required" with a review_url and scope-matched instructions: the proposal stays pending, the agent gives the user that link (or, with knowledge:approve, executes their explicit instruction), and checks wikikit_proposals for the result. Decline, cancel, timeout, or invalid form data likewise leaves the proposal pending. Do not tell the user their change is live until approval succeeds.
+Writing: wikikit_ingest (a document) and wikikit_propose (a direct change) both stage a ChangeProposal and return immediately; poll wikikit_ingest_status for ingest. A principal with knowledge:review (implied by knowledge:approve) can use wikikit_proposals to inspect the full diff, then call wikikit_review_proposal with only the proposal id. The review is human-owned; the agent must never supply, infer, or relay the decision — not as tool arguments, not from chat, not via any other API. On a client with elicitation.form (the primary channel) the decision is collected through the native in-client form — in a terminal client the terminal review dialog. Only when the form is unavailable or the client never renders it does the review fall back to elicitation.url: the human reviews on WikiKit's browser review page, the tool returns "url_review_started" immediately, the server sends notifications/elicitation/complete when the review lands, and wikikit_proposals is the polling fallback. One deliberate exception exists: a key holding knowledge:approve is the operator's explicit opt-in, and only with it may the agent execute the human's clearly stated approve/reject instruction from the conversation over REST, quoting it in the note. On a client without any elicitation the review tool returns outcome "human_review_required" with a review_url and scope-matched instructions: the proposal stays pending, the agent gives the user that link (or, with knowledge:approve, executes their explicit instruction), and checks wikikit_proposals for the result. Decline, cancel, timeout, or invalid form data likewise leaves the proposal pending. Do not tell the user their change is live until approval succeeds.
 
 Only the tools your API key's scopes allow are listed. WikiKit's immutable, code-bundled system knowledge is available through wikikit_guide and the "wikikit://system/agent-guide" resource; it is separate from user spaces and needs no database seed or review. Read "wikikit://docs/llms.txt" for the full API and data model.`
 
@@ -276,10 +284,26 @@ export function createSessionServer(
       )
     }
     try {
+      // Spec backwards-compat (2025-11-25 §Capabilities): an EMPTY elicitation
+      // capability object is equivalent to declaring form mode only. Read
+      // per-call so a capability that vanished mid-flight fails closed.
+      const elicitationModes = (): { form: boolean; url: boolean } => {
+        const caps = server.getClientCapabilities()?.elicitation as { form?: unknown; url?: unknown } | undefined
+        if (!caps) return { form: false, url: false }
+        return { form: caps.form !== undefined || caps.url === undefined, url: caps.url !== undefined }
+      }
+      const elicitOptions = {
+        relatedRequestId: extra.requestId,
+        signal: extra.signal,
+        timeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
+        maxTotalTimeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
+      }
+      const modes = elicitationModes()
       const context: McpToolExecutionContext = {
-        formElicitationSupported: Boolean(server.getClientCapabilities()?.elicitation?.form),
+        formElicitationSupported: modes.form,
+        urlElicitationSupported: modes.url,
         async elicitForm(params) {
-          if (!server.getClientCapabilities()?.elicitation?.form) throw new ElicitationNotSupportedError()
+          if (!elicitationModes().form) throw new ElicitationNotSupportedError()
           const client = server.getClientVersion()
           deps.logger.info('mcp form elicitation requested', {
             tool: name,
@@ -289,12 +313,7 @@ export function createSessionServer(
             client_version: client?.version ?? null,
           })
           try {
-            const result = await server.elicitInput(params, {
-              relatedRequestId: extra.requestId,
-              signal: extra.signal,
-              timeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
-              maxTotalTimeout: config.mcpElicitationTimeoutMs ?? 5 * 60 * 1000,
-            })
+            const result = await server.elicitInput(params, elicitOptions)
             deps.logger.info('mcp form elicitation completed', {
               tool: name,
               request_id: requestId,
@@ -306,6 +325,44 @@ export function createSessionServer(
             // InvalidParams is handled by the review helper, which asks once
             // more before producing a terminal invalid-response error.
             if (error instanceof McpError && error.code === ErrorCode.InvalidParams) throw error
+            if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+              throw new ElicitationTimeoutError()
+            }
+            if (error instanceof DomainError) throw error
+            throw new ElicitationFailedError()
+          }
+        },
+        async elicitUrl(params, opts) {
+          if (!elicitationModes().url) throw new ElicitationNotSupportedError()
+          const client = server.getClientVersion()
+          deps.logger.info('mcp url elicitation requested', {
+            tool: name,
+            request_id: requestId,
+            key_id: principal.keyId,
+            client_name: client?.name ?? null,
+            client_version: client?.version ?? null,
+          })
+          try {
+            const result = await server.elicitInput(params, elicitOptions)
+            deps.logger.info('mcp url elicitation consent', {
+              tool: name,
+              request_id: requestId,
+              key_id: principal.keyId,
+              action: result.action,
+            })
+            if (result.action === 'accept') {
+              // Accept only means "the user opens the page" — the review lands
+              // later over REST, which fires this notifier (best-effort; the
+              // agent's durable path stays wikikit_proposals polling).
+              deps.reviewElicitations?.register({
+                elicitationId: params.elicitationId,
+                proposalId: opts.proposalId,
+                sessionId: sessionId(),
+                notify: server.createElicitationCompletionNotifier(params.elicitationId),
+              })
+            }
+            return { action: result.action }
+          } catch (error) {
             if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
               throw new ElicitationTimeoutError()
             }
@@ -429,6 +486,7 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
     maxSessions: config.mcpMaxSessions,
     logger,
     onEvict: ({ sessionId, reason, activeSessions }) => {
+      deps.reviewElicitations?.pruneSession(sessionId)
       void deps.usage?.recordMcp({
         operation: `session_evicted_${reason}`,
         sessionId,
@@ -551,6 +609,7 @@ export function createMcpMount(config: Config, deps: McpDeps): McpMount {
           // Client sent DELETE /mcp. The SDK closes the transport right after
           // this callback, so the map delete is all this owes.
           manager.sessions.delete(sid)
+          deps.reviewElicitations?.pruneSession(sid)
           if (manager.sessions.size === 0) manager.stopSweeper()
           logger.info('mcp session closed', { session_id: sid, sessions_open: manager.sessions.size })
           void deps.usage?.recordMcp({

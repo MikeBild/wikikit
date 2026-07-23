@@ -1,9 +1,12 @@
-// Native MCP form elicitation for WikiKit's synchronous proposal-review gate.
+// Native MCP elicitation for WikiKit's proposal-review gate — form mode (the
+// primary channel: the in-client review dialog, i.e. the terminal form in
+// Claude Code/Codex) and URL mode (2025-11-25, the fallback when the form is
+// unavailable or provably unrendered: the browser review page, out of band).
 //
-// This module deliberately knows only the small form/result interface supplied
-// by server.ts. It does not import the MCP Server or transport, so domain tools
-// remain independently testable and cannot accidentally send unrelated
-// server→client requests.
+// This module deliberately knows only the small request/result interfaces
+// supplied by server.ts. It does not import the MCP Server or transport, so
+// domain tools remain independently testable and cannot accidentally send
+// unrelated server→client requests.
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import { InvalidElicitationResponseError } from '../domain/errors.ts'
@@ -49,15 +52,41 @@ export interface FormElicitationResult {
 
 export type ElicitForm = (request: FormElicitationRequest) => Promise<FormElicitationResult>
 
-function reviewMessage(proposal: ProposalWireDetail, retry: boolean): string {
+export interface UrlElicitationRequest {
+  mode: 'url'
+  /** Unique id for this elicitation — the key notifications/elicitation/complete refers to. */
+  elicitationId: string
+  /** The review page. MUST NOT be pre-authenticated (spec: Safe URL Handling) —
+   *  the page verifies the reviewer's identity itself with their own key. */
+  url: string
+  message: string
+}
+
+export interface UrlElicitationResult {
+  action: 'accept' | 'decline' | 'cancel'
+}
+
+export type ElicitUrl = (request: UrlElicitationRequest, opts: { proposalId: string }) => Promise<UrlElicitationResult>
+
+/**
+ * A form-mode cancel arriving faster than any human could have read the form
+ * is the CLIENT auto-cancelling (capability advertised, form never rendered) —
+ * observed in the wild, and from the wire indistinguishable from a deliberate
+ * dismissal except by time. Below this threshold the review tool falls back
+ * (URL consent if available, else the manual hand-off) instead of reporting a
+ * human decision that never happened.
+ */
+export const FORM_FAST_CANCEL_MS = 2000
+
+function reviewSummary(proposal: ProposalWireDetail, retry: boolean): string {
   const claims = proposal.concepts.reduce((total, concept) => total + concept.claims_added.length, 0)
   const disputes = proposal.concepts.reduce((total, concept) => total + concept.claims_disputed.length, 0)
   const prefix = retry ? 'The previous form response was invalid. Please submit a valid decision.\n\n' : ''
   const removals = proposal.relations_removed ?? []
-  // The form is the decision surface — a destructive change must be spelled
-  // out HERE, not only in the wikikit_proposals diff (a removal-only proposal
-  // would otherwise present as "0 concept(s), 0 decision(s)" and read as a
-  // no-op at the exact point of decision).
+  // The elicitation message is the decision surface — a destructive change
+  // must be spelled out HERE, not only in the wikikit_proposals diff (a
+  // removal-only proposal would otherwise present as "0 concept(s),
+  // 0 decision(s)" and read as a no-op at the exact point of decision).
   const removalBlock = removals.length
     ? `\n⚠ Approval DEACTIVATES ${removals.length} active relation(s):\n${removals
         .map((edge) => `  - ${edge.from_slug} ${edge.kind} → ${edge.to_slug}`)
@@ -67,8 +96,31 @@ function reviewMessage(proposal: ProposalWireDetail, retry: boolean): string {
 
 Summary: ${proposal.summary || 'No summary provided.'}
 Changes: ${proposal.concepts.length} concept(s), ${proposal.decisions.length} decision(s), ${claims} claim(s), ${disputes} disputed claim(s), ${removals.length} relation removal(s).
-${removalBlock}
+${removalBlock}`
+}
+
+function reviewMessage(proposal: ProposalWireDetail, retry: boolean): string {
+  return `${reviewSummary(proposal, retry)}
 Inspect the complete diff with wikikit_proposals before deciding. Approve publishes the staged knowledge atomically; reject keeps it out of visible knowledge. Declining or cancelling this form makes no change.`
+}
+
+/**
+ * The URL-mode review request. Accepting only OPENS the review page — the
+ * decision itself happens there, out of band, with the reviewer's own
+ * credential; the server later signals notifications/elicitation/complete.
+ */
+export function urlReviewRequest(
+  proposal: ProposalWireDetail,
+  reviewUrl: string,
+  elicitationId: string,
+): UrlElicitationRequest {
+  return {
+    mode: 'url',
+    elicitationId,
+    url: reviewUrl,
+    message: `${reviewSummary(proposal, false)}
+Accepting opens WikiKit's review page in your browser — the full diff and the approve/reject decision live there, never in this client. Declining or cancelling makes no change; the proposal stays pending.`,
+  }
 }
 
 function formRequest(proposal: ProposalWireDetail, retry: boolean): FormElicitationRequest {

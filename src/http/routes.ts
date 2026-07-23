@@ -834,6 +834,10 @@ export interface HttpDeps {
   state: { draining: boolean }
   /** pgvector capability (start()-time probe); gates the hybrid search arms. */
   vector?: { available: boolean }
+  /** MCP URL-elicitation bridge (app.ts wiring): terminal reviews fire the
+   *  pending notifications/elicitation/complete for the proposal. Best-effort;
+   *  wikikit_proposals polling stays the durable path. */
+  reviewElicitations?: { complete(proposalId: string): Promise<void> }
 }
 
 export interface HandlerInput {
@@ -1207,13 +1211,14 @@ export const HANDLERS: Record<string, Handler> = {
   async requestChangesHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
-    const body = input.body as { note: string }
+    const body = input.body as { note: string; via?: 'url_elicitation' }
     const result = await requestChanges(deps.db, {
       id: detail.id,
       reviewer: input.principal!.name,
       note: body.note,
-      reviewChannel: 'rest',
+      reviewChannel: body.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
     })
+    void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },
 
@@ -1226,28 +1231,30 @@ export const HANDLERS: Record<string, Handler> = {
   async approveProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
-    const note = (input.body as { note?: string } | undefined)?.note
+    const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
     // Reviewer identity = the key's name: the audit trail names WHO approved,
     // and the key name is the only identity a headless system has.
     const result = await approveProposal(deps.db, {
       id: detail.id,
       reviewer: input.principal!.name,
-      note,
-      reviewChannel: 'rest',
+      note: body?.note,
+      reviewChannel: body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
     })
+    void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },
 
   async rejectProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
-    const note = (input.body as { note?: string } | undefined)?.note
+    const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
     const result = await rejectProposal(deps.db, {
       id: detail.id,
       reviewer: input.principal!.name,
-      note,
-      reviewChannel: 'rest',
+      note: body?.note,
+      reviewChannel: body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
     })
+    void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },
 

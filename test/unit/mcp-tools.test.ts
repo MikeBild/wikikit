@@ -12,6 +12,7 @@ import {
   NotFoundError,
 } from '../../src/domain/errors.ts'
 import type { IngestPipeline } from '../../src/ingest/pipeline.ts'
+import type { UrlElicitationRequest } from '../../src/mcp/elicitation.ts'
 import {
   buildToolManifest,
   holdsScope,
@@ -329,8 +330,14 @@ describe('execute — transport duties', () => {
       principal({ name: 'human-reviewer' }),
       { proposal_id: proposalId },
       {
+        // Both modes advertised: the native form is the PRIMARY channel — the
+        // URL fallback must never fire while the form works.
         formElicitationSupported: true,
+        urlElicitationSupported: true,
         elicitForm: async () => ({ action: 'accept', content: { decision: 'reject', note: 'Not ready.' } }),
+        elicitUrl: async () => {
+          throw new Error('elicitUrl must not be called while the form works')
+        },
         setOutcome: (value) => {
           outcome = value
         },
@@ -397,7 +404,11 @@ describe('execute — transport duties', () => {
       { proposal_id: proposalId },
       {
         formElicitationSupported: true,
+        urlElicitationSupported: false,
         elicitForm: async () => ({ action: 'decline' }),
+        elicitUrl: async () => {
+          throw new Error('elicitUrl must not be called')
+        },
         setOutcome: (value) => {
           outcome = value
         },
@@ -483,8 +494,12 @@ describe('execute — transport duties', () => {
         { proposal_id: proposalId },
         {
           formElicitationSupported: false,
+          urlElicitationSupported: false,
           elicitForm: async () => {
             throw new Error('elicitForm must not be called')
+          },
+          elicitUrl: async () => {
+            throw new Error('elicitUrl must not be called')
           },
           setOutcome: (value) => {
             outcome = value
@@ -497,6 +512,253 @@ describe('execute — transport duties', () => {
     )
     expect(outcome).toBe('handoff')
     expect(spaceSlug).toBe('main')
+    expect(writes).toBe(0)
+  })
+
+  test('wikikit_review_proposal falls back to URL-mode elicitation when the client has no form', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: '',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let writes = 0
+    db.call = async () => {
+      writes += 1
+      return []
+    }
+    let outcome = ''
+    let captured: { request?: UrlElicitationRequest; proposalId?: string } = {}
+    const result = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal(),
+      { proposal_id: proposalId },
+      {
+        // No form → the URL consent is the best remaining in-protocol channel.
+        formElicitationSupported: false,
+        urlElicitationSupported: true,
+        elicitForm: async () => {
+          throw new Error('elicitForm must not be called without the form capability')
+        },
+        elicitUrl: async (request, opts) => {
+          captured = { request, proposalId: opts.proposalId }
+          return { action: 'accept' }
+        },
+        setOutcome: (value) => {
+          outcome = value
+        },
+        setSpaceSlug: () => {},
+      },
+    )
+    expect(result).toMatchObject({
+      proposal_id: proposalId,
+      status: 'pending',
+      outcome: 'url_review_started',
+      mutation_applied: false,
+      review_url: `https://wikikit.test/review/${proposalId}`,
+      poll_with: 'wikikit_proposals',
+    })
+    expect((result as { agent_instructions: string }).agent_instructions).toContain(
+      'notifications/elicitation/complete',
+    )
+    expect(captured.request!.mode).toBe('url')
+    expect(captured.request!.url).toBe(`https://wikikit.test/review/${proposalId}?via=elicitation`)
+    expect(captured.request!.elicitationId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(captured.request!.message).toContain(proposalId)
+    expect(captured.proposalId).toBe(proposalId)
+    // Accept only opened the page — the review lands later over REST.
+    expect(outcome).toBe('handoff')
+    expect(writes).toBe(0)
+  })
+
+  for (const [action, usage] of [
+    ['decline', 'rejected'],
+    ['cancel', 'cancelled'],
+  ] as const) {
+    test(`wikikit_review_proposal treats a URL-consent ${action} as a no-op that keeps the link`, async () => {
+      const proposalId = '11111111-1111-4111-8111-111111111111'
+      const db = stubDb({
+        wk_spaces: [{ id: 'space-1', slug: 'main' }],
+        wk_change_proposals: [
+          {
+            id: proposalId,
+            space_id: 'space-1',
+            status: 'pending',
+            title: 'Review me',
+            summary: '',
+            input_hash: 'a'.repeat(64),
+            source_ids: [],
+            agent_meta: {},
+            reviewer: null,
+            review_note: null,
+            review_channel: null,
+            reviewed_at: null,
+            created_at: '2026-07-21T08:00:00.000Z',
+          },
+        ],
+      })
+      let writes = 0
+      db.call = async () => {
+        writes += 1
+        return []
+      }
+      let outcome = ''
+      const result = await byName.wikikit_review_proposal!.execute(
+        deps({ db }),
+        principal(),
+        { proposal_id: proposalId },
+        {
+          formElicitationSupported: false,
+          urlElicitationSupported: true,
+          elicitForm: async () => {
+            throw new Error('elicitForm must not be called')
+          },
+          elicitUrl: async () => ({ action }),
+          setOutcome: (value) => {
+            outcome = value
+          },
+          setSpaceSlug: () => {},
+        },
+      )
+      expect(result).toEqual({
+        proposal_id: proposalId,
+        outcome: action,
+        mutation_applied: false,
+        review_url: `https://wikikit.test/review/${proposalId}`,
+      })
+      expect(outcome).toBe(usage)
+      expect(writes).toBe(0)
+    })
+  }
+
+  test('wikikit_review_proposal degrades an instant form cancel to the out-of-band hand-off', async () => {
+    // The observed failure mode: a client advertises elicitation.form but
+    // auto-cancels without rendering — indistinguishable from a human cancel
+    // except by time, so a sub-threshold cancel must NOT read as a decision.
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: '',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let writes = 0
+    db.call = async () => {
+      writes += 1
+      return []
+    }
+    let outcome = ''
+    const result = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal(),
+      { proposal_id: proposalId },
+      {
+        formElicitationSupported: true,
+        urlElicitationSupported: false,
+        elicitForm: async () => ({ action: 'cancel' }),
+        elicitUrl: async () => {
+          throw new Error('elicitUrl must not be called')
+        },
+        setOutcome: (value) => {
+          outcome = value
+        },
+        setSpaceSlug: () => {},
+      },
+    )
+    expect(result).toMatchObject({
+      proposal_id: proposalId,
+      status: 'pending',
+      outcome: 'human_review_required',
+      mutation_applied: false,
+      review_url: `https://wikikit.test/review/${proposalId}`,
+    })
+    expect((result as { agent_instructions: string }).agent_instructions).toContain(
+      'cancelled the review form immediately',
+    )
+    expect(outcome).toBe('handoff')
+    expect(writes).toBe(0)
+  })
+
+  test('an instant form cancel falls back to the URL consent when the client also supports elicitation.url', async () => {
+    const proposalId = '11111111-1111-4111-8111-111111111111'
+    const db = stubDb({
+      wk_spaces: [{ id: 'space-1', slug: 'main' }],
+      wk_change_proposals: [
+        {
+          id: proposalId,
+          space_id: 'space-1',
+          status: 'pending',
+          title: 'Review me',
+          summary: '',
+          input_hash: 'a'.repeat(64),
+          source_ids: [],
+          agent_meta: {},
+          reviewer: null,
+          review_note: null,
+          review_channel: null,
+          reviewed_at: null,
+          created_at: '2026-07-21T08:00:00.000Z',
+        },
+      ],
+    })
+    let writes = 0
+    db.call = async () => {
+      writes += 1
+      return []
+    }
+    let urlCalls = 0
+    const result = await byName.wikikit_review_proposal!.execute(
+      deps({ db }),
+      principal(),
+      { proposal_id: proposalId },
+      {
+        formElicitationSupported: true,
+        urlElicitationSupported: true,
+        elicitForm: async () => ({ action: 'cancel' }),
+        elicitUrl: async () => {
+          urlCalls += 1
+          return { action: 'accept' }
+        },
+        setOutcome: () => {},
+        setSpaceSlug: () => {},
+      },
+    )
+    expect(urlCalls).toBe(1)
+    expect(result).toMatchObject({
+      proposal_id: proposalId,
+      status: 'pending',
+      outcome: 'url_review_started',
+      mutation_applied: false,
+    })
     expect(writes).toBe(0)
   })
 

@@ -134,6 +134,9 @@ export function renderReviewPage(proposalId: string): string {
 <script>
 "use strict";
 const PROPOSAL_ID = ${JSON.stringify(proposalId)};
+// Channel provenance only (audit trail: url_elicitation instead of rest) —
+// no auth effect; the reviewer key is still the only identity.
+const VIA = new URLSearchParams(location.search).get("via") === "elicitation" ? "url_elicitation" : null;
 const lineDiff = ${lineDiff.toString()};
 const $ = (id) => document.getElementById(id);
 $("pid").textContent = PROPOSAL_ID;
@@ -275,7 +278,7 @@ async function decide(action) {
   const prompt = action === "approve" ? "Approve and publish this change?" : action === "reject" ? "Reject this change?" : "Reject with your note as the revision brief?";
   if (!confirm(prompt)) return;
   try {
-    const result = await api("/v1/proposals/" + PROPOSAL_ID + "/" + action, { method: "POST", body: JSON.stringify(noteValue ? { note: noteValue } : {}) });
+    const result = await api("/v1/proposals/" + PROPOSAL_ID + "/" + action, { method: "POST", body: JSON.stringify({ ...(noteValue ? { note: noteValue } : {}), ...(VIA ? { via: VIA } : {}) }) });
     $("decide").hidden = true;
     note("Done: " + result.status + (result.changes_requested ? " (changes requested)" : "") + " (review_channel " + result.review_channel + "). You can close this page; the agent sees the outcome via wikikit_proposals.");
   } catch (error) { fail(error.message); }

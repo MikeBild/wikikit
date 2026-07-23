@@ -221,13 +221,21 @@ curl -s -X POST "$WK/v1/proposals/<id>/approve" \
 
 The MCP review tools enforce the boundary directly. First inspect the complete
 diff with `wikikit_proposals`, then call `wikikit_review_proposal` with only
-`proposal_id`. On a form-capable client WikiKit opens a native form; the human
-selects approve/reject and may add the audit note. The agent cannot pass the
-decision — `decision`/`note` as tool input are refused with
-`approval_requires_human`. Decline, cancel, timeout, or invalid form data
-leaves the proposal pending.
+`proposal_id`. On a form-capable client — the primary channel; in Claude Code
+or Codex that is the native in-terminal review dialog — WikiKit opens the
+form and the human selects approve/reject and may add the audit note. The
+agent cannot pass the decision — `decision`/`note` as tool input are refused
+with `approval_requires_human`. Decline, cancel, timeout, or invalid form
+data leaves the proposal pending. Only when the form is unavailable or the
+client provably never renders it (an instant auto-cancel) does the review
+fall back: with `elicitation.url` the human consents to open WikiKit's review
+page in their browser; the tool returns `outcome: "url_review_started"`
+without blocking, the decision lands on the page with the reviewer's own key
+(audited as `review_channel: "url_elicitation"`), and the server signals
+`notifications/elicitation/complete` — `wikikit_proposals` remains the
+polling fallback.
 
-On a client without form elicitation the tool returns
+On a client without any elicitation the tool returns
 `outcome: "human_review_required"` with a `review_url` instead: the proposal
 stays pending, the agent gives the user that link — WikiKit's embedded review
 page, where the human decides with their own reviewer key — and checks
@@ -248,8 +256,8 @@ approvals_reviewer = "user"
 Claude Code 2.1.76+ is a supported review host. Treat ChatGPT as conditional:
 reconnect the connector and run a form-capability canary; without native form
 elicitation the review hands off to an out-of-band human as described above.
-Successful audits distinguish `mcp_elicitation` from `rest` in
-`review_channel`.
+Successful audits distinguish `url_elicitation`, `mcp_elicitation` and `rest`
+in `review_channel`.
 
 ## Troubleshooting
 

@@ -555,7 +555,15 @@ export const zProposalDetailResponse = z.object({
   relations_removed: z.array(z.object({ from_slug: z.string(), to_slug: z.string(), kind: z.string() })),
 })
 
-export const zReviewRequest = z.object({ note: z.string().max(2000).optional() }).default({})
+export const zReviewRequest = z
+  .object({
+    note: z.string().max(2000).optional(),
+    // Channel provenance only, no auth effect: the review page sends this when
+    // it was opened through a URL-mode MCP elicitation, so the audit trail
+    // records url_elicitation instead of a bare rest.
+    via: z.enum(['url_elicitation']).optional(),
+  })
+  .default({})
 
 export const zProposalReviewResponse = z.discriminatedUnion('status', [
   z.object({
@@ -590,6 +598,7 @@ export const zRequestChangesRequest = z.object({
   // Mandatory: the note IS the requested change — a bounce without guidance
   // is just a reject.
   note: z.string().min(1).max(2000),
+  via: z.enum(['url_elicitation']).optional(),
 })
 
 export const zRequestChangesResponse = z.object({

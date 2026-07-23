@@ -32,7 +32,7 @@ import { RELATION_KINDS, type RelationKind } from './relations.ts'
 import { clampLimit, isoString, resolveChunkCitation, sha256Hex } from './sources.ts'
 
 export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'split'
-export const REVIEW_CHANNELS = ['rest', 'mcp_elicitation'] as const
+export const REVIEW_CHANNELS = ['rest', 'mcp_elicitation', 'url_elicitation'] as const
 export type ReviewChannel = (typeof REVIEW_CHANNELS)[number]
 
 export interface ProposalSummary {

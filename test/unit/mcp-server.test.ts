@@ -215,7 +215,8 @@ describe('createMcpMount', () => {
     // The load-bearing half of the contract: the agent cannot own the review decision.
     expect(result.instructions).toContain('wikikit_search')
     expect(result.instructions).toContain('wikikit_review_proposal')
-    expect(result.instructions).toContain('the agent must never supply, infer, or relay that decision')
+    expect(result.instructions).toContain('the agent must never supply, infer, or relay the decision')
+    expect(result.instructions).toContain('url_review_started')
     expect(result.instructions).toContain('human_review_required')
     expect(result.instructions).toContain('leaves the proposal pending')
     mount.stop()

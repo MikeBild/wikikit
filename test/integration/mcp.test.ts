@@ -7,7 +7,11 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { createServer, type Server as NodeServer } from 'node:http'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { ElicitRequestSchema, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
+import {
+  ElicitRequestSchema,
+  ElicitationCompleteNotificationSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from '@modelcontextprotocol/sdk/types.js'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
@@ -16,6 +20,7 @@ import { approveProposal, computeInputHash, createProposal } from '../../src/dom
 import { createIngestPipeline, type IngestPipeline } from '../../src/ingest/pipeline.ts'
 import { createFakeProvider } from '../../src/llm/fake.ts'
 import { createLogger } from '../../src/logger.ts'
+import { createElicitationRegistry, type ElicitationRegistry } from '../../src/mcp/elicitation-registry.ts'
 import { createMcpMount, toNodeRawHandler, type McpMount } from '../../src/mcp/server.ts'
 import type { Principal } from '../../src/mcp/tools.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
@@ -35,6 +40,7 @@ let database: Database
 let db: Db
 let ingest: IngestPipeline
 let mount: McpMount
+let reviewElicitations: ElicitationRegistry
 let spaceId: string
 let nodeServer: NodeServer
 let liveMcpUrl: string
@@ -163,6 +169,7 @@ describe('MCP server (integration)', () => {
       },
       logger,
       usage,
+      reviewElicitations: (reviewElicitations = createElicitationRegistry({ logger })),
     })
     nodeServer = createServer((req, res) => void toNodeRawHandler(mount)(req, res))
     await new Promise<void>((resolve) => nodeServer.listen(0, '127.0.0.1', resolve))
@@ -404,6 +411,104 @@ describe('MCP server (integration)', () => {
       limit: 1,
     })
     expect(stillPending).toMatchObject({ status: 'pending', review_channel: null })
+  })
+
+  it('URL-mode elicitation starts an out-of-band review and signals completion when the decision lands', async () => {
+    const staged = await createProposal(db, spaceId, {
+      title: 'URL review integration',
+      input_hash: computeInputHash(['url-mcp-review'], 'manual'),
+      agent_meta: { model: 'manual', prompt_version: 'manual' },
+      decisions: [
+        {
+          slug: 'url-mcp-review',
+          title: 'URL review',
+          context: 'The client supports elicitation.url.',
+          decision: 'Review lands on the browser page, not in the client.',
+        },
+      ],
+    })
+
+    // URL-only client — the form stays the primary channel, so URL mode only
+    // engages when the client cannot present a form at all.
+    const client = new Client(
+      { name: 'wikikit-url-elicitation-itest', version: '1' },
+      { capabilities: { elicitation: { url: {} } } },
+    )
+    let urlRequests = 0
+    let elicitationId = ''
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      urlRequests += 1
+      expect(request.params.mode).toBe('url')
+      if (request.params.mode !== 'url') return { action: 'cancel' }
+      expect(request.params.url).toBe(`${BASE}/review/${staged.proposal_id}?via=elicitation`)
+      expect(request.params.message).toContain(staged.proposal_id)
+      elicitationId = request.params.elicitationId
+      // Consent only: the user opens the page; no decision travels here.
+      return { action: 'accept' }
+    })
+    const completed: string[] = []
+    client.setNotificationHandler(ElicitationCompleteNotificationSchema, async (notification) => {
+      completed.push(notification.params.elicitationId)
+    })
+    const transport = new StreamableHTTPClientTransport(new URL(liveMcpUrl), {
+      requestInit: { headers: { authorization: 'Bearer wk_reviewer', 'x-wikikit-traffic-class': 'synthetic' } },
+    })
+    await client.connect(transport)
+    try {
+      const result = (await client.callTool({
+        name: 'wikikit_review_proposal',
+        arguments: { proposal_id: staged.proposal_id },
+      })) as { isError?: boolean; content: { type: string; text?: string }[] }
+      expect(result.isError).toBeFalsy()
+      const content = result.content.find((entry) => entry.type === 'text')
+      const payload = JSON.parse(content?.type === 'text' ? (content.text ?? '{}') : '{}') as Record<string, unknown>
+      expect(payload).toMatchObject({
+        proposal_id: staged.proposal_id,
+        status: 'pending',
+        outcome: 'url_review_started',
+        mutation_applied: false,
+        poll_with: 'wikikit_proposals',
+      })
+      expect(urlRequests).toBe(1)
+      expect(elicitationId).toBeTruthy()
+
+      // The proposal is untouched until the human decides on the page.
+      const [pending] = await db.select<{ status: string }>('wk_change_proposals', {
+        id: `eq.${staged.proposal_id}`,
+        limit: 1,
+      })
+      expect(pending).toMatchObject({ status: 'pending' })
+
+      // The review page drives the ordinary REST endpoints with via:
+      // 'url_elicitation'; the handler then fires the registry — exercised
+      // here exactly as routes.ts does it.
+      await approveProposal(db, {
+        id: staged.proposal_id,
+        reviewer: 'reviewer',
+        reviewChannel: 'url_elicitation',
+      })
+      await reviewElicitations.complete(staged.proposal_id)
+
+      // notifications/elicitation/complete arrives on the standalone GET stream.
+      const deadline = Date.now() + 5000
+      while (completed.length === 0 && Date.now() < deadline) await Bun.sleep(25)
+      expect(completed).toEqual([elicitationId])
+      expect(reviewElicitations.size()).toBe(0)
+    } finally {
+      await client.close()
+    }
+
+    const [reviewed] = await db.select<{ status: string; reviewer: string; review_channel: string }>(
+      'wk_change_proposals',
+      { id: `eq.${staged.proposal_id}`, limit: 1 },
+    )
+    expect(reviewed).toMatchObject({ status: 'approved', reviewer: 'reviewer', review_channel: 'url_elicitation' })
+    const event = await db.query<{ payload: Record<string, unknown> }>(
+      `SELECT payload FROM wk_outbox_events
+        WHERE event_type = 'wikikit.proposal.approved' AND payload->>'proposal_id' = $1`,
+      [staged.proposal_id],
+    )
+    expect(event.rows[0]!.payload.review_channel).toBe('url_elicitation')
   })
 
   it('refuses decision/note as review tool input with approval_requires_human', async () => {

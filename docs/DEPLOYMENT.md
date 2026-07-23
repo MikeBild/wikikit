@@ -63,8 +63,9 @@ copy or execute SQL files. A migration failure aborts startup and keeps
   origin (it feeds the MCP Origin allowlist).
 - **Scoped keys, not the bootstrap key:** mint separate `knowledge:read`,
   `knowledge:propose` and `knowledge:approve` keys via `POST /v1/api-keys`;
-  never hand the approve scope to an autonomous agent. A review host must
-  support native MCP form elicitation; set
+  never hand the approve scope to an autonomous agent. A review host should
+  support MCP elicitation — form mode (primary; the in-client review dialog)
+  with URL mode as the browser fallback; set
   `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS` only when the five-minute default is
   unsuitable.
 - **SSRF guard on:** leave `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` unset (production
@@ -123,14 +124,19 @@ into place atomically (keep a `.prev` for rollback), restart the unit, then
 gate on `/ready` returning `ready` **and** the new version within 90 s —
 otherwise restore `.prev` and restart. Smoke-test `/health`, `/ready`,
 `/openapi.json`, `/llms.txt`, a 401-without-key, an authenticated read and an
-MCP initialize. For this release, also run a native review-form canary against
-a disposable pending proposal: inspect the full diff, cancel once and prove it
-remains pending, then accept once and prove the proposal plus webhook payload
-record `review_channel: "mcp_elicitation"`. A client without form capability
-must receive `outcome: "human_review_required"` with a working `review_url`
-(the `/review/{id}` page loads and, with a reviewer key, shows the diff) and
-perform no mutation, and `decision`/`note` passed as tool input must be
-refused with `approval_requires_human`.
+MCP initialize. For this release, also run a review canary against a
+disposable pending proposal on each channel the client supports. Form mode
+(primary): inspect the full diff, cancel once and prove it remains pending,
+then accept once and prove `review_channel: "mcp_elicitation"`. URL fallback
+(clients advertising `elicitation.url` without a working form): start the
+review, prove the tool answers `url_review_started` without mutating, decide
+on the `/review/{id}` page and prove the proposal plus webhook payload record
+`review_channel: "url_elicitation"` and that the client receives
+`notifications/elicitation/complete`. A client without any elicitation
+capability must receive `outcome: "human_review_required"` with a working
+`review_url` (the `/review/{id}` page loads and, with a reviewer key, shows
+the diff) and perform no mutation, and `decision`/`note` passed as tool input
+must be refused with `approval_requires_human`.
 
 ## Logging & metrics
 
@@ -156,7 +162,8 @@ without dropping its migration or breaking the operational stats APIs.
 
 ### Interactive-review compatibility canary
 
-Gate MCP HITL support per deployed client, not by product name alone:
+Gate MCP HITL support per deployed client, not by product name alone. The
+native form is the primary channel and stays version-sensitive:
 
 - Codex: configure `approval_policy = { granular = { mcp_elicitations = true } }`
   and `approvals_reviewer = "user"`; run cancel and accept canaries.
@@ -164,8 +171,13 @@ Gate MCP HITL support per deployed client, not by product name alone:
 - ChatGPT: reconnect/rescan after deployment and treat support as conditional
   until the connector advertises form elicitation and passes the canaries.
 
-The server must never mutate for an unsupported client: the review answers
-`human_review_required` and the proposal stays pending. REST remains the
+A client additionally advertising `elicitation.url` (2025-11-25) gains the
+browser fallback — a yes/no consent plus the review page — used only when the
+form is unavailable or provably unrendered; canary it separately. The server
+must never mutate for an unsupported client: the review answers
+`human_review_required` and the proposal stays pending. A form-capable client
+that auto-cancels the form immediately (advertised but unrendered) falls back
+to URL mode or the hand-off instead of being read as a human cancel. REST remains the
 fallback for a trusted human acting as themselves; an agent-held credential
 may execute the human's explicit chat instruction only when the operator
 deliberately granted it `knowledge:approve`. Rollback to v0.4 remains schema-compatible because the

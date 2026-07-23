@@ -124,6 +124,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "enum": [
                 "rest",
                 "mcp_elicitation",
+                "url_elicitation",
               ],
               "type": "string",
             },
@@ -186,6 +187,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "enum": [
                 "rest",
                 "mcp_elicitation",
+                "url_elicitation",
               ],
               "type": "string",
             },
@@ -484,6 +486,7 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
               "enum": [
                 "rest",
                 "mcp_elicitation",
+                "url_elicitation",
               ],
               "type": "string",
             },
@@ -633,6 +636,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.approved
       "enum": [
         "rest",
         "mcp_elicitation",
+        "url_elicitation",
       ],
       "type": "string",
     },
@@ -688,6 +692,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.rejected
       "enum": [
         "rest",
         "mcp_elicitation",
+        "url_elicitation",
       ],
       "type": "string",
     },
@@ -951,6 +956,7 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.changes_
       "enum": [
         "rest",
         "mcp_elicitation",
+        "url_elicitation",
       ],
       "type": "string",
     },

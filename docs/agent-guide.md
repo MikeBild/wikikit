@@ -138,10 +138,10 @@ should call `wikikit_guide` once when it needs the operating model.
 
 ## Interactive human review over MCP
 
-Three review journeys exist. Which one applies depends on who is acting and
+Four review journeys exist. Which one applies depends on who is acting and
 what the connected client can do — never on what the agent would prefer.
 
-### Journey 1 — client with native form elicitation
+### Journey 1 — client with native form elicitation (primary)
 
 Before review, use `wikikit_proposals` with `proposal_id` to inspect the full
 structured diff. Then call `wikikit_review_proposal` with that id only. WikiKit
@@ -165,13 +165,33 @@ approvals_reviewer = "user"
 
 Claude Code must be 2.1.76 or newer. ChatGPT connectors follow this journey
 only when the active connector advertises native form elicitation; reconnect
-after upgrades and test the capability.
+after upgrades and test the capability. A client that advertises the form but
+auto-cancels it without rendering (an instant cancel) falls back to Journey 2
+if it also advertises `elicitation.url`, else to the Journey 3 hand-off —
+never read as a human cancel.
 
-### Journey 2 — client without form elicitation
+### Journey 2 — URL-mode fallback (browser review page)
 
-If the client does not advertise `elicitation.form`, `wikikit_review_proposal`
-performs no mutation and returns `outcome: "human_review_required"` with the
-proposal still pending and a `review_url`. The correct journey is:
+On a client that advertises `elicitation.url` (MCP 2025-11-25) but cannot
+present the form — no `elicitation.form`, or the form provably never rendered
+— `wikikit_review_proposal` asks the user for a single consent to open
+WikiKit's review page in their browser and returns
+`outcome: "url_review_started"` immediately; no tool call blocks on the human.
+The page shows the full diff, lint, sources, defer and request-changes; the
+human decides there with their own reviewer credential, and the review is
+audited as `review_channel: "url_elicitation"`. When the decision lands, the
+server sends `notifications/elicitation/complete`; until then (or if the
+notification never arrives) check `wikikit_proposals` for the recorded
+outcome. Declining or cancelling the consent changes nothing — the
+`review_url` still travels in the result so the user can pick the review up
+later.
+
+### Journey 3 — client without elicitation
+
+If the client advertises neither `elicitation.url` nor `elicitation.form`,
+`wikikit_review_proposal` performs no mutation and returns
+`outcome: "human_review_required"` with the proposal still pending and a
+`review_url`. The correct journey is:
 
 1. Give the user the `review_url`. It opens WikiKit's embedded review page,
    where they inspect the change and approve or reject it themselves with
@@ -199,7 +219,7 @@ suggests, or defaults on its own; audits record the key name and
 `review_channel: "rest"`. Do not grant this scope to connectors whose
 conversations you do not fully control.
 
-### Journey 3 — human operator over REST
+### Journey 4 — human operator over REST
 
 A trusted human can inspect the same diff and approve or reject over the REST
 endpoints using a credential issued to that person; such reviews record

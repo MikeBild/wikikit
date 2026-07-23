@@ -59,8 +59,9 @@ Key invariants:
   with ingest/propose; a principal with `knowledge:review` reads the complete
   diff — including every staged decision with its context, rationale and
   alternatives — through `wikikit_proposals`. The agent passes only the
-  proposal id to `wikikit_review_proposal`; WikiKit then asks the human for
-  approve/reject and an optional note through native MCP form elicitation.
+  proposal id to `wikikit_review_proposal`; WikiKit then puts the decision in
+  the human's hands through native MCP elicitation — the in-client form as the
+  primary channel, with URL mode (the browser review page) as the fallback.
 
 ---
 
@@ -411,15 +412,35 @@ scope the key holds — a `knowledge:read` key sees only the read tools.
 demand `knowledge:approve`, so a review-scoped agent key can never approve
 over HTTP. The review tool accepts only `{proposal_id}` — passing
 `decision` or `note` as arguments is refused with `approval_requires_human`
-before anything else happens. On a form-capable client it issues a native
-`elicitation/create` form for the human-owned decision and optional note.
-Accepted forms perform the atomic write and persist
-`review_channel:"mcp_elicitation"`; decline, cancel, timeout, invalid data or
-transport failure performs no mutation. The POST response stays on the
-event-stream transport so the server can originate the form request while the
-tool call is in flight.
+before anything else happens.
 
-On a client without `capabilities.elicitation.form` the tool performs no
+On a client advertising `capabilities.elicitation.form` — the primary channel;
+in a terminal client this is the in-terminal review dialog — the tool issues a
+native `elicitation/create` form for the human-owned decision and optional
+note. Accepted forms perform the atomic write and persist
+`review_channel:"mcp_elicitation"`; decline, cancel, timeout, invalid data or
+transport failure performs no mutation. A cancel arriving faster than a human
+could read the form (the client advertised the capability but never rendered
+it) falls back — to URL mode if advertised, else to the
+`human_review_required` hand-off below — instead of being reported as a human
+cancel. The POST response stays on the event-stream transport so the server
+can originate the elicitation request while the tool call is in flight.
+
+On a client advertising `capabilities.elicitation.url` (MCP 2025-11-25) whose
+form is unavailable or provably unrendered, the tool falls back to URL mode:
+it issues `elicitation/create` with `mode:"url"`, an `elicitationId` and the
+review-page URL (`GET /review/{id}?via=elicitation`). Accepting is consent to
+open the page, nothing more — the tool returns
+`{proposal_id, status:"pending", outcome:"url_review_started", review_url,
+mutation_applied:false, poll_with:"wikikit_proposals", agent_instructions}`
+immediately, and the human decides on the page with their own reviewer key.
+That review is audited as `review_channel:"url_elicitation"`, and the server
+sends `notifications/elicitation/complete` with the `elicitationId` on the
+originating session (best-effort — polling `wikikit_proposals` remains the
+durable path). Declining or cancelling the consent performs no mutation and
+still returns the `review_url`.
+
+On a client without any elicitation capability the tool performs no
 mutation and returns a hand-off instead of an error:
 `{proposal_id, status:"pending", outcome:"human_review_required",
 review_url, mutation_applied:false, poll_with:"wikikit_proposals",
@@ -432,10 +453,11 @@ human's behalf. A key the operator deliberately granted `knowledge:approve`
 is additionally instructed that it may execute the user's clearly stated
 approve/reject instruction over REST, quoting it in the audit note.
 
-Elicitation is synchronous and bounded by
-`WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`. The pending proposal is already the
-durable workflow object, so WikiKit deliberately adds no MCP task, external
-elicitation URL or dialog lease. A reviewer can retry later.
+Form elicitation is synchronous and bounded by
+`WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`; the URL-mode consent uses the same
+bound, but the review itself is out of band and unbounded. The pending
+proposal is already the durable workflow object, so WikiKit deliberately adds
+no MCP task or dialog lease. A reviewer can retry later.
 
 **Coding-agent loop** (`docs/coding-agent-integration.md`): an optional
 SessionStart hook injects only a compact briefing, and UserPromptSubmit selects
@@ -478,7 +500,7 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
 | `wikikit_proposals` | knowledge:review | List proposals or inspect one complete structured diff | true | false | true | false |
-| `wikikit_review_proposal` | knowledge:review | Input `{proposal_id}` only; native human form owns the decision; accepted review writes, decline/cancel are no-ops; no form capability → `human_review_required` hand-off with `review_url`; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
+| `wikikit_review_proposal` | knowledge:review | Input `{proposal_id}` only; the human owns the decision — native form first (the in-client dialog); URL-mode fallback when the form is unavailable or unrendered (`url_review_started`, decision on the review page, completion notification); accepted review writes, decline/cancel are no-ops; no elicitation capability → `human_review_required` hand-off with `review_url`; `decision`/`note` as input → `approval_requires_human` | false | true | false | false |
 
 Annotation rationale (fixed): writes are `destructiveHint: true` even though
 they only stage content — an honest write is a write. `idempotentHint: true`
@@ -489,14 +511,16 @@ only on `wikikit_ingest` (a `url` input fetches an external host).
 Connect any MCP host over Streamable HTTP at `https://<host>/mcp`, using OAuth
 or a narrow Bearer `wk_` key with the required knowledge scopes.
 
-For Codex, set
+The native form is the primary review channel. For Codex, set
 `approval_policy = { granular = { mcp_elicitations = true } }` and
 `approvals_reviewer = "user"`. Claude Code requires 2.1.76 or newer. ChatGPT
 review support is conditional on the active connector advertising native form
-elicitation; reconnect and run a canary after deployment. Without that
-capability the review hands off (`human_review_required` with a
-`review_url`): the human opens the review page and decides there as
-themselves, and the agent reports the outcome from `wikikit_proposals`.
+elicitation; reconnect and run a canary after deployment. A client advertising
+`elicitation.url` gains the browser fallback for exactly the cases where the
+form is unavailable or unrendered. Without any elicitation capability the
+review hands off (`human_review_required` with a `review_url`): the human
+opens the review page and decides there as themselves, and the agent reports
+the outcome from `wikikit_proposals`.
 
 ---
 

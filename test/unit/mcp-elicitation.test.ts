@@ -5,6 +5,7 @@ import type { ProposalWireDetail } from '../../src/domain/proposals.ts'
 import {
   REVIEW_NOTE_MAX_LENGTH,
   elicitProposalReview,
+  urlReviewRequest,
   type FormElicitationRequest,
   type FormElicitationResult,
 } from '../../src/mcp/elicitation.ts'
@@ -108,5 +109,36 @@ describe('native proposal review elicitation', () => {
       }, proposal),
     ).rejects.toBeInstanceOf(InvalidElicitationResponseError)
     expect(calls).toBe(2)
+  })
+})
+
+describe('URL-mode review elicitation (2025-11-25)', () => {
+  const reviewUrl = 'https://wikikit.test/review/11111111-1111-4111-8111-111111111111?via=elicitation'
+  const elicitationId = '99999999-9999-4999-8999-999999999999'
+
+  test('builds a spec-shaped url request whose message carries the change summary', () => {
+    const request = urlReviewRequest(proposal, reviewUrl, elicitationId)
+    expect(request.mode).toBe('url')
+    expect(request.elicitationId).toBe(elicitationId)
+    expect(request.url).toBe(reviewUrl)
+    expect(request.message).toContain(proposal.id)
+    expect(request.message).toContain('1 concept(s)')
+    expect(request.message).toContain('review page')
+    expect(request.message).toContain('the proposal stays pending')
+  })
+
+  test('the url is never pre-authenticated — no credential material beyond the public review path', () => {
+    const request = urlReviewRequest(proposal, reviewUrl, elicitationId)
+    expect(request.url).not.toMatch(/token|key|secret|bearer/i)
+  })
+
+  test('relation removals are spelled out in the consent message too', () => {
+    const request = urlReviewRequest(
+      { ...proposal, relations_removed: [{ from_slug: 'alpha', to_slug: 'legacy-store', kind: 'depends_on' }] },
+      reviewUrl,
+      elicitationId,
+    )
+    expect(request.message).toContain('DEACTIVATES 1 active relation(s)')
+    expect(request.message).toContain('alpha depends_on → legacy-store')
   })
 })
