@@ -36,7 +36,10 @@ command -v jq >/dev/null 2>&1 || { log "jq not installed"; exit 0; }
 
 payload=$(cat 2>/dev/null) || exit 0
 transcript_path=$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)
-[ -n "$transcript_path" ] && [ -r "$transcript_path" ] || { log "no readable transcript_path"; exit 0; }
+if [ -z "$transcript_path" ] || [ ! -r "$transcript_path" ]; then
+  log "no readable transcript_path"
+  exit 0
+fi
 
 # Common agent hosts write JSONL, one message per line. Flatten to plain text and keep
 # the TAIL: corrections skew late ("no — always do X"), so the head is the part
