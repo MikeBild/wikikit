@@ -27,13 +27,13 @@
     "gen:migrations": "bun scripts/gen-embedded-migrations.ts"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.15",
-    "@ai-sdk/google": "^4.0.17",
-    "@ai-sdk/openai": "^4.0.15",
+    "@ai-sdk/anthropic": "^4.0.19",
+    "@ai-sdk/google": "^4.0.23",
+    "@ai-sdk/openai": "^4.0.20",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "ai": "^7.0.29",
+    "ai": "^7.0.37",
     "exceljs": "^4.4.0",
-    "jose": "^6.1.0",
+    "jose": "^6.2.4",
     "mammoth": "^1.12.0",
     "openid-client": "^6.8.4",
     "pg": "^8.16.3",
@@ -56,9 +56,9 @@
     "eslint": "^9.30.0",
     "globals": "^16.0.0",
     "pdf-lib": "^1.17.1",
-    "prettier": "^3.6.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.8.0",
-    "typescript-eslint": "^8.35.0"
+    "typescript-eslint": "^8.65.0"
   },
   "author": "Mike Bild <mike@mikebild.com>",
   "repository": {
