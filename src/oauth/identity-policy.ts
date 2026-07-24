@@ -25,43 +25,6 @@ export function isOidcIdentityAllowed(
   )
 }
 
-/** Who owns a wk_oauth_identities row (0028). AuthZ never branches on it
- *  beyond the transitional NULL-ceiling inheritance for 'bootstrap' rows. */
-export type IdentityGrantSource = 'admin' | 'seed' | 'signup' | 'bootstrap'
-
-export interface IdentityGrantRow {
-  email: string | null
-  allowed_scopes: string[] | null
-  grant_source: IdentityGrantSource | string
-}
-
-/**
- * Per-identity permission ceiling for a wk_oauth_identities row, or null when
- * the identity is not admitted. Since 0028 the ROW is the single AuthZ truth:
- * a stored allowed_scopes array IS the ceiling, regardless of the ENV
- * allowlist — an operator-managed ('admin'/'seed') grant always wins over the
- * allowlist. Only a 'bootstrap' row that still carries NULL scopes (written
- * before 0028 mirrored the allowlist into the row) transitionally inherits
- * the provider's allowedScopes, and only while the identity is actually
- * allowlisted. Callers filter revoked_at themselves (revoked rows never reach
- * this function) — a revoked row denies, allowlist or not.
- */
-export function oidcIdentityScopeCeiling(
-  provider: OidcProviderConfig,
-  subject: string,
-  row: IdentityGrantRow | undefined,
-): string[] | null {
-  if (!row) return null
-  if (row.allowed_scopes?.length) return row.allowed_scopes
-  if (
-    row.grant_source === 'bootstrap' &&
-    isOidcIdentityAllowed(provider, subject, row.email ? row.email.toLowerCase() : null)
-  ) {
-    return provider.allowedScopes
-  }
-  return null
-}
-
 export function oidcIdentityFromClaims(
   provider: OidcProviderConfig,
   claims: { sub?: unknown; email?: unknown; email_verified?: unknown } | undefined,

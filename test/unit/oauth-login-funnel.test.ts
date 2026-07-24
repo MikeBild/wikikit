@@ -71,7 +71,7 @@ function stubDb(options: {
   recoverable?: Pick<StateRow, 'client_id' | 'redirect_uri' | 'client_state'> | null
   clients?: (typeof CLIENT_ROW)[]
   /** Registered wk_oauth_identities row served to the callback admission logic. */
-  identity?: { email: string | null; allowed_scopes: string[] | null; revoked_at: string | null } | null
+  identity?: { email: string | null; allowed_scopes: string[]; revoked_at: string | null } | null
 }) {
   const inserts: { table: string; body: Record<string, unknown> }[] = []
   const updates: { table: string; body: Record<string, unknown> }[] = []
@@ -410,7 +410,11 @@ describe('signup switch at the SSO callback (WIKIKIT_OAUTH_ENABLE_SIGNUP)', () =
     finishIdentity = { subject: 'any-subject', email: 'mike@example.com' }
     const { db, queries } = stubDb({
       live: ssoState(),
-      identity: { email: 'mike@example.com', allowed_scopes: null, revoked_at: new Date().toISOString() },
+      identity: {
+        email: 'mike@example.com',
+        allowed_scopes: ['knowledge:read', 'knowledge:propose'],
+        revoked_at: new Date().toISOString(),
+      },
     })
     const base = await boot(db)
     const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)

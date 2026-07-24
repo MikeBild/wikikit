@@ -11,12 +11,7 @@ import { cutScopesToCeiling, hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
-import {
-  isOidcIdentityAllowed,
-  OIDC_SIGNUP_SCOPES,
-  oidcIdentityScopeCeiling,
-  type OidcIdentity,
-} from './identity-policy.ts'
+import { isOidcIdentityAllowed, OIDC_SIGNUP_SCOPES, type OidcIdentity } from './identity-policy.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
 import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderErrorPage, renderProviderChoice } from './ui.ts'
 
@@ -354,8 +349,10 @@ export function publicLoginProviders(config: Pick<Config, 'oauthProviders'>): Ar
 }
 
 // Per-identity permission ceiling: the wk_oauth_identities row is the single
-// AuthZ truth (0028). null = the identity is not (or no longer) admitted; a
-// revoked row denies here regardless of the ENV allowlist.
+// AuthZ truth (0028, NOT NULL since 0030) — the stored allowed_scopes array
+// IS the ceiling. null = the identity is not (or no longer) admitted; a
+// revoked row (or an empty ceiling) denies here regardless of the ENV
+// allowlist.
 async function identityCeiling(
   db: Db,
   config: Config,
@@ -364,13 +361,14 @@ async function identityCeiling(
 ): Promise<string[] | null> {
   const provider = oidcProvider(config, providerId)
   if (!provider || !subject) return null
-  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
-    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
+  const { rows } = await db.query<{ allowed_scopes: string[] }>(
+    `SELECT allowed_scopes FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
     [provider.id, subject],
   )
-  return oidcIdentityScopeCeiling(provider, subject, rows[0])
+  const ceiling = rows[0]?.allowed_scopes
+  return ceiling?.length ? ceiling : null
 }
 
 async function identityGrantIsCurrent(
@@ -409,7 +407,7 @@ async function admitOidcCallbackIdentity(
   identity: OidcIdentity,
 ): Promise<string[] | null> {
   const { rows } = await db.query<{
-    allowed_scopes: string[] | null
+    allowed_scopes: string[]
     revoked_at: Date | string | null
     grant_source: string
   }>(
@@ -438,7 +436,7 @@ async function admitOidcCallbackIdentity(
     return provider.allowedScopes
   }
   if (registered) {
-    if (!registered.allowed_scopes?.length) return null
+    if (registered.allowed_scopes.length === 0) return null
     await db.query(
       `UPDATE wk_oauth_identities SET email = $3, last_seen_at = now()
         WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL`,

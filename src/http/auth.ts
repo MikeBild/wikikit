@@ -20,7 +20,6 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../domain/errors.ts'
 import type { Logger } from '../logger.ts'
-import { oidcIdentityScopeCeiling } from '../oauth/identity-policy.ts'
 import type { Scope } from './routes.ts'
 
 export interface Principal {
@@ -135,8 +134,9 @@ interface OAuthTokenRow {
 /**
  * Current scope ceiling of a wk_oauth_identities grant, or null when the
  * identity is not (or no longer) admitted. The grant row is the single AuthZ
- * truth (0028): a revoked or deleted row denies on the next request,
- * whatever the ENV allowlist says.
+ * truth (0028, NOT NULL since 0030): the stored allowed_scopes array IS the
+ * ceiling — a revoked or deleted row (or an empty ceiling) denies on the
+ * next request, whatever the ENV allowlist says.
  */
 export async function liveIdentityCeiling(
   db: Db,
@@ -146,13 +146,14 @@ export async function liveIdentityCeiling(
 ): Promise<string[] | null> {
   const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
   if (!provider || provider.protocol !== 'oidc') return null
-  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
-    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
+  const { rows } = await db.query<{ allowed_scopes: string[] }>(
+    `SELECT allowed_scopes FROM wk_oauth_identities
       WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
       LIMIT 1`,
     [provider.id, subject],
   )
-  return oidcIdentityScopeCeiling(provider, subject, rows[0])
+  const ceiling = rows[0]?.allowed_scopes
+  return ceiling?.length ? ceiling : null
 }
 
 /**

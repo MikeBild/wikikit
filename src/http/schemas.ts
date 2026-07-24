@@ -777,8 +777,8 @@ export const zIdentityResponse = z.object({
   subject: z.string(),
   email: z.string().nullable(),
   display_name: z.string(),
-  /** The scope ceiling — the single stored AuthZ truth. null only on legacy bootstrap rows. */
-  allowed_scopes: z.array(z.string()).nullable(),
+  /** The scope ceiling — the single stored AuthZ truth (NOT NULL since 0030). */
+  allowed_scopes: z.array(z.string()),
   grant_source: z.enum(['admin', 'seed', 'signup', 'bootstrap']),
   created_at: z.string(),
   last_seen_at: z.string().nullable(),

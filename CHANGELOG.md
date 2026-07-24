@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.19.0 - 2026-07-24
+
+### Changed
+
+- **BREAKING**: `wk_oauth_identities.allowed_scopes` is now `NOT NULL`
+  (migration `0030_wk_identity_ceiling_not_null`) — the stored array IS the
+  identity's scope ceiling, full stop. The transitional pre-0028 NULL-ceiling
+  inheritance is retired: a `grant_source='bootstrap'` row with
+  `allowed_scopes=NULL` no longer inherits the provider's `allowed_scopes`
+  at runtime (`oidcIdentityScopeCeiling` is removed; the grant lookups read
+  the stored ceiling directly). Production carries no NULL rows (verified
+  2026-07-24; the allowlist bootstrap path has written explicit ceilings
+  since 0.18.0) — the migration still defensively backfills any stray NULL
+  row with the minimal `{knowledge:read}` ceiling, deliberately NOT the
+  provider set, which lives in runtime ENV config and is not available to
+  SQL. An operator raises a backfilled row over
+  `PUT /v1/identities/{provider}/{subject}`.
+- `allowed_scopes` in the `/v1/identities` responses is now non-nullable
+  (`string[]`), and the 0.18.1 `PUT` lockout guard simplifies accordingly:
+  it now refuses (`422 unprocessable`) a metadata-only update onto a grant
+  whose stored ceiling is an EMPTY array — an empty ceiling denies every
+  login and there is no allowlist inheritance left to fall back on.
+
 ## 0.18.1 - 2026-07-24
 
 ### Security

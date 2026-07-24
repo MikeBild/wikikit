@@ -1,11 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { OidcProviderConfig } from '../../src/config.ts'
-import {
-  isOidcIdentityAllowed,
-  OIDC_SIGNUP_SCOPES,
-  oidcIdentityFromClaims,
-  oidcIdentityScopeCeiling,
-} from '../../src/oauth/identity-policy.ts'
+import { isOidcIdentityAllowed, OIDC_SIGNUP_SCOPES, oidcIdentityFromClaims } from '../../src/oauth/identity-policy.ts'
 
 const provider: OidcProviderConfig = {
   protocol: 'oidc',
@@ -63,92 +58,10 @@ describe('OIDC identity policy', () => {
   })
 })
 
-describe('per-identity scope ceiling (the grant row is the single AuthZ truth)', () => {
-  test('an unregistered identity has no ceiling', () => {
-    expect(oidcIdentityScopeCeiling(provider, 'anyone', undefined)).toBeNull()
-  })
-
-  test('a pre-0028 bootstrap row without a mirrored ceiling inherits the provider allowed_scopes while allowlisted', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
-        email: null,
-        allowed_scopes: null,
-        grant_source: 'bootstrap',
-      }),
-    ).toEqual(provider.allowedScopes)
-    expect(
-      oidcIdentityScopeCeiling(provider, 'other', {
-        email: 'Reviewer@Example.Test',
-        allowed_scopes: null,
-        grant_source: 'bootstrap',
-      }),
-    ).toEqual(provider.allowedScopes)
-  })
-
-  test('an operator-managed grant beats the allowlist: the stored ceiling wins even for allowlisted subjects', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
-        email: null,
-        allowed_scopes: ['knowledge:read', 'knowledge:propose', 'knowledge:review'],
-        grant_source: 'admin',
-      }),
-    ).toEqual(['knowledge:read', 'knowledge:propose', 'knowledge:review'])
-    expect(
-      oidcIdentityScopeCeiling(provider, 'seeded-subject', {
-        email: null,
-        allowed_scopes: ['knowledge:read'],
-        grant_source: 'seed',
-      }),
-    ).toEqual(['knowledge:read'])
-  })
-
-  test('a mirrored bootstrap row is admitted through its stored ceiling', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
-        email: null,
-        allowed_scopes: ['knowledge:read'],
-        grant_source: 'bootstrap',
-      }),
-    ).toEqual(['knowledge:read'])
-  })
-
-  test('a signup identity is admitted through its own stored minimal ceiling', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'signup-subject', {
-        email: null,
-        allowed_scopes: ['knowledge:read'],
-        grant_source: 'signup',
-      }),
-    ).toEqual(['knowledge:read'])
-  })
-
-  test('a delisted identity without a per-row ceiling is not admitted', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'delisted-subject', {
-        email: null,
-        allowed_scopes: null,
-        grant_source: 'bootstrap',
-      }),
-    ).toBeNull()
-    expect(
-      oidcIdentityScopeCeiling(provider, 'delisted-subject', {
-        email: null,
-        allowed_scopes: [],
-        grant_source: 'bootstrap',
-      }),
-    ).toBeNull()
-  })
-
-  test('an empty non-bootstrap ceiling never falls back to the provider set, allowlisted or not', () => {
-    expect(
-      oidcIdentityScopeCeiling(provider, 'subject-without-email', {
-        email: null,
-        allowed_scopes: null,
-        grant_source: 'signup',
-      }),
-    ).toBeNull()
-  })
-
+describe('per-identity signup ceiling', () => {
+  // The scope-ceiling logic itself (the stored allowed_scopes array IS the
+  // ceiling, NOT NULL since 0030 — no allowlist inheritance) lives in the
+  // grant lookups and is covered by http-auth and oauth-login-funnel tests.
   test('the signup ceiling is exactly the minimal read role', () => {
     expect([...OIDC_SIGNUP_SCOPES]).toEqual(['knowledge:read'])
   })

@@ -593,21 +593,22 @@ describe('MCP OAuth 2.1 (integration)', () => {
       expect(((await restored.json()) as { revoked_at: null }).revoked_at).toBeNull()
       expect((await login()).status).toBe(200)
 
-      // PUT-NULL lockout guard: a metadata-only PUT keeps a stored ceiling …
+      // Lockout guard: a metadata-only PUT keeps a stored ceiling …
       const metaOnly = await putGrant({ email: 'still-managed@example.test' })
       expect(metaOnly.status).toBe(200)
       expect(((await metaOnly.json()) as { allowed_scopes: string[] }).allowed_scopes).toEqual(['knowledge:read'])
-      // … but on a bootstrap row WITHOUT a stored ceiling it would COALESCE
-      // allowed_scopes to NULL while stamping grant_source='admin' — a
-      // silent lockout, refused as 422.
+      // … but on a row whose stored ceiling is EMPTY (allowed_scopes is NOT
+      // NULL since 0030, but nothing forbids '{}') it would keep the empty
+      // array while stamping grant_source='admin' — a silent lockout,
+      // refused as 422.
       await app.database.db.insert('wk_oauth_identities', {
         provider: 'workforce',
-        provider_subject: 'null-ceiling-subject',
+        provider_subject: 'empty-ceiling-subject',
         email: null,
-        allowed_scopes: null,
+        allowed_scopes: [],
         grant_source: 'bootstrap',
       })
-      const lockout = await fetch(`${grantBase}/v1/identities/workforce/null-ceiling-subject`, {
+      const lockout = await fetch(`${grantBase}/v1/identities/workforce/empty-ceiling-subject`, {
         method: 'PUT',
         headers: admin,
         body: JSON.stringify({ display_name: 'no ceiling yet' }),
@@ -615,7 +616,7 @@ describe('MCP OAuth 2.1 (integration)', () => {
       expect(lockout.status).toBe(422)
       expect(
         (
-          await fetch(`${grantBase}/v1/identities/workforce/null-ceiling-subject`, {
+          await fetch(`${grantBase}/v1/identities/workforce/empty-ceiling-subject`, {
             method: 'PUT',
             headers: admin,
             body: JSON.stringify({ role: 'reader', display_name: 'now with ceiling' }),

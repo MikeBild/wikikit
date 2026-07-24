@@ -943,7 +943,8 @@ interface IdentityRow {
   subject: string
   email: string | null
   display_name: string
-  allowed_scopes: string[] | null
+  /** NOT NULL since 0030 — the stored array IS the ceiling. */
+  allowed_scopes: string[]
   grant_source: string
   created_at: Date | string
   last_seen_at: Date | string | null
@@ -1516,7 +1517,7 @@ export const HANDLERS: Record<string, Handler> = {
     const source = body.source === 'seed' ? 'seed' : 'admin'
     const { rows: existing } = await deps.db.query<{
       revoked_at: Date | string | null
-      allowed_scopes: string[] | null
+      allowed_scopes: string[]
     }>(
       `SELECT revoked_at, allowed_scopes FROM wk_oauth_identities
         WHERE provider = $1 AND provider_subject = $2
@@ -1529,14 +1530,15 @@ export const HANDLERS: Record<string, Handler> = {
         nextBestActions: ['re-send the PUT with restore:true to deliberately clear the revocation'],
       })
     }
-    // Lockout guard: a PUT without role/scopes onto a row that has no stored
-    // ceiling would COALESCE allowed_scopes to NULL while stamping
-    // grant_source='admin'/'seed' — and a non-bootstrap row with a NULL
-    // ceiling denies every login (only 'bootstrap' rows transitionally
-    // inherit the provider allowlist ceiling). Refuse the silent lockout.
-    if (current && !scopes?.length && !current.allowed_scopes?.length) {
+    // Lockout guard: a PUT without role/scopes onto a row whose stored
+    // ceiling is empty would keep that empty array (COALESCE keeps the
+    // existing value) while stamping grant_source='admin'/'seed' — and an
+    // empty ceiling denies every login (allowed_scopes is NOT NULL since
+    // 0030; there is no allowlist inheritance to fall back on). Refuse the
+    // silent lockout.
+    if (current && !scopes?.length && current.allowed_scopes.length === 0) {
       throw new UnprocessableError(
-        `this update would leave the grant with allowed_scopes=NULL under grant_source '${source}', which denies every login — provide role or scopes`,
+        `this update would leave the grant with an empty allowed_scopes ceiling under grant_source '${source}', which denies every login — provide role or scopes`,
       )
     }
     if (!current) {

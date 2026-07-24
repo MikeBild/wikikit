@@ -204,10 +204,7 @@ describe('identity-bound API keys recheck the grant live (0029)', () => {
     return testConfig({ oauthProviders: [provider] } as Partial<Config>)
   }
 
-  function boundStub(
-    keys: KeyFixture[],
-    grant: { email: string | null; allowed_scopes: string[] | null; grant_source: string } | null,
-  ) {
+  function boundStub(keys: KeyFixture[], grant: { allowed_scopes: string[] } | null) {
     const base = stubDb(keys)
     const grantQueries: unknown[][] = []
     ;(base.db as { query?: unknown }).query = async (sql: string, params?: unknown[]) => {
@@ -240,11 +237,7 @@ describe('identity-bound API keys recheck the grant live (0029)', () => {
   test('a live grant is read per request and the ceiling cut applies immediately', async () => {
     const { key, fixture } = boundKey()
     // Grant downgraded to read-only AFTER the key was minted with propose.
-    const { db, grantQueries } = boundStub([fixture], {
-      email: null,
-      allowed_scopes: ['knowledge:read'],
-      grant_source: 'admin',
-    })
+    const { db, grantQueries } = boundStub([fixture], { allowed_scopes: ['knowledge:read'] })
     const principal = await createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)
     expect(principal.scopes).toEqual(['knowledge:read'])
     expect(grantQueries).toEqual([['workforce', 'subject-1']])
@@ -253,11 +246,7 @@ describe('identity-bound API keys recheck the grant live (0029)', () => {
   test('an approve-only ceiling keeps the implied review right in the cut', async () => {
     const { key, fixture } = boundKey()
     fixture.scopes = ['knowledge:read', 'knowledge:review']
-    const { db } = boundStub([fixture], {
-      email: null,
-      allowed_scopes: ['knowledge:read', 'knowledge:approve'],
-      grant_source: 'admin',
-    })
+    const { db } = boundStub([fixture], { allowed_scopes: ['knowledge:read', 'knowledge:approve'] })
     const principal = await createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)
     expect(principal.scopes).toEqual(['knowledge:read', 'knowledge:review'])
   })
@@ -265,6 +254,12 @@ describe('identity-bound API keys recheck the grant live (0029)', () => {
   test('a revoked or deleted grant kills the key: 401, not a scoped-down principal', async () => {
     const { key, fixture } = boundKey()
     const { db } = boundStub([fixture], null)
+    expect(createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)).rejects.toBeInstanceOf(UnauthorizedError)
+  })
+
+  test('an empty stored ceiling denies exactly like a missing grant (allowed_scopes is NOT NULL since 0030)', async () => {
+    const { key, fixture } = boundKey()
+    const { db } = boundStub([fixture], { allowed_scopes: [] })
     expect(createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)).rejects.toBeInstanceOf(UnauthorizedError)
   })
 

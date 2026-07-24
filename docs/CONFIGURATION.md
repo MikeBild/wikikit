@@ -137,7 +137,10 @@ The ENV allow-list is a BOOTSTRAP-ONLY path: day-to-day access management
 lives on the `wk_oauth_identities` grant rows via the admin REST
 (`GET/PUT/DELETE /v1/identities...`, scope `admin`), whose stored
 `allowed_scopes` ceiling is the single AuthZ truth and takes effect
-immediately without a restart. An allowlisted login mirrors the provider's
+immediately without a restart. Every grant row carries an explicit ceiling
+(`allowed_scopes` is NOT NULL since migration 0030); the provider
+configuration is never consulted at request time. An allowlisted login
+mirrors the provider's
 `allowed_scopes` into the identity's row (`grant_source='bootstrap'`); rows
 managed by an operator or the deploy seeder (`grant_source` `admin`/`seed`)
 are never overwritten by the allow-list, and a revoked row (`revoked_at`)
