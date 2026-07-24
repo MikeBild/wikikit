@@ -239,10 +239,10 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     // Proposal staged with the content-hash + prompt-version input hash and
     // §1.14-shaped agent_meta.
     const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
-    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v1'))
+    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v2'))
     expect(proposalInsert.values).toContain('Ingest: OKF')
     const meta = JSON.parse(proposalInsert.values.find((v) => String(v).includes('prompt_version')) as string)
-    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v1', source_ids: [SRC_ID] })
+    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v2', source_ids: [SRC_ID] })
 
     // Claim + citation with the supporting quote (FakeProvider quotes line 1).
     const citationInsert = calls.find((call) => call.sql.includes('"wk_citations"'))!

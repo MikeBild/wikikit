@@ -427,6 +427,77 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
     },
     "name": "wikikit_lint",
   },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read the space charter — WikiKit's human-owned steering document (the llm-wiki CLAUDE.md equivalent): authored guidance that shapes synthesis plus a derived overview of the knowledge base. Pass rev to read a historical version; omitted returns the latest. Returns the fields and the full virtual document.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "rev": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List charter revisions (newest first) — the document version history. Each entry carries rev, status (current/superseded), who wrote it and when.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_history",
+  },
 ]
 `;
 
@@ -1339,6 +1410,77 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       },
     },
     "name": "wikikit_lint",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read the space charter — WikiKit's human-owned steering document (the llm-wiki CLAUDE.md equivalent): authored guidance that shapes synthesis plus a derived overview of the knowledge base. Pass rev to read a historical version; omitted returns the latest. Returns the fields and the full virtual document.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "rev": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List charter revisions (newest first) — the document version history. Each entry carries rev, status (current/superseded), who wrote it and when.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_history",
   },
   {
     "annotations": {
@@ -2344,6 +2486,147 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
   },
   {
     "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read the space charter — WikiKit's human-owned steering document (the llm-wiki CLAUDE.md equivalent): authored guidance that shapes synthesis plus a derived overview of the knowledge base. Pass rev to read a historical version; omitted returns the latest. Returns the fields and the full virtual document.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "rev": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List charter revisions (newest first) — the document version history. Each entry carries rev, status (current/superseded), who wrote it and when.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Write the space charter (requires admin — it is human-owned configuration, not knowledge). Pass the full markdown: the authored text is versioned directly (a new latest revision), while an edited overview block is routed through the review gate as a ChangeProposal — it never mutates knowledge directly. Returns the new revision and any ingest ids opened for an overview edit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "markdown",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_set",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Delete the space charter (requires admin): supersede the current revision with no replacement. History is retained and the space reverts to no charter. Idempotent.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_delete",
+  },
+  {
+    "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
       "openWorldHint": true,
@@ -3338,6 +3621,147 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
     },
     "name": "wikikit_lint",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read the space charter — WikiKit's human-owned steering document (the llm-wiki CLAUDE.md equivalent): authored guidance that shapes synthesis plus a derived overview of the knowledge base. Pass rev to read a historical version; omitted returns the latest. Returns the fields and the full virtual document.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "rev": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List charter revisions (newest first) — the document version history. Each entry carries rev, status (current/superseded), who wrote it and when.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Write the space charter (requires admin — it is human-owned configuration, not knowledge). Pass the full markdown: the authored text is versioned directly (a new latest revision), while an edited overview block is routed through the review gate as a ChangeProposal — it never mutates knowledge directly. Returns the new revision and any ingest ids opened for an overview edit.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "markdown": {
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "markdown",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_set",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Delete the space charter (requires admin): supersede the current revision with no replacement. History is retained and the space reverts to no charter. Idempotent.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_charter_delete",
   },
   {
     "annotations": {

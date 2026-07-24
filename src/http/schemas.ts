@@ -178,6 +178,49 @@ export const zSpaceResponse = z.object({
 
 export const zSpaceListResponse = z.object({ items: z.array(zSpaceResponse) })
 
+// ---------------------------------------------------------------------------
+// Charter — the per-space virtual document (authored markdown + derived overview)
+// ---------------------------------------------------------------------------
+
+/** ?rev=N reads a specific historical revision; omitted → the latest (current). */
+export const zCharterQuery = z.object({
+  rev: z.coerce.number().int().positive().optional(),
+})
+
+const zCharterOverview = z.object({
+  concepts: z.number().int(),
+  decisions: z.number().int(),
+  sources: z.number().int(),
+  index: z.array(z.object({ slug: z.string(), summary: z.string() })),
+})
+
+export const zCharterResponse = z.object({
+  space: z.string(),
+  /** null when the space has no charter (never written, or deleted). */
+  rev: z.number().int().nullable(),
+  markdown: z.string(),
+  updated_at: z.string().nullable(),
+  overview: zCharterOverview,
+  /** The full virtual document (authored markdown + derived overview). */
+  document: z.string(),
+})
+
+/** PUT result: the fresh document plus any ingest jobs opened for an overview edit. */
+export const zCharterWriteResponse = zCharterResponse.extend({
+  ingest_ids: z.array(z.string()),
+})
+
+export const zCharterVersionsResponse = z.object({
+  items: z.array(
+    z.object({
+      rev: z.number().int(),
+      status: z.enum(['current', 'superseded']),
+      created_by: z.string().nullable(),
+      created_at: z.string(),
+    }),
+  ),
+})
+
 export const zAgentBriefingResponse = z.object({
   markdown: z.string(),
   spaces: z.array(z.string()),
@@ -1010,6 +1053,10 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zUpdateSpaceSettingsRequest,
   zSpaceResponse,
   zSpaceListResponse,
+  zCharterQuery,
+  zCharterResponse,
+  zCharterWriteResponse,
+  zCharterVersionsResponse,
   zAgentBriefingResponse,
   zAgentContextResponse,
   zIngestRequest,

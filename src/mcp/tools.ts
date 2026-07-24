@@ -24,6 +24,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { recordConceptRead } from '../domain/coverage.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
+import { deleteCharter, getCharter, getCharterHistory, toCharterResponse, writeCharter } from '../domain/charter.ts'
 import {
   ConflictError,
   ForbiddenError,
@@ -67,16 +68,18 @@ export type { Principal } from '../http/auth.ts'
 import type { Principal } from '../http/auth.ts'
 
 /** The only scopes MCP tools may require. */
-export type ToolScope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'
+export type ToolScope = 'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
 
 /**
  * Scope semantics per CONTRACTS §5.2: `*` and `admin` imply all knowledge
- * scopes (admin does not imply `*`, but every MCP tool scope IS a knowledge
- * scope, so both grant full tool visibility). `knowledge:approve` implies
- * `knowledge:review` — review is the inspect/start-review subset of approve,
- * so every existing approve key keeps working unchanged. The reverse does NOT
- * hold: a review-only key cannot use the REST approve/reject endpoints, which
- * is the point — agents get review, human operators get approve.
+ * scopes, so both grant full tool visibility. A few tools (the charter
+ * mutations) require `admin` directly — human-owned configuration, not
+ * knowledge — and a non-admin key never even sees them: for scope 'admin' the
+ * checks below all miss unless the key holds `admin`/`*`. `knowledge:approve`
+ * implies `knowledge:review` — review is the inspect/start-review subset of
+ * approve, so every existing approve key keeps working unchanged. The reverse
+ * does NOT hold: a review-only key cannot use the REST approve/reject
+ * endpoints, which is the point — agents get review, human operators get approve.
  */
 export function holdsScope(scopes: string[], scope: ToolScope): boolean {
   return (
@@ -209,6 +212,15 @@ export const zDecisionsToolInput = z.object({
 export const zHistoryToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
 export const zLintToolInput = z.object({ space: zSpaceSlug })
+
+export const zCharterToolInput = z.object({
+  space: zSpaceSlug,
+  /** Read a specific historical revision; omitted → the latest (current). */
+  rev: z.number().int().positive().optional(),
+})
+export const zCharterSetToolInput = z.object({ space: zSpaceSlug, markdown: z.string() })
+export const zCharterDeleteToolInput = z.object({ space: zSpaceSlug })
+export const zCharterHistoryToolInput = z.object({ space: zSpaceSlug })
 
 /** zIngestInput (shared with the pipeline + HTTP) + space; refinement kept. */
 export const zIngestToolInput = zIngestInput.safeExtend({ space: zSpaceSlug })
@@ -527,6 +539,104 @@ export const TOOLS: McpToolDef[] = [
       const args = zLintToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
       return lintSpace(deps.db, space.id)
+    },
+  },
+  {
+    name: 'wikikit_charter',
+    description:
+      "Read the space charter — WikiKit's human-owned steering document (the llm-wiki CLAUDE.md equivalent): " +
+      'authored guidance that shapes synthesis plus a derived overview of the knowledge base. ' +
+      'Pass rev to read a historical version; omitted returns the latest. Returns the fields and the full virtual document.',
+    scope: 'knowledge:read',
+    inputSchema: zCharterToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zCharterToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      const detail = await getCharter(deps.db, space.id, args.rev !== undefined ? { rev: args.rev } : {})
+      return toCharterResponse(detail)
+    },
+  },
+  {
+    name: 'wikikit_charter_history',
+    description:
+      'List charter revisions (newest first) — the document version history. Each entry carries rev, status ' +
+      '(current/superseded), who wrote it and when.',
+    scope: 'knowledge:read',
+    inputSchema: zCharterHistoryToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zCharterHistoryToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      const items = await getCharterHistory(deps.db, space.id)
+      return {
+        items: items.map(({ rev, status, created_by, created_at }) => ({ rev, status, created_by, created_at })),
+      }
+    },
+  },
+  {
+    name: 'wikikit_charter_set',
+    description:
+      'Write the space charter (requires admin — it is human-owned configuration, not knowledge). Pass the full ' +
+      'markdown: the authored text is versioned directly (a new latest revision), while an edited overview block ' +
+      'is routed through the review gate as a ChangeProposal — it never mutates knowledge directly. ' +
+      'Returns the new revision and any ingest ids opened for an overview edit.',
+    scope: 'admin',
+    inputSchema: zCharterSetToolInput,
+    annotations: {
+      readOnlyHint: false,
+      // A write that supersedes the current revision (§7.1 hard rule: any real
+      // write is destructiveHint:true); not idempotent — new content = new rev.
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    async execute(deps, principal, input) {
+      const args = zCharterSetToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      const result = await writeCharter(
+        deps.db,
+        space.id,
+        args.markdown,
+        { createdBy: principal.name, agentMeta: { model: 'manual', prompt_version: 'manual' } },
+        {
+          enqueueOverviewEdit: async (overviewMarkdown) => {
+            // An overview edit becomes knowledge only through the gate; without
+            // an LLM key it cannot be processed, so skip rather than queue a
+            // job that would fail asynchronously (authored write still lands).
+            if (overviewMarkdown.trim().length === 0 || !deps.config.llmConfigured) return null
+            const enqueued = await deps.ingest.enqueue(deps.db, space.id, {
+              markdown: overviewMarkdown,
+              title: `Charter overview edit — ${space.slug}`,
+              source_kind: 'note',
+            })
+            return 'status' in enqueued ? null : enqueued.ingest_id
+          },
+        },
+      )
+      const detail = await getCharter(deps.db, space.id)
+      return { ...toCharterResponse(detail), ingest_ids: result.ingest_ids }
+    },
+  },
+  {
+    name: 'wikikit_charter_delete',
+    description:
+      'Delete the space charter (requires admin): supersede the current revision with no replacement. ' +
+      'History is retained and the space reverts to no charter. Idempotent.',
+    scope: 'admin',
+    inputSchema: zCharterDeleteToolInput,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    async execute(deps, principal, input) {
+      const args = zCharterDeleteToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      await deleteCharter(deps.db, space.id)
+      const detail = await getCharter(deps.db, space.id)
+      return toCharterResponse(detail)
     },
   },
   {

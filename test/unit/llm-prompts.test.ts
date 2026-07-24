@@ -8,8 +8,8 @@
 // pre-release the prompt is edited in place and this snapshot regenerated.
 import { describe, expect, test } from 'bun:test'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
-import * as classifyV1 from '../../src/llm/prompts/classify.v1.ts'
-import * as synthesizeV1 from '../../src/llm/prompts/synthesize.v1.ts'
+import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
+import * as synthesizeV2 from '../../src/llm/prompts/synthesize.v2.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
@@ -95,8 +95,8 @@ const adjudicateInput: AdjudicateInput = {
 
 describe('prompt version constants', () => {
   test('PROMPT_VERSIONS match the per-file version exports', () => {
-    expect(PROMPT_VERSIONS.classify).toBe(classifyV1.version)
-    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV1.version)
+    expect(PROMPT_VERSIONS.classify).toBe(classifyV2.version)
+    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV2.version)
     expect(PROMPT_VERSIONS.answer).toBe(answerV1.version)
     expect(PROMPT_VERSIONS.distill).toBe(distillV1.version)
     expect(PROMPT_VERSIONS.adjudicate).toBe(adjudicateV1.version)
@@ -110,27 +110,27 @@ describe('prompt version constants', () => {
 })
 
 describe('golden snapshots', () => {
-  test('classify.v1 system prompt', () => {
-    expect(classifyV1.system).toMatchSnapshot()
+  test('classify.v2 system prompt', () => {
+    expect(classifyV2.system).toMatchSnapshot()
   })
-  test('classify.v1 render', () => {
-    expect(classifyV1.render(classifyInput)).toMatchSnapshot()
+  test('classify.v2 render', () => {
+    expect(classifyV2.render(classifyInput)).toMatchSnapshot()
   })
-  test('classify.v1 render with empty concept index and null title', () => {
-    expect(classifyV1.render(classifyInputEmptyIndex)).toMatchSnapshot()
+  test('classify.v2 render with empty concept index and null title', () => {
+    expect(classifyV2.render(classifyInputEmptyIndex)).toMatchSnapshot()
   })
 
-  test('synthesize.v1 system prompt', () => {
-    expect(synthesizeV1.system).toMatchSnapshot()
+  test('synthesize.v2 system prompt', () => {
+    expect(synthesizeV2.system).toMatchSnapshot()
   })
-  test('synthesize.v1 render for existing concept', () => {
-    expect(synthesizeV1.render(synthesizeInput)).toMatchSnapshot()
+  test('synthesize.v2 render for existing concept', () => {
+    expect(synthesizeV2.render(synthesizeInput)).toMatchSnapshot()
   })
-  test('synthesize.v1 render for new concept', () => {
-    expect(synthesizeV1.render(synthesizeInputNewConcept)).toMatchSnapshot()
+  test('synthesize.v2 render for new concept', () => {
+    expect(synthesizeV2.render(synthesizeInputNewConcept)).toMatchSnapshot()
   })
-  test('synthesize.v1 render for meeting source (decision mining on)', () => {
-    expect(synthesizeV1.render(synthesizeInputMeeting)).toMatchSnapshot()
+  test('synthesize.v2 render for meeting source (decision mining on)', () => {
+    expect(synthesizeV2.render(synthesizeInputMeeting)).toMatchSnapshot()
   })
 
   test('answer.v1 system prompt', () => {
@@ -170,15 +170,35 @@ describe('golden snapshots', () => {
   test('adjudicate.v1 render', () => {
     expect(adjudicateV1.render(adjudicateInput)).toMatchSnapshot()
   })
+
+  // Charter steering: a set charter adds a `## Space guidance` section to the
+  // rendered USER turn (never the cached system block).
+  const charter = '# Payments space\n\nEmphasise decisions with rationale. Voice: terse, German.'
+  test('classify.v2 render without charter omits the Space guidance section', () => {
+    expect(classifyV2.render(classifyInput)).not.toContain('## Space guidance')
+  })
+  test('synthesize.v2 render without charter omits the Space guidance section', () => {
+    expect(synthesizeV2.render(synthesizeInput)).not.toContain('## Space guidance')
+  })
+  test('classify.v2 render with charter (Space guidance section)', () => {
+    const rendered = classifyV2.render({ ...classifyInput, charter })
+    expect(rendered).toContain('## Space guidance')
+    expect(rendered).toMatchSnapshot()
+  })
+  test('synthesize.v2 render with charter (Space guidance section)', () => {
+    const rendered = synthesizeV2.render({ ...synthesizeInput, charter })
+    expect(rendered).toContain('## Space guidance')
+    expect(rendered).toMatchSnapshot()
+  })
 })
 
 describe('render determinism', () => {
   // input_hash = sha256(version + system + rendered): rendering must be a
   // pure function of its input or hashes (and dedup) become nondeterministic.
   test('same input renders byte-identical output', () => {
-    expect(classifyV1.render(classifyInput)).toBe(classifyV1.render(classifyInput))
-    expect(synthesizeV1.render(synthesizeInput)).toBe(synthesizeV1.render(synthesizeInput))
-    expect(synthesizeV1.render(synthesizeInputMeeting)).toBe(synthesizeV1.render(synthesizeInputMeeting))
+    expect(classifyV2.render(classifyInput)).toBe(classifyV2.render(classifyInput))
+    expect(synthesizeV2.render(synthesizeInput)).toBe(synthesizeV2.render(synthesizeInput))
+    expect(synthesizeV2.render(synthesizeInputMeeting)).toBe(synthesizeV2.render(synthesizeInputMeeting))
     expect(answerV1.render(answerInput)).toBe(answerV1.render(answerInput))
     expect(adjudicateV1.render(adjudicateInput)).toBe(adjudicateV1.render(adjudicateInput))
   })

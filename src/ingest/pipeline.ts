@@ -41,6 +41,7 @@ import { randomUUID } from 'node:crypto'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptIndex } from '../domain/concepts.ts'
+import { latestCharterMarkdown } from '../domain/charter.ts'
 import { findContradictions, getPredicateRegistry, type IncomingClaim } from '../domain/claims.ts'
 import { ConflictError, LlmNotConfiguredError } from '../domain/errors.ts'
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
@@ -204,7 +205,7 @@ export function createIngestPipeline(
       wakers.add(wake)
     })
 
-  async function loadSpace(spaceId: string): Promise<{ slug: string; predicates: string[] }> {
+  async function loadSpace(spaceId: string): Promise<{ slug: string; predicates: string[]; charter: string }> {
     const [space] = await db.select<{ slug: string; settings: Record<string, unknown> }>('wk_spaces', {
       id: `eq.${spaceId}`,
       limit: 1,
@@ -215,7 +216,9 @@ export function createIngestPipeline(
       Array.isArray(configured) && configured.every((entry) => typeof entry === 'string') && configured.length > 0
         ? (configured as string[])
         : [...DEFAULT_PREDICATES]
-    return { slug: space.slug, predicates }
+    // The human-owned charter (latest revision) steers classify + synthesize.
+    const charter = await latestCharterMarkdown(db, spaceId)
+    return { slug: space.slug, predicates, charter }
   }
 
   function agentRunRows(spaceId: string, jobId: string, proposalId: string | null, runs: AgentRunDraft[]) {
@@ -360,7 +363,7 @@ export function createIngestPipeline(
    */
   async function processJob(
     job: JobRow,
-    space: { slug: string; predicates: string[] },
+    space: { slug: string; predicates: string[]; charter: string },
     runs: AgentRunDraft[],
   ): Promise<{ sourceId: string | null; proposalId: string | null }> {
     // The worker re-validates the stored input — the row may predate this
@@ -448,6 +451,7 @@ export function createIngestPipeline(
     const classified = await llm.classify({
       source: { title: source.title, markdown: budget.markdown },
       conceptIndex: index,
+      ...(space.charter ? { charter: space.charter } : {}),
     })
     runs.push({ kind: 'classify', run: classified.run })
 
@@ -524,6 +528,7 @@ export function createIngestPipeline(
         predicates: space.predicates,
         ...(predicateDefs.length ? { predicateDefs } : {}),
         sourceKind: input.source_kind,
+        ...(space.charter ? { charter: space.charter } : {}),
       })
       runs.push({ kind: 'synthesize', run: synthesized.run })
       usage.input_tokens += synthesized.run.usage.input_tokens
@@ -752,7 +757,7 @@ export function createIngestPipeline(
     const startedAt = Date.now()
     const stopHeartbeat = startHeartbeat(job)
     const runs: AgentRunDraft[] = []
-    let space: { slug: string; predicates: string[] } | null = null
+    let space: { slug: string; predicates: string[]; charter: string } | null = null
     let sourceId: string | null = null
     try {
       space = await loadSpace(job.space_id)

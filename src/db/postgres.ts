@@ -28,6 +28,7 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_embeddings',
   'wk_concepts',
   'wk_concept_revisions',
+  'wk_charter_revisions',
   'wk_claims',
   'wk_citations',
   'wk_relations',

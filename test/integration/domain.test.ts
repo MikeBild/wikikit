@@ -101,7 +101,7 @@ describe('domain modules (integration)', () => {
     const created = await createProposal(db, space.id, {
       title: 'Introduce okf',
       summary: 'First knowledge about OKF',
-      input_hash: computeInputHash([source.content_hash], 'synthesize.v1'),
+      input_hash: computeInputHash([source.content_hash], 'synthesize.v2'),
       source_ids: [source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -147,7 +147,7 @@ describe('domain modules (integration)', () => {
     // Idempotent convergence on input_hash while pending.
     const duplicate = await createProposal(db, space.id, {
       title: 'Introduce okf again',
-      input_hash: computeInputHash([source.content_hash], 'synthesize.v1'),
+      input_hash: computeInputHash([source.content_hash], 'synthesize.v2'),
       source_ids: [source.id],
       agent_meta: AGENT_META,
       concepts: [{ slug: 'okf', title: 'x', summary: '', markdown: '# x', claims: [], relations: [] }],
@@ -195,7 +195,7 @@ describe('domain modules (integration)', () => {
     const sourceA = await createSource(db, space.id, { kind: 'text', raw: 'A says ready', markdown: 'A says ready' })
     const first = await createProposal(db, space.id, {
       title: 'A',
-      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v1'),
+      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v2'),
       source_ids: [sourceA.source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -222,7 +222,7 @@ describe('domain modules (integration)', () => {
     const sourceB = await createSource(db, space.id, { kind: 'text', raw: 'B says draft', markdown: 'B says draft' })
     const second = await createProposal(db, space.id, {
       title: 'B',
-      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v1'),
+      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v2'),
       source_ids: [sourceB.source.id],
       agent_meta: AGENT_META,
       concepts: [

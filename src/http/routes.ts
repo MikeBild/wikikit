@@ -21,6 +21,14 @@ import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
+import {
+  deleteCharter,
+  getCharter,
+  getCharterHistory,
+  renderCharter,
+  toCharterResponse,
+  writeCharter,
+} from '../domain/charter.ts'
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError, ValidationError } from '../domain/errors.ts'
 import { lintProposal, lintSpace } from '../domain/lint.ts'
 import {
@@ -154,6 +162,47 @@ export const ROUTES: RouteDef[] = [
     handler: 'updateSpaceSettingsHandler',
     request: { params: 'zSpaceParams', body: 'zUpdateSpaceSettingsRequest' },
     responses: { 200: { schema: 'zSpaceResponse', type: 'application/json', desc: 'Updated space' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/charter',
+    scope: 'knowledge:read',
+    summary:
+      'Read the space charter — the virtual document (authored markdown + derived overview). ?rev=N for a version. Accept: text/markdown renders the document.',
+    handler: 'getCharterHandler',
+    request: { params: 'zSpaceParams', query: 'zCharterQuery' },
+    responses: { 200: { schema: 'zCharterResponse', type: 'application/json', desc: 'Charter document' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/charter/versions',
+    scope: 'knowledge:read',
+    summary: 'List charter revisions (newest first) — the document version history',
+    handler: 'charterVersionsHandler',
+    request: { params: 'zSpaceParams' },
+    responses: { 200: { schema: 'zCharterVersionsResponse', type: 'application/json', desc: 'Charter versions' } },
+  },
+  {
+    method: 'put',
+    path: '/v1/spaces/{space}/charter',
+    scope: 'admin',
+    summary:
+      'Write the charter (JSON {markdown} or raw text/markdown body). Authored text versions directly; an edited overview block is routed through the review gate.',
+    handler: 'putCharterHandler',
+    request: { params: 'zSpaceParams' },
+    rawBody: true,
+    responses: { 200: { schema: 'zCharterWriteResponse', type: 'application/json', desc: 'Charter written' } },
+  },
+  {
+    method: 'delete',
+    path: '/v1/spaces/{space}/charter',
+    scope: 'admin',
+    summary: 'Delete the charter (supersede the current revision; history retained). Idempotent.',
+    handler: 'deleteCharterHandler',
+    request: { params: 'zSpaceParams' },
+    responses: {
+      200: { schema: 'zCharterResponse', type: 'application/json', desc: 'Charter deleted (empty document)' },
+    },
   },
   {
     method: 'post',
@@ -1021,6 +1070,79 @@ export const HANDLERS: Record<string, Handler> = {
       await deps.db.call('wk_reindex_space', [space.id])
     }
     return { status: 200, body: updated }
+  },
+
+  async getCharterHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { rev?: number }
+    const detail = await getCharter(deps.db, space.id, query.rev !== undefined ? { rev: query.rev } : {})
+    // Accept negotiation: the SAME document as chat-readable markdown (the
+    // virtual document), so charter-over-curl carries authored text + overview.
+    const accept = String(input.req.headers.accept ?? '')
+    if (/\btext\/markdown\b/.test(accept)) {
+      return { status: 200, text: renderCharter(detail), headers: { 'content-type': 'text/markdown; charset=utf-8' } }
+    }
+    return { status: 200, body: toCharterResponse(detail) }
+  },
+
+  async charterVersionsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const items = await getCharterHistory(deps.db, space.id)
+    return {
+      status: 200,
+      body: {
+        items: items.map(({ rev, status, created_by, created_at }) => ({ rev, status, created_by, created_at })),
+      },
+    }
+  },
+
+  async putCharterHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'admin')
+    const bytes = input.body as Uint8Array | undefined
+    const raw = bytes && bytes.byteLength ? Buffer.from(bytes).toString('utf8') : ''
+    // Symmetric with the GET: application/json carries { markdown }, anything
+    // else is taken as the raw document body (round-trip a text/markdown GET).
+    const contentType = String(input.req.headers['content-type'] ?? '')
+    let markdown: string
+    if (/application\/json/.test(contentType)) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw || 'null')
+      } catch {
+        throw new ValidationError('request body is not valid JSON')
+      }
+      const md = (parsed as { markdown?: unknown } | null)?.markdown
+      if (typeof md !== 'string') throw new ValidationError('JSON body must be { "markdown": string }')
+      markdown = md
+    } else {
+      markdown = raw
+    }
+    const result = await writeCharter(
+      deps.db,
+      space.id,
+      markdown,
+      { createdBy: input.principal!.name, agentMeta: MANUAL_AGENT_META },
+      {
+        enqueueOverviewEdit: async (overviewMarkdown) => {
+          if (overviewMarkdown.trim().length === 0) return null
+          const enqueued = await deps.ingest.enqueue(deps.db, space.id, {
+            markdown: overviewMarkdown,
+            title: `Charter overview edit — ${space.slug}`,
+            source_kind: 'note',
+          })
+          return 'status' in enqueued ? null : enqueued.ingest_id
+        },
+      },
+    )
+    const detail = await getCharter(deps.db, space.id)
+    return { status: 200, body: { ...toCharterResponse(detail), ingest_ids: result.ingest_ids } }
+  },
+
+  async deleteCharterHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'admin')
+    await deleteCharter(deps.db, space.id)
+    const detail = await getCharter(deps.db, space.id)
+    return { status: 200, body: toCharterResponse(detail) }
   },
 
   async agentBriefingHandler(deps, input) {

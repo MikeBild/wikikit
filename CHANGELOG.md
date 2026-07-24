@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- **Per-space Charter** — a versioned, human-owned "virtual document" per space
+  (the llm-wiki `CLAUDE.md` equivalent): free markdown that steers synthesis and
+  classification, rendered together with a KB-derived overview (concept index +
+  counts). Stored in the new `wk_charter_revisions` table (migration
+  `0031_wk_charter_revisions`), auto-versioned like a document — every write is a
+  new `latest` revision with full history retained.
+  - REST: `GET/PUT/DELETE /v1/spaces/{space}/charter` (GET negotiates
+    `text/markdown`; `?rev=N` reads a version) and
+    `GET /v1/spaces/{space}/charter/versions`.
+  - MCP: `wikikit_charter` and `wikikit_charter_history` (read, `knowledge:read`),
+    `wikikit_charter_set` and `wikikit_charter_delete` (write, `admin`).
+  - Bidirectional: the authored text versions directly (human-owned config, no
+    review gate); an edited overview block is routed through the review gate as a
+    ChangeProposal, so knowledge changes still pass human approval.
+  - Steering: the latest charter flows into `synthesize.v2` and `classify.v2`
+    (new prompt versions) via the rendered user prompt, never the cached system
+    block.
+
 ## 0.19.0 - 2026-07-24
 
 ### Changed

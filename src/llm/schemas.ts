@@ -22,6 +22,9 @@ export interface ConceptIndexEntry {
 export interface ClassifyInput {
   source: { title: string | null; markdown: string }
   conceptIndex: ConceptIndexEntry[]
+  /** The space charter (wk_charter_revisions latest) — human-owned guidance on
+   *  page types + naming conventions. Steers new-concept slugs when present. */
+  charter?: string
 }
 
 /** What a source IS (not its transport). Steers synthesis: 'meeting' sources
@@ -38,6 +41,9 @@ export interface SynthesizeInput {
   predicateDefs?: import('../domain/normalize.ts').PredicateDef[]
   /** Optional source classification; when 'meeting', decision mining is on. */
   sourceKind?: SourceKind
+  /** The space charter (wk_charter_revisions latest) — human-owned guidance on
+   *  emphasis, voice and page conventions. Steers synthesis when present. */
+  charter?: string
 }
 
 export interface AnswerEvidence {
