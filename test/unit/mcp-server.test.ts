@@ -181,6 +181,8 @@ describe('createMcpMount', () => {
       'wikikit_decisions',
       'wikikit_history',
       'wikikit_lint',
+      'wikikit_charter',
+      'wikikit_charter_history',
     ])
 
     const proposeSession = await initialize(mount, 'proposer')
@@ -418,7 +420,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
       })
       expect(list.status).toBe(200)
       const tools = (await readMcpJson<{ result: { tools: { name: string }[] } }>(list)).result.tools
-      expect(tools).toHaveLength(10) // knowledge:read palette, including built-in system guidance
+      expect(tools).toHaveLength(12) // knowledge:read palette (incl. built-in guidance + charter reads)
     } finally {
       mount.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))

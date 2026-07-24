@@ -39,7 +39,11 @@ const READ_TOOLS = [
   'wikikit_decisions',
   'wikikit_history',
   'wikikit_lint',
+  'wikikit_charter',
+  'wikikit_charter_history',
 ]
+// Charter mutations are admin-scoped (human-owned configuration, not knowledge).
+const ADMIN_TOOLS = ['wikikit_charter_set', 'wikikit_charter_delete']
 const PROPOSE_TOOLS = ['wikikit_ingest', 'wikikit_ingest_status', 'wikikit_propose']
 const REVIEW_TOOLS = ['wikikit_proposals', 'wikikit_review_proposal']
 
@@ -87,8 +91,10 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
 }
 
 describe('tool palette shape (binding contract §7.1)', () => {
-  test('exactly the fifteen contracted tools — review is explicitly scoped', () => {
-    expect(TOOLS.map((tool) => tool.name).sort()).toEqual([...READ_TOOLS, ...PROPOSE_TOOLS, ...REVIEW_TOOLS].sort())
+  test('exactly the nineteen contracted tools — review is explicitly scoped, charter is admin', () => {
+    expect(TOOLS.map((tool) => tool.name).sort()).toEqual(
+      [...READ_TOOLS, ...ADMIN_TOOLS, ...PROPOSE_TOOLS, ...REVIEW_TOOLS].sort(),
+    )
     expect(TOOLS.some((tool) => tool.name === 'wikikit_review_proposal')).toBe(true)
   })
 
@@ -146,11 +152,12 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(13)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(15)
     expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
-    expect(visibleTools(['admin'])).toHaveLength(15) // admin implies knowledge scopes (§5.2)
-    expect(visibleTools(['*'])).toHaveLength(15)
+    // admin implies knowledge scopes (§5.2) AND is the direct scope of the charter mutations.
+    expect(visibleTools(['admin'])).toHaveLength(19)
+    expect(visibleTools(['*'])).toHaveLength(19)
     expect(visibleTools([])).toHaveLength(0)
   })
 

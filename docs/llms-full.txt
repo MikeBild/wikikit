@@ -81,6 +81,10 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/agent/context`                           | knowledge:read    | Select task-relevant spaces from stable purpose metadata and return a compact briefing |
 | GET    | `/v1/spaces/{space}`                          | knowledge:read    | Read a space (settings, epoch) |
 | POST   | `/v1/spaces/{space}/settings`                 | admin             | Merge or replace stable purpose metadata used for task-context selection |
+| GET    | `/v1/spaces/{space}/charter`                  | knowledge:read    | Read the space charter — virtual document (authored markdown + derived overview); `?rev=N`; Accept: text/markdown renders it |
+| GET    | `/v1/spaces/{space}/charter/versions`         | knowledge:read    | List charter revisions (newest first) — the document version history |
+| PUT    | `/v1/spaces/{space}/charter`                  | admin             | Write the charter (JSON `{markdown}` or raw text/markdown); authored text versions directly, an edited overview routes through the review gate |
+| DELETE | `/v1/spaces/{space}/charter`                  | admin             | Delete the charter (supersede current revision; history retained). Idempotent |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
@@ -499,6 +503,10 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_decisions` | knowledge:read | Decision log: one decision by slug, or list all active/superseded | true | false | true | false |
 | `wikikit_history` | knowledge:read | Revisions incl. agent_meta (model, prompt version) | true | false | true | false |
 | `wikikit_lint` | knowledge:read | Knowledge health findings | true | false | true | false |
+| `wikikit_charter` | knowledge:read | Read the space charter — virtual document (authored steering markdown + derived KB overview); `rev` for a version | true | false | true | false |
+| `wikikit_charter_history` | knowledge:read | List charter revisions (newest first) — the document version history | true | false | true | false |
+| `wikikit_charter_set` | admin | Write the charter: authored text versions directly, an edited overview routes through the review gate → `{rev, ingest_ids}` | false | true | false | false |
+| `wikikit_charter_delete` | admin | Supersede the current charter revision (history retained); idempotent | false | true | true | false |
 | `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | true |
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |

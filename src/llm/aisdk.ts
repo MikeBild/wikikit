@@ -42,8 +42,8 @@ import {
   type LlmUsage,
 } from './provider.ts'
 import { PROMPT_VERSIONS } from './prompts/index.ts'
-import * as classifyV1 from './prompts/classify.v1.ts'
-import * as synthesizeV1 from './prompts/synthesize.v1.ts'
+import * as classifyV2 from './prompts/classify.v2.ts'
+import * as synthesizeV2 from './prompts/synthesize.v2.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
@@ -289,7 +289,7 @@ export function createLlmProvider(
         kind: 'classify',
         model: config.modelClassify,
         promptVersion: PROMPT_VERSIONS.classify,
-        prompt: classifyV1,
+        prompt: classifyV2,
         input,
         schema: zClassifyOutput,
       })
@@ -299,7 +299,7 @@ export function createLlmProvider(
         kind: 'synthesize',
         model: config.modelSynthesis,
         promptVersion: PROMPT_VERSIONS.synthesize,
-        prompt: synthesizeV1,
+        prompt: synthesizeV2,
         input,
         schema: zSynthesizeOutput,
       })

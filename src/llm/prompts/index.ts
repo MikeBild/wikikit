@@ -8,8 +8,8 @@
 // accidental in-place edit into a failing CI run (prompt regression =
 // product regression).
 export const PROMPT_VERSIONS = {
-  classify: 'classify.v1',
-  synthesize: 'synthesize.v1', // explicit temporal validity + context, typed vocabulary
+  classify: 'classify.v2', // v1 + optional per-space Charter steering (system unchanged)
+  synthesize: 'synthesize.v2', // v1 + optional per-space Charter steering (system unchanged)
   answer: 'answer.v1', // two-tier evidence (approved vs source_evidence)
   distill: 'distill.v1', // coding-agent session transcript → durable rules
   adjudicate: 'adjudicate.v1', // optional Haiku contradiction adjudication (cuttable)
@@ -17,8 +17,8 @@ export const PROMPT_VERSIONS = {
 
 export type PromptKind = keyof typeof PROMPT_VERSIONS
 
-export * as classifyV1 from './classify.v1.ts'
-export * as synthesizeV1 from './synthesize.v1.ts'
+export * as classifyV2 from './classify.v2.ts'
+export * as synthesizeV2 from './synthesize.v2.ts'
 export * as answerV1 from './answer.v1.ts'
 export * as distillV1 from './distill.v1.ts'
 export * as adjudicateV1 from './adjudicate.v1.ts'

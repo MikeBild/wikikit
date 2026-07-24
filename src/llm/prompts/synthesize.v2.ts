@@ -1,4 +1,5 @@
-// synthesize.v1 — produce a new concept revision from (current revision + source).
+// synthesize.v2 — produce a new concept revision from (current revision +
+// source), with optional per-space Charter steering.
 //
 // Claims may carry explicit temporal validity (valid_from / valid_until) and
 // a context partition — ONLY when the source states them — and the predicate
@@ -13,25 +14,16 @@
 // model cannot back with an exact quote from the source is unverifiable and
 // must not exist.
 //
-// Two principles this prompt enforces beyond claim extraction:
-//   1. Decision mining — when the source is a meeting, detect explicit
-//      decision statements and emit them as `decisions`. Each becomes a
-//      PROPOSED wk_decisions row a human reviews (the decision-log pattern):
-//      an agent stages decisions, it never writes the decision log unattended.
-//   2. Classification is a claim, not a schema — a source that (re)categorizes
-//      something ("X is a Y") must be stated as a claim so downstream
-//      contradiction detection can catch it when a later source disagrees.
-//      Rigid taxonomies silently break on new knowledge (Wilkins' whale filed
-//      under fish); a claim with provenance and a lifecycle does not.
+// The space Charter, when set, is human-owned guidance on emphasis, voice and
+// page conventions. It rides render() (NOT the cached system block) and shapes
+// HOW the page is written — it never loosens the claim/quote grounding rules.
 //
-// WHY versioned: every wk_agent_runs row and proposal input_hash records the
-// prompt_version this produced. Once the product ships and real rows reference
-// this version, a meaningful prompt change means a new versioned file (v2) so
-// old rows stay resolvable; pre-release it is edited in place. The golden
-// snapshot tests make any change to this text a visible, reviewed diff.
+// WHY versioned (v2): the system prompt is unchanged from v1; render() gained
+// the optional `## Space guidance` section. Every wk_agent_runs row records the
+// prompt_version — a meaningful change is a version bump (goldens enforce this).
 import type { SynthesizeInput } from '../schemas.ts'
 
-export const version = 'synthesize.v1'
+export const version = 'synthesize.v2'
 
 export const system = `You are the synthesis stage of WikiKit, a knowledge system that maintains reviewed concept pages with verifiable claims and citations. Your output becomes a proposed revision that a human reviews before it goes live.
 
@@ -70,7 +62,16 @@ export function render(input: SynthesizeInput): string {
 ${input.concept.currentMarkdown}
 </current_page>`
   const kind = input.sourceKind ?? 'unknown'
-  return `## Concept
+  const guidance = input.charter?.trim()
+    ? `## Space guidance
+
+The space maintainer set this charter. Follow its emphasis, voice and page conventions when writing the page — without ever loosening the claim/quote grounding rules.
+
+${input.charter.trim()}
+
+`
+    : ''
+  return `${guidance}## Concept
 
 Slug: ${input.concept.slug}
 Title: ${input.concept.title}

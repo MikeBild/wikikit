@@ -141,6 +141,15 @@ function stubDb(): Db {
   const db: Db = {
     async query<R>(text: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number }> {
       const rows = ((): unknown[] => {
+        // charter overview (getConceptIndex + counts) -----------------------
+        // getConceptIndex selects exactly slug/title/summary (no r.rev, unlike
+        // listConcepts) — the trailing newline after `summary` disambiguates.
+        if (text.includes('SELECT c.slug, r.title, r.summary\n')) {
+          return [{ slug: 'wikikit', title: 'WikiKit', summary: 'Headless knowledge system.' }]
+        }
+        if (text.includes('AS count FROM wk_decisions')) return [{ count: 1 }]
+        if (text.includes('AS count FROM wk_sources')) return [{ count: 2 }]
+
         // identity grants (admin REST over wk_oauth_identities) -------------
         if (text.includes('FROM wk_oauth_identities')) {
           if (text.includes('SELECT revoked_at')) return [{ revoked_at: null }]
@@ -367,6 +376,19 @@ function stubDb(): Db {
             if (q.content_hash !== undefined) return [] // dedup pre-checks: nothing ingested yet
             if (q.id !== undefined) return q.id === `eq.${SOURCE_ID}` ? [SOURCE_ROW] : []
             return [SOURCE_ROW]
+          case 'wk_charter_revisions':
+            return [
+              {
+                id: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+                rev: 2,
+                status: 'current',
+                markdown: '# Charter\n\nPrioritise decisions with rationale.',
+                base_revision_id: null,
+                created_by: 'someone',
+                created_at: NOW,
+                agent_meta: AGENT_META,
+              },
+            ]
           case 'wk_concepts':
             return [{ id: CONCEPT_ID, space_id: SPACE_ID, slug: 'wikikit', current_revision_id: REV_ID }]
           case 'wk_concept_revisions':
@@ -637,6 +659,23 @@ const CASES: RouteCase[] = [
     status: 200,
     body: { settings: { agent_context: { keywords: ['demo'] } } },
   },
+  { template: '/v1/spaces/{space}/charter', method: 'get', url: '/v1/spaces/demo/charter', status: 200 },
+  {
+    template: '/v1/spaces/{space}/charter/versions',
+    method: 'get',
+    url: '/v1/spaces/demo/charter/versions',
+    status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/charter',
+    method: 'put',
+    url: '/v1/spaces/demo/charter',
+    status: 200,
+    // Matches the stub's current charter markdown → a no-op write (no tx),
+    // so this case validates only the response schema shape.
+    rawBody: new TextEncoder().encode('# Charter\n\nPrioritise decisions with rationale.'),
+  },
+  { template: '/v1/spaces/{space}/charter', method: 'delete', url: '/v1/spaces/demo/charter', status: 200 },
   {
     template: '/v1/spaces/{space}/ingest',
     method: 'post',

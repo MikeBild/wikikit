@@ -17,16 +17,16 @@
 import { describe, expect, test } from 'bun:test'
 import { estimateTokens } from '../../src/ingest/chunk.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
-import * as classifyV1 from '../../src/llm/prompts/classify.v1.ts'
+import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
-import * as synthesizeV1 from '../../src/llm/prompts/synthesize.v1.ts'
+import * as synthesizeV2 from '../../src/llm/prompts/synthesize.v2.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
 
 // Ceilings sit ~30% above the committed prompts: enough headroom to edit a
 // sentence without ceremony, tight enough that a doubling cannot slip through.
 const BUDGETS: [string, string, number][] = [
-  ['classify.v1', classifyV1.system, 380],
-  ['synthesize.v1', synthesizeV1.system, 1100],
+  ['classify.v2', classifyV2.system, 380],
+  ['synthesize.v2', synthesizeV2.system, 1100],
   ['answer.v1', answerV1.system, 600],
   ['distill.v1', distillV1.system, 660],
   ['adjudicate.v1', adjudicateV1.system, 300],
@@ -51,7 +51,7 @@ describe('system prompt token budgets', () => {
   // this asserts the split at the source.)
   test('renderers carry no static instruction text — that belongs in the cached system part', () => {
     const rendered = {
-      'classify.v1': classifyV1.render({ source: { title: 't', markdown: 'm' }, conceptIndex: [] }),
+      'classify.v2': classifyV2.render({ source: { title: 't', markdown: 'm' }, conceptIndex: [] }),
       'answer.v1': answerV1.render({ question: 'q', evidence: [] }),
       'distill.v1': distillV1.render({ transcript: 't' }),
     }
