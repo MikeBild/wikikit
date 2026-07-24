@@ -175,6 +175,12 @@
       "tag": "0028_wk_identity_grants_admin",
       "when": 1785009600000,
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "tag": "0029_wk_identity_bound_api_keys",
+      "when": 1785013200000,
+      "breakpoints": true
     }
   ]
 }

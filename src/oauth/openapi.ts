@@ -194,7 +194,8 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
     post: {
       operationId: 'createIdentitySession',
       tags: ['MCP authentication'],
-      summary: 'Exchange a configured identity assertion for a scoped API key',
+      summary:
+        'Exchange a configured identity assertion for a scoped API key bound to the identity grant (revoked with it; scopes cut live against the current ceiling)',
       requestBody: { required: true, content: json({ $ref: '#/components/schemas/IdentitySessionRequest' }) },
       responses: {
         200: {

@@ -159,7 +159,10 @@ protocol metadata needed by a client (`login_url` or `issuer`).
 `POST /v1/identity/sessions` accepts only a configured `provider_id` plus an
 `identity_token` and returns `{api_key,principal_id,context_id,email}`; `email`
 is null when the provider supplied no verified email. It never
-accepts a caller-supplied issuer or a provider-specific payload shape.
+accepts a caller-supplied issuer or a provider-specific payload shape. The
+issued key is bound to its identity grant: revoking the identity
+(`DELETE /v1/identities/{provider}/{subject}`) revokes the key, and every
+request cuts the key's scopes against the grant's current ceiling.
 
 ## Privacy-safe usage telemetry
 

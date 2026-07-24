@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.18.1 - 2026-07-24
+
+### Security
+
+- Closed the SSO API-key loophole (migration
+  `0029_wk_identity_bound_api_keys`): `POST /v1/identity/sessions` used to
+  mint an unbounded `wk_api_keys` snapshot of the identity's ceiling that
+  identity revocation could not reach. Session keys are now BOUND to their
+  `wk_oauth_identities` grant via the new nullable
+  `identity_provider`/`identity_subject` columns:
+  - `DELETE /v1/identities/{provider}/{subject}` additionally revokes the
+    identity's bound API keys (idempotent, alongside the existing OAuth
+    token/code kill), and a later `restore:true` never resurrects them — a
+    fresh login mints a fresh key.
+  - Authentication rechecks the grant row LIVE on every request, exactly
+    like the OAuth-token path: a revoked or deleted grant answers `401`, and
+    a downgraded ceiling cuts the key's stored scope snapshot immediately
+    (honoring the approve→review implication). Plain operator keys
+    (`identity_provider IS NULL`) are untouched.
+  - The API-key login funnel applies the same rule: an SSO-minted key used
+    as an operator credential inherits the grant's current ceiling and dies
+    with the grant.
+- The same migration drops the legacy vendor-named `provider` column default
+  that pre-0005 deployments still carried on `wk_oauth_identities` — every
+  writer names the provider explicitly, so a column default only invites
+  silently mislabeled rows.
+
+### Fixed
+
+- `PUT /v1/identities/{provider}/{subject}` now refuses (`422 unprocessable`)
+  a metadata-only update that would strip a grant to `allowed_scopes=NULL`
+  under `grant_source≠'bootstrap'` — previously the `COALESCE` kept the NULL
+  while stamping `'admin'`, silently locking the identity out because only
+  `'bootstrap'` rows inherit the provider allowlist ceiling.
+- The consent offer now honors the approve→review implication the
+  enforcement side (`requireScope`) has always applied: an identity with a
+  `knowledge:approve` ceiling is offered the `knowledge:review` checkbox
+  instead of having it silently filtered from the consent page.
+
 ## 0.18.0 - 2026-07-23
 
 ### Added

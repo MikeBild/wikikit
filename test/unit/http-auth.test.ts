@@ -20,6 +20,8 @@ interface KeyFixture {
   scopes: string[]
   space_id: string | null
   revoked_at: string | null
+  identity_provider?: string | null
+  identity_subject?: string | null
 }
 
 // Just enough Db for auth: select filters on key_hash + revoked_at is.null,
@@ -155,6 +157,19 @@ describe('http auth', () => {
     expect(auth.createKey({ name: 'x', scopes: ['bogus'] })).rejects.toThrow('unknown scope')
   })
 
+  test('createKey binds the SSO identity when given — plain keys stay unbound', async () => {
+    const { db, inserted } = stubDb([])
+    const auth = createAuth(testConfig(), db)
+    await auth.createKey({
+      name: 'SSO mike',
+      scopes: ['knowledge:read'],
+      identity: { provider: 'workforce', subject: 'subject-1' },
+    })
+    expect(inserted[0]).toMatchObject({ identity_provider: 'workforce', identity_subject: 'subject-1' })
+    await auth.createKey({ name: 'plain', scopes: ['knowledge:read'] })
+    expect(inserted[1]).toMatchObject({ identity_provider: null, identity_subject: null })
+  })
+
   test('ensureDevBootstrapKey is a no-op in production and when keys exist', async () => {
     const logger = createLogger({ level: 'error', write: () => {} })
     const prod = createAuth(testConfig({ production: true }), stubDb([]).db)
@@ -165,5 +180,111 @@ describe('http auth', () => {
     ])
     await createAuth(testConfig(), db).ensureDevBootstrapKey(logger)
     expect(inserted).toHaveLength(0)
+  })
+})
+
+// SSO session keys (POST /v1/identity/sessions) snapshot their identity's
+// ceiling at mint time; the wk_oauth_identities row stays the single AuthZ
+// truth (0028/0029), so authenticate must recheck it LIVE — a dead grant is
+// 401 like the OAuth-token path, a downgraded ceiling cuts the snapshot now.
+describe('identity-bound API keys recheck the grant live (0029)', () => {
+  const provider = {
+    protocol: 'oidc' as const,
+    id: 'workforce',
+    label: 'Workforce OIDC',
+    issuer: 'https://issuer.example.test',
+    clientId: 'wikikit-test',
+    scopes: 'openid email profile',
+    allowedEmails: [],
+    allowedSubjects: [],
+    allowedScopes: ['knowledge:read' as const, 'knowledge:propose' as const],
+  }
+
+  function boundConfig(): Config {
+    return testConfig({ oauthProviders: [provider] } as Partial<Config>)
+  }
+
+  function boundStub(
+    keys: KeyFixture[],
+    grant: { email: string | null; allowed_scopes: string[] | null; grant_source: string } | null,
+  ) {
+    const base = stubDb(keys)
+    const grantQueries: unknown[][] = []
+    ;(base.db as { query?: unknown }).query = async (sql: string, params?: unknown[]) => {
+      if (sql.includes('FROM wk_oauth_identities')) {
+        grantQueries.push(params ?? [])
+        return { rows: grant ? [grant] : [], rowCount: grant ? 1 : 0 }
+      }
+      return { rows: [], rowCount: 0 }
+    }
+    return { ...base, grantQueries }
+  }
+
+  function boundKey(): { key: string; fixture: KeyFixture } {
+    const key = generateApiKey()
+    return {
+      key,
+      fixture: {
+        id: 'k-sso',
+        name: 'SSO mike@example.test',
+        key_hash: hashApiKey(key, PEPPER),
+        scopes: ['knowledge:read', 'knowledge:propose'],
+        space_id: null,
+        revoked_at: null,
+        identity_provider: 'workforce',
+        identity_subject: 'subject-1',
+      },
+    }
+  }
+
+  test('a live grant is read per request and the ceiling cut applies immediately', async () => {
+    const { key, fixture } = boundKey()
+    // Grant downgraded to read-only AFTER the key was minted with propose.
+    const { db, grantQueries } = boundStub([fixture], {
+      email: null,
+      allowed_scopes: ['knowledge:read'],
+      grant_source: 'admin',
+    })
+    const principal = await createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)
+    expect(principal.scopes).toEqual(['knowledge:read'])
+    expect(grantQueries).toEqual([['workforce', 'subject-1']])
+  })
+
+  test('an approve-only ceiling keeps the implied review right in the cut', async () => {
+    const { key, fixture } = boundKey()
+    fixture.scopes = ['knowledge:read', 'knowledge:review']
+    const { db } = boundStub([fixture], {
+      email: null,
+      allowed_scopes: ['knowledge:read', 'knowledge:approve'],
+      grant_source: 'admin',
+    })
+    const principal = await createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)
+    expect(principal.scopes).toEqual(['knowledge:read', 'knowledge:review'])
+  })
+
+  test('a revoked or deleted grant kills the key: 401, not a scoped-down principal', async () => {
+    const { key, fixture } = boundKey()
+    const { db } = boundStub([fixture], null)
+    expect(createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)).rejects.toBeInstanceOf(UnauthorizedError)
+  })
+
+  test('an unbound key never touches the grant table', async () => {
+    const key = generateApiKey()
+    const { db, grantQueries } = boundStub(
+      [
+        {
+          id: 'k-plain',
+          name: 'plain',
+          key_hash: hashApiKey(key, PEPPER),
+          scopes: ['knowledge:read'],
+          space_id: null,
+          revoked_at: null,
+        },
+      ],
+      null,
+    )
+    const principal = await createAuth(boundConfig(), db).authenticate(`Bearer ${key}`)
+    expect(principal.scopes).toEqual(['knowledge:read'])
+    expect(grantQueries).toHaveLength(0)
   })
 })

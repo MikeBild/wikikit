@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config, OidcProviderConfig } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import type { Auth, Principal } from '../http/auth.ts'
-import { hashApiKey } from '../http/auth.ts'
+import { cutScopesToCeiling, hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
@@ -576,14 +576,28 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         return null
       }
       if (session.principal_key_id !== 'bootstrap') {
-        const { rows: keys } = await deps.db.query<{ scopes: string[]; space_id: string | null; name: string }>(
-          `SELECT scopes, space_id, name FROM wk_api_keys
+        const { rows: keys } = await deps.db.query<{
+          scopes: string[]
+          space_id: string | null
+          name: string
+          identity_provider: string | null
+          identity_subject: string | null
+        }>(
+          `SELECT scopes, space_id, name, identity_provider, identity_subject FROM wk_api_keys
             WHERE id::text = $1 AND key_hash = $2 AND revoked_at IS NULL
             LIMIT 1`,
           [session.principal_key_id, session.principal_key_hash],
         )
         if (!keys[0]) return null
         session.scopes = keys[0].scopes
+        // An SSO-minted key pasted into the API-key login funnel stays
+        // subordinate to its identity grant (0029): dead grant = dead
+        // session, and the consent ceiling is cut live like authenticate.
+        if (keys[0].identity_provider && keys[0].identity_subject) {
+          const ceiling = await identityCeiling(deps.db, config, keys[0].identity_provider, keys[0].identity_subject)
+          if (!ceiling) return null
+          session.scopes = cutScopesToCeiling(keys[0].scopes, ceiling)
+        }
         session.principal_space_id = keys[0].space_id
         session.principal_name = keys[0].name
       }
@@ -647,7 +661,16 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
   function offeredScopes(requested: string[], ceiling: string[]): string[] {
     const allowed = new Set(ceiling)
     const unrestricted = allowed.has('*') || allowed.has('admin')
-    return requested.filter((scope) => scope === 'offline_access' || unrestricted || allowed.has(scope))
+    // knowledge:approve implies knowledge:review (requireScope has always
+    // enforced it) — the consent offer must agree, or an approve-ceiling
+    // identity never gets the review checkbox it is entitled to tick.
+    return requested.filter(
+      (scope) =>
+        scope === 'offline_access' ||
+        unrestricted ||
+        allowed.has(scope) ||
+        (scope === 'knowledge:review' && allowed.has('knowledge:approve')),
+    )
   }
 
   async function consentResponse(
@@ -750,10 +773,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     // revoked row denies — no login path resurrects it.
     const ceiling = await admitOidcCallbackIdentity(deps.db, config, provider, identity)
     if (!ceiling) throw new OAuthError('access_denied', 'identity is not allowed to access WikiKit', 403)
+    // The key is BOUND to the identity grant (0029): DELETE
+    // /v1/identities/{provider}/{subject} revokes it, and authenticate cuts
+    // its scope snapshot live against the grant's current ceiling — an SSO
+    // session key never outlives or outranks the identity behind it.
     const issued = await deps.auth.createKey({
       name: `SSO ${identity.email ?? identity.subject}`,
       scopes: ceiling,
       spaceId: null,
+      identity: { provider: provider.id, subject: identity.subject },
     })
     const principalId = `wki_${createHash('sha256')
       .update(`${provider.id}\u0000${identity.subject}`)

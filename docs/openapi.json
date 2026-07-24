@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.18.0",
+    "version": "0.18.1",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [
@@ -4122,7 +4122,7 @@
             }
           },
           "422": {
-            "description": "unprocessable (role AND scopes | neither on a new grant | unknown oidc provider)",
+            "description": "unprocessable (role AND scopes | neither on a new grant | unknown oidc provider | update would strip the stored ceiling to NULL and lock the identity out)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4187,7 +4187,7 @@
         "x-required-scope": "admin"
       },
       "delete": {
-        "summary": "Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent; only an explicit restore over PUT re-admits)",
+        "summary": "Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens and its SSO-minted API keys (idempotent; only an explicit restore over PUT re-admits)",
         "operationId": "revokeIdentity",
         "responses": {
           "200": {
@@ -6120,7 +6120,7 @@
       "post": {
         "operationId": "createIdentitySession",
         "tags": ["MCP authentication"],
-        "summary": "Exchange a configured identity assertion for a scoped API key",
+        "summary": "Exchange a configured identity assertion for a scoped API key bound to the identity grant (revoked with it; scopes cut live against the current ceiling)",
         "requestBody": {
           "required": true,
           "content": {

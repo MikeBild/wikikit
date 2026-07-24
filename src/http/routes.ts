@@ -532,7 +532,7 @@ export const ROUTES: RouteDef[] = [
       422: {
         schema: 'zErrorEnvelope',
         type: 'application/json',
-        desc: 'unprocessable (role AND scopes | neither on a new grant | unknown oidc provider)',
+        desc: 'unprocessable (role AND scopes | neither on a new grant | unknown oidc provider | update would strip the stored ceiling to NULL and lock the identity out)',
       },
     },
   },
@@ -541,7 +541,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/identities/{provider}/{subject}',
     scope: 'admin',
     summary:
-      'Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent; only an explicit restore over PUT re-admits)',
+      'Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens and its SSO-minted API keys (idempotent; only an explicit restore over PUT re-admits)',
     handler: 'revokeIdentityHandler',
     request: { params: 'zIdentityParams' },
     responses: {
@@ -1514,8 +1514,11 @@ export const HANDLERS: Record<string, Handler> = {
     // PUT without source stamps 'admin' — from then on the seeder leaves the
     // row alone (it manages only its own 'seed' rows).
     const source = body.source === 'seed' ? 'seed' : 'admin'
-    const { rows: existing } = await deps.db.query<{ revoked_at: Date | string | null }>(
-      `SELECT revoked_at FROM wk_oauth_identities
+    const { rows: existing } = await deps.db.query<{
+      revoked_at: Date | string | null
+      allowed_scopes: string[] | null
+    }>(
+      `SELECT revoked_at, allowed_scopes FROM wk_oauth_identities
         WHERE provider = $1 AND provider_subject = $2
         LIMIT 1`,
       [providerId, subject],
@@ -1525,6 +1528,16 @@ export const HANDLERS: Record<string, Handler> = {
       throw new ConflictError('identity_revoked', 'this identity grant is revoked — pass restore:true to re-admit it', {
         nextBestActions: ['re-send the PUT with restore:true to deliberately clear the revocation'],
       })
+    }
+    // Lockout guard: a PUT without role/scopes onto a row that has no stored
+    // ceiling would COALESCE allowed_scopes to NULL while stamping
+    // grant_source='admin'/'seed' — and a non-bootstrap row with a NULL
+    // ceiling denies every login (only 'bootstrap' rows transitionally
+    // inherit the provider allowlist ceiling). Refuse the silent lockout.
+    if (current && !scopes?.length && !current.allowed_scopes?.length) {
+      throw new UnprocessableError(
+        `this update would leave the grant with allowed_scopes=NULL under grant_source '${source}', which denies every login — provide role or scopes`,
+      )
     }
     if (!current) {
       if (!scopes) throw new UnprocessableError('a new identity grant requires role or scopes')
@@ -1589,6 +1602,15 @@ export const HANDLERS: Record<string, Handler> = {
       `UPDATE wk_oauth_authorization_codes SET consumed_at = now()
         WHERE principal_kind = 'identity' AND principal_key_id = $1 AND consumed_at IS NULL`,
       [principalKeyId],
+    )
+    // SSO-minted API keys (POST /v1/identity/sessions) are bound to this
+    // grant (0029) and die with it. authenticate also rechecks the grant per
+    // request — this direct revoke makes the kill absolute even if that
+    // per-request check ever regresses, mirroring the token revokes above.
+    await deps.db.query(
+      `UPDATE wk_api_keys SET revoked_at = now()
+        WHERE identity_provider = $1 AND identity_subject = $2 AND revoked_at IS NULL`,
+      [providerId, subject],
     )
     return { status: 200, body: { provider: providerId, subject, revoked_at: revokedAt } }
   },

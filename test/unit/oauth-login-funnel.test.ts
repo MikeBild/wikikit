@@ -422,6 +422,42 @@ describe('signup switch at the SSO callback (WIKIKIT_OAUTH_ENABLE_SIGNUP)', () =
   })
 })
 
+describe('the consent offer honors the approve→review implication', () => {
+  afterEach(() => {
+    finishIdentity = null
+  })
+
+  test('an approve-ceiling identity is offered the review checkbox it may enforce', async () => {
+    finishIdentity = { subject: 'approver-subject', email: 'approver@example.com' }
+    const { db, inserts } = stubDb({
+      live: liveStateRow({
+        provider_id: 'workforce',
+        oidc_nonce: 'n1',
+        oidc_code_verifier: 'v1',
+        scopes: ['knowledge:read', 'knowledge:review', 'knowledge:approve'],
+      }),
+      // Stored ceiling: read + approve, review only by implication —
+      // requireScope has always granted it, the offer must too.
+      identity: {
+        email: 'approver@example.com',
+        allowed_scopes: ['knowledge:read', 'knowledge:approve'],
+        revoked_at: null,
+      },
+    })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('<h1>Authorize access</h1>')
+    expect(html).toContain('knowledge:review')
+    expect(html).toContain('knowledge:approve')
+    // The operator session itself still carries the STORED ceiling — the
+    // implication expands the offer, never the persisted grant.
+    const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
+    expect(session!.body.scopes).toEqual(['knowledge:read', 'knowledge:approve'])
+  })
+})
+
 describe('every SSO click mints a fresh login state', () => {
   test('the pending row is never rewritten; a new state row carries nonce and verifier', async () => {
     const { db, inserts, updates } = stubDb({ live: liveStateRow() })

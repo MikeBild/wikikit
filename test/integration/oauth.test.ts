@@ -592,6 +592,73 @@ describe('MCP OAuth 2.1 (integration)', () => {
       expect(restored.status).toBe(200)
       expect(((await restored.json()) as { revoked_at: null }).revoked_at).toBeNull()
       expect((await login()).status).toBe(200)
+
+      // PUT-NULL lockout guard: a metadata-only PUT keeps a stored ceiling …
+      const metaOnly = await putGrant({ email: 'still-managed@example.test' })
+      expect(metaOnly.status).toBe(200)
+      expect(((await metaOnly.json()) as { allowed_scopes: string[] }).allowed_scopes).toEqual(['knowledge:read'])
+      // … but on a bootstrap row WITHOUT a stored ceiling it would COALESCE
+      // allowed_scopes to NULL while stamping grant_source='admin' — a
+      // silent lockout, refused as 422.
+      await app.database.db.insert('wk_oauth_identities', {
+        provider: 'workforce',
+        provider_subject: 'null-ceiling-subject',
+        email: null,
+        allowed_scopes: null,
+        grant_source: 'bootstrap',
+      })
+      const lockout = await fetch(`${grantBase}/v1/identities/workforce/null-ceiling-subject`, {
+        method: 'PUT',
+        headers: admin,
+        body: JSON.stringify({ display_name: 'no ceiling yet' }),
+      })
+      expect(lockout.status).toBe(422)
+      expect(
+        (
+          await fetch(`${grantBase}/v1/identities/workforce/null-ceiling-subject`, {
+            method: 'PUT',
+            headers: admin,
+            body: JSON.stringify({ role: 'reader', display_name: 'now with ceiling' }),
+          })
+        ).status,
+      ).toBe(200)
+
+      // SSO session keys are BOUND to the grant (0029). Upgrade to
+      // contributor and mint a key through /v1/identity/sessions …
+      expect((await putGrant({ role: 'contributor' })).status).toBe(200)
+      const boundLogin = await login()
+      expect(boundLogin.status).toBe(200)
+      const bound = (await boundLogin.json()) as { api_key: string }
+      const boundAuth = { authorization: `Bearer ${bound.api_key}` }
+      expect((await fetch(`${grantBase}/v1/spaces`, { headers: boundAuth })).status).toBe(200)
+      const ingestAs = (headers: Record<string, string>) =>
+        fetch(`${grantBase}/v1/spaces/alpha/ingest`, {
+          method: 'POST',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ markdown: '# bound-key ingest probe' }),
+        })
+      expect((await ingestAs(boundAuth)).status).toBe(202)
+      // … downgrading the ceiling cuts the key's scope snapshot LIVE …
+      expect((await putGrant({ role: 'reader' })).status).toBe(200)
+      expect((await fetch(`${grantBase}/v1/spaces`, { headers: boundAuth })).status).toBe(200)
+      expect((await ingestAs(boundAuth)).status).toBe(403)
+      // … and revoking the identity kills the key outright (401, like the
+      // OAuth-token path — the key does not survive as a scoped-down zombie).
+      expect(
+        (await fetch(`${grantBase}/v1/identities/workforce/managed-subject`, { method: 'DELETE', headers: admin }))
+          .status,
+      ).toBe(200)
+      expect((await fetch(`${grantBase}/v1/spaces`, { headers: boundAuth })).status).toBe(401)
+      // A restore re-admits the identity but never resurrects revoked keys:
+      // the old key stays dead, a fresh login mints a working one.
+      expect((await putGrant({ role: 'reader', restore: true })).status).toBe(200)
+      expect((await fetch(`${grantBase}/v1/spaces`, { headers: boundAuth })).status).toBe(401)
+      const freshLogin = await login()
+      expect(freshLogin.status).toBe(200)
+      const fresh = (await freshLogin.json()) as { api_key: string }
+      expect(
+        (await fetch(`${grantBase}/v1/spaces`, { headers: { authorization: `Bearer ${fresh.api_key}` } })).status,
+      ).toBe(200)
     } finally {
       await grantApp.close()
       await new Promise<void>((resolve, reject) => identityServer.close((error) => (error ? reject(error) : resolve())))

@@ -47,8 +47,18 @@ export interface Auth {
    * read surface and the review surface) accept either scope.
    */
   requireScope(principal: Principal, scope: Scope | readonly Scope[], spaceId?: string): void
-  /** Mint a key. The plaintext is returned exactly once and never stored. */
-  createKey(args: { name: string; scopes: string[]; spaceId?: string | null }): Promise<{ id: string; key: string }>
+  /**
+   * Mint a key. The plaintext is returned exactly once and never stored.
+   * `identity` binds the key to a wk_oauth_identities grant (the SSO session
+   * path): bound keys are revoked with the grant and their effective scopes
+   * are cut live against the grant's current ceiling on every authenticate.
+   */
+  createKey(args: {
+    name: string
+    scopes: string[]
+    spaceId?: string | null
+    identity?: { provider: string; subject: string } | null
+  }): Promise<{ id: string; key: string }>
   /**
    * Dev bootstrap (§5.4): when no env bootstrap key is set and no live key
    * exists, mint a `*` key and print it ONCE to stdout. No-op in production
@@ -106,6 +116,9 @@ interface KeyRow {
   name: string
   scopes: string[]
   space_id: string | null
+  /** Non-null pair = SSO-minted key bound to a wk_oauth_identities grant. */
+  identity_provider?: string | null
+  identity_subject?: string | null
 }
 
 interface OAuthTokenRow {
@@ -119,6 +132,47 @@ interface OAuthTokenRow {
   principal_kind: 'api_key' | 'identity'
 }
 
+/**
+ * Current scope ceiling of a wk_oauth_identities grant, or null when the
+ * identity is not (or no longer) admitted. The grant row is the single AuthZ
+ * truth (0028): a revoked or deleted row denies on the next request,
+ * whatever the ENV allowlist says.
+ */
+export async function liveIdentityCeiling(
+  db: Db,
+  config: Config,
+  providerId: string,
+  subject: string,
+): Promise<string[] | null> {
+  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
+  if (!provider || provider.protocol !== 'oidc') return null
+  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
+    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
+      WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
+      LIMIT 1`,
+    [provider.id, subject],
+  )
+  return oidcIdentityScopeCeiling(provider, subject, rows[0])
+}
+
+/**
+ * Cut a stored scope snapshot against an identity's CURRENT ceiling. Honors
+ * the same implications the ceiling side may carry ('*' covers everything,
+ * 'admin' everything but '*') and the requireScope rule that
+ * knowledge:approve implies knowledge:review — a key holding review under an
+ * approve-only ceiling keeps exactly the right it is entitled to.
+ */
+export function cutScopesToCeiling(scopes: string[], ceiling: string[]): string[] {
+  const allowed = new Set(ceiling)
+  if (allowed.has('*')) return scopes
+  return scopes.filter(
+    (scope) =>
+      allowed.has(scope) ||
+      (scope !== '*' && allowed.has('admin')) ||
+      (scope === 'knowledge:review' && allowed.has('knowledge:approve')),
+  )
+}
+
 async function identityGrantIsCurrent(
   db: Db,
   config: Config,
@@ -127,19 +181,7 @@ async function identityGrantIsCurrent(
   if (row.principal_kind !== 'identity') return true
   const match = row.principal_key_id.match(/^identity:([a-z0-9][a-z0-9-]{0,62}):(.+)$/)
   if (!match) return false
-  const providerId = match[1]!
-  const subject = match[2]!
-  const provider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
-  if (!provider || provider.protocol !== 'oidc') return false
-  const { rows } = await db.query<{ email: string | null; allowed_scopes: string[] | null; grant_source: string }>(
-    `SELECT email, allowed_scopes, grant_source FROM wk_oauth_identities
-      WHERE provider = $1 AND provider_subject = $2 AND revoked_at IS NULL
-      LIMIT 1`,
-    [provider.id, subject],
-  )
-  // The grant row is the single AuthZ truth (0028): a revoked or deleted row
-  // kills live tokens on the next request, whatever the ENV allowlist says.
-  return oidcIdentityScopeCeiling(provider, subject, rows[0]) !== null
+  return (await liveIdentityCeiling(db, config, match[1]!, match[2]!)) !== null
 }
 
 export function createAuth(config: Config, db: Db): Auth {
@@ -224,6 +266,18 @@ export function createAuth(config: Config, db: Db): Auth {
         limit: 1,
       })
       if (!row) throw new UnauthorizedError('unknown API key')
+      // SSO-minted keys (POST /v1/identity/sessions) are bound to their
+      // wk_oauth_identities grant, and that row stays the single AuthZ truth
+      // (0028): recheck it LIVE, exactly like the OAuth-token path — a
+      // revoked or deleted grant answers 401 on the next request, and a
+      // downgraded ceiling cuts the key's stored snapshot immediately
+      // instead of surviving until a re-login.
+      let scopes = row.scopes ?? []
+      if (row.identity_provider && row.identity_subject) {
+        const ceiling = await liveIdentityCeiling(db, config, row.identity_provider, row.identity_subject)
+        if (!ceiling) throw new UnauthorizedError('the interactive identity behind this API key is no longer active')
+        scopes = cutScopesToCeiling(scopes, ceiling)
+      }
       // Fire-and-forget: last_used_at is telemetry, and an UPDATE failure
       // must never fail an authenticated request.
       db.update(
@@ -232,7 +286,7 @@ export function createAuth(config: Config, db: Db): Auth {
         { last_used_at: new Date().toISOString() },
         { returning: false },
       ).catch(() => {})
-      return { keyId: row.id, scopes: row.scopes ?? [], spaceId: row.space_id, name: row.name }
+      return { keyId: row.id, scopes, spaceId: row.space_id, name: row.name }
     },
 
     requireScope(principal, scope, spaceId) {
@@ -255,7 +309,7 @@ export function createAuth(config: Config, db: Db): Auth {
       }
     },
 
-    async createKey({ name, scopes, spaceId = null }) {
+    async createKey({ name, scopes, spaceId = null, identity = null }) {
       if (!config.keyPepper) {
         throw new ValidationError('WIKIKIT_KEY_PEPPER is not configured — cannot mint API keys')
       }
@@ -267,6 +321,8 @@ export function createAuth(config: Config, db: Db): Auth {
         key_hash: hashApiKey(key, config.keyPepper),
         scopes,
         space_id: spaceId,
+        identity_provider: identity?.provider ?? null,
+        identity_subject: identity?.subject ?? null,
       })
       return { id: row!.id, key }
     },
