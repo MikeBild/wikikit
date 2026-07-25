@@ -295,6 +295,12 @@ object` with a confidence, citations (verbatim quote + locator) and a
   sessions and model swaps.
 - **Decisions as first-class records:** meeting sources are mined for
   decisions (context, rationale, alternatives) — the decision-log pattern.
+- **Per-space charter:** a human-authored, versioned Markdown document that
+  steers synthesis and classification (page types, naming, emphasis, voice) and
+  reads back as a virtual document (authored guidance + a derived KB overview).
+  Written directly under `admin` (human-owned config, no review gate); an edited
+  overview block routes back through the review gate. `wikikit_charter*` tools /
+  `GET|PUT|DELETE /v1/spaces/{space}/charter`.
 - **LLM-free core:** full-text search, lint (contradictions, missing
   citations, stale claims — CI-friendly), export/import all work without any
   LLM configured.

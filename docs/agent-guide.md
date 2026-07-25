@@ -253,6 +253,38 @@ article structure, research, publication, and maintenance. A rare task such as
 backdating an article is knowledge inside that space, not the space's general
 activation rule.
 
+## Space charter
+
+Each space has an optional **charter**: a human-authored Markdown document that
+steers how the LLM synthesizes and classifies knowledge in that space — its page
+types, naming conventions, emphasis, and voice. It is the space maintainer's
+"house style", and it is read back as a _virtual document_ that combines the
+authored guidance with a derived overview of the knowledge base (a concept index
+plus counts of concepts, decisions, and sources).
+
+Read it with the `wikikit_charter` tool (or `GET /v1/spaces/{space}/charter`;
+send `Accept: text/markdown` for the rendered document, `?rev=N` for a past
+version). List versions with `wikikit_charter_history`
+(`GET .../charter/versions`).
+
+Writing the charter requires **admin** — it is human-owned configuration, not
+synthesized knowledge, so it is written directly and does not go through the
+review gate:
+
+- `wikikit_charter_set` (MCP) or `PUT /v1/spaces/{space}/charter` (JSON
+  `{"markdown": "..."}` or a raw `text/markdown` body). Every write creates a new
+  `latest` revision; full history is retained. `wikikit_charter_delete` /
+  `DELETE .../charter` reverts the space to no charter (history kept).
+
+The document is bidirectional but keeps WikiKit's guarantees intact: editing the
+authored half writes directly, while editing the _derived overview_ block and
+writing the whole document back routes that change through the normal review
+gate as a ChangeProposal — it never mutates knowledge directly.
+
+From the next ingest onward, a set charter shapes the proposals the LLM stages;
+a human still approves them. A charter is optional — a space with none behaves
+exactly as before.
+
 ## First user space
 
 A zero-config local start creates the mutable `default` space. Production

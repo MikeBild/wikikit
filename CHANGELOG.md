@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.20.1 - 2026-07-25
+
+### Changed
+
+- **Docs**: document the per-space Charter for end users across the self-describing
+  surfaces — a "Space charter" section in the built-in agent guide (served by
+  `wikikit_guide` and `/agent-guide.md`), a Features entry in the README, an
+  architecture subsection on how the charter steers synthesis, and the charter
+  REST endpoints + MCP tools in the CONTRACTS reference tables. No behaviour change.
+
 ## 0.20.0 - 2026-07-24
 
 ### Added

@@ -70,6 +70,21 @@ classification, both claims become `disputed` and the disagreement is visible
 (and lintable) instead of silently resolved. Disputed knowledge is reported as
 disputed by `/query` and the MCP read tools.
 
+### The space charter steers synthesis
+
+A space may carry a **charter** — human-authored Markdown, versioned in
+`wk_charter_revisions` (one `current` row is the `latest`; writes supersede and
+append, never mutate). It is human-owned configuration, not knowledge: the
+authored half is written directly under `admin` and never enters the review
+gate. The charter flows into the classify and synthesize prompts through the
+**rendered user turn** (never the cached system block, so the prompt-cache
+prefix and the `prompt_version` audit hash stay stable), shaping the proposals
+the LLM stages — which a human still approves. Read back, the charter is a
+virtual document: the authored guidance plus a derived KB overview. That overview
+is a read-only projection; editing it and writing the document back routes the
+change through the ordinary review gate as a ChangeProposal, keeping the
+grounding + approval guarantees intact.
+
 ## Request lifecycle (REST)
 
 ```
