@@ -86,6 +86,46 @@ function envVars(): Set<string> {
   return vars
 }
 
+describe('compiled-artifact hazards', () => {
+  test('every `bun build --compile` carries the NODE_ENV identity define', () => {
+    // Without `--define process.env.NODE_ENV=process.env.NODE_ENV` the bundler
+    // replaces that expression with the BUILD machine's value — "development"
+    // on a CI runner — as a compile-time constant. The shipped binary never
+    // reads the variable again, so systemd starting it with NODE_ENV=production
+    // changes nothing and every production gate inverts: the mandatory-
+    // configuration check is skipped, .env.defaults is read in production,
+    // WIKIKIT_WEBHOOK_ALLOW_PRIVATE falls back to permitting private webhook
+    // targets, and a `*`-scope bootstrap key is minted and printed in plaintext
+    // on a first boot with no keys.
+    //
+    // This was verified against this repository's own binary. build-binary.sh
+    // additionally RUNS the artifact and requires it to refuse to boot — keep
+    // both, because neither alone would have caught it: the source is correct
+    // either way, and only the compiled binary knows whether it still reads the
+    // variable.
+    const IDENTITY_DEFINE = 'process.env.NODE_ENV=process.env.NODE_ENV'
+    const offenders: string[] = []
+    for (const source of ['build-binary.sh', 'package.json', '.github/workflows/release.yml']) {
+      const lines = read(source).split('\n')
+      lines.forEach((line, index) => {
+        if (!line.includes('--compile')) return
+        const trimmed = line.trimStart()
+        if (trimmed.startsWith('#') || trimmed.startsWith('//')) return
+        // The invocation may wrap across continuation lines — scan a window.
+        if (
+          !lines
+            .slice(index, index + 8)
+            .join('\n')
+            .includes(IDENTITY_DEFINE)
+        ) {
+          offenders.push(`${source}:${index + 1} compiles without the identity define`)
+        }
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
 describe('drift', () => {
   // Router ↔ registry: every handler ROUTES names must exist in HANDLERS, and
   // every implemented handler must be reachable through a route. An orphan on
