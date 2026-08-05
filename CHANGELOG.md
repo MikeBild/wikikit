@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.20.2 - 2026-08-05
+
+### Fixed
+
+- **Build**: `NODE_ENV` is no longer frozen at compile time. `bun build --compile`
+  substitutes the exact expression `process.env.NODE_ENV` with the build runner's
+  value, so the shipped binary never read the variable and a process started by
+  systemd with `NODE_ENV=production` still took every development branch: the
+  mandatory-configuration check was skipped, `.env.defaults` was read in
+  production, `WIKIKIT_WEBHOOK_ALLOW_PRIVATE` fell back to permitting delivery to
+  private addresses, and a `*`-scope bootstrap key would be minted and printed in
+  plaintext on a first boot with no keys. Verified against this repository's own
+  binary before and after.
+
+  Two guards, because neither alone finds it: `build-binary.sh` carries the
+  identity define `--define process.env.NODE_ENV=process.env.NODE_ENV` and a drift
+  test fails the build if any compile invocation loses it; the same script then
+  RUNS the artifact under `NODE_ENV=production` and requires it to refuse to boot.
+  The source is correct either way — only the compiled binary knows whether it
+  still reads the variable.
+
 ## 0.20.1 - 2026-07-25
 
 ### Changed
