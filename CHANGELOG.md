@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.20.3 - 2026-08-05
+
+### Added
+
+- **`GET /.well-known/service-descriptor.json`** — version plus a sha256 per
+  self-description artifact (`llms.txt`, `llms-full.txt`, `agent-guide.md`,
+  `openapi.json`), in one small response. A monitor asking "has anything
+  changed" otherwise downloads all of them on every poll — `llms-full.txt`
+  alone is ~50 KB, every round, almost always to discover nothing changed. This
+  is what makes a thirty-second drift check affordable instead of an hourly one.
+
+  Hashes are of the bytes actually served and are computed per request rather
+  than cached: the documents are embedded at build time and cannot change while
+  the process lives, and a cached hash that went stale would make this endpoint
+  lie in exactly the situation it exists to report. Only artifacts this build
+  actually serves are listed — an entry for a document that answers 404 would
+  send a watcher to fetch it and then report the miss as drift.
+
 ## 0.20.2 - 2026-08-05
 
 ### Fixed

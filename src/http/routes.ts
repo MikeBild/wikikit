@@ -72,6 +72,7 @@ import { ROLE_SCOPES, type RoleName } from './auth.ts'
 import type { Auth, Principal } from './auth.ts'
 import { getIngestJob } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
+import { createHash } from 'node:crypto'
 import { readDocsFile } from './docs-embedded.ts'
 import { INSTALL_HOOK_SCRIPTS, renderInstaller } from './install-embedded.ts'
 import { renderReviewPage, REVIEW_PAGE_CSP } from './review-page.ts'
@@ -731,6 +732,15 @@ export const ROUTES: RouteDef[] = [
     summary: 'Prometheus metrics',
     handler: 'metricsHandler',
     responses: { 200: { type: 'text/plain', desc: 'Prometheus text exposition' } },
+  },
+  {
+    method: 'get',
+    path: '/.well-known/service-descriptor.json',
+    scope: null,
+    summary:
+      'One cheap GET that fingerprints every self-description artifact — version plus a sha256 per document, so a watcher can tell "unchanged" from "changed" without downloading any of them.',
+    handler: 'serviceDescriptorHandler',
+    responses: { 200: { type: 'application/json', desc: 'Service descriptor' } },
   },
   {
     method: 'get',
@@ -1822,6 +1832,63 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const window = resolveStatsWindow(input.query)
     return { status: 200, body: await getWebhookStats(deps.db, space.id, window) }
+  },
+
+  /**
+   * The descriptor, and why it is worth a route of its own.
+   *
+   * A monitor that wants to know whether this service's self-description has
+   * changed otherwise downloads every artifact on every poll — for WikiKit that
+   * is llms-full.txt alone at ~50 KB, every round, forever, almost always to
+   * discover nothing changed. This answers the same question in a few hundred
+   * bytes, which is what makes a thirty-second drift check affordable instead
+   * of an hourly one.
+   *
+   * The hashes are of the bytes actually served, computed here rather than
+   * cached: the documents are embedded at build time and cannot change while
+   * the process lives, so the cost is a hash of a few kilobytes on a route
+   * nothing calls in a hot loop, and the alternative — a cache that can go
+   * stale — would make this endpoint lie in exactly the situation it exists to
+   * report.
+   */
+  async serviceDescriptorHandler(deps) {
+    const base = deps.config.publicUrl
+    const artifact = (name: string, file: string) => {
+      const content = readDocsFile(deps.config, file)
+      return content === null
+        ? null
+        : { url: `${base}/${file}`, sha256: createHash('sha256').update(content).digest('hex'), updated_at: null }
+    }
+    const artifacts: Record<string, unknown> = {}
+    // Only what this build actually serves. An entry for a document that
+    // answers 404 would send a watcher to fetch it and then report the miss as
+    // drift, which is worse than not mentioning it.
+    for (const [key, file] of [
+      ['llms_txt', 'llms.txt'],
+      ['llms_full_txt', 'llms-full.txt'],
+      ['agent_guide', 'agent-guide.md'],
+    ] as const) {
+      const entry = artifact(key, file)
+      if (entry) artifacts[key] = entry
+    }
+    // Generated live from ROUTES rather than read from disk, because that is
+    // how it is served — hashing a file that is not the response would be a
+    // fingerprint of the wrong thing.
+    const openapi = JSON.stringify(buildOpenApi(ROUTES, { version: deps.config.version }))
+    artifacts.openapi = {
+      url: `${base}/openapi.json`,
+      sha256: createHash('sha256').update(openapi).digest('hex'),
+      updated_at: null,
+    }
+    return {
+      status: 200,
+      body: {
+        service: 'wikikit',
+        version: deps.config.version,
+        artifacts,
+        capabilities: ['health', 'ready', 'metrics', 'openapi', 'llms-txt', 'agent-guide', 'mcp', 'descriptor'],
+      },
+    }
   },
 
   async openapiHandler(deps) {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.20.2",
+    "version": "0.20.3",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2844,6 +2844,13 @@
         "summary": "Prometheus metrics",
         "operationId": "metrics",
         "responses": { "200": { "description": "Prometheus text exposition", "content": { "text/plain": {} } } }
+      }
+    },
+    "/.well-known/service-descriptor.json": {
+      "get": {
+        "summary": "One cheap GET that fingerprints every self-description artifact — version plus a sha256 per document, so a watcher can tell \"unchanged\" from \"changed\" without downloading any of them.",
+        "operationId": "serviceDescriptor",
+        "responses": { "200": { "description": "Service descriptor", "content": { "application/json": {} } } }
       }
     },
     "/openapi.json": {

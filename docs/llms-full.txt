@@ -132,6 +132,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/health`                                     | public            | Liveness — `200 "ok"` while the process is up |
 | GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
 | GET    | `/metrics`                                    | public            | Prometheus metrics |
+| GET    | `/.well-known/service-descriptor.json`        | public            | Version + a sha256 per self-description artifact, so a watcher can tell "unchanged" from "changed" in one small GET |
 | GET    | `/openapi.json`                               | public            | Generated OpenAPI 3.1 spec |
 | GET    | `/review/{id}`                                | public            | Human review page for one proposal (content-free shell; data loads with the reviewer's key) |
 | GET    | `/agent-guide.md`                             | public            | Built-in agent operating and no-CLI client setup guide |

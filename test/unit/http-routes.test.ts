@@ -70,6 +70,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/health', null],
   ['get', '/ready', null],
   ['get', '/metrics', null],
+  ['get', '/.well-known/service-descriptor.json', null],
   ['get', '/openapi.json', null],
   ['get', '/review/{id}', null],
   ['get', '/agent-guide.md', null],
