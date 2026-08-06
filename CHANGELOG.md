@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.21.0 - 2026-08-06
+
+### Changed
+
+- **The sign-in and consent pages follow the reader's colour scheme.** The shared
+  funnel was `color-scheme: light` and nothing else, so anyone working in dark met
+  a white page. It now declares both schemes and switches on
+  `prefers-color-scheme`. WikiKit ships no console, so there is no explicit
+  preference to honour — the media query is the whole answer here, and the
+  optional `.scheme-light` / `.scheme-dark` classes the shared block carries are
+  never set. No server change was needed, which is what that optionality is for.
+
+  The block also moves to the family's cockpit token vocabulary, which fixes two
+  defects the old one carried: `.deny:hover` was about to become invisible, and
+  the page had no focus styling at all — it relied on the browser's default
+  outline, which is invisible on a dark card.
+
+- **The auth UI contract loses its version number.** `mcp-auth-v2` is now
+  `mcp-auth`. The number existed so that a product which had NOT taken a change
+  would fail loudly rather than render unstyled — but a change to this block
+  lands in every product in one wave, so that product does not exist. What the
+  number actually bought was a second thing to keep in step, hand-typed, which is
+  exactly the failure it was meant to prevent: four repositories all asserted
+  `content="2"` while nothing compared the bytes.
+
+  `<meta name="mcp-auth-ui-contract">` now carries a digest computed from the
+  stylesheet at module load. Two products serving different bytes announce
+  different strings, in the DOM. Verified identical across watchkit, contentkit,
+  wikikit and subkit: 3866 bytes, sha256 `ebdaece1`.
+
 ## 0.20.3 - 2026-08-05
 
 ### Added
