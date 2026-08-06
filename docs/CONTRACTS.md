@@ -1451,7 +1451,7 @@ one-time code. `WIKIKIT_OAUTH_PROVIDERS` is the only browser-provider
 configuration and may contain one `api_key` plus multiple directly configured
 `oidc` adapters concurrently. Product names are never protocol branches.
 A provider-neutral `302` from authorize leads to
-`/v1/identity/login/start?login_state=<opaque>`. The `mcp-auth-v2` chooser
+`/v1/identity/login/start?login_state=<opaque>`. The `mcp-auth` chooser
 always presents `Continue with SSO` before `Continue with API key`; product
 branding, scopes, policy and data stay WikiKit-owned. Provider labels cannot
 change these actions.

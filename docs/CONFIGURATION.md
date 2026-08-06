@@ -71,7 +71,7 @@ remote client has completed OAuth discovery and PKCE:
 - Multiple enabled methods and OIDC entries share one provider chooser.
 
 The browser surface never inherits vendor or configured labels. It renders the
-versioned `mcp-auth-v2` card with `Continue with SSO` first and `Continue with
+`mcp-auth` card with `Continue with SSO` first and `Continue with
 API key` second. Every adapter uses the same `/v1/identity/login/start`,
 `/v1/identity/login/callback`, `/v1/identity/logout`, provider discovery and
 session-exchange routes; provider ids are opaque configuration values.

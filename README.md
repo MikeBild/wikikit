@@ -202,7 +202,7 @@ browser API-key adapter and any number of directly configured `oidc` adapters
 in the WikiKit-branded auth card. Each OIDC client, secret, callback and policy
 belongs to this WikiKit deployment; no shared login service or cross-product
 auth component is involved. OIDC uses discovery and Authorization Code + PKCE.
-The method chooser is the family-wide `mcp-auth-v2` contract: SSO is always
+The method chooser is the family-wide `mcp-auth` contract: SSO is always
 first as **Continue with SSO**, API-key fallback is always second as
 **Continue with API key**, and configured provider labels never alter those
 two actions. WikiKit implements the same public surface independently of any sibling

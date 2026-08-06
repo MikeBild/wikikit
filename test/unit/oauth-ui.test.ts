@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { authHtmlResponse, renderConsentPage, renderErrorPage, renderProviderChoice } from '../../src/oauth/ui.ts'
 
-const COMMON_STYLE_SHA256 = 'fb9d19063e79757a73139720508cf27207214b98405e156bab894bad85796a0c'
+const COMMON_STYLE_SHA256 = 'ebdaece15b70206254f6430990bd14abfbc51a62d319cda6383bc8163b10b4d3'
 
 describe('common MCP auth UI contract', () => {
   test('is branded, script-free, escaped and request-bounded', () => {
@@ -14,8 +14,8 @@ describe('common MCP auth UI contract', () => {
       csrfToken: 'csrf',
       loginState: 'state',
     })
-    expect(html).toContain('data-auth-contract="mcp-auth-v2"')
-    expect(html).toContain('name="mcp-auth-ui-contract" content="2"')
+    expect(html).toContain('data-auth-contract="mcp-auth"')
+    expect(html).toContain('name="mcp-auth-ui-contract" content="sha256-ebdaece15b70"')
     expect(html).toContain('max-width:420px')
     expect(html).toContain('value="knowledge:read" checked disabled')
     expect(html).toContain('value="switch_account"')
@@ -39,14 +39,21 @@ describe('common MCP auth UI contract', () => {
     expect(html).not.toContain('Continue with Continue with')
     expect(html).not.toContain('Workforce OIDC')
     expect(html).toContain('class="provider-stack"')
-    const styles = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+    const styles = html.match(/\/\*mcp-auth:begin\*\/([\s\S]*?)\/\*mcp-auth:end\*\//)?.[1] ?? ''
     expect(createHash('sha256').update(styles).digest('hex')).toBe(COMMON_STYLE_SHA256)
   })
 
-  test('shared tokens carry the family ink-primary palette', () => {
+  test('the funnel declares both schemes, in the family palette', () => {
+    // The funnel was `color-scheme:light` and nothing else, so an operator
+    // working in dark met a white page. WikiKit ships no console and so has no
+    // explicit preference to honour — the media query is the whole answer here,
+    // and the .scheme-* classes are carried but never set.
     const html = renderProviderChoice({ state: 'state', providers: [] })
-    expect(html).toContain('--primary:#1f2328;--primary-hover:#000')
-    expect(html).not.toContain('#1f6feb')
+    expect(html).toContain('color-scheme:light dark')
+    expect(html).toContain('@media(prefers-color-scheme:dark)')
+    expect(html).toContain('--background:#ffffff;--foreground:#020817')
+    expect(html).toContain('--background:#020817;--foreground:#f8fafc')
+    expect(html).not.toContain('--ink:')
   })
 
   test('sign-in failure page stays in the shared shell and escapes everything', () => {
@@ -56,12 +63,12 @@ describe('common MCP auth UI contract', () => {
     })
     expect(html).toContain('<h1>Sign-in failed</h1>')
     expect(html).toContain('<title>Sign-in failed — WikiKit</title>')
-    expect(html).toContain('data-auth-contract="mcp-auth-v2"')
-    expect(html).toContain('name="mcp-auth-ui-contract" content="2"')
+    expect(html).toContain('data-auth-contract="mcp-auth"')
+    expect(html).toContain('name="mcp-auth-ui-contract" content="sha256-ebdaece15b70"')
     expect(html).toContain('Your account is not authorized for WikiKit. Contact the operator.')
     expect(html).toContain('>Sign in again</a>')
     expect(html).toContain('href="https://client.example/cb?error=access_denied&amp;state=&lt;x&gt;"')
-    const styles = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? ''
+    const styles = html.match(/\/\*mcp-auth:begin\*\/([\s\S]*?)\/\*mcp-auth:end\*\//)?.[1] ?? ''
     expect(createHash('sha256').update(styles).digest('hex')).toBe(COMMON_STYLE_SHA256)
   })
 
