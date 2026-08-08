@@ -401,9 +401,10 @@ export const zDecisionResponse = zDecisionSummary.extend({
  * unreviewed proposal make a page look evidenced, which inverts the review
  * gate this product exists to hold.
  *
- * Three required integers, never nullable and never optional: `claims: 0` is a
+ * Where it is served it is three integers and never null: `claims: 0` is a
  * measured fact ("this page cites nothing" — a hand-written page), not missing
- * data, and an optional field would license clients to render it as unknown.
+ * data, and a nullable number would license clients to render a measured zero
+ * as unknown. It is OPTIONAL for one reason only, stated at the field.
  */
 /**
  * The evidence summary, declared once and served by every surface that reports
@@ -433,7 +434,21 @@ export const zConceptListResponse = z.object({
       summary: z.string(),
       rev: z.number().int(),
       updated_at: z.string(),
-      evidence: zEvidence,
+      // OPTIONAL, on exactly the argument that makes it optional on a search
+      // hit: ABSENT and ZERO are different statements, and only one of them is
+      // a measurement. A hit omits it where the page could not be measured; a
+      // row omits it where the page must not be — a reference target
+      // (SCAFFOLDING_KINDS, src/domain/concepts.ts) is a landing place for
+      // reviewed relations whose own body says the knowledge lives on the pages
+      // it points at. Three zeros there are indistinguishable from a knowledge
+      // page that genuinely rests on nothing, which is the row an operator is
+      // supposed to act on; a wiki where half the index carries a stark zero
+      // that means nothing teaches its reader to ignore the ones that do.
+      //
+      // What this does NOT license is rendering a served zero as unknown. Where
+      // the object is present all three numbers are measured and `claims: 0`
+      // means the page cites nothing — the finding, not the absence of one.
+      evidence: zEvidence.optional(),
     }),
   ),
   next_after: z.string().nullable(),
@@ -506,13 +521,14 @@ export const zSearchResponse = z.object({
       // other place a reader decides which page to open, and it was as silent
       // about provenance as the index used to be.
       //
-      // OPTIONAL here and required on the list, which is not an inconsistency:
-      // on the list every row IS a page, while a hit may be a claim or an
-      // archived source chunk. Those two carry no `evidence` by design —
-      // kind='claim' because the page's totals answer a different question
-      // than the one a claim hit raises, and kind='source_chunk' because that
-      // tier is explicitly NOT approved knowledge and an evidence summary
-      // would say the opposite (see SearchHit in src/query/search.ts). Where
+      // Optional here for one more reason than on the list, which shares the
+      // rest of them: a hit may be a claim or an archived source chunk, and
+      // those two carry no `evidence` by design — kind='claim' because the
+      // page's totals answer a different question than the one a claim hit
+      // raises, and kind='source_chunk' because that tier is explicitly NOT
+      // approved knowledge and an evidence summary would say the opposite (see
+      // SearchHit in src/query/search.ts). A concept hit omits it exactly where
+      // the list's row does: an unreadable page, and a reference target. Where
       // the field IS served it is still three measured integers, never null:
       // `claims: 0` means the page cites nothing, and absence never means zero.
       evidence: zEvidence.optional(),

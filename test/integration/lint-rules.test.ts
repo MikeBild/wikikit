@@ -274,7 +274,13 @@ describe('lint rules (integration)', () => {
     const listed = (await listConcepts(db, spaceId, {})).items
     const reported = new Set(findings.map((finding) => finding.concept_slug))
     expect(listed.map((item) => item.slug)).toEqual(['blank', 'retired', 'sourced', 'unquoted'])
-    for (const item of listed) expect(reported.has(item.slug)).toBe(item.evidence.sources === 0)
+    for (const item of listed) {
+      // Every page in this space is knowledge, so every row carries a
+      // measurement — the two surfaces suppress the SAME pages, and a
+      // reference target would be absent here and reported by neither.
+      expect(item.evidence, item.slug).toBeDefined()
+      expect(reported.has(item.slug)).toBe(item.evidence!.sources === 0)
+    }
   })
 
   it('unsourced-concepts: overlaps empty-concepts on a claimless page, deliberately', async () => {

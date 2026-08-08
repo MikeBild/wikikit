@@ -50,7 +50,14 @@ export interface ConceptSummary {
   summary: string
   rev: number
   updated_at: string
-  evidence: ConceptEvidence
+  /**
+   * ABSENT for a page the measurement does not apply to — a reference target
+   * (SCAFFOLDING_KINDS, below), which holds no knowledge to be evidenced.
+   * Present on every other row, and there it is three measured integers where
+   * `0` is a fact about the page. Absence and zero are different statements
+   * and a reader must not have to guess which one they are holding.
+   */
+  evidence?: ConceptEvidence
 }
 
 /**
@@ -95,6 +102,53 @@ export const EVIDENCE_LATERAL = `SELECT count(DISTINCT cl.id)::int AS claims,
           WHERE cl.space_id = $1
             AND cl.concept_id = p.id
             AND cl.status IN (${VISIBLE_CLAIM_STATUSES.map((status) => `'${status}'`).join(', ')})`
+
+// Revision kinds that mark a page as SCAFFOLDING rather than knowledge: rows a
+// migration or a structural-bookkeeping pass created so an edge had somewhere
+// to land, never a page anybody wrote to be read. Such a page says as much on
+// its own face — its body is the one sentence explaining that it holds the
+// target of reviewed relations and that the knowledge is on the pages it points
+// at.
+//
+// It lives HERE, beside the aggregate, and not in the linter that first needed
+// it, because two callers now act on the same fact and a second copy of this
+// list would be a second answer to "which rows are furniture":
+//
+//   - lint.ts SUPPRESSES fault reports about them. Every page-level rule that
+//     reports a FAULT excludes them — orphan-concepts, unsourced-concepts,
+//     empty-concepts — because a rule that reports a scaffolding page is
+//     reporting the linter's own furniture, and once a report is mostly
+//     furniture nobody reads the rest of it. One list rather than the literal
+//     repeated per rule, so those three cannot silently disagree about what
+//     counts as a real page. (`stub-concepts` deliberately does NOT consult it;
+//     its reasoning is at the rule, and a new page-level rule reaching for
+//     NOT_SCAFFOLDING is making a claim about faults, not inheriting a default.)
+//
+//   - the reads in THIS file DECLINE TO MEASURE them. `evidence` answers "how
+//     does the wiki know this?", and a reference target holds no knowledge to
+//     know: three zeros on such a row are the same three numbers a page that
+//     genuinely rests on nothing carries, so an operator reading an index where
+//     half the pages are targets sees a wall of stark zeros, goes to the linter
+//     to find out what to do about them, and is told — correctly — that nothing
+//     is wrong. The linter is right; the index was measuring a page for which
+//     the measurement does not apply. Absent, not zero: the same rule
+//     `SearchHit.evidence` already holds for a page that stopped being readable
+//     (src/http/schemas.ts), extended to a second reason for absence.
+//
+// Both rest on one fact — these rows are furniture rather than knowledge — and
+// neither is a licence to HIDE the page: the index still lists it, `stub-concepts`
+// still reaches it, its body and relations still read. Only the measurement is
+// withheld.
+//
+// CONTRACT for a caller: the enclosing statement must expose the CURRENT
+// revision as `r` (this reads `r.agent_meta`). The marker is on the revision,
+// not on the concept, so a page stops being scaffolding the moment a revision
+// that is not scaffolding becomes current — which is what makes the withheld
+// measurement self-healing rather than a permanent property of a slug.
+export const SCAFFOLDING_KINDS = ['structural-reference', 'subkit-domain-migration-relation-repair'] as const
+export const NOT_SCAFFOLDING = `coalesce(r.agent_meta->>'kind', '') NOT IN (${SCAFFOLDING_KINDS.map(
+  (kind) => `'${kind}'`,
+).join(', ')})`
 
 /** Compact index handed to the classify LLM call — slug/title/summary only. */
 export interface ConceptIndexEntry {
@@ -216,9 +270,11 @@ export async function listConcepts(
     summary: string
     rev: number
     updated_at: Date
-    claims: number
-    uncited_claims: number
-    sources: number
+    // NULL together, and only for a reference target: the join below withholds
+    // the whole aggregate rather than any single column of it.
+    claims: number | null
+    uncited_claims: number | null
+    sources: number | null
   }>(
     // The keyset page is computed FIRST, in its own CTE, and the evidence
     // lateral hangs off that. Written the obvious way — lateral on the main
@@ -243,8 +299,17 @@ export async function listConcepts(
     // aliased `p` and the space id is `$1` because that fragment says so, and
     // keeping the statuses out of `values` also keeps the `$${values.length}`
     // cursor arithmetic above readable.
+    //
+    // LEFT JOIN LATERAL … ON p.measurable, not CROSS JOIN: the row stays in the
+    // index either way — a reference target is a page, it has a title and a
+    // reader can open it — but for one it is the MEASUREMENT that is withheld,
+    // and the three columns arrive NULL. The predicate is a column of the `page`
+    // CTE (NOT_SCAFFOLDING, which reads the current revision's marker, hence the
+    // `r` alias it requires) rather than a filter on the outer query, because a
+    // filter would drop the page out of somebody's index.
     `WITH page AS (
-       SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at
+       SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at,
+              ${NOT_SCAFFOLDING} AS measurable
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1${keyset}
@@ -254,28 +319,44 @@ export async function listConcepts(
      SELECT p.slug, p.title, p.summary, p.rev, p.updated_at,
             ev.claims, ev.uncited_claims, ev.sources
        FROM page p
-       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev
+       LEFT JOIN LATERAL (${EVIDENCE_LATERAL}) ev ON p.measurable
       ORDER BY p.slug ASC`,
     values,
   )
   const page = rows.slice(0, limit)
-  const items = page.map((row) => ({
-    slug: row.slug,
-    title: row.title,
-    summary: row.summary,
-    rev: row.rev,
-    updated_at: isoString(row.updated_at),
-    // Zero is MEASURED, never absent. An un-grouped aggregate returns exactly
-    // one row even when the concept has no claims at all, which is why this is
-    // a CROSS JOIN and not a LEFT JOIN with a COALESCE: there is no NULL to
-    // defend against, by construction. That matters because "this page cites
-    // nothing" is the single most important fact this change surfaces — a page
-    // written by hand through the console has zero claims and looked exactly
-    // like a fully cited one until now. Nullable numbers would be rendered as
-    // "unknown" (the console reserves an em dash for what nobody sent), and
-    // "makes no claims" must never look like "we did not ask".
-    evidence: { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources },
-  }))
+  const items = page.map((row) => {
+    // Zero is MEASURED, never absent — WHERE THE AGGREGATE RAN. It is an
+    // un-grouped aggregate, so it returns exactly one row even for a concept
+    // with no claims at all; a NULL here can therefore only come from the join
+    // predicate declining to measure, never from an empty count. That matters
+    // because "this page cites nothing" is the single most important fact this
+    // list surfaces — a page written by hand through the console has zero claims
+    // and looked exactly like a fully cited one until it said so — and the
+    // console renders an absent object as an em dash, "not measured". A page
+    // that makes no claims must never be dressed as one nobody asked about, and
+    // a page the question does not apply to must never be dressed as one that
+    // answered it with zeros.
+    //
+    // All three are tested rather than one, though the join makes them NULL
+    // together: a partially-NULL row would be a shape nothing here understands,
+    // and inventing a zero for the missing column is exactly the lie above.
+    const measured =
+      row.claims === null || row.uncited_claims === null || row.sources === null
+        ? undefined
+        : { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources }
+    return {
+      slug: row.slug,
+      title: row.title,
+      summary: row.summary,
+      rev: row.rev,
+      updated_at: isoString(row.updated_at),
+      // Spread rather than `evidence: measured`, so the key is genuinely absent
+      // in-process and not merely undefined: `'evidence' in row` is the check a
+      // caller writes, and JSON.stringify drops both — an in-process caller
+      // must not be able to see a distinction the wire cannot carry.
+      ...(measured ? { evidence: measured } : {}),
+    }
+  })
   const last = page.at(-1)
   return {
     items,
@@ -302,10 +383,18 @@ export async function listConcepts(
  * of which also returns claim rows the aggregate has nothing to say about) for
  * one saved round trip on a page of at most 50 hits.
  *
- * A slug missing from the returned map means NOT MEASURED, never zero: only
- * readable pages (a current revision) are counted, so a page that stopped being
- * readable between the ranking and this call is absent rather than reported as
- * a page that cites nothing. Zero is a measurement and must keep meaning one.
+ * A slug missing from the returned map means NOT MEASURED, never zero, and
+ * there are now TWO reasons a slug can be missing — both of them "the question
+ * does not apply to this page", never "the answer is nothing":
+ *   - it is not readable (no current revision), so a page that stopped being
+ *     readable between the ranking and this call is absent rather than reported
+ *     as a page that cites nothing;
+ *   - its current revision is scaffolding (NOT_SCAFFOLDING above), so it is a
+ *     reference target rather than knowledge, and the same silence the concept
+ *     list keeps for it is kept for a search hit that points at it.
+ * Zero is a measurement and must keep meaning one. The caller reads absence off
+ * the map exactly as before — search leaves `SearchHit.evidence` unset, which
+ * is the field's own contract for a page it could not measure.
  */
 export async function conceptEvidenceBySlug(
   db: Db,
@@ -323,11 +412,16 @@ export async function conceptEvidenceBySlug(
     uncited_claims: number
     sources: number
   }>(
+    // Here the scaffolding test is a FILTER and not a join predicate, unlike the
+    // list: this function's whole output is the measurement, so "not measured"
+    // is expressed by the slug not coming back — the same way an unreadable page
+    // already expresses it, through the JOIN one line above.
     `WITH page AS (
        SELECT c.id, c.slug
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1 AND c.slug = ANY($2::text[])
+          AND ${NOT_SCAFFOLDING}
      )
      SELECT p.slug, ev.claims, ev.uncited_claims, ev.sources
        FROM page p

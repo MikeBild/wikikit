@@ -13,27 +13,27 @@
 // surface the staging backlog.
 import type { Db } from '../db/postgres.ts'
 import { getFunctionalPredicates, VISIBLE_CLAIM_STATUSES } from './claims.ts'
-import { EVIDENCE_LATERAL } from './concepts.ts'
+import { EVIDENCE_LATERAL, NOT_SCAFFOLDING } from './concepts.ts'
 
-// Revision kinds that mark a page as SCAFFOLDING rather than knowledge: rows a
-// migration or a structural-bookkeeping pass created so an edge had somewhere
-// to land, never a page anybody wrote to be read. Every page-level rule that
-// reports a FAULT excludes them — orphan-concepts, unsourced-concepts,
-// empty-concepts — because a rule that reports a scaffolding page is reporting
-// the linter's own furniture, and once a report is mostly furniture nobody
-// reads the rest of it. One list rather than the literal repeated per rule, so
-// those three cannot silently disagree about what counts as a real page.
+// NOT_SCAFFOLDING (and the SCAFFOLDING_KINDS behind it) is defined beside
+// EVIDENCE_LATERAL in concepts.ts, and its full reasoning is there: it now
+// serves two callers with two different purposes, the linter suppressing fault
+// reports about those pages and the concept index declining to measure them,
+// both resting on the one fact that such rows are furniture rather than
+// knowledge. It moved rather than being duplicated for the same reason the
+// aggregate is shared — this file cannot own a definition the read model also
+// needs without concepts.ts importing back from the linter.
 //
-// `stub-concepts` is the one rule below that does NOT consult this list, and
-// that is the point of it: it reports a page that is blank in every sense at
-// once, which is what a structural target has BECOME once nothing points
-// through it any more. Its reasoning is at the rule; what matters here is that
-// a new page-level rule reaching for NOT_SCAFFOLDING is making a claim about
-// faults, not inheriting a default.
-const SCAFFOLDING_KINDS = ['structural-reference', 'subkit-domain-migration-relation-repair'] as const
-const NOT_SCAFFOLDING = `coalesce(r.agent_meta->>'kind', '') NOT IN (${SCAFFOLDING_KINDS.map(
-  (kind) => `'${kind}'`,
-).join(', ')})`
+// What holds HERE: every page-level rule that reports a FAULT excludes them —
+// orphan-concepts, unsourced-concepts, empty-concepts — because a rule that
+// reports a scaffolding page is reporting the linter's own furniture, and once
+// a report is mostly furniture nobody reads the rest of it. `stub-concepts` is
+// the one rule below that does NOT consult the list, and that is the point of
+// it: it reports a page that is blank in every sense at once, which is what a
+// structural target has BECOME once nothing points through it any more. Its
+// reasoning is at the rule; what matters here is that a new page-level rule
+// reaching for NOT_SCAFFOLDING is making a claim about faults, not inheriting a
+// default.
 
 export type LintRule =
   | 'contradictions'

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.27.0",
+    "version": "0.28.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -961,7 +961,7 @@
     },
     "/v1/spaces/{space}/concepts": {
       "get": {
-        "summary": "List concepts, each with an evidence summary (visible claims, uncited claims, distinct sources) — keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match",
+        "summary": "List concepts with an evidence summary per page (visible claims, uncited claims, distinct sources; absent on a reference-target page, which holds no knowledge to measure — absent is never zero) — keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match",
         "operationId": "listConcepts",
         "responses": {
           "200": {
@@ -4032,7 +4032,7 @@
                   "additionalProperties": false
                 }
               },
-              "required": ["slug", "title", "summary", "rev", "updated_at", "evidence"],
+              "required": ["slug", "title", "summary", "rev", "updated_at"],
               "additionalProperties": false
             }
           },

@@ -82,9 +82,13 @@ export interface SearchHit {
    * page to open, and it faced the same blind choice the list did: "how does
    * the wiki know this?" is not answerable from a ranked headline.
    *
-   * Present on every kind='concept' hit; the only absence is a page that
-   * stopped being readable between the ranking and the count, which is not a
-   * measured zero and must not be dressed as one.
+   * Present on every kind='concept' hit the aggregate can answer for. Two
+   * absences, neither of them a measured zero and neither to be dressed as one:
+   * a page that stopped being readable between the ranking and the count, and a
+   * reference target — a page whose current revision is scaffolding, which
+   * holds no knowledge to be evidenced (see NOT_SCAFFOLDING in
+   * src/domain/concepts.ts, where both are one filter on one aggregate, so a
+   * hit and the index row for the same slug can never disagree about which).
    *
    * DELIBERATELY ABSENT on the other two kinds:
    *

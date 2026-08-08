@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
 import type { FilterSpec } from '@/lib/url-filters'
-import type { EvidenceCounts } from '@/pages/page.logic'
+import { rendersAsDash, type EvidenceCounts } from '@/pages/page.logic'
 import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
 
 /**
@@ -415,7 +415,14 @@ function PageEvidenceLine({ hit, index }: { hit: SearchHit; index: number }) {
 
   const testId = `search-hit-${index}-evidence`
 
-  if (evidence.level === 'unmeasured')
+  // Asked by the predicate rather than by name, because "has no number to print"
+  // is now two levels and this branch is the one that prints no number. A hit
+  // cannot reach the second of them today — `hitEvidence` has only the hit in
+  // hand and never the whole response, so it cannot tell a reference target from
+  // a build that reports nothing, and it says the lesser thing rather than guess
+  // — but a surface that asked `=== 'unmeasured'` would fall through to the
+  // measured branch the day it can, and render "Evidence:" followed by nothing.
+  if (rendersAsDash(evidence.level))
     return (
       <p className="text-muted-foreground text-xs" data-testid={testId} data-evidence={evidence.level}>
         <span className="font-medium">Evidence:</span> <span aria-hidden="true">—</span>

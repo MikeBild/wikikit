@@ -103,15 +103,27 @@ export function changedWithin(updatedAt: string | null | undefined, window: stri
 /**
  * How well the archive backs one row of the pages list.
  *
- * Four states, and the fourth is the one every dashboard drops. `unmeasured` is
- * NOT `none`: the counts arrive with the list read, so a console talking to a
- * binary that predates them — a tab left open across a rolling upgrade, a
- * request that landed on the instance not yet replaced — gets rows carrying no
- * `evidence` object at all. "The server did not say" and "the server said zero"
- * are different facts about the world, and CUI-SEV-2 exists because a surface
- * that prints `0` for the first one invents a measurement (see the em dash in
- * the cell, and `compareNumber`, which refuses to sort an unmeasured value as
- * though it were zero).
+ * Five states, and the two that print nothing are the ones every dashboard
+ * drops. `unmeasured` is NOT `none`: the counts arrive with the list read, so a
+ * console talking to a binary that predates them — a tab left open across a
+ * rolling upgrade, a request that landed on the instance not yet replaced —
+ * gets rows carrying no `evidence` object at all. "The server did not say" and
+ * "the server said zero" are different facts about the world, and CUI-SEV-2
+ * exists because a surface that prints `0` for the first one invents a
+ * measurement (see the em dash in the cell, and `compareNumber`, which refuses
+ * to sort an unmeasured value as though it were zero).
+ *
+ * `reference` is the second absence, and it is a fact about the PAGE rather
+ * than about the response. The server withholds `evidence` for a reference
+ * target — a row an import created so that reviewed relations had somewhere to
+ * land, whose own body says in one sentence that the knowledge lives on the
+ * pages it points at. There is no measurement to report, not a missing one, and
+ * the distinction is the whole reason the field became optional: three zeros
+ * there are the same three numbers a knowledge page that genuinely rests on
+ * nothing carries, and an index where half the rows carry a meaningless zero
+ * teaches its reader to ignore the ones that mean something. It splits off
+ * `unmeasured` for the same reason `unmeasured` split off `none` — both render
+ * as the dash, and a reader who is shown a dash is owed the reason for it.
  *
  * `none` covers the page nobody has evidenced yet — a page written by hand
  * through the console carries zero claims, and until now no list said so. It
@@ -122,15 +134,34 @@ export function changedWithin(updatedAt: string | null | undefined, window: stri
  * own, because the cell says "12 claims" beside "12 uncited" and those two
  * numbers are more precise than any word a level name could carry.
  */
-export type EvidenceLevel = 'unmeasured' | 'none' | 'partial' | 'backed'
+export type EvidenceLevel = 'unmeasured' | 'reference' | 'none' | 'partial' | 'backed'
+
+/**
+ * The two levels that have no number to print, so the cell draws the em dash.
+ *
+ * A predicate rather than an equality test at each call site: `unmeasured` was
+ * the only wordless state for two releases and every surface that draws this
+ * object checked for it by name, so adding a second one silently sent a
+ * reference target down the branch that prints a count — a row reading
+ * "Evidence:" followed by nothing. One name, and a surface that forgets to
+ * handle a level added later fails in one place instead of rendering an empty
+ * cell in three.
+ */
+export function rendersAsDash(level: EvidenceLevel): boolean {
+  return level === 'unmeasured' || level === 'reference'
+}
 
 /**
  * The `evidence` object one row of `GET /v1/spaces/{space}/concepts` carries.
  *
- * The server declares all three as required non-negative integers, and they are
- * optional and nullable HERE and only here, because this shape's job is to
- * describe what the console might actually receive — which includes a response
- * from a deployment that has never heard of them (see `pageEvidence`).
+ * The server declares all three as required non-negative integers WHERE THE
+ * OBJECT IS SERVED — it omits the object itself for a reference target rather
+ * than nulling its fields, because a null field would invite exactly the `?? 0`
+ * this file spends three functions refusing. The three are optional and
+ * nullable HERE and only here, because this shape's job is to describe what the
+ * console might actually receive, which includes a response from a deployment
+ * that has never heard of them and a half-filled object from one that is wrong
+ * about itself (see `pageEvidence`).
  *
  * `claims` counts VISIBLE claims only (`verified | disputed | deprecated`);
  * `proposed` and `draft` belong to a pending proposal rather than to the page,
@@ -209,6 +240,42 @@ export function evidenceRank(counts: EvidenceCounts | null | undefined): number 
 }
 
 /**
+ * Did this response measure evidence AT ALL?
+ *
+ * The two reasons a row can arrive without counts look identical in the row —
+ * the object is simply not there — and they call for opposite sentences. One is
+ * a fact about the PAGE ("a reference target holds no knowledge to measure"),
+ * the other a fact about the RESPONSE ("this build does not report counts"), and
+ * telling a reader the first one when the second is true would be the console
+ * inventing a property of a page it knows nothing about.
+ *
+ * The discriminator is the rest of the list. A response that measured ANY page
+ * comes from a build that measures, so a row in it that carries nothing is a row
+ * the server declined to measure — a reference target. A response where not one
+ * row carries counts is a build that does not report them, and no row in it may
+ * be described as a reference target.
+ *
+ * The one case this cannot separate is a wiki whose every loaded page is a
+ * reference target: no row measures, so every row falls to `unmeasured`. That
+ * is the deliberate direction to be wrong in — the fallback sentence ("this list
+ * came back without evidence counts") is still TRUE of such a response, merely
+ * less specific, whereas the reference-target sentence asserted about an old
+ * build would be false about every page in the wiki.
+ *
+ * Read over the WHOLE response and never over the rows a filter left behind: a
+ * "changed in the last 7 days" window that happens to keep only reference
+ * targets would otherwise flip every one of them to the vaguer sentence, and a
+ * filter must not change what a page IS.
+ */
+export function listMeasuresEvidence(rows: readonly { evidence?: EvidenceCounts | null }[]): boolean {
+  // `evidenceRank` and not a property check: a row carrying `{claims: -1}` is a
+  // server contradicting itself, and `pageEvidence` reads it as unmeasured. If
+  // that row were allowed to vouch for the response, a whole list of them would
+  // vouch for a build that measures nothing.
+  return rows.some((row) => evidenceRank(row.evidence) !== null)
+}
+
+/**
  * One row's evidence, ready to render.
  *
  * The tone is the decision worth defending, and only two states get one at all:
@@ -238,20 +305,37 @@ export function evidenceRank(counts: EvidenceCounts | null | undefined): number 
  * exception, `none` prints the flag and no count at all, `backed` prints a count
  * and no flag. Three shapes, three readings, and a word on every one of them
  * because colour alone says nothing (CUI-A11Y-5).
+ *
+ * `listMeasured` is the second argument because absence alone does not say WHY,
+ * and a dash whose reason nobody can get at is only marginally better than a
+ * wrong zero — the reader still has to go and ask the linter, which is the round
+ * trip this change exists to end. It defaults to `false`, the reading that
+ * claims the least: a caller that has not established the response measures
+ * anything gets "the counts did not arrive", which is true of every absence.
+ * Only a caller holding the whole response can say more (`listMeasuresEvidence`).
  */
-export function pageEvidence(counts: EvidenceCounts | null | undefined): PageEvidence {
+export function pageEvidence(counts: EvidenceCounts | null | undefined, listMeasured = false): PageEvidence {
   const claims = measuredCount(counts?.claims)
   const uncited = measuredCount(counts?.uncited_claims)
   const rank = evidenceRank(counts)
 
   if (claims === null || uncited === null)
     return {
-      level: 'unmeasured',
+      level: listMeasured ? 'reference' : 'unmeasured',
       count: null,
       flag: null,
       tone: 'unknown',
       detail: null,
-      reading: 'This list came back without evidence counts, so how well this page is backed is not known here.',
+      // Two absences, two sentences, and neither of them is a number. The
+      // reference-target reading says what the page IS, because that is the
+      // question an operator staring at a dash actually has and the answer is
+      // not "wait for the next release" — nothing here is pending, nothing is
+      // broken, and there is no ingest to run. The page is furniture holding a
+      // reviewed relation, and the knowledge it points at is on the pages it
+      // links to.
+      reading: listMeasured
+        ? 'This page is a reference target for relations, not a knowledge page, so evidence is not measured for it.'
+        : 'This list came back without evidence counts, so how well this page is backed is not known here.',
       rank,
     }
 

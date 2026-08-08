@@ -108,17 +108,37 @@ per list; it does not remember filters, because a stored filter is a list that
 lies about what it is showing.
 
 `wk.concepts.list` already answers "how does the wiki know this?" per row:
-every item carries `evidence: {claims, uncited_claims, sources}` — the claims
-the page makes, how many of those cite nothing, and how many distinct sources
-back it. Only visible claims (`verified`, `disputed`, `deprecated`) are
-counted; a `proposed` or `draft` claim belongs to a change, not to the page.
-Render it from the list. Never fetch each page to recount it — that is one
-request per row for a number the list already sent.
+an item carries `evidence: {claims, uncited_claims, sources}` — the claims the
+page makes, how many of those cite nothing, and how many distinct sources back
+it. Only visible claims (`verified`, `disputed`, `deprecated`) are counted; a
+`proposed` or `draft` claim belongs to a change, not to the page. Render it
+from the list. Never fetch each page to recount it — that is one request per
+row for a number the list already sent.
 
 `evidence.claims === 0` is a **measured** zero: a page somebody wrote by hand,
 with no sources behind it. It renders as `0`. `—` stays reserved for the value
 nobody sent (CUI-SEV-2) — "makes no claims" and "we never asked" are different
 facts about a page and must not look the same.
+
+The field is OPTIONAL, and its absence is one of those "we never asked" facts,
+so it draws the dash and never a zero. Two different things produce it and the
+column must not merge them, because only one of them is a statement about the
+page: the server declining to measure a **reference target** — a row created to
+receive relations, whose own body says the knowledge lives on the pages it
+points at — and a response from a build that measured nothing, which is a tab
+that outlived a rolling upgrade and says nothing about any page in it. Tell them
+apart by asking the WHOLE response, never the row: a response in which some
+other row carries counts came from a build that measures, so a bare row in it is
+one the server declined to measure. A response where no row does is the old
+build, and every row in it keeps the weaker sentence — a console may not call a
+page a reference target on the strength of a response that never measured
+anything.
+
+Either way the dash carries its reason where a reader can reach it, by pointer
+and by keyboard both (CUI-WORDS-2 rules out `title=` as the carrier of a
+sentence that is not otherwise on screen), and keeps its `sr-only` text: a
+tooltip nobody opens says nothing, and a linear screen-reader pass would
+otherwise hit an `aria-hidden` glyph and hear an empty cell.
 
 ## Actions
 

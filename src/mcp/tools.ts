@@ -408,7 +408,8 @@ export const TOOLS: McpToolDef[] = [
       'Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. ' +
       "Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary " +
       'the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk ' +
-      'hits carry none.',
+      'hits carry none, and neither does a page there is no measurement to give for (a reference target created to ' +
+      'receive relations, or a page no longer readable). An absent summary is not a zero one.',
     scope: 'knowledge:read',
     inputSchema: zSearchToolInput,
     annotations: READ_ANNOTATIONS,

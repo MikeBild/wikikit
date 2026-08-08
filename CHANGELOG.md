@@ -6,6 +6,193 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.28.0 - 2026-08-08
+
+The entry for 0.27.0 makes three statements about a kind of page in this
+product and all three are false. That entry is released and is not rewritten —
+a changelog that quietly edits its own history is worth less than one that
+carries its corrections in the open — so the correction comes first here,
+ahead of the fix, because a reader who believed those sentences has been
+misled about what is in their wiki and deserves to hit that before anything
+else.
+
+### Corrections to the record
+
+- **0.27.0 described these pages wrongly, and claimed a closure it did not
+  make.** It called them "blank", said they carry "no relations at all", and
+  said the release closed the index/linter disagreement 0.26.1 recorded under
+  **Known**. None of the three is true.
+
+  The pages carry roughly **240 characters of prose** and between **one and
+  seventeen ACTIVE relations** each. They are therefore blank in none of the
+  three senses `stub-concepts` tests, which is why that rule does not report
+  them — not because it excludes them, but because it looks for an empty page
+  and these are not empty. And the disagreement was still open when 0.27.0
+  shipped, for exactly the reason 0.26.1 wrote it down: the index reported
+  zeros about these pages and the linter said nothing about them. **This
+  release is what closes it**, by fixing the surface that was wrong.
+
+  How the three got written: we described these pages from a throwaway probe
+  we wrote ourselves, which asked the API for fields by names the API does not
+  serve, and we read the undefineds it came back with as zeros. The probe was
+  not wrong about anything — it was never told to look at the right fields. We
+  did not open one of these pages and see it was blank, and we did not check
+  the numbers against the page before writing an entry around them, which is
+  the part that turned a bad measurement into a false record. Every number in
+  this entry was read off a real installation against the fields the API
+  actually serves, and against the page itself.
+
+- **What these pages actually are.** Each is a heading and one short
+  paragraph, and the paragraph is about the page itself: it says the page
+  preserves the target of reviewed relations created during an allowlisted
+  import migration, and that the detailed, source-grounded knowledge remains
+  on the related concept pages and in their archived sources. That is the
+  entire body. It is a page that says on its own face that it is not where the
+  knowledge is — a landing place built so that relations somebody reviewed had
+  somewhere to point, carrying no claims and no citations because it was never
+  meant to carry any.
+
+  There are **49 of them across five wikis** — 25 of 67 pages in one, 11 of 20
+  in another.
+
+### Fixed
+
+- **The page index no longer reports three zeros for a page it cannot
+  measure.** `GET /v1/spaces/{space}/concepts` served
+  `evidence: {claims: 0, uncited_claims: 0, sources: 0}` for one of those
+  reference-target pages. Those are the same three numbers the index shows for
+  a knowledge page that genuinely rests on nothing — which is the row an
+  operator is supposed to act on. In the wiki where 11 of 20 pages are targets,
+  **more than half the index carried a zero that meant nothing**, and an
+  operator reading it followed the wall of zeros to the linter to find out what
+  to do and was told nothing was wrong.
+
+  **The linter was right the whole time.** It excludes these pages from
+  `orphan-concepts`, `unsourced-concepts` and `empty-concepts` because they are
+  self-describing link targets, and telling somebody to "ingest a source and
+  let synthesis quote it" for a page whose own text says the knowledge is
+  elsewhere is the wrong instruction. `stub-concepts` (0.27.0) is right too and
+  stays exactly as it is: it reports a readable page that is empty in all three
+  senses at once, every condition it tests is observably true of the page
+  rather than a fact about where the page came from, and it means the same
+  thing on every installation. That it finds nothing here is not a defect in
+  the rule — it is that this installation has no empty orphaned pages for it to
+  find.
+
+  The index was the surface that misled, by reporting a measurement for pages
+  the measurement does not apply to. So `evidence` is now **absent** on such a
+  row rather than zeroed, on the concept list and on `kind: 'concept'` search
+  hits alike. This is not a new principle: `SearchHit.evidence` has been
+  optional since it existed, because a page that stopped being readable between
+  the ranking and the count must come back absent rather than as a page that
+  cites nothing. The same rule now covers a second reason for absence, through
+  one filter on one aggregate, so an index row and a search hit can never
+  disagree about which pages they decline to measure. **Absent and zero are
+  different answers**, and a wiki that reports one as the other does not know
+  what it holds.
+
+  Everything else is untouched. Every other page keeps its object; `claims: 0`
+  still means "this page cites nothing" and is still the finding this summary
+  exists to surface; the arithmetic behind the numbers did not change. The page
+  itself is not hidden — it is listed, it is readable, and its body and
+  relations are served as before. Only the measurement is withheld, and only
+  because there is none to give.
+
+  Absence follows the **current revision's** marker, so a page stops being a
+  reference target the moment a revision that does not claim to be furniture
+  becomes current, and is measured again from that read on.
+
+  Clients: `evidence` is now optional in `zConceptListResponse` items and in
+  `docs/openapi.json`. A client that renders it must render absence as "not
+  measured" — the console prints an em dash and refuses to sort it as though it
+  were zero — and must **not** collapse absent into zero, which would restore
+  the exact defect this release fixes.
+
+- **The Evidence column on the console's PAGES list now says WHY a page has no
+  number** — that list only; the search screen is under **Known** below. It
+  already printed an em dash for an absent measurement and already refused to
+  sort that dash as though it were zero (0.25.0, CUI-SEV-2), but a bare dash
+  with no explanation is only marginally better than a wrong zero: the operator
+  who wants to know why half a wiki's rows are blank still has to leave the
+  list to find out, and the linter — correctly — will tell them nothing is
+  wrong. The dash is now a tooltip trigger, reachable by pointer and by
+  keyboard on the same rule every other explanation in this console follows,
+  and behind it is the sentence that is actually true of the page: it is a
+  reference target for relations, not a knowledge page, so evidence is not
+  measured for it.
+
+  The two reasons a row can arrive with no counts are told apart rather than
+  merged. A response that measured any page came from a build that measures, so
+  a bare row in it is one the server declined to measure; a response where no
+  row carries counts is an old build talking to a tab that outlived a rolling
+  upgrade, and every row in it keeps the older, weaker sentence — a console
+  must not describe a page as a reference target on the strength of a response
+  that never measured anything.
+
+### Changed
+
+- **`SCAFFOLDING_KINDS` moved from `src/domain/lint.ts` to
+  `src/domain/concepts.ts`**, beside the evidence aggregate it now sits next
+  to, and the linter imports it from there. Two callers act on one fact — lint
+  suppresses fault reports about those pages, the index declines to measure
+  them — and both rest on the same thing being true of the row: it is furniture
+  rather than knowledge. It moved rather than being copied because the read
+  model cannot import from the linter without a cycle, and a second copy of
+  that list would be a second answer to which rows are furniture. Every
+  existing use in the linter is unchanged.
+
+### Known
+
+- **The scaffolding list still hardcodes one deployment's private migration
+  tag.** Carried forward from 0.26.1 and 0.27.0, one file further along and
+  **more load-bearing than when it was written down**: `SCAFFOLDING_KINDS`
+  names a revision kind that exists because one particular installation ran one
+  particular import, in a product that otherwise knows nothing about where it
+  runs. 0.27.0 could say the new rule deliberately did not consult it, which
+  shrank the blast radius. This release cannot say that. The marker now has two
+  callers instead of one, and the second is a response field: the index's
+  silence about these pages is as installation-specific as the linter's, and
+  an installation that never ran that import gets neither behaviour. What would
+  remove it is a marker the product itself defines for "this row is a link
+  target, not a page", which is a contract decision this release does not take.
+
+- **0.27.0's second Known item is answered, and not by a rule.** That entry
+  left open the page that is marked as scaffolding, has body text, and has no
+  citation behind anything it says — reported by none of the four lint rules
+  while "the index counts it; the linter does not". That page is precisely the
+  one this release is about, and the second half of the complaint is no longer
+  true: the index does not count it, because it no longer asks the question of
+  it. The two surfaces now agree by both declining to speak about the same
+  page, which is the correct agreement — the linter was never wrong to be
+  silent. It is worth being explicit that nothing was added to the linter to
+  achieve this and nothing should be. 0.26.1 listed three candidate closures
+  and 0.27.0 took the second; this takes the third, which was open all along:
+  have the index stop presenting their zero as if it were a knowledge page's
+  zero, the way a search hit omits evidence rather than reporting it as zero.
+
+- **A scaffolding-marked page that does hold claims is absent too.** The marker
+  decides, not the counts: such a row reports no evidence summary even though
+  its claims are real and its own page read still shows them. This follows from
+  the marker being the deployment's statement about the row, and from wanting a
+  rule readable off a single row, but it does mean a real measurement can be
+  withheld until somebody approves a revision that is not marked as
+  scaffolding. No such page exists on the installation measured here.
+
+- **The console's SEARCH screen still gives the wrong reason for the dash.**
+  The bullet above is about the pages list, and only the pages list. A
+  `kind: 'concept'` search hit on a reference target now correctly draws the em
+  dash instead of "no claims" — that much improved — but the sentence behind it
+  reads "This list came back without evidence counts", which is false of a
+  search response in which other hits carry counts. The reason is that the
+  search card decides per hit and never sees the whole response, so it cannot
+  run the discriminator the list runs and deliberately says the weaker thing
+  rather than guess. The weaker thing is still wrong here, which the list's
+  version never is. It is hidden text (`sr-only` and no tooltip), so the reader
+  most likely to meet it is the one using a screen reader — which is the wrong
+  way round for a defect to land. Fixing it means threading the response-level
+  fact into the search card the way `IndexRow.measured` threads it into the
+  list, and this release does not do it.
+
 ## 0.27.0 - 2026-08-08
 
 This release closes the disagreement 0.26.1 left open under **Known**: the page

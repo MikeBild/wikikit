@@ -9,7 +9,12 @@
 // WHAT THIS FILE HOLDS TO THE DATABASE (src/query/search.ts, SearchHit):
 //
 //   kind='concept'       carries `evidence`, counted by the SAME aggregate the
-//                        list uses (EVIDENCE_LATERAL), in the hit's OWN space.
+//                        list uses (EVIDENCE_LATERAL), in the hit's OWN space —
+//                        unless the aggregate declines to answer for the page,
+//                        which it does for a page that is no longer readable
+//                        and for a reference target (a scaffolding revision:
+//                        furniture, with no knowledge to be evidenced). Absent
+//                        is not zero, on this surface exactly as on the index.
 //   kind='claim'         carries none — the page's totals answer a different
 //                        question than a claim hit raises.
 //   kind='source_chunk'  carries none — that tier is explicitly NOT approved
@@ -63,7 +68,7 @@ let claimSeq = 0
  * gives: approval only ever produces `verified` claims, so the `draft` status —
  * one of the two that must NOT count — is unreachable through that path.
  */
-async function seedPage(slug: string, claims: SeedClaim[]): Promise<void> {
+async function seedPage(slug: string, claims: SeedClaim[], kind?: string): Promise<void> {
   const [concept] = await db.insert<{ id: string }>('wk_concepts', { space_id: spaceId, slug, title: slug })
   const [revision] = await db.insert<{ id: string }>('wk_concept_revisions', {
     space_id: spaceId,
@@ -73,6 +78,11 @@ async function seedPage(slug: string, claims: SeedClaim[]): Promise<void> {
     title: `Thermostat ${slug}`,
     summary: `Everything about the ${QUERY} in ${slug}.`,
     markdown: `# ${slug}\n\nThe ${QUERY} reports its firmware version on boot.`,
+    // `kind` on the CURRENT revision is what marks a page as scaffolding — a
+    // reference target rather than knowledge. Set here for the same reason the
+    // claim statuses are set directly: the marker arrives on rows an import
+    // wrote, and no proposal path in this product produces one.
+    agent_meta: JSON.stringify(kind ? { kind } : {}),
   })
   await db.update('wk_concepts', { id: `eq.${concept!.id}` }, { current_revision_id: revision!.id })
 
@@ -146,6 +156,10 @@ describe('search evidence (integration)', () => {
       { status: 'proposed', cites: [0] },
       { status: 'draft', cites: [2] },
     ])
+    // A reference target: a page an import created so reviewed relations had
+    // somewhere to land. It ranks like any other page — it has a title and a
+    // body — and it is the second reason a concept hit can carry no evidence.
+    await seedPage('thermostat-reference', [], 'structural-reference')
 
     // One archived chunk in the source-evidence tier, matching the same query.
     await db.insert('wk_source_chunks', {
@@ -229,7 +243,43 @@ describe('search evidence (integration)', () => {
     for (const hit of [...claims, ...chunks]) expect(hit.evidence, hit.kind).toBeUndefined()
     // …while the concept hits in the SAME response are all measured. A guard
     // that suppressed the field for everything would satisfy the loop above.
-    for (const hit of hits.filter((entry) => entry.kind === 'concept')) expect(hit.evidence).toBeDefined()
+    // The reference target is the one concept hit that is legitimately absent
+    // and it is excluded BY SLUG rather than by "whatever came back empty",
+    // which would re-admit exactly the bug this loop is here for.
+    const pages = hits.filter((entry) => entry.kind === 'concept' && entry.slug !== 'thermostat-reference')
+    expect(pages.length).toBeGreaterThan(0)
+    for (const hit of pages) expect(hit.evidence, hit.slug ?? '').toBeDefined()
+  })
+
+  it('a reference-target hit is ABSENT, while a hit on a page that rests on nothing still reports zeros', async () => {
+    // The same distinction the index makes, on the other surface where a reader
+    // picks which page to open — and both halves in ONE response, because
+    // either half alone is satisfiable by a wrong implementation. A search that
+    // reported three zeros for the target would put it beside the hand-written
+    // page as though the two were the same finding; one that suppressed the
+    // object for every concept hit would lose the finding entirely.
+    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const reference = conceptHit(hits, 'thermostat-reference')
+    expect(reference.evidence).toBeUndefined()
+    expect('evidence' in reference).toBe(false)
+    expect(conceptHit(hits, 'thermostat-notes').evidence).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+
+    // …and the two surfaces agree about WHICH page they decline to measure.
+    // One filter on one aggregate is what makes that structural rather than
+    // hopeful: a hit that carried numbers the index withholds (or the reverse)
+    // is a wiki contradicting itself between two reads of one page.
+    expect(await listEvidence('thermostat-reference')).toBeUndefined()
+  })
+
+  it('the aggregate itself declines to answer for a reference target, and says so by omission', async () => {
+    // The mechanism under the test above, asked of conceptEvidenceBySlug
+    // directly — the same gate an unreadable page passes through below. Absence
+    // in the map is the ONLY way this function can say "not measured": it
+    // returns numbers or nothing, so a caller that finds the slug missing must
+    // leave `SearchHit.evidence` unset rather than invent a zero.
+    const measured = await conceptEvidenceBySlug(db, spaceId, ['thermostat-reference', 'thermostat-notes'])
+    expect(measured.has('thermostat-reference')).toBe(false)
+    expect(measured.get('thermostat-notes')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
   })
 
   it('an unreadable page is ABSENT from the aggregate, not a measured zero', async () => {

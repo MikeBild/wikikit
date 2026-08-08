@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNow } from '@/hooks/use-now'
 import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
@@ -18,7 +19,15 @@ import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
-import { CHANGE_WINDOW_LABEL, changedWithin, evidenceRank, pageEvidence, type EvidenceCounts } from '@/pages/page.logic'
+import {
+  CHANGE_WINDOW_LABEL,
+  changedWithin,
+  evidenceRank,
+  listMeasuresEvidence,
+  pageEvidence,
+  rendersAsDash,
+  type EvidenceCounts,
+} from '@/pages/page.logic'
 
 /**
  * Every page in this wiki.
@@ -82,19 +91,43 @@ interface PageRow {
   rev: number
   updated_at: string
   /**
-   * Optional here, and required on the wire — deliberately, not defensively.
+   * Optional, and optional on the wire too — for two unrelated reasons that
+   * happen to want the same handling.
    *
-   * The server declares `evidence` as three required non-negative integers, and
-   * it is right to: `claims: 0` is a measured fact about a hand-written page,
-   * not missing data. This console is served by the binary it talks to, so the
-   * two are normally the same version. A ROLLING UPGRADE is where that stops
-   * being true — a tab loaded from the replaced instance, its next request
-   * landing on the one still running the old build — and those rows carry no
-   * `evidence` at all. Typing it required would be a lie the compiler agreed to,
-   * and the column would print "No claims" for every page in the wiki, which is
-   * the single most alarming thing this list can say.
+   * The server omits it for a REFERENCE TARGET: a page an import created so
+   * that reviewed relations had somewhere to land, which holds no knowledge to
+   * be evidenced. Three zeros there would be the same row a page that genuinely
+   * rests on nothing gets, and half an index carrying a meaningless zero
+   * teaches a reader to ignore the ones that mean something. Where the object
+   * IS served it is three measured integers: `claims: 0` is a fact about a
+   * hand-written page, not missing data.
+   *
+   * And a ROLLING UPGRADE omits it for every row — a tab loaded from the
+   * replaced instance, its next request landing on the one still running a
+   * build that predates the field. Typing it required would be a lie the
+   * compiler agreed to, and the column would print "No claims" for every page
+   * in the wiki, which is the single most alarming thing this list can say.
+   *
+   * Both render as an em dash, with a sort that refuses to rank a blank as
+   * though it were zero — but they are told apart and they say different
+   * sentences, which is what `measured` on `IndexRow` is for.
    */
   evidence?: EvidenceCounts | null
+}
+
+/**
+ * A row, plus the one fact about the RESPONSE that no row can carry on its own.
+ *
+ * `measured` says whether the list this row arrived in reported evidence for
+ * ANY page (`listMeasuresEvidence`), which is what separates the two reasons a
+ * row can be missing its counts — see `PageRow.evidence`. It has to sit on the
+ * row rather than be closed over by the cell, because `COLUMNS` is module scope
+ * and a cell built per render would re-sort the whole list on every keystroke
+ * elsewhere on the page. Derived once per response beside the filter, so the
+ * two hundred rows carry a boolean rather than each asking the question again.
+ */
+interface IndexRow extends PageRow {
+  measured: boolean
 }
 
 /**
@@ -102,7 +135,7 @@ interface PageRow {
  * rebuilt per render re-sorts the whole list on every keystroke elsewhere on the
  * page.
  */
-const COLUMNS: readonly DataColumn<PageRow>[] = [
+const COLUMNS: readonly DataColumn<IndexRow>[] = [
   {
     id: 'page',
     label: 'Page',
@@ -196,7 +229,15 @@ export function PagesPage() {
   // store ticks once a second for the whole console, so every surface agrees on
   // what "now" is.
   const now = useNow()
-  const rows = useMemo(() => items.filter((row) => changedWithin(row.updated_at, changed, now)), [items, changed, now])
+  const rows = useMemo<readonly IndexRow[]>(() => {
+    // Asked of the WHOLE response, not of the rows that survive the filter: a
+    // window that happened to keep only reference targets would otherwise leave
+    // the list with nothing measured in it and flip every one of those rows to
+    // the vaguer sentence. A filter narrows what is shown; it does not change
+    // what a page is.
+    const measured = listMeasuresEvidence(items)
+    return items.filter((row) => changedWithin(row.updated_at, changed, now)).map((row) => ({ ...row, measured }))
+  }, [items, changed, now])
 
   return (
     <Page
@@ -290,8 +331,8 @@ export function PagesPage() {
 /**
  * What backs this page, in one cell.
  *
- * Three shapes, because two of the states share the amber tone and a colour is
- * never allowed to be the whole difference (CUI-A11Y-5):
+ * Three shapes for the measured states, because two of them share the amber tone
+ * and a colour is never allowed to be the whole difference (CUI-A11Y-5):
  *
  *   12 claims  [2 uncited]     a page whose evidence has holes — the common case
  *   4 sources
@@ -301,27 +342,60 @@ export function PagesPage() {
  *   12 claims                  every claim quoting a source — the promise kept,
  *   4 sources                  stated in plain text and wearing no pill at all
  *
- *   —                          the counts never arrived, which is not a zero
+ *   —                          nothing was measured, which is not a zero
  *
  * The em dash is the one that has to be gettable by a reader who cannot see it,
  * so the visible glyph is hidden from the accessibility tree and the sentence
  * behind it is not: a screen reader that announced "dash" would learn exactly as
  * much as a reader who saw `0`.
  *
- * The whole reading sits on `title` as well, because "2 uncited" is a number a
- * reader may want spelled into a sentence before they decide to open the page,
- * and every word of it is also on screen — the attribute adds, it never carries.
+ * And it has to be gettable by a reader who CAN see it, which is the change
+ * here. A bare dash is barely better than a wrong zero — the operator who wants
+ * to know why half this wiki's rows are blank has nowhere to ask but the linter,
+ * which correctly reports nothing wrong, and that round trip is the whole defect
+ * this column had. So the dash is a Tooltip trigger carrying the sentence
+ * `pageEvidence` decided on: a reference target says it holds relations rather
+ * than knowledge, an unanswered list says the counts never arrived.
+ *
+ * A Tooltip and not a `title=`, on the same rule `RelativeTime` and
+ * `DisabledReason` already follow (CUI-WORDS-2): a native title is one sentence
+ * offered to a pointer and to nobody else — invisible on touch, unreachable by
+ * keyboard — and here it would be CARRYING the explanation rather than adding
+ * to one already on screen. That is why the measured branch below may keep its
+ * `title`: every word of that reading is rendered beside it. The tab stop is the
+ * price, and it is the same price the "Last change" cell in this row already
+ * pays for the exact instant behind "3 days ago".
+ *
+ * The `sr-only` sentence stays as well as the tooltip, and the redundancy is
+ * deliberate: a tooltip that is never opened says nothing, so a screen reader
+ * reading this table row by row would otherwise reach an `aria-hidden` glyph and
+ * hear an empty cell.
  */
-function EvidenceCell({ row }: { row: PageRow }) {
-  const evidence = pageEvidence(row.evidence)
+function EvidenceCell({ row }: { row: IndexRow }) {
+  const evidence = pageEvidence(row.evidence, row.measured)
   const testId = `pages-row-${row.slug}-evidence`
 
-  if (evidence.level === 'unmeasured')
+  if (rendersAsDash(evidence.level))
     return (
-      <span className="text-muted-foreground" data-testid={testId} data-evidence={evidence.level}>
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">{evidence.reading}</span>
-      </span>
+      // Its own provider, like every other Tooltip in this console: rows are
+      // rendered inside dialogs and sheets that mount their own trees, and Radix
+      // throws rather than degrades when a Tooltip cannot find one.
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              data-testid={testId}
+              data-evidence={evidence.level}
+            >
+              <span aria-hidden="true">—</span>
+              <span className="sr-only">{evidence.reading}</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent data-testid={`${testId}-reason`}>{evidence.reading}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     )
 
   return (

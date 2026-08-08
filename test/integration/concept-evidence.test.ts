@@ -15,8 +15,14 @@
 //                    all. A COUNT over CLAIMS, not over citations.
 //   sources          how many DISTINCT wk_sources back those claims.
 //
-// All three are numbers, always, on every row — 0 is a measurement, null is
-// not, and the read must never hand the console a null to render.
+// All three are numbers, always, wherever the object is served — 0 is a
+// measurement, null is not, and the read must never hand the console a null to
+// render. The object itself is ABSENT on exactly one kind of row: a reference
+// target, a page an import created so that reviewed relations had somewhere to
+// land. It holds no knowledge to be evidenced, so it has no measurement, and
+// three zeros there are indistinguishable from the knowledge page that
+// genuinely rests on nothing — which is the row this whole summary exists to
+// show. Absence and zero are different statements; both are asserted below.
 //
 // These live in an integration test rather than beside the fake-db unit tests
 // because every one of them is a claim about SQL: a join that multiplies rows,
@@ -45,9 +51,11 @@ setDefaultTimeout(120_000)
 /**
  * Restated from the summary rather than imported loose, so a rename of the
  * field on the row is a compiler error here and not three files of
- * `undefined`.
+ * `undefined`. NonNullable because the field is optional on the row — absent
+ * for a page the measurement does not apply to — and every use below is of a
+ * measurement that must be there.
  */
-type Evidence = ConceptSummary['evidence']
+type Evidence = NonNullable<ConceptSummary['evidence']>
 
 let database: Database
 let db: Db
@@ -69,6 +77,28 @@ interface SeedClaim {
 const cited = (...cites: number[]): SeedClaim => ({ status: 'verified', cites })
 const uncited = (): SeedClaim => ({ status: 'verified', cites: [] })
 
+/** Everything about a seeded page that is not its claims. */
+interface PageOptions {
+  /** The current revision's `agent_meta.kind` — what marks a page as scaffolding. */
+  kind?: string
+  markdown?: string
+  /** Slugs (already seeded) this page points at with an ACTIVE relation. */
+  relatesTo?: string[]
+}
+
+/**
+ * The body a reference target actually carries on the installation this rule
+ * was measured against: a couple of sentences saying that the page exists to
+ * hold the target of reviewed relations and that the knowledge is elsewhere.
+ * Reproduced in shape rather than quoted, because what the tests below turn on
+ * is that such a page is NOT blank — it has prose, it has relations, and it
+ * still must not be measured.
+ */
+const REFERENCE_BODY =
+  '# Cadences\n\nThis reference page preserves the target of reviewed relations created during an ' +
+  'allowlisted import. Detailed, source-grounded knowledge remains on the related concept pages and in ' +
+  'their archived sources.'
+
 let claimSeq = 0
 
 async function seedSpace(slug: string): Promise<string> {
@@ -87,7 +117,7 @@ async function seedSpace(slug: string): Promise<string> {
  * the statuses these tests are asserting on. Direct inserts state the fixture
  * exactly, which is what a test of a read wants.
  */
-async function seedPage(space: string, slug: string, claims: SeedClaim[]): Promise<void> {
+async function seedPage(space: string, slug: string, claims: SeedClaim[], options: PageOptions = {}): Promise<void> {
   const [concept] = await db.insert<{ id: string }>('wk_concepts', {
     space_id: space,
     slug,
@@ -100,9 +130,28 @@ async function seedPage(space: string, slug: string, claims: SeedClaim[]): Promi
     status: 'current',
     title: `Page ${slug}`,
     summary: `What ${slug} is about`,
-    markdown: `# ${slug}\n\nBody.`,
+    markdown: options.markdown ?? `# ${slug}\n\nBody.`,
+    // The marker lives on the REVISION, which is why it is set here and not on
+    // the concept: a page stops being scaffolding when a revision that is not
+    // scaffolding becomes current.
+    agent_meta: JSON.stringify(options.kind ? { kind: options.kind } : {}),
   })
   await db.update('wk_concepts', { id: `eq.${concept!.id}` }, { current_revision_id: revision!.id })
+
+  for (const target of options.relatesTo ?? []) {
+    const [to] = await db.select<{ id: string }>('wk_concepts', {
+      space_id: `eq.${space}`,
+      slug: `eq.${target}`,
+      limit: 1,
+    })
+    await db.insert('wk_relations', {
+      space_id: space,
+      from_concept_id: concept!.id,
+      to_concept_id: to!.id,
+      kind: 'related',
+      status: 'active',
+    })
+  }
 
   for (const claim of claims) {
     claimSeq += 1
@@ -135,6 +184,22 @@ async function rowFor(space: string, slug: string): Promise<ConceptSummary> {
   const row = page.items.find((item) => item.slug === slug)
   if (!row) throw new Error(`${slug} is not in the list — the fixture never became readable`)
   return row
+}
+
+/**
+ * The row's measurement, insisted upon.
+ *
+ * Every fixture in this file except the reference targets is a knowledge page,
+ * and for one of those a missing `evidence` is not an optional field doing its
+ * job — it is the list having declined to measure a page it must measure. That
+ * has to fail loudly here, rather than be narrowed away with a `?.` that would
+ * let `undefined` sail through every count assertion below and report a green
+ * suite for a list that answers nothing at all.
+ */
+async function measuredFor(space: string, slug: string): Promise<Evidence> {
+  const { evidence } = await rowFor(space, slug)
+  if (!evidence) throw new Error(`${slug} came back with no evidence — the list declined to measure a knowledge page`)
+  return evidence
 }
 
 describe('concept list evidence (integration)', () => {
@@ -193,7 +258,7 @@ describe('concept list evidence (integration)', () => {
       uncited(),
       uncited(),
     ])
-    const evidence = (await rowFor(spaceId, 'partly-cited')).evidence
+    const evidence = await measuredFor(spaceId, 'partly-cited')
     expect(evidence.claims).toBe(4)
     expect(evidence.uncited_claims).toBe(2)
     expect(evidence.sources).toBe(4)
@@ -202,12 +267,13 @@ describe('concept list evidence (integration)', () => {
   it('a hand-written page with no claims reports zero, zero, zero — never null', async () => {
     // This is the state the whole change exists to surface. A page typed into
     // the console has no claims at all, which today is indistinguishable from
-    // a page synthesized out of twenty archived quotes. A LEFT JOIN with no
-    // matching rows yields NULL, and a null rendered by a console that expects
-    // a number is a blank cell or a crash — so coalescing to 0 is part of the
-    // read's contract, not an implementation detail.
+    // a page synthesized out of twenty archived quotes. The aggregate is
+    // un-grouped, so once it RUNS it answers with a row — three zeros, present,
+    // and never an absent object a console renders as "unknown". Absence is
+    // reserved for the page the question does not apply to, and this page is
+    // not that page: it is the finding.
     await seedPage(spaceId, 'hand-written', [])
-    const { evidence } = await rowFor(spaceId, 'hand-written')
+    const evidence = await measuredFor(spaceId, 'hand-written')
     expect(evidence).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
     for (const value of [evidence.claims, evidence.uncited_claims, evidence.sources]) {
       expect(value).not.toBeNull()
@@ -259,12 +325,82 @@ describe('concept list evidence (integration)', () => {
     // are different statements about how well corroborated a page is, and a
     // COUNT without DISTINCT tells the flattering one.
     await seedPage(spaceId, 'one-source-many-quotes', [cited(0), cited(0), cited(0, 0)])
-    const evidence = (await rowFor(spaceId, 'one-source-many-quotes')).evidence
+    const evidence = await measuredFor(spaceId, 'one-source-many-quotes')
     expect(evidence.sources).toBe(1)
     expect(evidence.claims).toBe(3)
 
     await seedPage(spaceId, 'two-sources-many-quotes', [cited(0, 0), cited(0, 1), cited(1)])
-    expect((await rowFor(spaceId, 'two-sources-many-quotes')).evidence.sources).toBe(2)
+    expect((await measuredFor(spaceId, 'two-sources-many-quotes')).sources).toBe(2)
+  })
+
+  it('a reference target is ABSENT from the list, while the page beside it that rests on nothing still reports zeros', async () => {
+    // The defect this change exists for, and both halves of it in one read
+    // because either half alone is satisfiable by a wrong implementation.
+    //
+    // A reference target is a page an import created so that reviewed relations
+    // had somewhere to land: it carries prose that says so on its own face, it
+    // carries active relations, and it makes no claims. Three zeros on such a
+    // row are the same three numbers 'rests-on-nothing' carries below it — and
+    // that one is a knowledge page an operator is supposed to act on. On a wiki
+    // where eleven of twenty pages are targets, a stark zero on all of them
+    // teaches the reader to ignore the zero that means something, and sends
+    // whoever does look to a linter that correctly says nothing is wrong.
+    //
+    // So: absent for the target, MEASURED for its neighbour. An implementation
+    // that reports zeros for both, or one that withholds the object from every
+    // row, fails exactly one of these two expectations.
+    await seedPage(spaceId, 'rests-on-nothing', [])
+    await seedPage(spaceId, 'reference-target', [], {
+      kind: 'structural-reference',
+      markdown: REFERENCE_BODY,
+      relatesTo: ['rests-on-nothing'],
+    })
+
+    const target = await rowFor(spaceId, 'reference-target')
+    expect(target.evidence).toBeUndefined()
+    // Absent, not a key holding undefined: `'evidence' in row` is what a caller
+    // writes, and JSON.stringify drops the key entirely — the in-process shape
+    // must not carry a distinction the wire cannot.
+    expect('evidence' in target).toBe(false)
+
+    // …and the measurement is the ONLY thing withheld. The page is still in the
+    // index, under its own title, with its own summary — withholding a number
+    // is not hiding a page, and a reader can still open it.
+    expect(target.title).toBe('Page reference-target')
+    expect((await getConcept(db, spaceId, { slug: 'reference-target' })).relations).toEqual([
+      { to_slug: 'rests-on-nothing', kind: 'related', space: null },
+    ])
+
+    expect((await rowFor(spaceId, 'rests-on-nothing')).evidence).toEqual({
+      claims: 0,
+      uncited_claims: 0,
+      sources: 0,
+    })
+  })
+
+  it('the marker decides, not the counts: a reference target that does hold claims is still absent', async () => {
+    // Pins WHICH rule is implemented, because "absent when all three would be
+    // zero" passes the test above and is a different rule with a different
+    // failure: it would withhold nothing from a target that has claims and
+    // withhold from every blank knowledge page, which is the finding the index
+    // exists to show.
+    //
+    // The marker is the deployment's own statement that this row is furniture,
+    // and it sits on the CURRENT revision — so a row that grew real claims
+    // under a scaffolding revision reads as absent until somebody approves a
+    // revision that does not claim to be furniture, at which point it is
+    // measured again. Self-healing, and readable off one row.
+    await seedPage(spaceId, 'target-with-claims', [cited(0), uncited()], {
+      kind: 'structural-reference',
+      markdown: REFERENCE_BODY,
+    })
+    expect((await rowFor(spaceId, 'target-with-claims')).evidence).toBeUndefined()
+
+    // The claims themselves are untouched — the page's own read still shows
+    // them, exactly as it shows the body. Nothing here suppresses knowledge;
+    // one summary declines to be computed.
+    const detail = await getConcept(db, spaceId, { slug: 'target-with-claims' })
+    expect(detail.claims.length).toBe(2)
   })
 
   it('the list and the page agree about the same page', async () => {
@@ -289,7 +425,7 @@ describe('concept list evidence (integration)', () => {
         uncited_claims: detail.claims.filter((claim) => claim.citations.length === 0).length,
         sources: new Set(detail.claims.flatMap((claim) => claim.citations.map((cite) => cite.source_id))).size,
       }
-      expect((await rowFor(spaceId, slug)).evidence, slug).toEqual(fromDetail)
+      expect(await measuredFor(spaceId, slug), slug).toEqual(fromDetail)
     }
   })
 
