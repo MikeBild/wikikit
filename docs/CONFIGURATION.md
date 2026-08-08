@@ -262,9 +262,37 @@ measured zero — the sentence "this page rests on nothing", said about pages th
 hold nothing by design. A default that breaks a running deployment is not a win
 for cleanliness. It is nonetheless a fact about somebody's import history living
 in a product that otherwise knows nothing about where it runs, which is why it
-is a default you can replace and not a constant. The literal is in
-`src/config.ts`; it is not repeated in the documentation, and the day every
-installation declares its own markers it can be deleted without asking anybody.
+is a default you can replace and not a constant. The day every installation
+declares its own markers it can be deleted without asking anybody.
+
+**This page will not print that value, and you do not need it to.** A marker
+that is a fact about one deployment cannot be written into a document every
+deployment reads, and the guard that keeps production references out of `docs/`
+is right to keep it out. Ask the only thing that actually knows — the process
+you are running:
+
+```bash
+curl -sH "Authorization: Bearer $WIKIKIT_ADMIN_KEY" \
+  "$WIKIKIT_PUBLIC_URL/v1/installation/knowledge-config"
+```
+
+`GET /v1/installation/knowledge-config` (scope `admin`) answers with the markers
+that installation is honouring right now, in the order the reads apply them,
+each one attributed: `built_in` is WikiKit's own and cannot be configured away,
+`configured` is a value you wrote, `fallback` is the default described above,
+chosen by neither you nor the product. The group also carries
+`configured: true|false` for the variable itself — which the list alone cannot
+tell you, since setting `WIKIKIT_SCAFFOLDING_KINDS=structural-reference`
+produces exactly the items of an installation that set nothing — and the
+`version` of the build that answered, so the report can be pinned to a release
+across an upgrade. Reading it is how you check the variable took effect; the
+console shows the same answer on **System**.
+
+Nothing in that response may ever be a secret or derived from one. What it may
+carry is fixed by the rule on `zKnowledgeConfigResponse` in
+`src/http/schemas.ts`: a value belongs there only if it changes which pages
+WikiKit measures, lints or synthesises, and is not key material, a connection
+string, or a length, prefix, fingerprint or is-it-set boolean over one.
 
 ## Zero-config development
 

@@ -191,6 +191,19 @@ export interface Config {
    * Always contains WikiKit's own `structural-reference`.
    */
   readonly scaffoldingKinds?: readonly string[]
+  /**
+   * True when the operator WROTE WIKIKIT_SCAFFOLDING_KINDS, false when the
+   * shipped fallback is in force. `scaffoldingKinds` alone cannot say which:
+   * the two produce lists of the same shape, and an installation that
+   * configured exactly the built-in marker is indistinguishable from one that
+   * configured nothing at all.
+   *
+   * It exists because the report at GET /v1/installation/knowledge-config has
+   * to answer "did I set that, or did it come with the product" — the first
+   * question an operator asks about an unexpected value — and only the parse
+   * knows.
+   */
+  readonly scaffoldingKindsDeclared?: boolean
 }
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
@@ -339,19 +352,30 @@ const LEGACY_SCAFFOLDING_KINDS = ['subkit-domain-migration-relation-repair']
  * builder in domain/concepts.ts escapes quotes regardless; this is what turns a
  * typo into a refused boot with the operator's own value in the message instead
  * of a query that behaves oddly at runtime.
+ *
+ * `declared` is carried out the same way parseIdentityScopes carries it — "the
+ * operator wrote this" and "nothing was written, so here is the fallback" are
+ * different facts, and the merged list has already forgotten which happened.
+ * The reads do not care; the operator asking why 49 pages are measured the way
+ * they are cares about nothing else.
  */
-function parseScaffoldingKinds(raw: string, name: string, fallback: readonly string[]): readonly string[] {
+function parseScaffoldingKinds(
+  raw: string,
+  name: string,
+  fallback: readonly string[],
+): { kinds: readonly string[]; declared: boolean } {
   const values = raw
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
-  const kinds = values.length > 0 ? values : fallback
+  const declared = values.length > 0
+  const kinds = declared ? values : fallback
   for (const kind of kinds) {
     if (!/^[a-z0-9][a-z0-9._-]{0,126}$/i.test(kind)) {
       throw new Error(`${name} entries must be alphanumeric revision-kind markers ('.', '_' and '-' allowed): ${kind}`)
     }
   }
-  return [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...kinds])]
+  return { kinds: [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...kinds])], declared }
 }
 
 function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthProviderConfig[] {
@@ -500,6 +524,11 @@ export function loadConfig(): Config {
     'knowledge:propose',
   ])
   const oauthProviders = parseOAuthProviders(str('WIKIKIT_OAUTH_PROVIDERS'), oauthAllowedScopes)
+  const scaffolding = parseScaffoldingKinds(
+    str('WIKIKIT_SCAFFOLDING_KINDS'),
+    'WIKIKIT_SCAFFOLDING_KINDS',
+    LEGACY_SCAFFOLDING_KINDS,
+  )
 
   const config: Config = Object.freeze({
     root: moduleRoot,
@@ -573,11 +602,8 @@ export function loadConfig(): Config {
     embeddingApiKeyEnv:
       embeddingProvider === 'none' ? 'WIKIKIT_EMBEDDING_PROVIDER' : LLM_PROVIDER_KEY_ENV[embeddingProvider],
     embeddingConfigured: embeddingProvider !== 'none' && providerKeys[embeddingProvider].length > 0,
-    scaffoldingKinds: parseScaffoldingKinds(
-      str('WIKIKIT_SCAFFOLDING_KINDS'),
-      'WIKIKIT_SCAFFOLDING_KINDS',
-      LEGACY_SCAFFOLDING_KINDS,
-    ),
+    scaffoldingKinds: scaffolding.kinds,
+    scaffoldingKindsDeclared: scaffolding.declared,
   })
 
   if (config.usageTelemetryEnabled && !config.usageHmacSecret) {

@@ -1104,6 +1104,7 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/identities`                              | admin                              | `listIdentitiesHandler`        | —                                                                      | 200 `zIdentityListResponse` (never tokens/hashes)                                                                                                                                             |
 | PUT    | `/v1/identities/{provider}/{subject}`         | admin                              | `upsertIdentityHandler`        | params `zIdentityParams`; body `zUpsertIdentityRequest`                | 200/201 `zIdentityResponse` (409 `identity_revoked` without `restore:true`; 422 role XOR scopes / unknown provider / update would leave an empty stored ceiling)                              |
 | DELETE | `/v1/identities/{provider}/{subject}`         | admin                              | `revokeIdentityHandler`        | params `zIdentityParams`                                               | 200 `zIdentityRevokedResponse` (idempotent; kills the identity's live OAuth tokens and SSO-minted API keys)                                                                                   |
+| GET    | `/v1/installation/knowledge-config`           | admin                              | `knowledgeConfigHandler`       | —                                                                      | 200 `zKnowledgeConfigResponse` (effective knowledge-shaping config with per-value provenance; never secrets or anything derived from one)                                                     |
 | GET    | `/v1/stats/mcp`                               | admin                              | `mcpUsageStatsHandler`         | query `zUsageStatsQuery`                                               | 200 `zUsageStatsResponse`                                                                                                                                                                     |
 | GET    | `/v1/spaces/{space}/stats/http`               | knowledge:read                     | `httpUsageStatsHandler`        | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                     |
 | GET    | `/v1/spaces/{space}/stats/usage`              | knowledge:read                     | `knowledgeUsageStatsHandler`   | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                     |
@@ -1297,7 +1298,11 @@ Invariants a client may rely on:
   a client may rely on is the meaning of an absence, not the set of pages that
   produce one. The set is resolved at boot and threaded from `deps.config` into
   the read model, so the concept list, `kind: 'concept'` search hits, `/query`
-  retrieval and the linter all answer from one set within a process.
+  retrieval and the linter all answer from one set within a process. That set is
+  readable from outside the process: `GET /v1/installation/knowledge-config`
+  (admin) reports the effective markers with the provenance of each, which is
+  how a client or an operator learns which rows THIS installation withholds
+  `evidence` on without reading the build's source.
 
 - `uncited_claims <= claims`. `claims - uncited_claims` is how many claims are
   cited, which is **not** `sources` — `sources` is distinct sources, and one

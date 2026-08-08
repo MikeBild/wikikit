@@ -15,13 +15,17 @@ import { useSpace } from '@/lib/space'
 import {
   averageMs,
   count,
+  declarationSentence,
   durationMs,
   groupFindings,
   measured,
+  originLegend,
   percent,
   readDescriptor,
   readReadiness,
   readinessStanding,
+  scaffoldingMarkers,
+  SCAFFOLDING_EFFECT,
   shortDigest,
   versionsDisagree,
   windowLabel,
@@ -44,7 +48,7 @@ import {
  * still a card.
  *
  * `/v1/stats/mcp` is admin-only (ROUTES). A reader opening System could be
- * shown eight cards or seven, and seven is the version almost every console
+ * shown nine cards or seven, and seven is the version almost every console
  * ships — hide what would 403, keep the page tidy. It is also the version that
  * teaches the reader something false: that this installation has no MCP
  * surface. "There is nothing to see" and "there is something here and it is not
@@ -55,11 +59,17 @@ import {
  * never has to keep its own copy of who may read what, and can never be wrong
  * about it in the quiet direction.
  *
+ * `/v1/installation/knowledge-config` is the second card under that rule, and
+ * it is the one where hiding would cost the most. That configuration decides
+ * which pages this installation measures at all; a card that vanishes for a
+ * reader tells them there is no such setting, which is the exact belief this
+ * card was added to correct.
+ *
  * The page's nav scope is `knowledge:read` for the same reason. A reader is
  * meant to arrive here.
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Eight independent reads, eight independent `DataState`s, deliberately not one
+ * Nine independent reads, nine independent `DataState`s, deliberately not one
  * combined query. A single read would let the slowest endpoint hold the page
  * blank and — worse — let one refusal blank seven surfaces that were answering.
  * On this page that is not hypothetical: one of them is refused by design for
@@ -138,6 +148,10 @@ export function SystemPage() {
   const llm = useQuery({ queryKey: keys.stats(space, 'llm'), queryFn: () => wk.stats.llm(space) })
   const webhooks = useQuery({ queryKey: keys.stats(space, 'webhooks'), queryFn: () => wk.stats.webhooks(space) })
   const mcp = useQuery({ queryKey: keys.mcpStats(), queryFn: () => wk.stats.mcp() })
+  const knowledgeConfig = useQuery({
+    queryKey: keys.knowledgeConfig(),
+    queryFn: () => wk.installation.knowledgeConfig(),
+  })
 
   return (
     <Page
@@ -254,6 +268,84 @@ export function SystemPage() {
                 )}
               </DataState>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card data-testid="knowledge-config-card">
+          <CardHeader>
+            <CardTitle>Pages this installation treats as reference targets</CardTitle>
+            <CardDescription>
+              {SCAFFOLDING_EFFECT} Which markers count is configuration, so it differs between installations — this is
+              what yours honours. Reading it is an admin's right, not a reader's; a session without it is told so here
+              rather than shown a card that is missing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataState
+              query={knowledgeConfig}
+              skeleton={<MarkersSkeleton />}
+              isEmpty={(data) => data.scaffolding_kinds.items.length === 0}
+              empty={
+                // Unreachable against a healthy build — WikiKit's own marker is
+                // always in the list — which is exactly why it is written out
+                // rather than left to the default empty branch. A build that
+                // answered with no markers is saying it treats nothing as a
+                // reference target, and that is a statement about measurement,
+                // not an absence of data.
+                <EmptyState
+                  framed={false}
+                  title="No marker is honoured here"
+                  description="This installation reported no revision markers at all, so every page is measured and linted as knowledge."
+                  data-testid="scaffolding-empty"
+                />
+              }
+            >
+              {(data) => (
+                <div className="flex flex-col gap-4">
+                  <ul className="flex flex-col gap-2" data-testid="scaffolding-markers">
+                    {scaffoldingMarkers(data).map((marker) => (
+                      <li
+                        key={marker.kind}
+                        data-testid={`scaffolding-marker-${marker.kind}`}
+                        className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                      >
+                        {/* The marker verbatim and in monospace, like a lint
+                            rule name: it is the string an operator greps their
+                            configuration and their revisions for, and a nicer
+                            rendering of it would be a second name for one
+                            thing. */}
+                        <code className="min-w-0 truncate font-mono text-sm">{marker.kind}</code>
+                        {/* The provenance says its word; the tone only agrees
+                            with it (CUI-A11Y-5). */}
+                        <Badge tone={marker.tone} className="shrink-0">
+                          {marker.label}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <dl className="flex flex-col gap-2" data-testid="scaffolding-legend">
+                    {originLegend(data).map((entry) => (
+                      <div key={entry.origin} className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-2">
+                        <dt className="shrink-0">
+                          <Badge tone={entry.tone}>{entry.label}</Badge>
+                        </dt>
+                        <dd
+                          className="text-muted-foreground text-xs"
+                          data-testid={`scaffolding-origin-${entry.origin}`}
+                        >
+                          {entry.meaning}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  <p className="text-muted-foreground text-xs" data-testid="scaffolding-declaration">
+                    {declarationSentence(data)}
+                  </p>
+                </div>
+              )}
+            </DataState>
           </CardContent>
         </Card>
 
@@ -633,6 +725,20 @@ function ArtifactsSkeleton(): ReactNode {
         <div key={index} className="flex items-center justify-between gap-3">
           <Skeleton className="h-4 w-28" />
           <Skeleton className="h-4 w-24" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Marker rows, shaped like a marker beside the badge that says where it came from. */
+function MarkersSkeleton(): ReactNode {
+  return (
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading">
+      {[0, 1].map((index) => (
+        <div key={index} className="flex items-center justify-between gap-3">
+          <Skeleton className="h-4 w-44" />
+          <Skeleton className="h-5 w-32" />
         </div>
       ))}
     </div>

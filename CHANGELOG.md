@@ -6,6 +6,196 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.30.0 - 2026-08-08
+
+0.29.0 turned the set of revision markers that make a page a reference target
+into configuration, and then wrote down, under **Known**, what that left open:
+the default still names one deployment's private migration tag, "and the
+documentation cannot say which". The obvious reading of that sentence is that
+`docs/CONFIGURATION.md` should print the value and a guard is stopping it. That
+reading is wrong, and this release does not act on it. The guard that keeps
+production references out of `docs/` is right, and it was not the problem: a
+marker that is a fact about one import on one database does not belong in a page
+that every installation reads, guard or no guard.
+
+The problem was the other half of the sentence. That configuration decides
+whether 49 pages on a real installation are measured or not — whether their
+`evidence` is served as three integers or withheld, whether the linter files
+faults against them — and there was no way to find out which markers a running
+installation honoured except to open `src/config.ts` for the build you hoped you
+were running. Configuration that silently decides what gets measured, and cannot
+be read back from the thing doing the measuring, is an operability defect no
+amount of documentation closes. A document describes the product. Only the
+process knows the deployment.
+
+### Added
+
+- **`GET /v1/installation/knowledge-config` — the installation reports its own
+  knowledge-shaping configuration.** Scope `admin`, no alternative scope. It
+  answers with the markers this process is actually honouring, in the order the
+  reads apply them, and with `schema_version: "wikikit.knowledge-config.v1"`,
+  the `version` of the build that answered, and the name of the environment
+  variable that changes them.
+
+  **Why an endpoint rather than a better page.** The answer differs per
+  installation, so the only writer who can be right about it is the installation.
+  This also makes the report unfalsifiable in the way that matters during an
+  upgrade: it is produced from the same `deps.config` the concept list, `/search`,
+  `/query` and the linter read, so it cannot describe a set of markers the reads
+  do not use. A document could at best describe the default of one build; the
+  route describes the process answering the request.
+
+  **Why provenance and not just the values.** A flat list of markers answers the
+  wrong question. The first thing an operator asks on seeing an unexpected marker
+  is "did I put that there", and here "no" splits in two: `structural-reference`
+  is WikiKit's own, written and read back by the product and not configurable
+  away; anything else the operator did not write is the deployment-specific
+  default WikiKit still ships, which they can and eventually should replace.
+  Three origins, three different actions — `built_in`, `configured`, `fallback` —
+  and a bare array of strings supports none of them.
+
+  The group also carries `configured: true|false` for the variable itself, which
+  is **not** derivable from the items and is the one fact the list structurally
+  cannot hold: an installation that sets
+  `WIKIKIT_SCAFFOLDING_KINDS=structural-reference` produces items that are all
+  `built_in`, byte-identical to an installation that set nothing at all, and the
+  two need opposite advice. That case has its own test.
+
+  **Why admin, and why it is deliberately absent from the service descriptor.**
+  Nothing in the response is a secret, and it is still not public. The service
+  descriptor is unauthenticated and describes the _product_ — the same bytes on
+  every deployment of a build. The moment it also describes the deployment, every
+  future field added to this report becomes a public field, decided by whoever
+  adds it, without anyone deciding that publishing it was the change. Keeping the
+  two apart is what makes the rule below enforceable at all. What is guarded is
+  the VALUES, not the path — every admin path is already public in
+  `/openapi.json`, which is unauthenticated too, and none of them carries an
+  answer. So a test drives `serviceDescriptorHandler` with a marker no build
+  ships and asserts the anonymous response contains neither it nor any
+  configuration key, pinning the descriptor's body to its four product-level
+  fields; and `serviceDescriptorHandler` carries a `WHAT DOES NOT BELONG HERE`
+  block so the next contributor meets the argument before the mistake.
+
+  **The rule, because this is the endpoint shape that rots.** Configuration
+  reports grow one harmless field at a time until one of them leaks. A value may
+  appear in this response only if BOTH hold: it is knowledge-shaping — it changes
+  which pages WikiKit measures, lints or synthesises, so an operator reading an
+  unexpected count needs it to explain the count — and it is not a secret, not
+  key material, not a connection string, **and not derived from one**. Derived is
+  the clause that does the work: a length, a prefix, a fingerprint, a hash and a
+  plain is-it-set boolean are all derived, because each narrows a search for the
+  real value. `llm_configured: true` is named in the schema as refused rather
+  than left to judgement — it is the most harmless-looking field imaginable and
+  is exactly the one that starts the drift, and whether an LLM is configured is
+  already answered where it matters, by the `503 llm_not_configured` envelope.
+  Enforcement is an allowlist and not a denylist: `z.strictObject` at every
+  level, a handler that names every field it emits and never spreads a config
+  object, and a test that asserts the actual response keys against a literal
+  list. Adding a field means editing that list, which is the point.
+
+  **No MCP tool, on purpose.** The reader here is an operator explaining a count
+  on their own installation, and the console and a curl serve them. An agent
+  gains almost nothing: the contract fixes what an absent `evidence` object
+  MEANS, identically on every installation, so the marker set explains why one
+  row is silent but changes how no response is read. Against that sits handing
+  every connected model the literal strings that make a page exempt from
+  evidence and from three lint rules — one short step from "write the page with
+  that kind and the linter stops complaining" — plus a second constituency
+  arguing for another field the day the rule above says no. The argument is
+  recorded at the handler so a future release re-opens it deliberately or not at
+  all.
+
+  The marker literal appears nowhere in the new code, the new tests, or the
+  documentation: the handler reports whatever `deps.config` holds, and the tests
+  assert attribution, counts and identity against `loadConfig()`. It still lives
+  in exactly the two tracked places 0.29.0 left it in, and both still go in one
+  commit the day the fallback does.
+
+- **The console shows the same answer, on the System page.** A card, "What this
+  installation counts as a reference target", listing each marker with a badge
+  whose _word_ carries the provenance ("Comes with WikiKit", "Set on this
+  installation", "Shipped default") and whose tone only agrees with it — the
+  shipped default is the one of the three where the value deciding what gets
+  measured was chosen by neither the operator nor the product, and it is the one
+  drawn as a warning. Each origin present is explained once below the rows, not
+  once per row, and the group-level `configured` flag is rendered as its own
+  sentence using the variable name **the server sent**, because that is the fact
+  the rows cannot carry. An origin invented by a newer server prints itself
+  rather than passing as one of the three. The card is admin-only data on a page
+  a `knowledge:read` reader can open, so it follows this page's existing rule and
+  renders the server's own 403 instead of vanishing: a reader should be able to
+  see that the answer exists and is not theirs, which is a different fact from
+  "no data".
+
+### Changed
+
+- **`docs/CONFIGURATION.md` stops sending the operator to the source.** The
+  section on `WIKIKIT_SCAFFOLDING_KINDS` ended with "the literal is in
+  `src/config.ts`". It now says plainly that this page will not print that value
+  and does not need to, gives the `curl`, and names what comes back and what each
+  provenance means. The equivalent pointer is in `docs/CONTRACTS.md` §5.3 and in
+  `llms.txt`/`llms-full.txt` beside the paragraphs that explain why `evidence`
+  can be absent — the exact place a reader forms the question the route answers.
+
+- **`Config` gained `scaffoldingKindsDeclared`.** The merged marker list cannot
+  answer "did the operator write this": the parse is the only place that ever
+  knows, and it discarded that. `parseIdentityScopes` already carried the same
+  `declared` notion for the same reason, so this is the existing shape rather
+  than a new one. Two alternatives were rejected: reading `process.env` in the
+  handler (a handler that reports configuration should report the configuration
+  the process loaded, not go behind it and risk disagreeing), and comparing the
+  effective list against the private fallback constant (which misattributes an
+  operator who deliberately configures the same value the product ships).
+
+### Known
+
+0.29.0 carried four bullets. One is closed in half and is rewritten to what
+survives; the other three stand, and one of them predicted this release.
+
+- **The fallback still names one deployment's private migration tag.** The
+  documentation half of this bullet is closed: an operator no longer has to open
+  `src/config.ts` to learn what their installation honours, because the
+  installation says so. The fallback itself is not closed and did not move. It is
+  still in `src/config.ts`, still for the continuity reason 0.29.0 gave — 49 pages
+  across five wikis report absent evidence only because that marker is
+  recognised, and shipping an empty default would turn those absences into a
+  measured zero, which is the sentence "this page rests on nothing" said about
+  pages that hold nothing by design. What the new route changes is that the
+  fallback is now visible as a fallback: an operator whose report attributes a
+  marker to `fallback` is being told, in the response itself, that this value was
+  chosen by neither them nor the product and is theirs to replace. That is the path to
+  deleting it, not the deletion. It ends when every installation declares its own
+  markers, and on that day the two occurrences of the literal go together.
+
+- **A scaffolding-marked page that does hold claims is absent too.** Unchanged
+  and carried forward verbatim in substance: the marker decides, not the counts,
+  so such a row reports no evidence summary even though its claims are real and
+  the page read still shows them. Nothing here narrows it — this release reports
+  the markers, it does not change what they do. No such page exists on the
+  installation measured here.
+
+- **A call site that forgets the configuration is caught by a test, not by the
+  compiler.** Unchanged, and this release is the case it named. 0.29.0 wrote that
+  the realistic failure is "next release's handler", and next release's handler
+  is exactly what landed: `knowledgeConfigHandler` had to reach for
+  `deps.config.scaffoldingKinds` by hand, and nothing in the type system would
+  have objected if it had not. It is pinned by its own tests, which boot
+  `loadConfig()` and assert the report equals what the reads would use — but that
+  is one more hand-written guarantee, not a structural one, and the source scan in
+  `test/unit/domain-concepts.test.ts` still covers a list of four modules that a
+  fifth composition boundary must be added to by hand. A route that REPORTS the
+  configuration has a failure the read modules do not: it can disagree with the
+  behaviour it describes, which is worse than being merely wrong.
+
+- **A console branch is argued for rather than rendered.** Unchanged in kind, and
+  now true of one more card. `test/unit/cockpit-pages/` proves `.logic.ts` and has
+  no renderer, so the new card's logic — which word and which tone each origin
+  gets, which legend entries appear, what the declaration sentence says — is
+  pinned by tests, while the JSX that maps a row's standing onto a `Badge` is
+  pinned by a source-text assertion and by the identical pattern elsewhere on the
+  page. Same limit as the search card 0.29.0 recorded, same reason, and it will
+  keep recurring until that suite can render.
+
 ## 0.29.0 - 2026-08-08
 
 0.28.0 left two defects standing under **Known**, and this release closes both.

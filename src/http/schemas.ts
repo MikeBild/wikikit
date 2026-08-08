@@ -959,6 +959,71 @@ export const zIdentityRevokedResponse = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Installation knowledge configuration (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE RULE FOR THIS RESPONSE — read it before adding a field.
+ *
+ * A configuration-reporting endpoint's failure mode is not that somebody
+ * deliberately publishes a secret. It is that it grows: each addition is
+ * individually reasonable, the boundary is never restated, and eventually one
+ * of them is a secret or points at one. So the boundary is written here, in the
+ * schema, where the addition is made.
+ *
+ * A value may appear here only if BOTH hold:
+ *
+ *  1. It is KNOWLEDGE-SHAPING — it changes which pages WikiKit measures, lints
+ *     or synthesises, so an operator reading an unexpected count needs it to
+ *     explain the count. "An operator might be curious" is not this test.
+ *  2. It is not a secret, not key material, not a connection string, and not
+ *     DERIVED from one. Derived is the part that gets skipped: a length, a
+ *     prefix, a fingerprint, a hash, and a plain is-it-set boolean are all
+ *     derived, because each of them narrows a search for the real value. A
+ *     `llm_configured: true` looks like the most harmless field imaginable and
+ *     is exactly the one that starts the drift, so it is named here as REFUSED
+ *     rather than left to a future reader's judgement. Whether an LLM is
+ *     configured is already answered where it matters — the 503
+ *     `llm_not_configured` envelope names the key that provider needs.
+ *
+ * The schema is strict and the handler names every field it emits; neither ever
+ * spreads a config object. An allowlist is the only form of this rule that
+ * survives contact with a future contributor, and a test asserts the response
+ * keys against one.
+ */
+const zScaffoldingKindOrigin = z.enum([
+  /** WikiKit's own marker — the product writes that revision and reads it back. */
+  'built_in',
+  /** The operator wrote WIKIKIT_SCAFFOLDING_KINDS and this is one of their values. */
+  'configured',
+  /** Nothing was written; this is the deployment-specific default WikiKit still ships. */
+  'fallback',
+])
+
+export const zKnowledgeConfigResponse = z.strictObject({
+  schema_version: z.literal('wikikit.knowledge-config.v1'),
+  /**
+   * The build that produced this report. Already public on /ready, so it adds
+   * no exposure — and a configuration report nobody can pin to a version is
+   * hard to act on across an upgrade, which is when it is read.
+   */
+  version: z.string(),
+  scaffolding_kinds: z.strictObject({
+    /** The knob, so the answer names the thing an operator would change. */
+    env: z.literal('WIKIKIT_SCAFFOLDING_KINDS'),
+    /**
+     * Whether the variable was written at all. NOT derivable from `items`: an
+     * installation that configured exactly the built-in marker reports items
+     * that are all `built_in`, and would otherwise be indistinguishable from
+     * one that configured nothing.
+     */
+    configured: z.boolean(),
+    /** Effective markers in the order the reads apply them; built-in first. */
+    items: z.array(z.strictObject({ kind: z.string(), origin: zScaffoldingKindOrigin })),
+  }),
+})
+
+// ---------------------------------------------------------------------------
 // Ops
 // ---------------------------------------------------------------------------
 
@@ -1230,6 +1295,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIdentityResponse,
   zIdentityListResponse,
   zIdentityRevokedResponse,
+  zKnowledgeConfigResponse,
   zReadyResponse,
   zStatsQuery,
   zUsageStatsQuery,

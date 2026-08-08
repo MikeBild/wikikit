@@ -167,6 +167,15 @@ export const wk = {
     webhooks: (space: string) => unwrap(api.GET('/v1/spaces/{space}/stats/webhooks', { params: { path: { space } } })),
     mcp: () => unwrap(api.GET('/v1/stats/mcp')),
   },
+
+  /**
+   * What this INSTALLATION is set up to do, as opposed to what any one wiki
+   * holds. Not space-scoped and deliberately not under `stats`: it is not a
+   * measurement, it is the configuration that decides what gets measured.
+   */
+  installation: {
+    knowledgeConfig: () => unwrap(api.GET('/v1/installation/knowledge-config')),
+  },
 } as const
 
 /**
@@ -203,4 +212,7 @@ export const keys = {
   identities: () => ['identities'] as const,
   stats: (space: string, kind: string) => ['spaces', space, 'stats', kind] as const,
   mcpStats: () => ['stats', 'mcp'] as const,
+  // No space in it, and that is the point: switching wiki must not invalidate
+  // an answer that was never about a wiki.
+  knowledgeConfig: () => ['installation', 'knowledge-config'] as const,
 } as const

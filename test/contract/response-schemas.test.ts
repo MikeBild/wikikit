@@ -890,6 +890,15 @@ const CASES: RouteCase[] = [
     url: '/v1/stats/mcp?bucket=hour&from=2026-01-01T00%3A00%3A00.000Z&to=2026-01-01T01%3A00%3A00.000Z',
     status: 200,
   },
+  // The strict response schema is the enforced half of "this endpoint reports
+  // configuration and never secrets" — driving it through the real app proves
+  // the handler emits nothing the allowlist has not declared.
+  {
+    template: '/v1/installation/knowledge-config',
+    method: 'get' as const,
+    url: '/v1/installation/knowledge-config',
+    status: 200,
+  },
   { template: '/ready', method: 'get', url: '/ready', status: 200 },
 ]
 

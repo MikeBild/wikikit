@@ -657,6 +657,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/installation/knowledge-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one */
+        get: operations["knowledgeConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/stats/mcp": {
         parameters: {
             query?: never;
@@ -2101,6 +2118,21 @@ export interface components {
             provider: string;
             subject: string;
             revoked_at: string;
+        };
+        zKnowledgeConfigResponse: {
+            /** @constant */
+            schema_version: "wikikit.knowledge-config.v1";
+            version: string;
+            scaffolding_kinds: {
+                /** @constant */
+                env: "WIKIKIT_SCAFFOLDING_KINDS";
+                configured: boolean;
+                items: {
+                    kind: string;
+                    /** @enum {string} */
+                    origin: "built_in" | "configured" | "fallback";
+                }[];
+            };
         };
         zUsageStatsResponse: {
             /** @constant */
@@ -5978,6 +6010,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["zIdentityRevokedResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    knowledgeConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective knowledge-shaping configuration with per-value provenance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zKnowledgeConfigResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */

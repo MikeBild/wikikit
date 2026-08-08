@@ -202,6 +202,7 @@ export const NAV: readonly NavEntry[] = [
       '/v1/spaces/{space}/stats/llm',
       '/v1/spaces/{space}/stats/webhooks',
       '/v1/stats/mcp',
+      '/v1/installation/knowledge-config',
     ],
   },
 ]

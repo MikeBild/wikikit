@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.29.0",
+    "version": "0.30.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2174,6 +2174,40 @@
             "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
           }
         ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
+      }
+    },
+    "/v1/installation/knowledge-config": {
+      "get": {
+        "summary": "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one",
+        "operationId": "knowledgeConfig",
+        "responses": {
+          "200": {
+            "description": "Effective knowledge-shaping configuration with per-value provenance",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zKnowledgeConfigResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
       }
@@ -5253,6 +5287,36 @@
           "revoked_at": { "type": "string" }
         },
         "required": ["provider", "subject", "revoked_at"],
+        "additionalProperties": false
+      },
+      "zKnowledgeConfigResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": { "type": "string", "const": "wikikit.knowledge-config.v1" },
+          "version": { "type": "string" },
+          "scaffolding_kinds": {
+            "type": "object",
+            "properties": {
+              "env": { "type": "string", "const": "WIKIKIT_SCAFFOLDING_KINDS" },
+              "configured": { "type": "boolean" },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": { "type": "string" },
+                    "origin": { "type": "string", "enum": ["built_in", "configured", "fallback"] }
+                  },
+                  "required": ["kind", "origin"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["env", "configured", "items"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["schema_version", "version", "scaffolding_kinds"],
         "additionalProperties": false
       },
       "zUsageStatsResponse": {

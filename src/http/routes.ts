@@ -20,7 +20,13 @@ import { buildAgentBriefing } from '../agent/briefing.ts'
 import { buildAgentContext } from '../agent/context.ts'
 import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
-import { getConcept, getConceptHistory, listConcepts, toConceptResponse } from '../domain/concepts.ts'
+import {
+  BUILT_IN_SCAFFOLDING_KINDS,
+  getConcept,
+  getConceptHistory,
+  listConcepts,
+  toConceptResponse,
+} from '../domain/concepts.ts'
 import {
   deleteCharter,
   getCharter,
@@ -598,6 +604,21 @@ export const ROUTES: RouteDef[] = [
     request: { params: 'zIdentityParams' },
     responses: {
       200: { schema: 'zIdentityRevokedResponse', type: 'application/json', desc: 'Revocation timestamp (idempotent)' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/installation/knowledge-config',
+    scope: 'admin',
+    summary:
+      "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one",
+    handler: 'knowledgeConfigHandler',
+    responses: {
+      200: {
+        schema: 'zKnowledgeConfigResponse',
+        type: 'application/json',
+        desc: 'Effective knowledge-shaping configuration with per-value provenance',
+      },
     },
   },
   {
@@ -1792,6 +1813,71 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: { provider: providerId, subject, revoked_at: revokedAt } }
   },
 
+  /**
+   * What this installation is actually running, in its own words.
+   *
+   * WHY it exists. WIKIKIT_SCAFFOLDING_KINDS decides whether a page's evidence
+   * is reported as ABSENT or as three zeros, and whether the linter's fault
+   * rules skip it — on one real deployment that is 49 pages across 5 wikis. The
+   * value is a fact about ONE database, so docs/CONFIGURATION.md cannot print
+   * it (nor should it: a per-installation value does not belong in a shared
+   * document). Until this route, an operator could only learn which markers
+   * their own installation honoured by opening the source of the build they
+   * hoped they were running. Configuration that invisibly decides what gets
+   * measured is an operability defect regardless of how well it is documented.
+   *
+   * WHY provenance and not a flat list. The first question on reading an
+   * unexpected value is "did I set that, or did it come with the product" — and
+   * "came with the product" splits in two here: `structural-reference` is
+   * WikiKit's own marker and cannot be configured away, while the remaining
+   * default is a deployment-specific tag WikiKit still ships and an operator
+   * can replace. Those three call for three different actions, and a flat array
+   * of strings answers none of them.
+   *
+   * WHY the marker is never named in this file. It reports whatever the running
+   * config holds. The literal lives in exactly one place in src/, and a report
+   * that hardcoded it would be describing the build somebody read rather than
+   * the process somebody is running — the very confusion the route removes.
+   *
+   * WHY the fallback when scaffoldingKinds is absent: it mirrors what the reads
+   * do (src/domain/concepts.ts defaults the same way), so the report cannot
+   * disagree with the behaviour it describes.
+   *
+   * WHY there is no matching MCP tool, and should not be one. The reader here
+   * is an operator explaining a count on their own installation, which the
+   * console and a curl already serve. An agent does not need it: the contract
+   * fixes what an ABSENT evidence object MEANS (§5.3), and that meaning is the
+   * same on every installation — the marker set explains why one row is silent,
+   * it does not change how any response is read. Against that near-zero gain
+   * sits a real cost: a tool hands every connected model the literal strings
+   * that make a page exempt from evidence and from the linter's fault rules,
+   * which is one short step from "write the page with that kind and the lint
+   * stops complaining". And a second transport is a second constituency arguing
+   * for another field the day the rule below says no.
+   *
+   * What may ever be added here is fixed by the rule on zKnowledgeConfigResponse
+   * in src/http/schemas.ts. Read it before adding a field.
+   */
+  async knowledgeConfigHandler(deps) {
+    const kinds = deps.config.scaffoldingKinds ?? BUILT_IN_SCAFFOLDING_KINDS
+    const configured = deps.config.scaffoldingKindsDeclared === true
+    return {
+      status: 200,
+      body: {
+        schema_version: 'wikikit.knowledge-config.v1',
+        version: deps.config.version,
+        scaffolding_kinds: {
+          env: 'WIKIKIT_SCAFFOLDING_KINDS',
+          configured,
+          items: kinds.map((kind) => ({
+            kind,
+            origin: BUILT_IN_SCAFFOLDING_KINDS.includes(kind) ? 'built_in' : configured ? 'configured' : 'fallback',
+          })),
+        },
+      },
+    }
+  },
+
   async healthHandler() {
     return { status: 200, text: 'ok', headers: { 'content-type': 'text/plain; charset=utf-8' } }
   },
@@ -1886,6 +1972,16 @@ export const HANDLERS: Record<string, Handler> = {
    * discover nothing changed. This answers the same question in a few hundred
    * bytes, which is what makes a thirty-second drift check affordable instead
    * of an hourly one.
+   *
+   * WHAT DOES NOT BELONG HERE: this installation's configuration. The
+   * knowledge-shaping report (GET /v1/installation/knowledge-config) looks like
+   * a natural third member of "version plus self-description", and it is not:
+   * this route is UNAUTHENTICATED, and while a scaffolding marker is not a
+   * secret, an installation's configuration is not something to hand to
+   * anonymous callers. The descriptor describes the PRODUCT — the same bytes on
+   * every deployment running this build. The moment it also describes the
+   * deployment, every future addition to the config report becomes a public
+   * addition, decided by whoever adds it. Keep configuration behind `admin`.
    *
    * The hashes are of the bytes actually served, computed here rather than
    * cached: the documents are embedded at build time and cannot change while

@@ -159,6 +159,37 @@ describe('auth over the wire (integration)', () => {
     expect(mintedByAdmin.status).toBe(201)
   })
 
+  it('the installation configuration report is admin-only: every knowledge scope is 403 insufficient_scope', async () => {
+    // GET /v1/installation/knowledge-config describes the INSTALLATION — which
+    // markers make a page a reference target, and therefore which pages get
+    // measured at all. That is not a wiki-level fact and not something a
+    // knowledge:read credential exists to enumerate, so it sits behind `admin`
+    // with the same refusal shape as every other administrative route.
+    const path = `${base}/v1/installation/knowledge-config`
+    expect((await fetch(path)).status).toBe(401)
+
+    for (const scope of ['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve']) {
+      const { key } = await mintKey({ name: `config-report-${scope.replace(':', '-')}`, scopes: [scope] })
+      const res = await fetch(path, { headers: bearer(key) })
+      expect(res.status, scope).toBe(403)
+      expect(((await res.json()) as { code: string }).code, scope).toBe('insufficient_scope')
+    }
+
+    const adminKey = await mintKey({ name: 'config-report-admin', scopes: ['admin'] })
+    const allowed = await fetch(path, { headers: bearer(adminKey.key) })
+    expect(allowed.status).toBe(200)
+    const body = (await allowed.json()) as {
+      schema_version: string
+      scaffolding_kinds: { configured: boolean; items: { kind: string; origin: string }[] }
+    }
+    expect(body.schema_version).toBe('wikikit.knowledge-config.v1')
+    // This app is built from a hand-written Config that declares no markers, so
+    // the honest answer is the built-in alone — the same set the domain reads
+    // fall back to. Provenance, not the value, is what is pinned here.
+    expect(body.scaffolding_kinds.configured).toBe(false)
+    expect(body.scaffolding_kinds.items.map((item) => item.origin)).toEqual(['built_in'])
+  })
+
   it('a space-scoped admin key cannot mint keys beyond its own space', async () => {
     const alphaAdmin = await mintKey({ name: 'alpha-admin', scopes: ['admin'], space: 'alpha' })
 

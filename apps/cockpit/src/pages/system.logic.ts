@@ -256,6 +256,166 @@ export function shortDigest(sha256: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// What this installation counts as a reference target
+// ---------------------------------------------------------------------------
+
+/**
+ * What the markers DO, said once and in one sentence.
+ *
+ * Without it the card is a list of opaque strings, and a list of opaque strings
+ * is the same defect one surface further on: an operator can read WHICH markers
+ * are honoured and still not know that honouring one is what takes a page out
+ * of the evidence column and out of the linter's fault rules. It lives here
+ * rather than inline in the JSX so the sentence is provable — it is the only
+ * part of this card that is an assertion about the SERVER's behaviour, and it
+ * has to keep matching it.
+ */
+export const SCAFFOLDING_EFFECT =
+  'A page whose revision carries one of these markers is treated as a reference target: the index does not measure its evidence, and the linter’s fault rules skip it.'
+
+/** The three provenances `/v1/installation/knowledge-config` reports. */
+export type MarkerOrigin = 'built_in' | 'configured' | 'fallback'
+
+/**
+ * The response, named structurally rather than imported from `api/schema.d.ts`.
+ *
+ * Same reason as `UsageMetric` above: a rule that can be exercised from a
+ * two-field literal is a rule a test can state cases for. The call site passes
+ * the generated type, so the real shape is still checked by the compiler.
+ */
+export interface ScaffoldingMarker {
+  kind: string
+  origin: MarkerOrigin
+}
+
+export interface KnowledgeConfig {
+  scaffolding_kinds: {
+    /** The environment variable, as the SERVER names it. Never restated here. */
+    env: string
+    /** Whether the variable was written at all — not derivable from `items`. */
+    configured: boolean
+    items: readonly ScaffoldingMarker[]
+  }
+}
+
+export interface OriginStanding {
+  origin: string
+  /** The word, because a badge may never carry the fact by colour alone (CUI-A11Y-5). */
+  label: string
+  tone: Tone
+  /** What an operator seeing this provenance can actually do about it. */
+  meaning: string
+}
+
+/**
+ * Provenance, in the operator's language — and the reason this card exists at
+ * all rather than a bare list.
+ *
+ * The first question on reading an unexpected marker is "did I set that, or did
+ * it come with the product", and "came with the product" splits in two: WikiKit
+ * writes `built_in` itself and honours it whatever the configuration says,
+ * while `fallback` is a default WikiKit still ships that nobody on this
+ * installation chose. Three provenances, three different next moves.
+ *
+ * `fallback` wears the warning tone and the other two do not. Not because a
+ * default is broken — it is the state most installations are in — but because
+ * it is the only one of the three where the value deciding which pages get
+ * measured was chosen by neither the operator nor the product's own rules. That
+ * is the fact the version this card was written for shipped as a known defect,
+ * and it is worth an operator's eye.
+ */
+const ORIGIN_STANDING: Record<MarkerOrigin, Omit<OriginStanding, 'origin'>> = {
+  built_in: {
+    label: 'Comes with WikiKit',
+    tone: 'neutral',
+    meaning: 'WikiKit writes this marker itself and always honours it. Configuration cannot remove it.',
+  },
+  configured: {
+    label: 'Set on this installation',
+    tone: 'accent',
+    meaning: 'Somebody named this marker in this installation’s own configuration.',
+  },
+  fallback: {
+    label: 'Shipped default',
+    tone: 'warning',
+    meaning:
+      'Nobody configured this. It is a default WikiKit still ships, and it is honoured until the variable is set — so pages nobody here decided about are being left unmeasured.',
+  },
+}
+
+/**
+ * A provenance this bundle has never heard of prints ITSELF, exactly as an
+ * unknown lint severity does: a newer server that grows a fourth origin must
+ * not have it silently rendered as one of the three, and least of all as the
+ * reassuring one.
+ */
+export function originStanding(origin: string): OriginStanding {
+  const known = ORIGIN_STANDING[origin as MarkerOrigin]
+  if (known) return { origin, ...known }
+  return {
+    origin,
+    label: origin,
+    tone: 'unknown',
+    meaning: 'This build reported a provenance this console does not know. The marker is honoured all the same.',
+  }
+}
+
+/**
+ * A row carries `origin` as a plain string rather than as `MarkerOrigin`: it is
+ * whatever the server sent, and `originStanding` is what decides whether this
+ * bundle recognises it.
+ */
+export interface MarkerRow extends OriginStanding {
+  kind: string
+}
+
+/**
+ * The markers, each carrying where it came from, in the order the server sent
+ * them.
+ *
+ * NOT re-sorted. The response documents its order as the one the reads apply,
+ * and a console that regroups by provenance would be showing an order no part
+ * of WikiKit uses.
+ */
+export function scaffoldingMarkers(config: KnowledgeConfig): MarkerRow[] {
+  return config.scaffolding_kinds.items.map((marker) => ({ ...marker, ...originStanding(marker.origin) }))
+}
+
+/**
+ * One entry per provenance actually present, first appearance first.
+ *
+ * The badges say which; this says what each one means, once. Per-row it would
+ * repeat the same sentence under every configured marker, and a sentence
+ * printed five times is a sentence nobody reads.
+ */
+export function originLegend(config: KnowledgeConfig): OriginStanding[] {
+  const seen = new Set<string>()
+  const legend: OriginStanding[] = []
+  for (const marker of config.scaffolding_kinds.items) {
+    if (seen.has(marker.origin)) continue
+    seen.add(marker.origin)
+    legend.push(originStanding(marker.origin))
+  }
+  return legend
+}
+
+/**
+ * Whether the variable was written — the one fact the list cannot carry.
+ *
+ * An installation that configures exactly the built-in marker reports items
+ * that are all `built_in`, which is character-for-character what an
+ * installation that configured nothing reports. The server sends `configured`
+ * for precisely that case, and a card that derived this sentence from the rows
+ * would tell one of those two operators the opposite of the truth.
+ */
+export function declarationSentence(config: KnowledgeConfig): string {
+  const { env, configured } = config.scaffolding_kinds
+  return configured
+    ? `${env} is set on this installation.`
+    : `${env} is not set here, so the markers below are the ones WikiKit ships.`
+}
+
+// ---------------------------------------------------------------------------
 // Numbers
 // ---------------------------------------------------------------------------
 
