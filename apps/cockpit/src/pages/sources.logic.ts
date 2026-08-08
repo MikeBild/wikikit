@@ -1,11 +1,17 @@
 /**
  * The rules the sources surface runs on, with no DOM under them.
  *
- * Deliberately import-free — not even `@/lib/tokens`. `test/unit/` compiles
- * against the ROOT tsconfig, which declares no `@/*` path mapping, so a logic
- * module that reaches for an alias is a logic module no unit test can load.
- * `lib/table-view.ts` solves the same problem by importing with an explicit
- * `.ts` extension; here there is nothing to import at all, which is better.
+ * The rule these modules are actually under is the runner's `lib`, not its
+ * module resolution: `test/unit/` compiles with ES2023 and no DOM, so a logic
+ * module that touches `window` or `localStorage` is a logic module no unit
+ * test can load. (`@/*` resolves fine — the root tsconfig maps it onto
+ * `apps/cockpit/src` precisely so the tests can hold these modules by the path
+ * the console imports them with.)
+ *
+ * This file is nonetheless import-free — not even `@/lib/tokens` — and that is
+ * worth keeping, because the no-DOM rule is TRANSITIVE: it is broken by what an
+ * import drags in, one or two files down, not by anything visible here. A file
+ * with nothing to import cannot break it by accident.
  *
  * The one thing this file pointedly does NOT own is which colour a status
  * wears. `STATUS_STATE` in `@/lib/tokens` already maps every ingest status to

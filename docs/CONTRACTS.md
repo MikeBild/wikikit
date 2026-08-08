@@ -910,6 +910,7 @@ export interface LintFinding {
     | 'stale-claims'
     | 'orphan-concepts'
     | 'unsourced-concepts'
+    | 'stub-concepts'
     | 'empty-concepts'
     | 'unreviewed-proposals'
     | 'dangling-sources'
@@ -928,17 +929,24 @@ export interface LintReport {
 ```
 
 Severity mapping is fixed: `contradictions`/`missing-citations`/`broken-relations`
-= error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/
+= error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/`stub-concepts`/
 `tombstoned-sources`/`broken-cross-space-links` = warn; the rest
 = info. `unsourced-concepts` flags a readable page across whose visible claims
 there is not one citation — nothing archived stands behind it. Warn, never an
 error: a hand-written page is legitimate, and the finding names the fix (ingest
 a source and let synthesis quote it) rather than only the fault. It overlaps
 `empty-concepts` for a page with no claims at all, deliberately — `counts` is a
-census of findings, not of distinct pages. `tombstoned-sources` flags visible
-claims citing sources whose stream the connector tombstoned (upstream document
-deleted) — surfacing only, never an automatic status flip: whether the claim
-gets deprecated is a human decision made through a normal proposal.
+census of findings, not of distinct pages. `stub-concepts` flags a readable page
+that is empty in every sense at once: no body text, no visible claims, and no
+active relation in either direction. Its conditions are observable properties of
+the page, never a revision marker, so it reports the same pages on every
+installation — and unlike the page-level rules around it, it deliberately
+neither excludes nor requires structural-scaffolding revisions, because a
+scaffolding page nothing points through any more IS just a blank page. The fix
+it names is delete-or-write, not ingest-a-source. `tombstoned-sources` flags
+visible claims citing sources whose stream the connector tombstoned (upstream
+document deleted) — surfacing only, never an automatic status flip: whether the
+claim gets deprecated is a human decision made through a normal proposal.
 
 ### 4.1 Ingest pipeline (`src/ingest/pipeline.ts`)
 

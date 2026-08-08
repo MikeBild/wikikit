@@ -94,9 +94,9 @@ describe('the ceiling is the server’s, not a number this page chose', () => {
 
   test('the page sends the ceiling instead of taking the default', () => {
     // The one thing a pure-logic test cannot reach: `DELIVERY_CEILING` being
-    // right is worth nothing if the read never names it. The page is not
-    // importable here (JSX, and `@/*` has no mapping under the root tsconfig),
-    // so the request is read out of the source — comment lines dropped first,
+    // right is worth nothing if the read never names it. The page itself is not
+    // importable here — it is a React component, and this runner compiles with
+    // no DOM — so the request is read out of the source, comment lines dropped
     // because the comments around this call site discuss the very limit they
     // would otherwise satisfy this assertion with.
     const source = readFileSync(join(import.meta.dir, '../../../apps/cockpit/src/pages/webhooks.tsx'), 'utf8')

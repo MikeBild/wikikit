@@ -6,6 +6,107 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.27.0 - 2026-08-08
+
+This release closes the disagreement 0.26.1 left open under **Known**: the page
+index reported roughly fifty pages with no evidence behind them across sixteen
+wikis while the linter reported thirteen, and in one of those wikis the index
+showed twenty-four pages at `sources: 0` against a linter that said nothing was
+wrong. An operator who follows the index to the linter to find out what to do
+has been arriving at a clean report. That is the part that is settled here.
+
+### Added
+
+- **The linter now names the pages that are blank.** The pages the two surfaces
+  disagreed about are not invisible furniture. They carry a title, they appear
+  in the index, a reader can open them, and what that reader finds is nothing:
+  no body text, no claims, and — because the relations they were created to
+  receive have since gone — no links either. They were made as landing targets
+  for relations imported from elsewhere, and 0.26.1 was right that "never a page
+  anybody wrote to be read" describes where they came from rather than what they
+  are. Origin is not a state. A page that was furniture and is now an empty page
+  in a reader's index is an empty page in a reader's index.
+
+  `stub-concepts` reports every readable page that is empty in all three senses
+  at once — no text, no visible claims, no active relation in either direction —
+  and the finding says what to do: delete it, or give it content.
+
+  It is a **new rule** rather than the removal of the scaffolding exclusion from
+  `unsourced-concepts`, and that is the substantive choice in this release.
+  Dropping the exclusion would have swept these pages into a rule whose entire
+  finding is "nothing archived stands behind this page" and whose named fix is
+  to ingest a source and let synthesis quote it. That is the correct advice for
+  a page that says things nothing backs. It is the wrong advice for a page that
+  says nothing at all: it sends an operator off to find documents about a title
+  somebody left behind, so that a wiki can grow prose it never wanted. A rule
+  that names an action the operator should not take is worse than a rule that
+  says nothing, because the silent rule at least costs only the search — and the
+  three candidates 0.26.1 listed were weighed on exactly that.
+
+  Every condition the rule tests is **observably true of the page**: the body is
+  empty, no visible claim hangs off it, no active relation touches it in either
+  direction. None of them asks how the page came to exist. Keying off the
+  scaffolding marker instead — even inverted, to select those pages rather than
+  exclude them — would have made the rule a report about one deployment's
+  private migration tag, hardcoded in this repository, rather than a report
+  about the knowledge base. It would find nothing at all on an installation that
+  never ran that import, while the same blank pages arise anywhere a relation
+  target is created and the relation later goes away. The rule therefore means
+  the same thing on every installation, which is the property the existing
+  exclusion does not have.
+
+  Two consequences worth stating plainly. First, this rule alone neither
+  excludes nor requires scaffolding revisions, unlike every other page-level
+  rule; a scaffolding page nothing points through any more is just a blank page,
+  and the exclusion elsewhere stays correct because those rules describe faults
+  (unreachable, unsourced) a structural target is not guilty of. Second, a blank
+  page that is not scaffolding trips this rule and `empty-concepts` both,
+  deliberately and on the same argument 0.26.0 made for the
+  `empty-concepts`/`unsourced-concepts` overlap: `counts` is a census of
+  findings, never a headcount of pages. On the scaffolding pages that motivated
+  this release it is the only rule that fires at all — the other three still
+  skip them — so the overlap is a property of blank pages generally, not of the
+  ones being fixed here.
+
+  **This makes the linter louder on any installation carrying such pages**, and
+  that is the price of the fix rather than a side effect of it. It is a warning,
+  not an error, so no CI turns red on upgrade — but the wiki that showed
+  twenty-four zeros in its index and a clean lint will now show warnings, and
+  the other fifteen will show whatever they are actually holding. How many of
+  the roughly fifty index rows the new rule reaches was not re-measured for this
+  release; only the pages that are blank in all three senses are, and a page
+  with prose but no evidence is a different finding.
+
+### Known
+
+- **The exclusion list still hardcodes one deployment's private migration tag.**
+  Carried forward from 0.26.1 unchanged: `SCAFFOLDING_KINDS` in
+  `src/domain/lint.ts` names a revision kind that exists because one particular
+  installation ran one particular import, living in a product that otherwise
+  knows nothing about where it runs. The new rule deliberately does not consult
+  it, which shrinks the blast radius but does not remove the fact.
+
+- **The remaining silence is narrower, and it is a different page.** A page
+  marked as scaffolding that does have body text, but no citation behind
+  anything it says, is still reported by neither `unsourced-concepts` nor
+  `empty-concepts` — both still exclude scaffolding — and not by `stub-concepts`
+  either, which requires an empty body. The index counts it; the linter does
+  not. This is what is left of the disagreement above, and it is left open for
+  the same reason the whole of it was: closing it means deciding whether the
+  scaffolding exclusion should exist at all, which changes what every operator's
+  linter says about their own wikis.
+
+0.26.1 carried this as a single **Known** entry, and the rest of it is dropped
+as closed. The index/linter disagreement is answered: the operator who opens the
+linter about those pages is now told what they are and what to do. The
+correction to 0.26.0's "roughly a third of published pages carry no claims" —
+that the number came from the concept list, which counts every page, and not
+from the rule it was written to justify — stands as recorded and is no longer an
+open question. And the three candidate closures that entry declined to choose
+between are now decided: this release took the second, a rule of their own that
+names what is actually wrong with them, rather than reporting them as unsourced
+or teaching the index to hide their zero.
+
 ## 0.26.1 - 2026-08-08
 
 Nothing in the binary changed. Almost every fix here is in

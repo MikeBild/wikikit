@@ -730,6 +730,7 @@ export const zLintResponse = z.object({
         'stale-claims',
         'orphan-concepts',
         'unsourced-concepts',
+        'stub-concepts',
         'empty-concepts',
         'unreviewed-proposals',
         'dangling-sources',

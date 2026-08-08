@@ -33,6 +33,7 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'stale-claims': 'warn',
       'orphan-concepts': 'warn',
       'unsourced-concepts': 'warn',
+      'stub-concepts': 'warn',
       'empty-concepts': 'info',
       'unreviewed-proposals': 'info',
       'dangling-sources': 'info',
@@ -86,6 +87,11 @@ describe('lintSpace', () => {
         },
       ],
     },
+    // Must precede the two NOT EXISTS routes below: the stub rule's query
+    // contains BOTH of their fragments (that is the point of the rule), so
+    // without a fragment of its own it would silently answer with whatever
+    // orphan-concepts was handed.
+    { match: /r\.markdown ~ '\^\[\[:space:\]\]\*\$'/, rows: [{ slug: 'blank' }] },
     { match: /SELECT 1 FROM wk_relations rel/, rows: [{ slug: 'lonely' }] },
     { match: /SELECT 1 FROM wk_claims cl/, rows: [{ slug: 'stub' }] },
     {
@@ -134,16 +140,17 @@ describe('lintSpace', () => {
       'unsourced-concepts',
       'unsourced-concepts',
       'tombstoned-sources',
+      'stub-concepts',
       'empty-concepts',
       'unreviewed-proposals',
       'dangling-sources',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 5, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 6, info: 3 })
 
     // Every rule query is space-scoped with the SAME parameter. (The
     // cross-space-link scan found no [[space:slug]] links, so it issued only
     // its revision scan — no follow-up queries.)
-    expect(calls.length).toBe(12)
+    expect(calls.length).toBe(13)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -166,6 +173,13 @@ describe('lintSpace', () => {
     expect(byRule.get('stale-claims')).toMatchObject({ claim_id: 'cl-4', concept_slug: 'beta' })
     expect(byRule.get('orphan-concepts')).toMatchObject({ concept_slug: 'lonely' })
     expect(byRule.get('empty-concepts')).toMatchObject({ concept_slug: 'stub' })
+    expect(byRule.get('stub-concepts')).toEqual({
+      rule: 'stub-concepts',
+      severity: 'warn',
+      message:
+        'concept "blank" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
+      concept_slug: 'blank',
+    })
     expect(byRule.get('unreviewed-proposals')!.details).toMatchObject({ proposal_id: 'prop-1' })
     expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })
     // Both unsourced findings, in order — a finding that only states the fault

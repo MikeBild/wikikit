@@ -21,8 +21,9 @@
  *  - **No import of the API client.** A refusal is classified by reading two
  *    fields off whatever was thrown. `ApiError` carries `status` and
  *    `nextBestActions`, and the facade throws nothing else — but importing it
- *    here would drag `openapi-fetch` and a `@/` alias into a file the server's
- *    tsconfig compiles, so the shape is read structurally instead.
+ *    here would drag `openapi-fetch` and the whole generated client behind it
+ *    into a file whose entire job is to read two fields off a thrown value, so
+ *    the shape is read structurally instead.
  */
 
 /**

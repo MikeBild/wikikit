@@ -1,4 +1,4 @@
-// Two lint rules against real Postgres, both of which are claims about what a
+// Lint rules against real Postgres, all of which are claims about what a
 // REPORT SAYS rather than about the shape of a statement — which is why they
 // live here and not beside the fake-pool unit tests. A stub answers whatever
 // rows it was handed; only a real database can tell you whether a space that
@@ -19,6 +19,11 @@
 //      claims there is not one citation. The load-bearing property is that it
 //      agrees with the evidence summary the concept list renders, because the
 //      two are read by the same person minutes apart.
+//
+//   3. The `stub-concepts` rule — a readable page with no body, no visible
+//      claim and no active relation in either direction. Three conditions and
+//      two relation directions is exactly the shape a stubbed pool cannot
+//      falsify: every case below turns on whether real SQL joined a real row.
 //
 // RUN_INTEGRATION=1 gated.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -75,6 +80,53 @@ async function stage(spaceId: string, slug: string, claims: Claim[], sourceIds: 
 async function stageAndApprove(spaceId: string, slug: string, claims: Claim[], sourceIds: string[] = []) {
   await db.call('wk_apply_proposal', [await stage(spaceId, slug, claims, sourceIds), 'lint-rules-test'])
 }
+
+/**
+ * Approve one page with explicit control over everything `stub-concepts`
+ * looks at — body, claims, relations — plus the revision's agent_meta `kind`,
+ * which is what marks a page as structural scaffolding.
+ *
+ * `markdown: ''` is written straight onto the revision afterwards because the
+ * proposal schema forbids it (min(1)), and a zero-length body is precisely
+ * what the pages that motivated this rule have: they were not proposed, a
+ * bookkeeping pass created them so an imported edge had somewhere to land.
+ */
+async function approvePage(page: {
+  spaceId: string
+  slug: string
+  markdown?: string
+  claims?: Claim[]
+  relations?: { to_slug: string; kind: 'related' }[]
+  kind?: string
+}) {
+  const { proposal_id } = await createProposal(db, page.spaceId, {
+    title: `Stage ${page.slug}`,
+    input_hash: hex64(),
+    agent_meta: page.kind ? { ...AGENT_META, kind: page.kind } : AGENT_META,
+    concepts: [
+      {
+        slug: page.slug,
+        title: page.slug,
+        markdown: page.markdown === '' ? 'placeholder' : (page.markdown ?? `# ${page.slug}\n\nProse.`),
+        claims: page.claims ?? [],
+        relations: page.relations ?? [],
+      },
+    ],
+  })
+  await db.call('wk_apply_proposal', [proposal_id, 'lint-rules-test'])
+  if (page.markdown === '') {
+    await db.query(
+      `UPDATE wk_concept_revisions r SET markdown = ''
+         FROM wk_concepts c
+        WHERE c.id = r.concept_id AND c.current_revision_id = r.id
+          AND c.space_id = $1 AND c.slug = $2`,
+      [page.spaceId, page.slug],
+    )
+  }
+}
+
+const slugsFor = async (spaceId: string, rule: string): Promise<string[]> =>
+  (await lintSpace(db, spaceId)).findings.filter((finding) => finding.rule === rule).map((f) => f.concept_slug!)
 
 const contradictionsOf = async (spaceId: string, proposalId: string): Promise<string[]> =>
   (await lintProposal(db, spaceId, proposalId)).findings
@@ -239,5 +291,98 @@ describe('lint rules (integration)', () => {
     )
     expect(byRule.get('empty-concepts')).toBe('info')
     expect(byRule.get('unsourced-concepts')).toBe('warn')
+  })
+
+  it('stub-concepts: reports pages empty in all three senses, and only those', async () => {
+    const spaceId = await seedSpace('stub-space', {})
+
+    // Each neighbour fails exactly ONE of the three conditions, so dropping
+    // any one condition from the rule makes that neighbour a finding.
+    await approvePage({ spaceId, slug: 'has-body' })
+    await approvePage({
+      spaceId,
+      slug: 'has-claim',
+      markdown: ' ',
+      claims: [{ subject: 'has-claim', predicate: 'is', object: 'stated' }],
+    })
+    await approvePage({ spaceId, slug: 'inbound-only', markdown: ' ' })
+    await approvePage({ spaceId, slug: 'pointer', relations: [{ to_slug: 'inbound-only', kind: 'related' }] })
+    await approvePage({ spaceId, slug: 'anchor' })
+    await approvePage({
+      spaceId,
+      slug: 'outbound-only',
+      markdown: ' ',
+      relations: [{ to_slug: 'anchor', kind: 'related' }],
+    })
+
+    // The two shapes an empty body comes in: whitespace somebody typed, and
+    // the zero-length column a bookkeeping pass wrote.
+    await approvePage({ spaceId, slug: 'whitespace-stub', markdown: '   \n\t ' })
+    await approvePage({ spaceId, slug: 'zero-body', markdown: '' })
+
+    const findings = (await lintSpace(db, spaceId)).findings.filter((f) => f.rule === 'stub-concepts')
+    expect(findings.map((finding) => finding.concept_slug)).toEqual(['whitespace-stub', 'zero-body'])
+    expect(findings.map((finding) => finding.severity)).toEqual(['warn', 'warn'])
+    expect(findings.map((finding) => finding.message)).toEqual([
+      'concept "whitespace-stub" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
+      'concept "zero-body" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
+    ])
+  })
+
+  it('stub-concepts: one relation in EITHER direction is enough to spare a page', async () => {
+    // Split out from the case above because a rule that checks only one
+    // direction still passes a test that only points relations one way. Both
+    // spared pages are otherwise identical to the reported one.
+    const spaceId = await seedSpace('stub-direction-space', {})
+    await approvePage({ spaceId, slug: 'hub' })
+    await approvePage({
+      spaceId,
+      slug: 'points-at-hub',
+      markdown: ' ',
+      relations: [{ to_slug: 'hub', kind: 'related' }],
+    })
+    await approvePage({ spaceId, slug: 'pointed-at', markdown: ' ' })
+    await approvePage({ spaceId, slug: 'referrer', relations: [{ to_slug: 'pointed-at', kind: 'related' }] })
+    await approvePage({ spaceId, slug: 'untouched', markdown: ' ' })
+
+    expect(await slugsFor(spaceId, 'stub-concepts')).toEqual(['untouched'])
+  })
+
+  it('stub-concepts: reports a scaffolding-marked page that orphan-concepts still skips', async () => {
+    // The regression this rule exists for. A structural-reference page whose
+    // imported relations have since gone away is, to a reader, a title with
+    // nothing behind it — and before this rule the whole linter was silent
+    // about it while the concept index showed it with zero of everything.
+    const spaceId = await seedSpace('scaffolding-space', {})
+    await approvePage({ spaceId, slug: 'left-behind', markdown: '', kind: 'structural-reference' })
+
+    const { findings } = await lintSpace(db, spaceId)
+    const byRule = (rule: string) => findings.filter((f) => f.rule === rule).map((f) => f.concept_slug)
+    expect(byRule('stub-concepts')).toEqual(['left-behind'])
+    // Suppressing furniture from the rules that describe a FAULT stays
+    // correct — the point was never that those rules were wrong, only that
+    // nothing covered the page at all.
+    expect(byRule('orphan-concepts')).toEqual([])
+    expect(byRule('unsourced-concepts')).toEqual([])
+    expect(byRule('empty-concepts')).toEqual([])
+  })
+
+  it('stub-concepts: warn in the counts census, overlapping empty-concepts on purpose', async () => {
+    // A non-scaffolding stub is legitimately three findings and one info line:
+    // unreachable, unsourced, blank, claimless. `counts` is a census of what
+    // the linter found, never a headcount of pages, so none of them is
+    // suppressed in favour of another.
+    const spaceId = await seedSpace('stub-census-space', {})
+    await approvePage({ spaceId, slug: 'blank', markdown: '' })
+
+    const report = await lintSpace(db, spaceId)
+    const byRule = new Map(
+      report.findings.filter((finding) => finding.concept_slug === 'blank').map((f) => [f.rule, f.severity]),
+    )
+    expect(byRule.get('stub-concepts')).toBe('warn')
+    expect(byRule.get('orphan-concepts')).toBe('warn')
+    expect(byRule.get('unsourced-concepts')).toBe('warn')
+    expect(byRule.get('empty-concepts')).toBe('info')
+    expect(report.counts).toEqual({ error: 0, warn: 3, info: 1 })
   })
 })

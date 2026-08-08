@@ -1,9 +1,13 @@
 /**
  * The rules the webhooks surface runs on, with no DOM under them.
  *
- * Import-free for the same reason `sources.logic.ts` is: `test/unit/` compiles
- * against the ROOT tsconfig, which declares no `@/*` path mapping, so a logic
- * module that reaches for an alias is a logic module no unit test can load.
+ * Under the same rule as `sources.logic.ts`, and it is about the DOM rather
+ * than about imports: `test/unit/` compiles with ES2023 and no DOM, so a rule
+ * that reaches for `window` or `localStorage` is a rule no unit test can load.
+ * The `@/*` alias would resolve — the root tsconfig maps it — but nothing here
+ * needs one. Every number below is answerable against the SERVER's schemas,
+ * and `test/unit/cockpit-pages/webhooks.test.ts` imports those directly rather
+ * than through this file, so the two are held apart on purpose.
  */
 
 /**

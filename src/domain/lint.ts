@@ -3,7 +3,7 @@
 //
 // The severity mapping is FIXED by contract (do not tune it per space):
 //   error: contradictions, missing-citations, broken-relations
-//   warn:  stale-claims, orphan-concepts, unsourced-concepts
+//   warn:  stale-claims, orphan-concepts, unsourced-concepts, stub-concepts
 //   info:  empty-concepts, unreviewed-proposals, dangling-sources
 //
 // Every rule is one space-scoped query over the READER-VISIBLE state (current
@@ -12,17 +12,24 @@
 // one deliberate exception is unreviewed-proposals, whose whole point is to
 // surface the staging backlog.
 import type { Db } from '../db/postgres.ts'
-import { getFunctionalPredicates } from './claims.ts'
+import { getFunctionalPredicates, VISIBLE_CLAIM_STATUSES } from './claims.ts'
 import { EVIDENCE_LATERAL } from './concepts.ts'
 
 // Revision kinds that mark a page as SCAFFOLDING rather than knowledge: rows a
 // migration or a structural-bookkeeping pass created so an edge had somewhere
-// to land, never a page anybody wrote to be read. Every page-level rule below
-// excludes them — a rule that reports a scaffolding page is reporting the
-// linter's own furniture, and once a report is mostly furniture nobody reads
-// the rest of it. One list rather than the literal repeated per rule, so a
-// fourth page-level rule cannot silently disagree with the other three about
-// what counts as a real page.
+// to land, never a page anybody wrote to be read. Every page-level rule that
+// reports a FAULT excludes them — orphan-concepts, unsourced-concepts,
+// empty-concepts — because a rule that reports a scaffolding page is reporting
+// the linter's own furniture, and once a report is mostly furniture nobody
+// reads the rest of it. One list rather than the literal repeated per rule, so
+// those three cannot silently disagree about what counts as a real page.
+//
+// `stub-concepts` is the one rule below that does NOT consult this list, and
+// that is the point of it: it reports a page that is blank in every sense at
+// once, which is what a structural target has BECOME once nothing points
+// through it any more. Its reasoning is at the rule; what matters here is that
+// a new page-level rule reaching for NOT_SCAFFOLDING is making a claim about
+// faults, not inheriting a default.
 const SCAFFOLDING_KINDS = ['structural-reference', 'subkit-domain-migration-relation-repair'] as const
 const NOT_SCAFFOLDING = `coalesce(r.agent_meta->>'kind', '') NOT IN (${SCAFFOLDING_KINDS.map(
   (kind) => `'${kind}'`,
@@ -35,6 +42,7 @@ export type LintRule =
   | 'stale-claims'
   | 'orphan-concepts'
   | 'unsourced-concepts'
+  | 'stub-concepts'
   | 'empty-concepts'
   | 'unreviewed-proposals'
   | 'dangling-sources'
@@ -65,6 +73,7 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
   'stale-claims': 'warn',
   'orphan-concepts': 'warn',
   'unsourced-concepts': 'warn',
+  'stub-concepts': 'warn',
   'empty-concepts': 'info',
   'unreviewed-proposals': 'info',
   'dangling-sources': 'info',
@@ -358,6 +367,89 @@ async function unsourcedConcepts(db: Db, spaceId: string): Promise<LintFinding[]
     // equals `claims` by construction, so it would be a second name for a
     // number already here.
     details: { claims: row.claims },
+  }))
+}
+
+// A readable page that is empty in EVERY sense at once: its current revision
+// has no body, it states no visible claim, and no active relation touches it in
+// either direction. A reader can open it and there is nothing there.
+//
+// WHY the rule exists. The concept list's evidence summary counts claims and
+// sources over every page; `unsourced-concepts` reports the pages with zero
+// sources but skips SCAFFOLDING_KINDS, and on a real installation that gap was
+// large enough to break the linter's promise: a space whose index showed two
+// dozen pages with `sources: 0` produced not one finding, so the operator who
+// opened the report to find out what to do about them was told nothing was
+// wrong. The pages behind that silence are not the linter's own furniture —
+// they have titles, they are in the index, a reader can open them — they are
+// simply blank. Something has to say so.
+//
+// WHY this rule does NOT look at SCAFFOLDING_KINDS, in either direction. Not as
+// an exclusion, because excluding them is the defect this rule exists to fix.
+// But equally not as a REQUIREMENT: keying off the marker would make the rule a
+// report about one deployment's private migration tag rather than about the
+// knowledge base, and it would find nothing at all on an installation that
+// never ran that import — while the same blank pages arise wherever a relation
+// target is created and then the relation goes away. Every condition below is
+// observable in what the page IS, never in how it came to exist, so the rule
+// means the same thing on every installation. Suppressing furniture from
+// `orphan-concepts` and friends stays correct: those rules describe a fault
+// (unreachable, unsourced) that a structural target is not guilty of. This one
+// describes a page that is blank, which is exactly what such a target has
+// become once nothing points through it any more.
+//
+// WHY warn, in the same three-way as `unsourced-concepts`:
+//   * NOT error. The error rules describe states that are simply wrong — a
+//     claim nobody can check, a link into the void, a frame asserting two
+//     things. An empty page is a legitimate thing to have transiently: someone
+//     creates the page, then writes it. Failing CI on the gap between those two
+//     moments would train operators to turn the rule off.
+//   * NOT info. info is "noticed, nothing expected of you" — a dangling source,
+//     a pending proposal. This finding names an action and there are only two
+//     of them, both cheap: delete the page, or put something on it.
+// So: warn — somebody should look, nothing is broken.
+//
+// The overlap with `empty-concepts` is intended, on exactly the argument the
+// 0.26.0 CHANGELOG makes for `empty-concepts` vs `unsourced-concepts`: a
+// non-scaffolding stub is BOTH claimless (info: this page states nothing
+// checkable) and blank (warn: this page is nothing at all, here is what to do),
+// and those are two different sentences to two different readers. `counts` is a
+// census of findings, never a headcount of pages, so neither line is
+// suppressed — suppression would make a page's reported severity depend on
+// which rule reached it first and would hide the actionable line behind the
+// passive one. (Today `empty-concepts` skips scaffolding, so on the pages that
+// motivated this rule it does not fire at all.)
+async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ slug: string }>(
+    `SELECT c.slug
+       FROM wk_concepts c
+       JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+      WHERE c.space_id = $1
+        -- Whitespace CLASS, not btrim(): the one-argument btrim strips spaces
+        -- and nothing else, so a body of a single newline would read as text.
+        AND r.markdown ~ '^[[:space:]]*$'
+        AND NOT EXISTS (
+          SELECT 1 FROM wk_claims cl
+           WHERE cl.concept_id = c.id
+             AND cl.status IN (${VISIBLE_CLAIM_STATUSES.map((status) => `'${status}'`).join(', ')})
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM wk_relations rel
+           WHERE rel.status = 'active'
+             AND (rel.from_concept_id = c.id OR rel.to_concept_id = c.id)
+        )
+      ORDER BY c.slug`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'stub-concepts' as const,
+    severity: LINT_SEVERITY['stub-concepts'],
+    // Deliberately NOT "ingest a source": that is the fix for a page that says
+    // things nothing archived backs, and this page says nothing. Advising an
+    // ingest here would send an operator to synthesize prose about a title
+    // somebody left behind.
+    message: `concept "${row.slug}" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content`,
+    concept_slug: row.slug,
   }))
 }
 
@@ -744,6 +836,7 @@ export async function lintSpace(db: Db, spaceId: string): Promise<LintReport> {
     ...(await unsourcedConcepts(db, spaceId)),
     ...(await tombstonedSources(db, spaceId)),
     ...(await brokenCrossSpaceLinks(db, spaceId)),
+    ...(await stubConcepts(db, spaceId)),
     ...(await emptyConcepts(db, spaceId)),
     ...(await unreviewedProposals(db, spaceId)),
     ...(await danglingSources(db, spaceId)),

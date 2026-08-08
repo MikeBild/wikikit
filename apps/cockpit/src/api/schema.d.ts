@@ -1970,7 +1970,7 @@ export interface components {
         zLintResponse: {
             findings: {
                 /** @enum {string} */
-                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "stub-concepts" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
                 message: string;

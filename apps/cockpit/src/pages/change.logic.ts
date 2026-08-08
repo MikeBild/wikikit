@@ -8,16 +8,18 @@
  * differs from one nobody has opened. Those are rules, and a rule that needs a
  * browser to prove it is a rule nobody proves.
  *
- * Two constraints shape this file, and both are inherited rather than chosen:
+ * One constraint shapes this file, and it is inherited rather than chosen:
+ * **no DOM types.** The unit runner compiles `test/` with `lib: ES2023` and no
+ * `DOM` (the server is the product; the console is a guest here), so nothing
+ * below may touch a document, an element or a browser global. `Uint32Array` is
+ * ES2015 and is fine.
  *
- *  - **No DOM types.** The unit runner compiles `test/` with `lib: ES2023` and
- *    no `DOM` (the server is the product; the console is a guest here), so
- *    nothing below may touch a document, an element or a browser global.
- *    `Uint32Array` is ES2015 and is fine.
- *  - **Relative imports with the `.ts` extension.** `@/*` is an
- *    apps/cockpit-only path mapping; the root tsconfig that compiles the tests
- *    has never heard of it. `lib/table-view.ts` already imports `./cursor.ts`
- *    this way for exactly the same reason.
+ * There is no second one, though this comment long claimed the `@/*` alias
+ * was: the root tsconfig maps it onto `apps/cockpit/src` so the tests can
+ * import these modules by the console's own path. The relative `../lib/tokens.ts`
+ * below is therefore a spelling, not a workaround — and the spelling is not
+ * what keeps this file testable. What an import DRAGS IN is: the no-DOM rule
+ * is transitive, and it is broken two files down or not at all.
  */
 
 import { CHANGES_REQUESTED_STATE, SEVERITY_STATE, STATUS_STATE, type DomainState } from '../lib/tokens.ts'

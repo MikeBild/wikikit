@@ -664,6 +664,7 @@ history does not travel.
 | `stale-claims` | warn |
 | `orphan-concepts` | warn |
 | `unsourced-concepts` | warn |
+| `stub-concepts` | warn |
 | `tombstoned-sources` | warn |
 | `broken-cross-space-links` | warn |
 | `empty-concepts` | info |
@@ -676,6 +677,17 @@ behind it. It is a warn and not an error because a hand-written page is a
 legitimate thing to have, and the finding names the fix (ingest a source and let
 synthesis quote it). A page with no claims at all is reported by both this rule
 and `empty-concepts`; `counts` is a census of findings, not of pages.
+
+`stub-concepts` is the page-level emptiness rule: a readable page with no body
+text, no visible claims, and no active relation in either direction — titled, in
+the index, openable, and blank. Every condition is an observable property of the
+page rather than a marker on the revision that created it, so the rule reports
+the same pages on every installation and does not depend on any one deployment's
+import history. Unlike the other page-level rules it neither excludes nor
+requires structural-scaffolding revisions: a scaffolding page nothing points
+through any more is just a blank page. The fix it names is delete-or-write, not
+ingest-a-source, which is why this is its own rule and not a relaxation of
+`unsourced-concepts`.
 
 ---
 

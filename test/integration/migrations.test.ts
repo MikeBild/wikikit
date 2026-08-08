@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import pg from 'pg'
 import { EMBEDDED_MIGRATIONS } from '../../src/db/migrations/embedded.ts'
 import { detectMigrationDrift, runMigrations } from '../../src/db/migrate.ts'
+import { TABLES } from '../../src/db/postgres.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
@@ -64,6 +65,49 @@ describe('migrations (integration)', () => {
     expect(report.applied).toEqual([])
     expect(report.skipped).toBe(EMBEDDED_MIGRATIONS.length)
     expect(await detectMigrationDrift(client)).toEqual({ unknown_in_db: [], missing_in_db: [] })
+  })
+
+  it('the query layer knows exactly the tables the migrations made', async () => {
+    // TABLES in src/db/postgres.ts is hand-written, and this is the only thing
+    // that holds it to reality. assertKnownWkIdentifiers scans the text of
+    // every raw query() and throws on any wk_ identifier the set does not
+    // contain — so a migration that adds a table without touching TABLES
+    // typechecks, ships, and throws the first time a request reaches the new
+    // table, in production, with nothing having gone red on the way.
+    //
+    // It lives here rather than in test/unit/ because a unit test has no schema
+    // to compare against: it could only carry a SECOND hand-written list of
+    // tables, which is the same unverified artefact one layer up and stays
+    // green on the day both lists are wrong together. The schema this database
+    // holds after the migrations above is the only second opinion there is.
+    //
+    // Migrated here rather than leaning on the first test: runMigrations is
+    // idempotent, and a comparison against a schema that only exists if some
+    // earlier `it` happened to run is a comparison that passes vacuously the
+    // moment somebody runs this one alone with `-t`.
+    await runMigrations({ databaseUrl: url })
+    const rows = await client.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name LIKE 'wk\\_%'`,
+    )
+    // wk_migrations is absent from TABLES by design — migrate.ts owns the
+    // journal on its own client, before the app layer exists — so it is the one
+    // name this comparison drops rather than a hole in it.
+    const inSchema = rows.rows.map((row) => row.table_name).filter((name) => name !== 'wk_migrations')
+    expect(inSchema.length).toBeGreaterThan(0)
+
+    const missing = inSchema.filter((name) => !TABLES.has(name)).sort()
+    expect(
+      missing,
+      `in the schema, missing from TABLES (src/db/postgres.ts): ${missing.join(', ')} — every query() naming one of these throws at runtime; add them to TABLES`,
+    ).toEqual([])
+
+    const present = new Set(inSchema)
+    const stale = [...TABLES].filter((name) => !present.has(name)).sort()
+    expect(
+      stale,
+      `in TABLES (src/db/postgres.ts), no such table: ${stale.join(', ')} — a stale entry silently admits a mistyped identifier into raw SQL; remove them from TABLES`,
+    ).toEqual([])
   })
 
   it('serializes concurrent migrators under the advisory lock — applied exactly once', async () => {
