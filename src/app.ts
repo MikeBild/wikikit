@@ -21,7 +21,7 @@ import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
 import { createCockpit, COCKPIT_PREFIX } from './cockpit.ts'
 import { createAuth, type Auth } from './http/auth.ts'
 import { createSpace, type HttpDeps } from './http/routes.ts'
-import { createHttpServer, type RawHandler } from './http/server.ts'
+import { createHttpServer, refuseWithDrainingEnvelope, type DrainPolicy, type RawHandler } from './http/server.ts'
 import { createElicitationRegistry } from './mcp/elicitation-registry.ts'
 import { createMcpMount, toNodeRawHandler, type McpMount } from './mcp/server.ts'
 import { createOAuthMount } from './oauth/server.ts'
@@ -60,11 +60,50 @@ export interface App {
    * POST /mcp through this — the path stays outside ROUTES/OpenAPI (§5.2)
    * while sharing the process, auth factory and DB pool.
    */
-  mountRawHandler(path: string, handler: RawHandler): void
+  mountRawHandler(path: string, handler: RawHandler, whileDraining: DrainPolicy): void
   /** In-process request entry (tests drive the server without a socket). */
   handle: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>
   /** Stop workers, close server + pool. Idempotent. */
   close(): Promise<void>
+}
+
+/**
+ * How /mcp refuses while the process is draining.
+ *
+ * WHY refuse at all: /mcp is mounted raw, ahead of the ROUTES drain gate, so
+ * for the whole drain window an agent could open a session or start a tool
+ * call on an instance that was seconds from tearing it down — while the same
+ * operation over REST got a clean 503 and retried against an instance that was
+ * staying up. Of the two outcomes available to a request that arrives during a
+ * drain, a session that dies mid-call is strictly the worse one: the agent
+ * cannot tell it from a fault, and a fault is not something it retries
+ * elsewhere.
+ *
+ * WHY a JSON-RPC frame rather than the §8.1 HTTP envelope: an MCP client reads
+ * this body as a JSON-RPC message. Handed `{error, code, request_id}` where a
+ * message belongs, it reports a parse error — "the server is broken" — which
+ * is the one thing this refusal exists not to say. The shape below is the same
+ * one src/mcp/server.ts's own transport guards use for an invalid Origin and
+ * an unsupported protocol version (server-defined code range -32000..-32099),
+ * so a client that already handles those handles this. The HTTP status stays
+ * 503 for the load balancer, which reads statuses and never reads bodies: both
+ * audiences are told the truth in their own language. The next step rides in
+ * the message because JSON-RPC has nowhere to put next_best_actions.
+ *
+ * WHY every method, DELETE included: a DELETE only releases a session, and
+ * close() releases every session anyway a moment later — so refusing it loses
+ * nothing, and "re-initialize somewhere else" is the correct next step for all
+ * three verbs. A carve-out would buy a marginally tidier teardown at the price
+ * of a second rule to remember.
+ */
+const refuseMcpWhileDraining: RawHandler = (_req, res) => {
+  const frame = JSON.stringify({
+    jsonrpc: '2.0',
+    error: { code: -32000, message: 'server is draining — re-run initialize against another instance' },
+    id: null,
+  })
+  res.writeHead(503, { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(frame)) })
+  res.end(frame)
 }
 
 export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> = {}): App {
@@ -145,7 +184,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     vector,
     reviewElicitations,
   })
-  http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
+  http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }), refuseMcpWhileDraining)
 
   // The ENV allowlist is a bootstrap-only path since 0028: real access
   // management lives on wk_oauth_identities via the admin REST
@@ -161,32 +200,84 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       allowlisted_entries: allowlisted,
     })
   }
+  // One handler, two drain policies. The line between them is NOT
+  // browser-versus-machine — it is who can act on the refusal.
+  //
+  // A program that gets a 503 retries, the load balancer hands it an instance
+  // that is staying up, and every artifact the flow depends on — the DCR
+  // client row, the authorization code, the identity grant — lives in the
+  // Postgres all the instances share, so the retry RESUMES the flow rather
+  // than restarting it. The caller loses a round trip.
+  //
+  // A human halfway through a redirect chain cannot retry. The login state
+  // they are carrying is single-use and is marked consumed before the redirect
+  // is built, so a 503 at the callback does not mean "try again", it means
+  // "sign in again from the start" — announced by a blank error page, to the
+  // operator most likely to be watching the very deploy that caused it. The
+  // funnel therefore finishes what it started.
+  //
+  // The two halves compose because of that shared database: a browser that
+  // completes consent HERE hands its authorization code to a client whose
+  // token exchange is refused, retried, and completed against a live instance
+  // reading the same row. Refusing the mint while serving the consent throws
+  // nobody's work away.
+  for (const path of [
+    '/v1/identity/cockpit-login',
+    '/v1/identity/login/start',
+    '/v1/identity/login/callback',
+    '/v1/identity/logout',
+    '/v1/session',
+    '/v1/oauth/authorize',
+    '/v1/oauth/authorize/decision',
+  ]) {
+    http.mountRawHandler(path, oauth.handler, 'serve')
+  }
+  // The machine credential plane: discovery, dynamic client registration, the
+  // identity-assertion exchange that mints an API key, the token mint and its
+  // revocation. Each is called by a program, answers JSON, and is repeatable
+  // against another instance — so the ordinary §8.1 'draining' envelope IS the
+  // refusal a caller here will act on; there is no second wire format to
+  // speak, which is exactly what makes /mcp the different case.
+  //
+  // Discovery is refused with the rest rather than served like the console's
+  // static bundle, and the difference is not that one is static: it is that
+  // discovery is the FIRST call of the flow — the cheapest possible place to
+  // send a client to a healthy instance, before it has registered anything —
+  // and that nobody is looking at it. The console is the screen an operator
+  // watches the drain on; a well-known document is a step an agent takes.
+  //
+  // Revocation refuses too, though it destroys rather than creates: it is
+  // idempotent and the token it revokes is a row every instance can see, so a
+  // refused revoke is a retried revoke, not a token left alive.
   for (const path of [
     '/.well-known/oauth-protected-resource',
     '/.well-known/oauth-protected-resource/mcp',
     '/.well-known/oauth-authorization-server',
-    '/v1/oauth/register',
-    '/v1/oauth/authorize',
-    '/v1/oauth/authorize/decision',
-    '/v1/oauth/token',
-    '/v1/oauth/revoke',
     '/v1/identity/providers',
     '/v1/identity/sessions',
-    '/v1/identity/cockpit-login',
-    '/v1/session',
-    '/v1/identity/login/start',
-    '/v1/identity/login/callback',
-    '/v1/identity/logout',
+    '/v1/oauth/register',
+    '/v1/oauth/token',
+    '/v1/oauth/revoke',
   ]) {
-    http.mountRawHandler(path, oauth.handler)
+    http.mountRawHandler(path, oauth.handler, refuseWithDrainingEnvelope)
   }
 
   // The cockpit — WikiKit's one human surface, served from this same process at
   // /cockpit (CUI-MOUNT-1). A prefix mount rather than exact paths: a built SPA
   // is a directory of fingerprinted filenames plus a client-side router, and
   // enumerating either would be a list that goes stale on the next build.
+  //
+  // It keeps serving while the process drains, and that is the easy half of
+  // the drain decision: the bundle is static and holds no knowledge, so there
+  // is no work to refuse — only a file read — and the console is the one
+  // screen an operator watches a deploy on. A page that goes blank halfway
+  // through reports nothing; it just looks broken, at the moment the operator
+  // most needs to be told what is happening. The API calls that page makes are
+  // ordinary ROUTES and do hit the drain gate, so the console degrades to
+  // saying "the server is draining", which is the true answer, instead of
+  // vanishing and saying nothing.
   const cockpit = createCockpit({ logger })
-  http.mountRawPrefix(COCKPIT_PREFIX, cockpit.handler)
+  http.mountRawPrefix(COCKPIT_PREFIX, cockpit.handler, 'serve')
 
   let closed = false
   return {

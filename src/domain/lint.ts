@@ -3,7 +3,7 @@
 //
 // The severity mapping is FIXED by contract (do not tune it per space):
 //   error: contradictions, missing-citations, broken-relations
-//   warn:  stale-claims, orphan-concepts
+//   warn:  stale-claims, orphan-concepts, unsourced-concepts
 //   info:  empty-concepts, unreviewed-proposals, dangling-sources
 //
 // Every rule is one space-scoped query over the READER-VISIBLE state (current
@@ -13,6 +13,20 @@
 // surface the staging backlog.
 import type { Db } from '../db/postgres.ts'
 import { getFunctionalPredicates } from './claims.ts'
+import { EVIDENCE_LATERAL } from './concepts.ts'
+
+// Revision kinds that mark a page as SCAFFOLDING rather than knowledge: rows a
+// migration or a structural-bookkeeping pass created so an edge had somewhere
+// to land, never a page anybody wrote to be read. Every page-level rule below
+// excludes them — a rule that reports a scaffolding page is reporting the
+// linter's own furniture, and once a report is mostly furniture nobody reads
+// the rest of it. One list rather than the literal repeated per rule, so a
+// fourth page-level rule cannot silently disagree with the other three about
+// what counts as a real page.
+const SCAFFOLDING_KINDS = ['structural-reference', 'subkit-domain-migration-relation-repair'] as const
+const NOT_SCAFFOLDING = `coalesce(r.agent_meta->>'kind', '') NOT IN (${SCAFFOLDING_KINDS.map(
+  (kind) => `'${kind}'`,
+).join(', ')})`
 
 export type LintRule =
   | 'contradictions'
@@ -20,6 +34,7 @@ export type LintRule =
   | 'broken-relations'
   | 'stale-claims'
   | 'orphan-concepts'
+  | 'unsourced-concepts'
   | 'empty-concepts'
   | 'unreviewed-proposals'
   | 'dangling-sources'
@@ -49,6 +64,7 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
   'broken-relations': 'error',
   'stale-claims': 'warn',
   'orphan-concepts': 'warn',
+  'unsourced-concepts': 'warn',
   'empty-concepts': 'info',
   'unreviewed-proposals': 'info',
   'dangling-sources': 'info',
@@ -248,7 +264,7 @@ async function orphanConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
        JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
-        AND coalesce(r.agent_meta->>'kind', '') NOT IN ('structural-reference', 'subkit-domain-migration-relation-repair')
+        AND ${NOT_SCAFFOLDING}
         AND NOT EXISTS (
           SELECT 1 FROM wk_relations rel
            WHERE rel.status = 'active'
@@ -265,6 +281,86 @@ async function orphanConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
   }))
 }
 
+// A readable page that no archived source stands behind: across ALL of its
+// visible claims there is not one citation, so `sources` is zero.
+//
+// WHY the rule exists when three others already touch this ground. WikiKit's
+// premise is that a claim quotes a document somebody archived; the evidence
+// summary on the concept list (0.25.0) was the first surface to count that per
+// page, and the first thing it showed on a real installation was that roughly a
+// third of published pages carry no claims at all. The linter had
+// `orphan-concepts` for a page nothing LINKS TO and nothing for a page nothing
+// BACKS. `missing-citations` is per-CLAIM and says nothing about a page that
+// makes none; `empty-concepts` is per-page but asks whether the page states
+// anything checkable, not whether anything archived is behind it. Neither
+// answers "which pages here are somebody's memory".
+//
+// WHY warn, and not either neighbour:
+//   * NOT error. A page written by hand is a legitimate thing to have in a
+//     wiki — a stub, a hub page, an index somebody typed — and the three error
+//     rules all describe states that are simply wrong (a claim nobody can
+//     check, a link into the void, a frame asserting two things). A rule that
+//     shouts at a legitimate state is a rule an operator turns off, and a
+//     turned-off rule catches nothing. It would also break CI for every
+//     installation on upgrade, which is not a thing a lint rule may decide on
+//     an operator's behalf.
+//   * NOT info. info is where "noticed, nothing expected of you" lives —
+//     dangling sources, a pending proposal. This one names an action and the
+//     action is the product's whole loop: ingest a source and let synthesis
+//     quote it. At a third of published pages an info line would also be
+//     invisible under the info rules that already run per source and per
+//     proposal.
+// So: warn — somebody should look, nothing is broken.
+//
+// The overlap with `empty-concepts` (a claimless page is BOTH) is deliberate,
+// not an oversight: the info line records a stub, this warn line records that
+// nothing archived stands behind it and says what would fix it. Rejected:
+// suppressing one when the other fires, which would make a page's reported
+// severity depend on which rule reached it first and would hide the actionable
+// line behind the passive one. `counts` is a census of what the linter found,
+// never a checklist of distinct pages.
+//
+// The count itself is EVIDENCE_LATERAL from concepts.ts — the same aggregate
+// the concept list renders. A second hand-written copy could drift over the
+// visible statuses or a forgotten DISTINCT and then tell an operator that a
+// page the index shows with `sources: 1` rests on nothing.
+async function unsourcedConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ slug: string; claims: number; sources: number }>(
+    `WITH page AS (
+       SELECT c.id, c.slug
+         FROM wk_concepts c
+         JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+        WHERE c.space_id = $1
+          AND ${NOT_SCAFFOLDING}
+     )
+     SELECT p.slug, ev.claims, ev.sources
+       FROM page p
+       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev
+      WHERE ev.sources = 0
+      ORDER BY p.slug`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'unsourced-concepts' as const,
+    severity: LINT_SEVERITY['unsourced-concepts'],
+    // The two shapes read differently to whoever has to act: a page with no
+    // claims needs a source before it can have any, a page whose claims all
+    // lack a quote has statements nobody archived evidence for. Same fix,
+    // different amount of prose already at risk — so the count is in the line.
+    message:
+      row.claims === 0
+        ? `concept "${row.slug}" rests on no archived source: it makes no claims at all — ingest a source and let synthesis quote it`
+        : `concept "${row.slug}" rests on no archived source: ${row.claims} claim${
+            row.claims === 1 ? '' : 's'
+          }, none of them quoting one — ingest a source and let synthesis quote it`,
+    concept_slug: row.slug,
+    // `uncited_claims` is deliberately not carried: when `sources` is zero it
+    // equals `claims` by construction, so it would be a second name for a
+    // number already here.
+    details: { claims: row.claims },
+  }))
+}
+
 // Readable concept with zero visible claims: prose without a single
 // verifiable statement — fine for a stub, worth knowing about.
 async function emptyConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
@@ -274,7 +370,7 @@ async function emptyConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
        JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
-        AND coalesce(r.agent_meta->>'kind', '') NOT IN ('structural-reference', 'subkit-domain-migration-relation-repair')
+        AND ${NOT_SCAFFOLDING}
         AND NOT EXISTS (
           SELECT 1 FROM wk_claims cl
            WHERE cl.concept_id = c.id
@@ -483,43 +579,81 @@ export async function lintProposal(
     })
   }
 
-  // Frame collisions with EXISTING visible claims (same rule as apply flip 5):
-  // approval will mark both sides disputed — the impact warning.
-  const colliding = await db.query<{
-    id: string
-    subject: string
-    predicate: string
-    object: string
-    slug: string
-    existing_object: string
-  }>(
-    `SELECT cl.id, cl.subject, cl.predicate, cl.object, c.slug, other.object AS existing_object
-       FROM wk_claims cl
-       JOIN wk_concepts c ON c.id = cl.concept_id
-       JOIN wk_claims other
-         ON other.space_id = cl.space_id
-        AND other.subject = cl.subject
-        AND other.predicate = cl.predicate
-        AND other.object <> cl.object
-        AND other.status IN ('verified', 'disputed')
-      WHERE cl.proposal_id = $2 AND cl.space_id = $1 AND cl.status = 'proposed'
-        AND cl.predicate = ANY (
-          SELECT jsonb_array_elements_text(
-            CASE WHEN jsonb_typeof(s.settings->'functional_predicates') = 'array'
-                 THEN s.settings->'functional_predicates' ELSE '[]'::jsonb END)
-            FROM wk_spaces s WHERE s.id = $1
-        )
-      ORDER BY c.slug`,
-    [spaceId, proposalId],
-  )
-  for (const row of colliding.rows) {
-    findings.push({
-      rule: 'contradictions',
-      severity: PROPOSAL_LINT_SEVERITY.contradictions,
-      message: `staged claim "${row.subject} ${row.predicate} ${row.object}" collides with existing "${row.existing_object}" — approval disputes both`,
-      concept_slug: row.slug,
-      claim_id: row.id,
-    })
+  // Frame collisions with EXISTING visible claims: approval will mark both
+  // sides disputed — the impact warning. This is the THIRD surface on the
+  // review screen that answers "will this approval hurt?", after the proposal
+  // diff's `collides` flag and the rendered review page, and the message here
+  // promises the same thing they do: "approval disputes both". So every
+  // condition below is a condition of wk_apply_proposal flip 5 (0022), and the
+  // declared predicate set is resolved by the SAME helper the diff and the
+  // space rule above use. A finding that is broader than the flip tells the
+  // reviewer a consequence the approval will not produce, and one that is
+  // narrower hides a consequence it will:
+  //   * functional predicates — predicate cardinality is space configuration,
+  //     empty by default (0003, 0021). getFunctionalPredicates unions the
+  //     typed `predicate_defs` registry with the legacy
+  //     `functional_predicates` array, exactly as the SQL
+  //     wk_functional_predicates v2 does. The hand-inlined settings lookup
+  //     that stood here read only the legacy array, so a space declaring its
+  //     predicates through the registry got NO findings at all while a space
+  //     using the array got collisions the flip would not create — silently,
+  //     because a query that reads the wrong half of a settings object never
+  //     fails.
+  //   * context / normalized object / overlapping validity / the
+  //     adjudication='complementary' stamp / explicit supersession — the 0021
+  //     refinements. A partitioned frame ('region:eu' vs 'region:us'), two
+  //     canonically equal values ('1 GiB' vs '1024 MiB'), disjoint validity
+  //     (succession), an adjudicated complement and a staged supersession all
+  //     look like collisions to the coarse subject+predicate+different-object
+  //     rule, and none of them dispute anything.
+  // Rejected: re-inlining the settings lookup in SQL to save this round trip —
+  // the two representations of the declaration are exactly what a hand-inlined
+  // copy gets wrong, and this is a diagnostics endpoint, not a hot path.
+  const functionalPredicates = await getFunctionalPredicates(db, spaceId)
+  // An empty declared set is the default, and no claim can collide under it —
+  // `= ANY('{}')` is false for every row, so the query would be a round trip
+  // that can only return nothing.
+  if (functionalPredicates.length) {
+    const colliding = await db.query<{
+      id: string
+      subject: string
+      predicate: string
+      object: string
+      slug: string
+      existing_object: string
+    }>(
+      `SELECT cl.id, cl.subject, cl.predicate, cl.object, c.slug, other.object AS existing_object
+         FROM wk_claims cl
+         JOIN wk_concepts c ON c.id = cl.concept_id
+         JOIN wk_claims other
+           ON other.space_id = cl.space_id
+          AND other.subject = cl.subject
+          AND other.predicate = cl.predicate
+          AND coalesce(other.context, '') = coalesce(cl.context, '')
+          AND coalesce(other.object_normalized, other.object)
+              <> coalesce(cl.object_normalized, cl.object)
+          AND other.proposal_id IS DISTINCT FROM cl.proposal_id
+          AND other.status IN ('verified', 'disputed')
+          AND coalesce(cl.valid_from, '-infinity'::timestamptz)
+              < coalesce(other.valid_until, 'infinity'::timestamptz)
+          AND coalesce(other.valid_from, '-infinity'::timestamptz)
+              < coalesce(cl.valid_until, 'infinity'::timestamptz)
+          AND (cl.supersedes_claim_id IS NULL OR cl.supersedes_claim_id <> other.id)
+        WHERE cl.proposal_id = $2 AND cl.space_id = $1 AND cl.status = 'proposed'
+          AND cl.predicate = ANY($3::text[])
+          AND coalesce(cl.agent_meta->>'adjudication', '') <> 'complementary'
+        ORDER BY c.slug`,
+      [spaceId, proposalId, functionalPredicates],
+    )
+    for (const row of colliding.rows) {
+      findings.push({
+        rule: 'contradictions',
+        severity: PROPOSAL_LINT_SEVERITY.contradictions,
+        message: `staged claim "${row.subject} ${row.predicate} ${row.object}" collides with existing "${row.existing_object}" — approval disputes both`,
+        concept_slug: row.slug,
+        claim_id: row.id,
+      })
+    }
   }
 
   // Stale base: approval WILL fail (mirrors the wk_apply_proposal check).
@@ -607,6 +741,7 @@ export async function lintSpace(db: Db, spaceId: string): Promise<LintReport> {
     ...(await brokenRelations(db, spaceId)),
     ...(await staleClaims(db, spaceId)),
     ...(await orphanConcepts(db, spaceId)),
+    ...(await unsourcedConcepts(db, spaceId)),
     ...(await tombstonedSources(db, spaceId)),
     ...(await brokenCrossSpaceLinks(db, spaceId)),
     ...(await emptyConcepts(db, spaceId)),

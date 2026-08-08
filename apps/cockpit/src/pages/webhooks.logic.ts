@@ -7,33 +7,35 @@
  */
 
 /**
- * How many delivery attempts one read can hold — fifty, and NOT the two hundred
- * `listWebhookDeliveries` is willing to clamp to.
+ * How many delivery attempts one read can hold — the endpoint's own maximum,
+ * asked for out loud.
  *
- * The domain function takes a `limit` and clamps it to [1, 200] with a default
- * of 50, so 200 looks available from `src/webhooks.ts`. It is not, because the
- * HTTP surface in front of it never offers the parameter: the route entry for
- * `GET /v1/spaces/{space}/webhooks/{id}/deliveries` declares
- * `request: { params: 'zSpaceIdParams' }` and no query schema, and
- * `listWebhookDeliveriesHandler` calls the domain with `{ endpointId }` alone.
- * The server only validates a query string it has declared, so an undeclared
- * one is dropped rather than refused.
+ * This used to be fifty, and the comment here used to explain why: the domain
+ * function clamped to [1, 200] but `GET /v1/spaces/{space}/webhooks/{id}/deliveries`
+ * declared no query schema, and the server only forwards a query string a route
+ * has declared — so 200 was visible from `src/webhooks.ts` and unreachable from
+ * anywhere a console could stand. The route now declares `zDeliveryListQuery`,
+ * so the number the page sends and the number the server will honour are the
+ * same number again.
  *
- * The rejected alternative was to send `?limit=200` anyway and pass 200 as the
- * ceiling. It would have made the page lie twice — once about how many attempts
- * exist, and once about having asked for them — while the response stayed
- * exactly fifty rows long. Fifty is the honest number until the endpoint grows
- * a `limit`, and `test/unit/cockpit-pages/webhooks.test.ts` fails on the day it
- * does, so this constant cannot quietly stay behind the server.
+ * 200 is a bigger WINDOW, not pagination: the read is still
+ * `ORDER BY created_at DESC LIMIT n` with no cursor behind it, so a full answer
+ * is still a truncated one and `DELIVERY_CAP_NOTE` still has to say so. The
+ * gain is that "our webhooks stopped last Tuesday" now reaches back four times
+ * as far before the caveat is all the operator has.
+ *
+ * `test/unit/cockpit-pages/webhooks.test.ts` holds this number against
+ * `zDeliveryListQuery` itself, so it cannot drift below what the endpoint
+ * allows and cannot be raised past what the endpoint would refuse.
  */
-export const DELIVERY_CEILING = 50
+export const DELIVERY_CEILING = 200
 
 /**
  * The caveat under a delivery list that came back full.
  *
  * Asserts more attempts EXIST rather than "may exist": the read is `ORDER BY
- * created_at DESC LIMIT 50` with no cursor after it, so a full answer is a
- * truncation by construction — a wiki cannot have exactly fifty attempts
+ * created_at DESC LIMIT 200` with no cursor after it, so a full answer is a
+ * truncation by construction — a wiki cannot have exactly two hundred attempts
  * against one endpoint and have the console be wrong about it in any way that
  * matters. The nuance would only soften the one sentence that has to land.
  */
@@ -45,10 +47,12 @@ export const DELIVERY_CAP_NOTE = `only the ${DELIVERY_CEILING} newest attempts a
  * "Every attempt WikiKit has made" is true right up to the moment the read
  * comes back full — and false in precisely the case this page exists for. An
  * operator who arrives with "our webhooks stopped last Tuesday" and meets a
- * busy endpoint is handed the fifty newest attempts, which on a busy endpoint
- * reach back as far as this morning; the sentence then tells them Tuesday never
- * happened. So the claim is derived from how many attempts actually arrived
- * rather than written into the page as a constant.
+ * busy endpoint is handed the `DELIVERY_CEILING` newest attempts, which on a
+ * busy endpoint may still reach back only as far as this morning; the sentence
+ * then tells them Tuesday never happened. Raising the ceiling from fifty to two
+ * hundred moved that horizon without removing it, which is exactly why the
+ * claim stays derived from how many attempts actually arrived rather than
+ * written into the page as a constant.
  *
  * `null` is "no answer yet" and is NOT the same as zero. A count of nothing is
  * something the server said; an absent one is a read still in the air or one

@@ -6,6 +6,258 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.26.0 - 2026-08-08
+
+This release closes both items 0.24.0 left under **Known** — the `contradictions`
+lint rule reading only half of a space's predicate declarations, and `/mcp` and
+the OAuth plane accepting work from a draining process. Neither reappears below.
+
+### Added
+
+- **The linter now names the pages nothing archived stands behind.** 0.25.0 made
+  this countable per page and the first thing it showed on a real installation
+  was that roughly a third of published pages carry no claims at all — but the
+  linter, which is where an operator goes to find out what needs attention, had
+  no way to say so. It had a rule for a page nothing _links to_ and none for a
+  page nothing _backs_.
+
+  `unsourced-concepts` reports every readable page across whose visible claims
+  there is not one citation, and says which of the two shapes it is: a page that
+  makes no claims at all, or a page that makes claims and quotes nothing for any
+  of them. Same fix in both cases — ingest a source and let synthesis quote it —
+  but a different amount of prose is already at risk, so the count is in the
+  line.
+
+  It is a **warning**, deliberately between its neighbours. Not an error: a page
+  somebody typed by hand is a legitimate thing to have in a wiki, the three
+  error rules all describe states that are simply wrong, and a rule that shouts
+  at a legitimate state is a rule an operator turns off — turning CI red on
+  every installation the day it upgrades is not a call a lint rule may make on
+  an operator's behalf. Not information: `info` is where "noticed, nothing
+  expected of you" lives, and this one names an action which is the product's
+  entire loop.
+
+  A page with no claims trips both this rule and `empty-concepts`, and that is
+  intended rather than an oversight. The information line records a stub; this
+  one records that nothing archived stands behind it and says what would fix it.
+  Suppressing either would make a page's reported severity depend on which rule
+  reached it first, and would hide the actionable line behind the passive one.
+  The counts in a lint report are a census of findings, never a headcount of
+  pages.
+
+- **Webhook delivery history can be asked for in full.** The deliveries list was
+  the only list in this API with no `limit` parameter, so it answered fifty rows
+  and there was no way to ask for more — including from its own console page,
+  which had to state a ceiling it could not raise. Debugging an endpoint that
+  had been failing for a while meant reading the most recent fifty attempts and
+  guessing at the rest.
+
+  `GET /v1/spaces/{space}/webhooks/{id}/deliveries` now takes `?limit=`, default
+  fifty and up to two hundred, matching every other list here; the console asks
+  for the ceiling. It is a bigger window and not pagination — there is still no
+  cursor, and the page still says so rather than implying the history it shows
+  is all of it.
+
+- **Search results now say how well each page is evidenced.** 0.25.0 gave the
+  page index three numbers per row — how many claims a page makes, how many of
+  those quote nothing, and how many archived documents stand behind it — so a
+  reader could tell, before spending a click, which pages the archive supports.
+  Search was the other place that choice gets made, and it was still silent: a
+  ranked headline tells you a page matched, never how the wiki knows what it
+  says. Same question, same gap, one surface later.
+
+  Every hit of `GET /v1/spaces/{space}/search` with `kind: "concept"` — and the
+  same hits through the `wikikit_search` MCP tool — now carries the same
+  `evidence` object the list carries, counted by the same aggregate over the
+  same visible claims. A page therefore reports identical numbers whether it is
+  found by browsing or by searching; two surfaces disagreeing about one page
+  would not read as two code paths, it would read as a wiki that does not know
+  what it holds.
+
+  Two kinds of hit deliberately carry nothing. A **claim** hit raises a
+  different question — "is _this_ claim quoted?" — which none of the three
+  numbers answers; lending it the page's totals would put `claims: 12` on a
+  single claim and invite `uncited_claims` to be read as a verdict on the
+  matched one. A **source-evidence** hit is an archived paragraph nobody has
+  reviewed, and its tier label exists to say exactly that: an evidence summary
+  there would dress unapproved material in the badge of a curated page, which
+  is the worst misreading this field admits. Absence therefore never means
+  zero — where the object is served, `claims: 0` is a measured page that cites
+  nothing, still the state this feature exists to make visible.
+
+  The cost is one extra statement, issued only when a response actually holds
+  concept hits, over at most the 50 slugs a search can return — a quarter of
+  what the index already counts in a single statement. A search filtered to
+  claims, or one that matches nothing, costs exactly what it cost before.
+
+### Fixed
+
+- **The contradiction warning on a review told some wikis nothing and other
+  wikis the wrong thing.** It is the third surface on the review screen that
+  answers "will approving this hurt?", and it was the last one still carrying
+  its own copy of the rule. That copy read only the older of the two ways a
+  space can declare which predicates hold a single value — so a wiki declaring
+  them through the typed registry got **no contradiction findings at all**, and
+  one declaring them the older way got findings for changes approval would not
+  actually dispute. Both failures were silent: a query reading the wrong half of
+  a settings object never errors, it just returns nothing.
+
+  It now resolves the declaration through the same helper the proposal diff and
+  the space-wide lint already use, which reads both, and it applies the same
+  refinements approval itself applies. A frame split by context (`region:eu`
+  against `region:us`), two values that are canonically the same thing (`1 GiB`
+  against `1024 MiB`), two facts whose validity periods do not overlap, a
+  reviewer's explicit "these complement each other", and a change that says
+  outright which claim it supersedes are none of them contradictions, and
+  approval never treated them as such. The message promises "approval disputes
+  both", and that is now true of everything it reports.
+
+- **A console tab left open through a long review signed you out mid-edit.** The
+  session cookie renews on a read of the session, and the console only made that
+  read when it loaded — so a tab focused all day never renewed anything, and the
+  idle window expired underneath somebody who had been working in it the whole
+  time. 0.24.0 documented this as the cost of the design; it was not.
+
+  A visible tab now re-reads its session every ten minutes, and a hidden one
+  re-reads on return. A hidden tab deliberately does **not** renew itself on the
+  timer: the idle window exists so that an unattended session dies on schedule,
+  and a minimized tab quietly renewing every ten minutes would convert every
+  eight-hour idle window into the twenty-four-hour absolute cap for anybody who
+  never closes a tab. The absolute cap is unchanged and still ends the session
+  where it stands.
+
+  Turning the renewal on exposed a worse failure that had been latent: the gate
+  checked for an error before it looked at the answer it already had, so a
+  single failed renewal — one blip, on a session the server never stopped
+  honouring — would have replaced the whole console with "Could not reach
+  WikiKit" and taken every unsubmitted edit with it. A known answer now outranks
+  a failed attempt. A session that genuinely ended still signs the console out
+  immediately; that is an answer, not a failure.
+
+- **An identity's email could not be cleared, and the form said nothing.** The
+  column is nullable, `''` is not `NULL`, and the update path kept every field
+  the body left out — so an operator deleting a stale address closed the dialog
+  on a request that changed nothing, with no error to tell it apart from
+  success. 0.24.0 fixed exactly this for `display_name` and left this one
+  pinned by a test that recorded why: the wire type had no way to say "clear
+  it".
+
+  It has one now. On `PUT /v1/identities/{provider}/{subject}`, `email` carries
+  three states rather than two: absent keeps the stored address, `null` clears
+  it, a string sets it. `null` rather than `''` because `NULL` is already what
+  this column means by "no email" — the SSO callback writes it whenever the
+  provider asserts no verified address — and a nullable column holding two
+  kinds of empty is a distinction every reader downstream would have to carry
+  forever. `''` is now refused (`400`) for the same reason. It is not a new
+  convention either: this API already reads an explicit `null` as a value and
+  an absent key as "leave it alone", on `base_revision_id` in a staged concept.
+  `display_name` keeps the opposite spelling, because its column is NOT NULL
+  with an empty default, so `''` is already what clears it.
+
+- **The grant dialog announced a grant while the server performed an edit.**
+  The console chose its wording from which button was pressed; the server
+  decides by whether the row exists. Type the provider and subject of somebody
+  who is already admitted into "Grant access" and the two disagreed — the
+  dialog promised a new grant, and the request replaced a scope ceiling that
+  person already held, which is the one case where the wrong word is dangerous.
+
+  The dialog now reads the list the page has already loaded, so it can tell
+  what the server will do without asking it: the title and the button say
+  "Change what this person reaches" and "Set ceiling" the moment the typed
+  identity matches an admitted row, and a warning names the ceiling that is
+  about to be replaced — including the empty one, which reads as the lockout it
+  is. It stays a warning and never a refusal: re-granting somebody from the top
+  of the page is a legitimate thing to do, and a console that blocked it would
+  be wrong in the other direction. A revoked match still points at Restore,
+  where the server would answer `409`.
+
+- **A draining process still took new agents and minted new tokens.** `/mcp`
+  and the whole OAuth/session plane are mounted raw, ahead of the drain gate,
+  so for the entire shutdown window an agent could open a session or a client
+  could mint a token on an instance that was seconds from tearing both down —
+  while the identical operation over REST got a clean `503 draining` and
+  retried against an instance that was staying up. 0.24.0 wrote it down rather
+  than fixing it, because the fix is not a reordering: it is deciding what a
+  refusal sounds like in a protocol that is not HTTP. That decision is made.
+
+  `/mcp` now refuses on every method, as a 503 carrying a **JSON-RPC error
+  frame** rather than WikiKit's HTTP envelope. The status is for the load
+  balancer, which reads statuses; the frame is for the client, which reads
+  bodies as JSON-RPC messages and would have reported the envelope as a parse
+  error — and a client that believes the server is broken does not retry
+  somewhere else, which is the one outcome this refusal exists to prevent. The
+  shape is the one WikiKit's own transport guards already use for a bad Origin
+  and an unsupported protocol version, so no client learns anything new.
+
+  The OAuth/session plane splits, and the line is not browser-versus-machine —
+  it is who can act on the refusal. A program that gets a 503 retries, and
+  every row its flow depends on is in the Postgres all the instances share, so
+  the retry resumes rather than restarts: discovery, registration, the
+  identity-assertion exchange, the token mint and its revocation all refuse. A
+  human halfway through a redirect chain cannot retry — the login state they
+  carry is single-use and already consumed, so a 503 at the callback means
+  "sign in again from the start", announced by a blank page to the operator
+  most likely to be watching the deploy that caused it. The sign-in funnel and
+  the consent screen therefore finish what they started. The two halves compose
+  because of that shared database: consent completed on the draining instance
+  is exchanged for a token, one refusal and one retry later, against a live one
+  reading the same row.
+
+  The console keeps serving throughout, which was never in doubt. It is static,
+  it holds no knowledge, and the API calls it makes are ordinary routes that do
+  hit the gate — so it degrades to reporting the drain, which is true, instead
+  of going blank, which reads as broken at precisely the wrong moment.
+
+  Each raw mount now states its drain policy where it is mounted, and stating
+  it is mandatory: there is no default, because a default would be a shutdown
+  decision made silently for every mount added later.
+
+- **The metrics label was computed twice and could disagree with itself.** The
+  route label a request was counted, logged and billed under was recomputed
+  after the response, by re-running the route table against a plain split of
+  `req.url` — while the request had been dispatched on a properly resolved URL.
+  The two differ for a path with dot segments and for the absolute-form request
+  line a proxy may send, so a request served as `/v1/spaces/{space}` could be
+  recorded as `(unmatched)`. The label is now written once, by the code that
+  made the decision, and only read afterwards.
+
+  What that does not change, deliberately: an unknown path answers `404` while
+  draining exactly as it does otherwise, and is counted the same way. Nothing
+  was refused — the path does not exist on this build and will not exist on the
+  next one — so there is nothing to attribute to the drain. Refusals are
+  attributable: they are `status="503"` under the refusing route's own label,
+  next to `route="/ready"`. Drain volume is that series, never a delta in the
+  404 bucket.
+
+- **The deployment guide told operators a rollback was safe that no longer is.**
+  `docs/DEPLOYMENT.md` still carried the release note of a much earlier version:
+  it named a specific tag as "this change", and it stated that rolling back to
+  v0.4 stayed schema-compatible because one nullable column and one defaulted
+  function argument made it so. That was true when it was written and has not
+  been for more than twenty migrations — an operator following it during an
+  incident would have put a binary that predates most of the schema in front of
+  a database that has all of it. The version-specific framing is gone, and the
+  rollback guidance now says what actually holds: one release at a time, and
+  only where that release's entry here says so.
+
+### Known
+
+- **A console tab left visible on an unattended machine now renews itself until
+  the absolute cap.** This is the cost of the session fix above, stated plainly
+  rather than buried: the renewal fires while the browser reports the tab as
+  visible, and a browser cannot report whether a person is in front of it. Before
+  this release such a tab would have been signed out by the idle window; now the
+  twenty-four-hour absolute cap is the only bound on it, and that bound does
+  still hold — it is stamped from the session's own expiry and no amount of
+  renewing moves it.
+
+  The narrower reading was rejected on purpose. A hidden tab does not renew, so
+  a closed laptop still dies on the idle schedule; catching the unattended-but-
+  visible case would mean inferring presence from input events, which is a
+  guess, and a session that ends on a guess ends in the middle of somebody's
+  review. Operators who need the shorter bound should shorten the absolute cap,
+  which is the control that actually means what it says.
+
 ## 0.25.0 - 2026-08-08
 
 ### Added

@@ -95,8 +95,11 @@ grounding + approval guarantees intact.
 
 ```
 client ──▶ src/http/server.ts
-  1. request id + W3C trace context (`trace_id`, new `span_id`, `parent_span_id`, echoed header) + draining check
-  2. route match against the ROUTES registry
+  1. request id + W3C trace context (`trace_id`, new `span_id`, `parent_span_id`, echoed header)
+  1a. raw mounts (/mcp, the OAuth/session paths, /cockpit) — each answers or
+      refuses by the drain policy it was mounted with, and never reaches step 2
+  2. route match against the ROUTES registry, then the draining check (a path
+     matching no route 404s while draining: it will not exist later either)
   3. auth: wk_ key → HMAC(pepper) lookup → Principal {scopes, spaceId}
   4. route-level scope check; body size cap; zod validation (params/query/body)
   5. handler: resolveSpace(slug) → space-level scope check → domain call
@@ -256,11 +259,74 @@ default is `knowledge:read,knowledge:propose`; `knowledge:approve` requires
 explicit policy, client request and human consent, and the native review form
 still owns the final decision. Interactive identities never receive `admin`.
 
+## Migration history is append-only — the last declaration wins
+
+Migrations are never edited after they are applied. `migrate.ts` keys each file
+by tag and sha256; an applied tag is never re-executed, so editing its SQL
+cannot change any database that already ran it. The edit would only make the
+file disagree with every deployed schema — a lie that reads like a fix. The
+drift warning and the `embedded.ts` codegen test exist to make that edit loud.
+
+The consequence for readers: **a migration shows what the schema became at that
+point in history, not what it is now.** A function you find in an early
+migration may have been redeclared later, and the body you are reading is then
+superseded. Postgres identity is name + argument types, so the live definition
+of a function is the one in the **highest-numbered migration that declares that
+exact signature**:
+
+```sh
+grep -rn "function public.wk_split_proposal" src/db/migrations/*.sql | tail -1
+```
+
+This is not an exception; it is how the directory works. As of 0032 these
+functions are declared more than once (run the grep for the current answer):
+
+| Function (signature)                          | Declared in       | Live body |
+| --------------------------------------------- | ----------------- | --------- |
+| `wk_search(uuid,text,text,int)`               | 0001, 0003, 0016  | **0016**  |
+| `wk_revision_search_vector()`                 | 0001, 0016        | **0016**  |
+| `wk_claim_search_vector()`                    | 0001, 0016        | **0016**  |
+| `wk_reindex_space(uuid)`                      | 0016, 0017        | **0017**  |
+| `wk_functional_predicates(uuid)`              | 0003, 0021        | **0021**  |
+| `wk_apply_proposal_core_0003(uuid,text,text)` | 0010†, 0014, 0022 | **0022**  |
+| `wk_apply_proposal(uuid,text,text,text)`      | 0010, 0027        | **0027**  |
+| `wk_reject_proposal(uuid,text,text,text)`     | 0010, 0027        | **0027**  |
+| `wk_split_proposal(uuid,text,text[],text)`    | 0020, 0027        | **0027**  |
+
+Every one of these is a same-signature `create or replace`, so exactly one body
+exists per function and the later file is authoritative. None of them created an
+accidental overload — that would be the dangerous case, because Postgres would
+keep _both_ bodies and resolve by argument type. When you add an argument you
+are creating a new function, not replacing one; 0010 is the worked example.
+
+Three traps this directory already contains:
+
+- `wk_split_proposal` in **0020** validates `review_channel` against
+  `('rest','mcp_elicitation')`. 0027 widened that whitelist to include
+  `'url_elicitation'` and is otherwise byte-identical. 0020 read alone gives the
+  wrong whitelist.
+- †The `_core_NNNN` suffix records **where a body was forked out, not where it
+  lives now.** 0010 renamed the then-current three-argument `wk_apply_proposal`
+  to `wk_apply_proposal_core_0003` so a four-argument wrapper could add channel
+  provenance. 0014 and 0022 have since replaced that core, so the live body is
+  0022's despite the `0003` in the name. `wk_reject_proposal_core_0000` has
+  never been redeclared, so there the number still matches.
+- `wk_search_config()` is declared in 0001 and **dropped** in 0016. It has no
+  live definition at all.
+
+Redeclaring in full — rather than patching the earlier file — is the right call
+precisely because the history is append-only. A migration is a record of an
+event that already happened on every deployed database; the only honest way to
+change behaviour is to append a new event. Repeating the whole body keeps each
+migration independently applyable from an empty database, which is what makes a
+fresh deploy and a ten-migrations-old deploy converge on the same schema. The
+cost is duplicated text, and it is paid deliberately.
+
 ## Database access discipline
 
-`db.query` only touches tables on the `wk_` allowlist; review decisions go
-exclusively through `db.call` with a three-function whitelist
-(`wk_apply_proposal`, `wk_reject_proposal`, `wk_search`). Outbox events are
+`db.query` only touches tables on the `wk_` allowlist; review decisions and
+search go exclusively through `db.call`, whose whitelist pins each function to
+one SQL string and an exact arity (`src/db/postgres.ts`). Outbox events are
 inserted via `db.emitEvent` on a transaction-bound handle, so an event can
 only exist for a state change that actually committed. The review SQL wrappers
 persist reviewer, note and `review_channel` in the same transaction and copy

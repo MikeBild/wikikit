@@ -7,9 +7,13 @@
 // wk_concepts.current_revision_id, so proposed/rejected content is invisible
 // BY CONSTRUCTION — re-implementing any filtering in TypeScript would create
 // a second place for that visibility rule to rot. This module only validates
-// the boundary (zod, house rule), composes the two retrieval TIERS and maps
+// the boundary (zod, house rule), composes the two retrieval TIERS, maps
 // column names to the wire shape (concept_slug → slug) shared by REST
-// /search and the wikikit_search MCP tool.
+// /search and the wikikit_search MCP tool, and attaches the per-page evidence
+// summary to concept hits — the same aggregate the concept list reports, so a
+// reader who searches and a reader who browses are told the same thing about
+// the same page (see SearchHit.evidence for what the other two kinds carry
+// and why it is nothing).
 //
 // Tiers (mode):
 //   approved_only         — current revisions + visible claims. The default;
@@ -26,6 +30,7 @@
 //                           starve the evidence tier).
 import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
+import { conceptEvidenceBySlug, type ConceptEvidence } from '../domain/concepts.ts'
 import { readImports } from '../domain/space-refs.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 
@@ -70,6 +75,35 @@ export interface SearchHit {
   chunk_id: string | null
   url: string | null
   heading: string | null
+  /**
+   * How well the page behind a CONCEPT hit is evidenced — the same three
+   * numbers the concept list carries, from the same aggregate (see
+   * ConceptEvidence). A search result is the other place a reader picks which
+   * page to open, and it faced the same blind choice the list did: "how does
+   * the wiki know this?" is not answerable from a ranked headline.
+   *
+   * Present on every kind='concept' hit; the only absence is a page that
+   * stopped being readable between the ranking and the count, which is not a
+   * measured zero and must not be dressed as one.
+   *
+   * DELIBERATELY ABSENT on the other two kinds:
+   *
+   *   kind='claim' — a claim hit raises a different question ("is THIS claim
+   *     quoted?"), and none of the three answers it. Lending it the page's
+   *     numbers would put `claims: 12` on a single claim and let
+   *     `uncited_claims: 3` be read as a verdict on the matched claim rather
+   *     than on its neighbours. The honest per-claim answer is a fourth,
+   *     differently shaped number; until something asks for it, silence beats
+   *     a number that invites the wrong reading.
+   *
+   *   kind='source_chunk' — the source-evidence tier is explicitly NOT
+   *     approved knowledge; the tier label exists to say so. An evidence
+   *     summary on such a hit would assert the opposite of what the hit means,
+   *     and it is the worst misreading available here: an archived paragraph
+   *     nobody has reviewed would show up wearing the badge of a curated page.
+   *     A chunk also has no concept to count over — its slug is null.
+   */
+  evidence?: ConceptEvidence
 }
 
 interface SearchRow {
@@ -148,6 +182,32 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
     url: null,
     heading: null,
   }))
+
+  // Evidence for the concept hits, batched into ONE statement (see
+  // conceptEvidenceBySlug for why it cannot ride along inside wk_search).
+  //
+  // The cost, stated: at most one extra statement per search, and it is issued
+  // only when the page actually holds concept hits — a kind='claim' search, a
+  // source-only match and a miss all still cost exactly what they cost before.
+  // Its input is bounded by the SAME cap as the search itself (zSearchArgs
+  // limit ≤ 50, hard-clamped at the boundary and mirrored in the MCP tool
+  // schema), so the aggregate here runs over at most 50 concepts — a quarter of
+  // the 200 the concept list already runs it over inside one statement, and
+  // fewer in practice because claim hits collapse onto their concept and
+  // duplicates are removed. Per concept it is one index scan on
+  // wk_claims_concept_idx plus one wk_citations_claim_idx probe per visible
+  // claim, on covered indexes; the added latency is one round trip, not a scan.
+  // Federated searches pay it once per space that produced a concept hit,
+  // because each space must be counted in its own space_id.
+  const conceptSlugs = hits.flatMap((hit) => (hit.kind === 'concept' && hit.slug ? [hit.slug] : []))
+  if (conceptSlugs.length > 0) {
+    const evidence = await conceptEvidenceBySlug(db, spaceId, conceptSlugs)
+    for (const hit of hits) {
+      if (hit.kind !== 'concept' || !hit.slug) continue
+      const measured = evidence.get(hit.slug)
+      if (measured) hit.evidence = measured
+    }
+  }
 
   // Source-evidence tier: only when the caller opts in, and only for
   // unfiltered searches — a kind filter names the approved shapes explicitly.

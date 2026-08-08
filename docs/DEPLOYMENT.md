@@ -118,6 +118,20 @@ WantedBy=multi-user.target
 - On `SIGTERM`/`SIGINT` the service fails `/ready` immediately, stops the
   outbox and ingest workers, drains in-flight requests, then exits 0 (30 s
   hard cap covers a hung LLM call).
+- What a draining instance still answers: `/health`, `/ready`, `/metrics`, the
+  `/cockpit` bundle, and the human sign-in funnel (`/v1/identity/…`,
+  `/v1/session`, the OAuth consent screen) — so an operator watching the deploy
+  keeps their console and does not lose a half-finished sign-in. Everything
+  else refuses: REST routes and the OAuth machine plane (discovery,
+  registration, token mint and revocation) with `503 {"code":"draining"}`, and
+  `/mcp` with a 503 carrying a JSON-RPC error frame, which is what an MCP
+  client can read as "retry elsewhere".
+- Reading `/metrics` during a deploy: refusals are `status="503"` on the
+  refusing route's own label (`/mcp`, `/v1/oauth/token`, or a REST template),
+  alongside `route="/ready" status="503"`. The `(unmatched)` bucket is
+  deliberately unaffected — a path that matches nothing 404s draining or not,
+  because nothing was refused — so drain volume is the 503 series, never a
+  delta in 404s.
 
 A typical deploy: download the release binary, verify `SHA256SUMS`, move it
 into place atomically (keep a `.prev` for rollback), restart the unit, then
@@ -153,7 +167,7 @@ does not mark it disposable unless `VERIFY_I_MEAN_IT=1`.
 cannot make — whether the wording reads right, whether a confirmation is
 honest, whether the theme survives a sign-out and reaches the funnel.
 
-For this release, also run a review canary against a
+On any release that touches the review path, also run a review canary against a
 disposable pending proposal on each channel the client supports. Form mode
 (primary): inspect the full diff, cancel once and prove it remains pending,
 then accept once and prove `review_channel: "mcp_elicitation"`. URL fallback
@@ -209,10 +223,10 @@ that auto-cancels the form immediately (advertised but unrendered) falls back
 to URL mode or the hand-off instead of being read as a human cancel. REST remains the
 fallback for a trusted human acting as themselves; an agent-held credential
 may execute the human's explicit chat instruction only when the operator
-deliberately granted it `knowledge:approve`. Rollback to v0.4 remains schema-compatible because the
-new review column is nullable and the public SQL functions retain their
-three-argument call shape through defaults; v0.4 simply does not populate the
-new provenance field.
+deliberately granted it `knowledge:approve`. Rolling back across a schema
+change is only safe one release at a time and only where that release's
+CHANGELOG says so — the migrations are forward-only, so a binary older than the
+schema it finds is not a supported configuration.
 
 ## Release pipeline
 
@@ -221,7 +235,7 @@ CI runs lint → typecheck → unit (incl. drift gates) + contract → integrati
 binary. The same checks run locally via `bun run gate`, and as a `pre-push`
 hook after `bun run hooks:install` — so a red CI run should be a surprise.
 
-Pushing a SemVer tag matching `package.json` (for this change, `v0.5.0`) builds the
+Pushing a SemVer tag matching `package.json` builds the
 per-platform binaries via `build-binary.sh` and publishes them with
 `SHA256SUMS` as a GitHub release. Continuous deployment then ships the binary,
 restarts the unit and runs the smoke + e2e suites against the live instance.
@@ -234,8 +248,8 @@ tag → `package.json` → compiled-binary version chain (enforced by
 `verify-tag` in the release workflow) is load-bearing: it is the only thing the
 health gate can match on. Anyone can consume a release the same way.
 
-The v0.5.0 release is complete only after the pull-based production deployer
-reports `/ready` version `0.5.0` and the review compatibility canaries above
+A release is complete only after the pull-based production deployer reports
+`/ready` at the tagged version and the review compatibility canaries above
 pass in production. Record client/version, capability result, cancel result,
 accepted proposal id, persisted `review_channel`, webhook evidence, timestamp
 and operator. A published tag alone is not production verification.

@@ -15,6 +15,7 @@ import {
   zReviewRequest,
   zSearchQuery,
   zUpdateSpaceSettingsRequest,
+  zUpsertIdentityRequest,
 } from '../../src/http/schemas.ts'
 
 describe('http schemas', () => {
@@ -109,6 +110,29 @@ describe('http schemas', () => {
         relations_removed: [edge],
       }).success,
     ).toBe(false)
+  })
+
+  test('zUpsertIdentityRequest tells "keep it", "clear it" and "set it" apart on email', () => {
+    // Three states on one nullable column. The update path COALESCEs nothing
+    // for email precisely so these stay distinguishable: absence is the
+    // console instructing the server to keep the stored address, and without a
+    // clearing spelling an operator removing a stale one changed nothing.
+    expect('email' in zUpsertIdentityRequest.parse({ role: 'reader' })).toBe(false)
+    expect(zUpsertIdentityRequest.parse({ email: null }).email).toBeNull()
+    expect(zUpsertIdentityRequest.parse({ email: 'alex@example.com' }).email).toBe('alex@example.com')
+
+    // '' is refused rather than accepted as a third empty: NULL is what this
+    // column already means "no email" with (the SSO callback writes it), and
+    // one nullable column holding two kinds of empty is a distinction every
+    // reader downstream would have to carry.
+    expect(zUpsertIdentityRequest.safeParse({ email: '' }).success).toBe(false)
+    expect(zUpsertIdentityRequest.safeParse({ email: `${'a'.repeat(311)}@example.com` }).success).toBe(false)
+
+    // display_name keeps the opposite spelling on purpose — the column is
+    // `not null default ''`, so '' IS its empty and null is not a value it
+    // can hold.
+    expect(zUpsertIdentityRequest.parse({ display_name: '' }).display_name).toBe('')
+    expect(zUpsertIdentityRequest.safeParse({ display_name: null }).success).toBe(false)
   })
 
   test('zReadyResponse pins the exact deploy-gate shape', () => {

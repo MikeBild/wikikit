@@ -909,10 +909,12 @@ export interface LintFinding {
     | 'broken-relations'
     | 'stale-claims'
     | 'orphan-concepts'
+    | 'unsourced-concepts'
     | 'empty-concepts'
     | 'unreviewed-proposals'
     | 'dangling-sources'
     | 'tombstoned-sources'
+    | 'broken-cross-space-links'
   severity: 'error' | 'warn' | 'info'
   message: string
   concept_slug?: string
@@ -926,11 +928,17 @@ export interface LintReport {
 ```
 
 Severity mapping is fixed: `contradictions`/`missing-citations`/`broken-relations`
-= error; `stale-claims`/`orphan-concepts`/`tombstoned-sources` = warn; the rest
-= info. `tombstoned-sources` flags visible claims citing sources whose stream
-the connector tombstoned (upstream document deleted) — surfacing only, never an
-automatic status flip: whether the claim gets deprecated is a human decision
-made through a normal proposal.
+= error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/
+`tombstoned-sources`/`broken-cross-space-links` = warn; the rest
+= info. `unsourced-concepts` flags a readable page across whose visible claims
+there is not one citation — nothing archived stands behind it. Warn, never an
+error: a hand-written page is legitimate, and the finding names the fix (ingest
+a source and let synthesis quote it) rather than only the fault. It overlaps
+`empty-concepts` for a page with no claims at all, deliberately — `counts` is a
+census of findings, not of distinct pages. `tombstoned-sources` flags visible
+claims citing sources whose stream the connector tombstoned (upstream document
+deleted) — surfacing only, never an automatic status flip: whether the claim
+gets deprecated is a human decision made through a normal proposal.
 
 ### 4.1 Ingest pipeline (`src/ingest/pipeline.ts`)
 
@@ -975,6 +983,7 @@ export interface SearchHit {
   title: string
   headline: string
   rank: number
+  evidence?: ConceptEvidence // kind='concept' ONLY — §5.3
 }
 
 // src/query/answer.ts — LLM (answer.v1); throws LlmNotConfiguredError without a key
@@ -1068,7 +1077,7 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read                     | `listConceptsHandler`          | query `zListQuery`                                                     | 200 `zConceptListResponse` (ETag = `"<space-epoch>"`, 304 on If-None-Match; every item carries `evidence`, counted over VISIBLE claims only — §5.3)              |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read                     | `getConceptHandler`            | params `zConceptParams`                                                | 200 `zConceptResponse`                                                                                                                                           |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read                     | `getConceptHistoryHandler`     | params `zConceptParams`                                                | 200 `zConceptHistoryResponse`                                                                                                                                    |
-| GET    | `/v1/spaces/{space}/search`                   | knowledge:read                     | `searchHandler`                | query `zSearchQuery`                                                   | 200 `zSearchResponse`                                                                                                                                            |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read                     | `searchHandler`                | query `zSearchQuery`                                                   | 200 `zSearchResponse` (`kind:'concept'` hits carry `evidence` — same counts as the concept list; `claim`/`source_chunk` hits deliberately do not — §5.3)         |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read                     | `queryHandler`                 | body `zQueryRequest`                                                   | 200 `zQueryResponse` (503 `llm_not_configured` without key)                                                                                                      |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | `listProposalsHandler`         | query `zProposalListQuery`                                             | 200 `zProposalListResponse`                                                                                                                                      |
 | POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose                  | `createProposalHandler`        | body `zCreateProposalRequest`                                          | 201 `zProposalCreatedResponse`                                                                                                                                   |
@@ -1255,8 +1264,10 @@ which inverts the review gate — the one guarantee this product exists to keep.
 
 Invariants a client may rely on:
 
-- `evidence` is always present and always three integers. There is no null and
-  no absent case: the numbers are measured on every read.
+- On this list `evidence` is always present and always three integers. There is
+  no null and no absent case: the numbers are measured on every read. (On
+  `/search` the object rides on concept hits only — see below — but wherever it
+  is served it is the same three measured integers, never null.)
 - `uncited_claims <= claims`. `claims - uncited_claims` is how many claims are
   cited, which is **not** `sources` — `sources` is distinct sources, and one
   source commonly backs many claims.
@@ -1267,6 +1278,29 @@ Invariants a client may rely on:
 - `wk_claims` hangs off `concept_id`, not off a revision (§1.5), so `evidence`
   describes the page as it stands now. It does not move with `rev`, and reading
   an older revision through `/history` does not change it.
+
+**The same object on search hits.** `zSearchResponse.hits[]` carries `evidence`
+as well, counted by the same aggregate (`EVIDENCE_LATERAL`,
+`src/domain/concepts.ts`) over the same visible statuses, so one page reports
+identical numbers whether a reader finds it by browsing the index or by
+searching. WHICH hits carry it is part of the contract:
+
+- `kind: 'concept'` — carries it. The only absence is a page that stopped being
+  readable between the ranking and the count; absence means "not measured" and
+  must never be rendered as a zero.
+- `kind: 'claim'` — does **not**. A claim hit raises "is _this_ claim quoted?",
+  which none of the three numbers answers; the page's totals on a single claim
+  would invite reading `uncited_claims` as a verdict on the matched claim.
+- `kind: 'source_chunk'` — does **not**, and must never. That tier is
+  explicitly NOT approved knowledge (`tier: 'source_evidence'` says exactly
+  that): an evidence summary there would dress an unreviewed archived paragraph
+  in the badge of a curated page. A chunk has no concept to count over either.
+
+Cost: one additional statement per search, issued only when the response holds
+concept hits, over at most the search cap (50) distinct slugs — the ranked rows
+come out of the pinned `wk_search`/`wk_search_hybrid` functions and cannot be
+joined against without re-running the ranking. A federated search pays it once
+per space that produced a concept hit, since claims are counted per `space_id`.
 
 `zConceptResponse` (the full read used by REST **and** `wikikit_read`):
 

@@ -532,6 +532,20 @@ describe('http surface (integration)', () => {
     })
     expect(deliveries.status).toBe(200)
 
+    // The page size is the caller's, within the endpoint's window. Asserted
+    // over a socket because the interesting half is the router: a query string
+    // no route declares is dropped rather than refused, so before
+    // `zDeliveryListQuery` existed BOTH of these answered 200 and the second
+    // one silently returned fifty rows.
+    const sized = await fetch(`${base}/v1/spaces/demo/webhooks/${endpoint.id}/deliveries?limit=200`, {
+      headers: bearer(BOOTSTRAP),
+    })
+    expect(sized.status).toBe(200)
+    const tooMany = await fetch(`${base}/v1/spaces/demo/webhooks/${endpoint.id}/deliveries?limit=201`, {
+      headers: bearer(BOOTSTRAP),
+    })
+    expect(tooMany.status).toBe(400)
+
     // Webhook admin is admin-scoped: the writer key must not see it.
     const forbidden = await fetch(`${base}/v1/spaces/demo/webhooks`, { headers: bearer(writerKey) })
     expect(forbidden.status).toBe(403)

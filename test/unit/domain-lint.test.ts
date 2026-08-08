@@ -32,6 +32,7 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'broken-relations': 'error',
       'stale-claims': 'warn',
       'orphan-concepts': 'warn',
+      'unsourced-concepts': 'warn',
       'empty-concepts': 'info',
       'unreviewed-proposals': 'info',
       'dangling-sources': 'info',
@@ -109,6 +110,15 @@ describe('lintSpace', () => {
       match: /FROM wk_sources s/,
       rows: [{ id: 'src-1', title: null, kind: 'url' }],
     },
+    {
+      // The two shapes an unsourced page comes in: no claims at all, and
+      // claims that quote nothing. Both are one finding with the same fix.
+      match: /ev\.sources = 0/,
+      rows: [
+        { slug: 'handwritten', claims: 0, sources: 0 },
+        { slug: 'unquoted', claims: 3, sources: 0 },
+      ],
+    },
   ]
 
   test('collects every rule, orders error → warn → info and counts correctly', async () => {
@@ -121,17 +131,19 @@ describe('lintSpace', () => {
       'broken-relations',
       'stale-claims',
       'orphan-concepts',
+      'unsourced-concepts',
+      'unsourced-concepts',
       'tombstoned-sources',
       'empty-concepts',
       'unreviewed-proposals',
       'dangling-sources',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 3, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 5, info: 3 })
 
     // Every rule query is space-scoped with the SAME parameter. (The
     // cross-space-link scan found no [[space:slug]] links, so it issued only
     // its revision scan — no follow-up queries.)
-    expect(calls.length).toBe(11)
+    expect(calls.length).toBe(12)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -156,6 +168,28 @@ describe('lintSpace', () => {
     expect(byRule.get('empty-concepts')).toMatchObject({ concept_slug: 'stub' })
     expect(byRule.get('unreviewed-proposals')!.details).toMatchObject({ proposal_id: 'prop-1' })
     expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })
+    // Both unsourced findings, in order — a finding that only states the fault
+    // is a complaint, so each one carries the fix in its message.
+    const unsourced = findings.filter((finding) => finding.rule === 'unsourced-concepts')
+    expect(unsourced).toEqual([
+      {
+        rule: 'unsourced-concepts',
+        severity: 'warn',
+        message:
+          'concept "handwritten" rests on no archived source: it makes no claims at all — ingest a source and let synthesis quote it',
+        concept_slug: 'handwritten',
+        details: { claims: 0 },
+      },
+      {
+        rule: 'unsourced-concepts',
+        severity: 'warn',
+        message:
+          'concept "unquoted" rests on no archived source: 3 claims, none of them quoting one — ingest a source and let synthesis quote it',
+        concept_slug: 'unquoted',
+        details: { claims: 3 },
+      },
+    ])
+
     expect(byRule.get('tombstoned-sources')).toMatchObject({
       severity: 'warn',
       claim_id: 'cl-9',

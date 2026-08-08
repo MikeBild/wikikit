@@ -354,7 +354,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** LLM-free full-text search; ranked hits with <mark> headlines */
+        /** LLM-free full-text search; ranked hits with <mark> headlines. Concept hits carry the same evidence summary (visible claims, uncited claims, distinct sources) the concept list serves; claim and source-chunk hits do not */
         get: operations["search"];
         put?: never;
         post?: never;
@@ -577,7 +577,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Delivery attempts for one endpoint (status, attempts, backoff) */
+        /** Delivery attempts for one endpoint (status, attempts, backoff; newest first, `?limit=` up to 200) */
         get: operations["listWebhookDeliveries"];
         put?: never;
         post?: never;
@@ -647,7 +647,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation. */
+        /** Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address. */
         put: operations["upsertIdentity"];
         post?: never;
         /** Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens and its SSO-minted API keys (idempotent; only an explicit restore over PUT re-admits) */
@@ -1679,6 +1679,11 @@ export interface components {
                 chunk_id: string | null;
                 url: string | null;
                 heading: string | null;
+                evidence?: {
+                    claims: number;
+                    uncited_claims: number;
+                    sources: number;
+                };
                 space: string;
             }[];
             searched_spaces: string[];
@@ -1965,7 +1970,7 @@ export interface components {
         zLintResponse: {
             findings: {
                 /** @enum {string} */
-                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
                 message: string;
@@ -2071,7 +2076,7 @@ export interface components {
         };
         /** @default {} */
         zUpsertIdentityRequest: {
-            email?: string;
+            email?: string | null;
             display_name?: string;
             /** @enum {string} */
             role?: "reader" | "contributor" | "reviewer";
@@ -5521,7 +5526,9 @@ export interface operations {
     };
     listWebhookDeliveries: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path: {
                 space: string;

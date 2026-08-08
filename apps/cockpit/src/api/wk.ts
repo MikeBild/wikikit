@@ -116,8 +116,15 @@ export const wk = {
     list: (space: string) => unwrap(api.GET('/v1/spaces/{space}/webhooks', { params: { path: { space } } })),
     create: (space: string, body: Record<string, unknown>) =>
       unwrapAs<unknown>(api.POST('/v1/spaces/{space}/webhooks', { params: { path: { space } }, body: body as never })),
-    deliveries: (space: string, id: string) =>
-      unwrap(api.GET('/v1/spaces/{space}/webhooks/{id}/deliveries', { params: { path: { space, id } } })),
+    // Takes a query for the same reason `sources.streams` does: the endpoint
+    // answers the 50 newest attempts to a request that names no `limit`, and a
+    // caller that cannot name one cannot know which ceiling it is under.
+    deliveries: (space: string, id: string, query?: Record<string, unknown>) =>
+      unwrap(
+        api.GET('/v1/spaces/{space}/webhooks/{id}/deliveries', {
+          params: { path: { space, id }, query: query as never },
+        }),
+      ),
   },
 
   keys: {

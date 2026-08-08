@@ -19,7 +19,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
 import type { FilterSpec } from '@/lib/url-filters'
-import { RESULT_LIMIT, resultCeilingNote } from '@/pages/search.logic'
+import type { EvidenceCounts } from '@/pages/page.logic'
+import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
 
 /**
  * Search, in two tiers — and the tier is the whole point.
@@ -38,8 +39,31 @@ import { RESULT_LIMIT, resultCeilingNote } from '@/pages/search.logic'
  * across two corpora is not comparable), so this page never re-sorts hits: the
  * order on screen is the order the server ranked, and the only rearranging is
  * the split into the two sections it already labelled.
+ *
+ * A hit on a page now also says HOW THE WIKI KNOWS IT — the claims that page
+ * makes, how many of them quote nothing, and how many sources stand behind it —
+ * because a ranked list is a choice about what to open, and rank answers "does
+ * this mention my words" while evidence answers "is any of it backed". The
+ * three numbers are read by `pageEvidence` in `page.logic`, the same function
+ * the pages index reads them with; `hitEvidence` in `search.logic` decides only
+ * which hits are pages at all. Nothing about the evidence line ever appears on a
+ * `source_evidence` hit: the counts describe an approved page, and a screen that
+ * let an unreviewed excerpt wear them would have undone the split above.
  */
-type SearchHit = Awaited<ReturnType<typeof wk.search.run>>['hits'][number]
+
+/**
+ * `evidence` is widened onto the generated hit rather than waited for.
+ *
+ * The response type is generated from the OpenAPI document, so a field lands
+ * here the moment the schema declares it — but optional-and-nullable is what
+ * this console can actually receive either way, and the reason is in
+ * `EvidenceBearingHit`: a rolling upgrade serves one tab from the new binary and
+ * answers its next search from the old one. The intersection collapses to the
+ * server's own required shape as soon as the generated type carries it.
+ */
+type SearchHit = Awaited<ReturnType<typeof wk.search.run>>['hits'][number] & {
+  evidence?: EvidenceCounts | null
+}
 
 /** `zSearchQuery`: `q` is 1–500 chars. `RESULT_LIMIT` and its ceiling note live in `search.logic.ts`. */
 const MAX_QUERY = 500
@@ -251,6 +275,11 @@ function Results({
   // section and answered completely in the other.
   const approvedCeiling = resultCeilingNote(approved.length, 'hits')
   const evidenceCeiling = resultCeilingNote(evidence.length, 'excerpts')
+  // Whether to explain the evidence line at all. A search for a phrase that only
+  // matches claims returns approved hits with no page among them and therefore
+  // no evidence line anywhere, and a heading promising one would send the reader
+  // hunting for something that is legitimately absent.
+  const explainsEvidence = approved.some((hit) => hit.kind === 'concept')
 
   return (
     <div className="flex flex-col gap-6">
@@ -268,6 +297,9 @@ function Results({
             </h2>
             <p className="text-muted-foreground text-xs">
               {approved.length === 1 ? '1 hit' : `${approved.length} hits`} on pages a human reviewed and published.
+              {explainsEvidence
+                ? ' Each page also says what stands behind it: the claims it makes, and how many sources they quote.'
+                : ''}
             </p>
             {approvedCeiling ? (
               <p className="text-muted-foreground text-xs" data-testid="search-approved-ceiling">
@@ -344,7 +376,78 @@ function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; spa
         </span>
       )}
       <Headline text={hit.headline} />
+      {/* Below the excerpt, not above it. The excerpt is why this hit is on the
+          screen and it stays next to the title it belongs to; the evidence is
+          what a reader weighs once they have seen the match, and it holds the
+          same last line on every card so a list of ten can be scanned down that
+          one column rather than read. */}
+      <PageEvidenceLine hit={hit} index={index} />
     </li>
+  )
+}
+
+/**
+ * What the archive puts behind the page this hit is on.
+ *
+ * Same four states as the pages index and the same three shapes, laid out on one
+ * line because a search result is a card of prose rather than a table cell:
+ *
+ *   Evidence: 12 claims · 4 sources                a page whose promise is kept
+ *   Evidence: 12 claims · 4 sources  [2 uncited]   a page with holes in it
+ *   Evidence: [No claims]                          a hand-written page, backed by nothing
+ *   Evidence: —                                    the counts never arrived
+ *
+ * The word "Evidence:" is here and is not on the index, where the column header
+ * carries it — a bare "12 claims · 4 sources" under a paragraph of excerpt would
+ * be two numbers about nothing in particular.
+ *
+ * `backed` still wears no badge and emphatically no green one: every claim
+ * quoting a source is this product's baseline, not an achievement, and a success
+ * token beside "how does the wiki know this" is exactly what CUI-AI-1 forbids.
+ * The plain count is the whole statement. The em dash is hidden from the
+ * accessibility tree with the sentence behind it left in, because a screen
+ * reader that announced "dash" would learn less than a reader who saw a zero —
+ * and a zero is the one thing that state does not mean (CUI-SEV-2).
+ */
+function PageEvidenceLine({ hit, index }: { hit: SearchHit; index: number }) {
+  const evidence = hitEvidence(hit)
+  if (evidence === null) return null
+
+  const testId = `search-hit-${index}-evidence`
+
+  if (evidence.level === 'unmeasured')
+    return (
+      <p className="text-muted-foreground text-xs" data-testid={testId} data-evidence={evidence.level}>
+        <span className="font-medium">Evidence:</span> <span aria-hidden="true">—</span>
+        <span className="sr-only">{evidence.reading}</span>
+      </p>
+    )
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+      data-testid={testId}
+      data-evidence={evidence.level}
+      // The whole state as one sentence, for a reader who would rather have the
+      // numbers spelled out before deciding to open the page. Every word of it
+      // is also on screen — the attribute adds, it never carries.
+      title={evidence.reading}
+    >
+      <span className="text-muted-foreground font-medium">Evidence:</span>
+      {evidence.count ? <span className="text-muted-foreground tabular-nums">{evidence.count}</span> : null}
+      {evidence.detail ? (
+        <>
+          {/* Punctuation, not information: the two counts are separate spans and
+              a screen reader hears them as such, so the dot is hidden rather
+              than announced. */}
+          <span className="text-muted-foreground" aria-hidden="true">
+            ·
+          </span>
+          <span className="text-muted-foreground tabular-nums">{evidence.detail}</span>
+        </>
+      ) : null}
+      {evidence.flag ? <Badge tone={evidence.tone}>{evidence.flag}</Badge> : null}
+    </div>
   )
 }
 

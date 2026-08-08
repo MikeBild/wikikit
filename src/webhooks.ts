@@ -31,6 +31,7 @@ import type { Logger } from './logger.ts'
 import type { Metrics } from './metrics.ts'
 import { NotFoundError, ValidationError } from './domain/errors.ts'
 import { REVIEW_CHANNELS } from './domain/proposals.ts'
+import { clampLimit } from './domain/sources.ts'
 import { assertDeliverableUrl, decryptSecret, encryptSecret, generateWebhookSecret } from './secrets.ts'
 
 // ---------------------------------------------------------------------------
@@ -274,7 +275,18 @@ export interface WebhookDeliverySummary {
   created_at: string
 }
 
-/** Deliveries for one endpoint — space ownership is verified first (space-scoped keys must not enumerate foreign deliveries). */
+/**
+ * Deliveries for one endpoint — space ownership is verified first (space-scoped keys must not enumerate foreign deliveries).
+ *
+ * `limit` is the same [1, 200]-with-a-default-of-50 window every other list in
+ * this codebase offers, and it is `clampLimit` rather than the arithmetic clamp
+ * that used to stand here. The difference is what a nonsense value does: the
+ * old `Math.min(Math.max(limit ?? 50, 1), 200)` turned `0` into `1` and `1.5`
+ * into `1.5` and answered as if that had been asked for. Silently reinterpreting
+ * a caller's number was harmless while no caller could supply one; now that
+ * `zDeliveryListQuery` puts it on the wire it would mean a request the operator
+ * can neither see refused nor see honoured.
+ */
 export async function listWebhookDeliveries(
   db: Db,
   spaceId: string,
@@ -304,7 +316,7 @@ export async function listWebhookDeliveries(
       WHERE d.endpoint_id = $1
       ORDER BY d.created_at DESC
       LIMIT $2`,
-    [args.endpointId, Math.min(Math.max(args.limit ?? 50, 1), 200)],
+    [args.endpointId, clampLimit(args.limit, 50, 200)],
   )
   return rows.rows.map((row) => ({
     id: row.id,

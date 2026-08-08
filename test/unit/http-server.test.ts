@@ -137,10 +137,14 @@ beforeAll(async () => {
   // Neutral probe path for the raw-mount MECHANISM: /mcp itself is now really
   // mounted by createApp (the composition-root wiring), so re-mounting it would
   // collide — that collision is exactly what the double-mount test below proves.
-  app.mountRawHandler('/__raw_probe', async (_req, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' })
-    res.end('mcp-ok')
-  })
+  app.mountRawHandler(
+    '/__raw_probe',
+    async (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      res.end('mcp-ok')
+    },
+    'serve',
+  )
   await new Promise<void>((resolve) => app.server.listen(0, '127.0.0.1', resolve))
   const address = app.server.address() as { port: number }
   base = `http://127.0.0.1:${address.port}`
@@ -392,6 +396,6 @@ describe('http server', () => {
   })
 
   test('double raw mount on one path throws (composition bug, not runtime 500)', () => {
-    expect(() => app.mountRawHandler('/mcp', async () => {})).toThrow('already mounted')
+    expect(() => app.mountRawHandler('/mcp', async () => {}, 'serve')).toThrow('already mounted')
   })
 })

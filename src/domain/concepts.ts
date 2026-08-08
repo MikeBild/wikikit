@@ -53,6 +53,49 @@ export interface ConceptSummary {
   evidence: ConceptEvidence
 }
 
+/**
+ * The evidence aggregate itself — ONE definition of how the three numbers are
+ * counted, shared by every read that reports a ConceptEvidence (the concept
+ * list below, the concept hits of /search via conceptEvidenceBySlug, and the
+ * `unsourced-concepts` lint rule, which asks this same aggregate for the pages
+ * whose `sources` is zero).
+ *
+ * WHY a shared fragment rather than the obvious second copy: what is encoded
+ * here is the visibility rule, and a reader who scans a search result and then
+ * the index is comparing two reads of one fact. A list saying "6 claims, 2
+ * uncited" beside a search hit saying "4 claims" for the same page does not
+ * read as two implementations — it reads as a wiki that does not know what it
+ * holds. Two copies would also be two places to forget a status when the
+ * visible set next changes.
+ *
+ * CONTRACT for a caller: the enclosing statement must expose the concept row as
+ * `p` (specifically `p.id`) and bind the space id as `$1`. Every call site
+ * builds a `page` CTE that does exactly that. Exported rather than module-local
+ * because the linter's copy of this count was the one that would drift
+ * unnoticed: a report saying "no archived source stands behind this page" for a
+ * page the index lists with `sources: 1` is not two implementations to a user,
+ * it is a wiki that does not know what it holds.
+ *
+ * count(DISTINCT) over the claim×citation fan-out rather than a nested
+ * pre-aggregate per claim: the fan-out is citations-per-claim (single digits),
+ * and `sources` needs the distinct across the whole page anyway, so the nested
+ * form would buy nothing and cost a second grouping level.
+ *
+ * The statuses are interpolated, not bound: they are a frozen module-level
+ * `as const` in claims.ts, never input, so there is no injection surface — and
+ * literals let the planner use the status column's statistics, which
+ * `= ANY($n::text[])` does not. Reused from VISIBLE_CLAIM_STATUSES so no read
+ * can disagree with any other about what "visible" means.
+ */
+export const EVIDENCE_LATERAL = `SELECT count(DISTINCT cl.id)::int AS claims,
+                count(DISTINCT cl.id) FILTER (WHERE ci.id IS NULL)::int AS uncited_claims,
+                count(DISTINCT ci.source_id)::int AS sources
+           FROM wk_claims cl
+           LEFT JOIN wk_citations ci ON ci.claim_id = cl.id
+          WHERE cl.space_id = $1
+            AND cl.concept_id = p.id
+            AND cl.status IN (${VISIBLE_CLAIM_STATUSES.map((status) => `'${status}'`).join(', ')})`
+
 /** Compact index handed to the classify LLM call — slug/title/summary only. */
 export interface ConceptIndexEntry {
   slug: string
@@ -196,18 +239,10 @@ export async function listConcepts(
     // evaluation is wasted on the +1 lookahead row that `slice` drops; paying
     // for one extra row beats a second statement to avoid it.
     //
-    // count(DISTINCT) over the claim×citation fan-out rather than a nested
-    // pre-aggregate per claim: the fan-out is citations-per-claim (single
-    // digits), and `sources` needs the distinct across the whole page anyway,
-    // so the nested form would buy nothing and cost a second grouping level.
-    //
-    // The statuses are interpolated, not bound: they are a frozen module-level
-    // `as const` in claims.ts, never input, so there is no injection surface —
-    // and literals let the planner use the status column's statistics, which
-    // `= ANY($n::text[])` does not. Reused from VISIBLE_CLAIM_STATUSES so the
-    // list and the detail read can never disagree about what "visible" means.
-    // Keeping them out of `values` also keeps the `$${values.length}` cursor
-    // arithmetic above readable.
+    // The counting itself is EVIDENCE_LATERAL (above) — the `page` CTE is
+    // aliased `p` and the space id is `$1` because that fragment says so, and
+    // keeping the statuses out of `values` also keeps the `$${values.length}`
+    // cursor arithmetic above readable.
     `WITH page AS (
        SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at
          FROM wk_concepts c
@@ -219,16 +254,7 @@ export async function listConcepts(
      SELECT p.slug, p.title, p.summary, p.rev, p.updated_at,
             ev.claims, ev.uncited_claims, ev.sources
        FROM page p
-       CROSS JOIN LATERAL (
-         SELECT count(DISTINCT cl.id)::int AS claims,
-                count(DISTINCT cl.id) FILTER (WHERE ci.id IS NULL)::int AS uncited_claims,
-                count(DISTINCT ci.source_id)::int AS sources
-           FROM wk_claims cl
-           LEFT JOIN wk_citations ci ON ci.claim_id = cl.id
-          WHERE cl.space_id = $1
-            AND cl.concept_id = p.id
-            AND cl.status IN (${VISIBLE_CLAIM_STATUSES.map((status) => `'${status}'`).join(', ')})
-       ) ev
+       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev
       ORDER BY p.slug ASC`,
     values,
   )
@@ -256,6 +282,61 @@ export async function listConcepts(
     next_after: rows.length > limit && last ? encodeCursor(last.slug) : null,
     epoch: Number(space.epoch),
   }
+}
+
+/**
+ * The same evidence, for a set of pages named by slug, in ONE statement.
+ *
+ * This exists for /search, whose hits arrive already ranked out of the
+ * whitelisted wk_search / wk_search_hybrid functions (db.call pins the exact
+ * statement, and a set-returning function's output cannot be joined against
+ * from a later statement without re-running the ranking). So the counts cost
+ * one additional round trip there, where the list gets them inside its own
+ * statement.
+ *
+ * REJECTED, deliberately: pinning a new whitelist entry that wraps
+ * `public.wk_search(...)` in this same lateral and keeps search at one
+ * statement. It would put the counting SQL — and with it the visible-status
+ * list — into src/db/postgres.ts, which is the second copy EVIDENCE_LATERAL
+ * exists to prevent, and it would need four variants (lexical and hybrid, each
+ * of which also returns claim rows the aggregate has nothing to say about) for
+ * one saved round trip on a page of at most 50 hits.
+ *
+ * A slug missing from the returned map means NOT MEASURED, never zero: only
+ * readable pages (a current revision) are counted, so a page that stopped being
+ * readable between the ranking and this call is absent rather than reported as
+ * a page that cites nothing. Zero is a measurement and must keep meaning one.
+ */
+export async function conceptEvidenceBySlug(
+  db: Db,
+  spaceId: string,
+  slugs: string[],
+): Promise<Map<string, ConceptEvidence>> {
+  // Deduplicated because a search page can hold several claim-derived rows for
+  // one concept, and skipped entirely when empty — a search with no concept
+  // hits (a kind='claim' filter, or no matches at all) must cost nothing.
+  const unique = [...new Set(slugs)]
+  if (unique.length === 0) return new Map()
+  const { rows } = await db.query<{
+    slug: string
+    claims: number
+    uncited_claims: number
+    sources: number
+  }>(
+    `WITH page AS (
+       SELECT c.id, c.slug
+         FROM wk_concepts c
+         JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+        WHERE c.space_id = $1 AND c.slug = ANY($2::text[])
+     )
+     SELECT p.slug, ev.claims, ev.uncited_claims, ev.sources
+       FROM page p
+       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev`,
+    [spaceId, unique],
+  )
+  return new Map(
+    rows.map((row) => [row.slug, { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources }]),
+  )
 }
 
 /**

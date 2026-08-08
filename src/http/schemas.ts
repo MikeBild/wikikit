@@ -405,6 +405,26 @@ export const zDecisionResponse = zDecisionSummary.extend({
  * measured fact ("this page cites nothing" — a hand-written page), not missing
  * data, and an optional field would license clients to render it as unknown.
  */
+/**
+ * The evidence summary, declared once and served by every surface that reports
+ * it — the page index below and the concept hits of `/search`.
+ *
+ * One schema rather than two identical literals for the same reason the SQL
+ * behind it is one lateral (`EVIDENCE_LATERAL`, src/domain/concepts.ts): these
+ * numbers describe one page, and a client that reads them off a search result
+ * and off the index must not have to check whether the two shapes still agree.
+ * A field added to one and forgotten in the other is a contract that lies on
+ * exactly one surface, which is the hardest kind to notice.
+ */
+const zEvidence = z.object({
+  /** Visible claims the page makes. */
+  claims: z.number().int().nonnegative(),
+  /** Subset of `claims` carrying no citation at all — read against `claims`, never alone. */
+  uncited_claims: z.number().int().nonnegative(),
+  /** Distinct sources backing those claims — breadth, NOT `claims - uncited_claims`. */
+  sources: z.number().int().nonnegative(),
+})
+
 export const zConceptListResponse = z.object({
   items: z.array(
     z.object({
@@ -413,14 +433,7 @@ export const zConceptListResponse = z.object({
       summary: z.string(),
       rev: z.number().int(),
       updated_at: z.string(),
-      evidence: z.object({
-        /** Visible claims the page makes. */
-        claims: z.number().int().nonnegative(),
-        /** Subset of `claims` carrying no citation at all — read against `claims`, never alone. */
-        uncited_claims: z.number().int().nonnegative(),
-        /** Distinct sources backing those claims — breadth, NOT `claims - uncited_claims`. */
-        sources: z.number().int().nonnegative(),
-      }),
+      evidence: zEvidence,
     }),
   ),
   next_after: z.string().nullable(),
@@ -488,6 +501,21 @@ export const zSearchResponse = z.object({
       chunk_id: z.uuid().nullable(),
       url: z.string().nullable(),
       heading: z.string().nullable(),
+      // The same three numbers the concept list serves, over the same visible
+      // claims, for the page a CONCEPT hit points at — a search result is the
+      // other place a reader decides which page to open, and it was as silent
+      // about provenance as the index used to be.
+      //
+      // OPTIONAL here and required on the list, which is not an inconsistency:
+      // on the list every row IS a page, while a hit may be a claim or an
+      // archived source chunk. Those two carry no `evidence` by design —
+      // kind='claim' because the page's totals answer a different question
+      // than the one a claim hit raises, and kind='source_chunk' because that
+      // tier is explicitly NOT approved knowledge and an evidence summary
+      // would say the opposite (see SearchHit in src/query/search.ts). Where
+      // the field IS served it is still three measured integers, never null:
+      // `claims: 0` means the page cites nothing, and absence never means zero.
+      evidence: zEvidence.optional(),
       // Provenance (0023): which space produced the hit. Always present —
       // equals the request space for local hits.
       space: z.string(),
@@ -701,6 +729,7 @@ export const zLintResponse = z.object({
         'broken-relations',
         'stale-claims',
         'orphan-concepts',
+        'unsourced-concepts',
         'empty-concepts',
         'unreviewed-proposals',
         'dangling-sources',
@@ -741,6 +770,31 @@ export const zCreateWebhookRequest = z.object({
 
 /** Creation response — the whsec_ secret appears here EXACTLY ONCE (encrypted at rest). */
 export const zWebhookResponse = zWebhookEndpoint.extend({ secret: z.string() })
+
+/**
+ * How many delivery attempts one read may hold.
+ *
+ * The same `[1, 200]` window every other list in this API offers, and it is
+ * declared here for the reason the parameter did not exist for three releases:
+ * `listWebhookDeliveries` has always clamped to 200 with a default of 50, but
+ * the server only validates — and therefore only forwards — a query string a
+ * route has DECLARED, so the domain's ceiling was unreachable over HTTP and the
+ * operator asking "our webhooks stopped last Tuesday" was answered with the
+ * fifty newest attempts and no way to ask for the rest.
+ *
+ * No cursor is offered alongside it, unlike `zListQuery`, and the reason is NOT
+ * that the query could not support one — `wk_webhook_deliveries_endpoint_created_idx`
+ * (migration 0007) is exactly the `(endpoint_id, created_at)` index a keyset
+ * walk would ride. It is that a cursor is a RESPONSE change: `zDeliveryListResponse`
+ * carries `items` and nothing else, so `before`/`next_before` would have to be
+ * added to the wire, pinned, and documented in six places, and a delivery log
+ * is an operational record rather than knowledge anyone pages through. So 200
+ * is a bigger window and not pagination — which is why the console prints a cap
+ * note over a full answer instead of a "next page" it cannot honour.
+ */
+export const zDeliveryListQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+})
 
 export const zDeliveryListResponse = z.object({
   items: z.array(
@@ -832,7 +886,30 @@ const zIdentityScope = z.enum(['knowledge:read', 'knowledge:propose', 'knowledge
 // the shape is fine, the meaning of sending both is not.
 export const zUpsertIdentityRequest = z
   .object({
-    email: z.string().max(320).optional(),
+    /**
+     * Absent = keep whatever is stored; `null` = clear it; a string = set it.
+     *
+     * WHY null rather than `''`: the column is nullable and the login path
+     * already writes NULL into it when the provider asserts no verified email
+     * (src/oauth/server.ts), so NULL is this column's one and only "no email".
+     * Accepting `''` as the clear signal would put a second kind of empty in
+     * beside it, and every reader would then have to know both. `.min(1)`
+     * refuses that second empty outright — an email here is a string with
+     * something in it, or it is null.
+     *
+     * WHY an explicit null is not a new habit borrowed from another API: this
+     * one already distinguishes absent from null where the difference carries
+     * meaning — `base_revision_id` on a staged concept (src/domain/proposals.ts)
+     * reads null as "written against no revision" and absence as "fall back to
+     * the current pointer". Same distinction, same reason: a nullable column
+     * cannot be cleared by a body that can only omit.
+     *
+     * `display_name` deliberately does NOT gain this. That column is `not null
+     * default ''` (migration 0028), so `''` IS its empty and 0.24.0 made the
+     * console send it; giving it a null spelling as well would invent a second
+     * way to say the one thing it can already say.
+     */
+    email: z.string().min(1).max(320).nullable().optional(),
     display_name: z.string().max(200).optional(),
     role: z.enum(['reader', 'contributor', 'reviewer']).optional(),
     scopes: z.array(zIdentityScope).min(1).optional(),
@@ -1124,6 +1201,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zWebhookListResponse,
   zCreateWebhookRequest,
   zWebhookResponse,
+  zDeliveryListQuery,
   zDeliveryListResponse,
   zCreateApiKeyRequest,
   zApiKeyCreatedResponse,

@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { ApiError, fetchSession, loginUrl } from '@/api/client'
+import { resolveSessionView, sessionRefreshOptions } from '@/components/session-gate.logic'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { SessionContext } from '@/lib/session'
 
 /**
- * Blocks the whole console until the session is known.
+ * Blocks the whole console until the session is known, and keeps it known.
  *
  * No half-authenticated UI, ever. A shell that renders its navigation before it
  * knows who is signed in shows an operator a menu of things they may not be
@@ -18,17 +19,26 @@ import { SessionContext } from '@/lib/session'
  * off a 401 — a 401 here would mean the endpoint itself broke, which is the
  * error branch's business. The two surfaces stay distinct: "we do not know who
  * you are" offers a way in, "we could not reach WikiKit" offers a retry.
+ *
+ * This is also the console's only renewal point: the same read that answers
+ * whoami re-stamps the operator cookie server-side, so asking again on a
+ * cadence is what keeps a single long-lived tab signed in. Both the cadence and
+ * the branch order live in `session-gate.logic.ts`, where they can be proven
+ * without a browser — the ordering in particular is load-bearing and subtle,
+ * and this file must not restate either.
  */
 export function SessionGate({ children }: { children: ReactNode }) {
   const query = useQuery({
     queryKey: ['session'],
     queryFn: () => fetchSession(),
-    staleTime: 60_000,
+    ...sessionRefreshOptions,
   })
 
-  if (query.isPending) return <Splash>Checking your session…</Splash>
+  const view = resolveSessionView({ data: query.data, failed: query.error !== null })
 
-  if (query.error) {
+  if (view === 'checking') return <Splash>Checking your session…</Splash>
+
+  if (view === 'unreachable') {
     return (
       <Splash>
         <Alert
@@ -46,7 +56,13 @@ export function SessionGate({ children }: { children: ReactNode }) {
     )
   }
 
-  const session = query.data ?? null
+  // Only `ready` carries a session; `signed-out` and anything the rule could
+  // grow later fall together into the sign-in splash. That fallback is the
+  // deliberate one: of the four views it is the only one that is safe to show
+  // for a session this file cannot prove it has, because it offers a way
+  // forward and grants nothing. Narrowing by the value rather than by a cast
+  // keeps the compiler, not this comment, responsible for the guarantee.
+  const session = view === 'ready' ? (query.data ?? null) : null
   if (!session) {
     return (
       <Splash>

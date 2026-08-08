@@ -405,7 +405,10 @@ export const TOOLS: McpToolDef[] = [
       'Ranked full-text search over the knowledge base (current concept revisions and visible claims). ' +
       "mode:'approved_then_sources' additionally searches archived source chunks — those hits carry " +
       "tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). " +
-      'Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.',
+      'Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. ' +
+      "Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary " +
+      'the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk ' +
+      'hits carry none.',
     scope: 'knowledge:read',
     inputSchema: zSearchToolInput,
     annotations: READ_ANNOTATIONS,

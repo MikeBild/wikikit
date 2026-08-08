@@ -362,3 +362,46 @@ describe('createApiKeyHandler — role presets expand to scopes (ground truth)',
     expect(created!.scopes).not.toContain('knowledge:approve')
   })
 })
+
+// The delivery list was, until this test existed, the only list endpoint in the
+// API a caller could not size. `listWebhookDeliveries` always took a `limit` and
+// always clamped it to [1, 200] with a default of 50, so the ceiling looked
+// reachable from the domain layer — but the route declared no query schema, the
+// router forwards only a query string a route has declared, and the handler
+// passed `{ endpointId }` alone. Every one of those three had to change
+// together, and only the SQL the domain finally issues proves that they did:
+// asserting `route.request.query` would pass with a handler that still dropped
+// the value on the floor.
+describe('listWebhookDeliveriesHandler — the caller-supplied page size reaches the SQL', () => {
+  const ENDPOINT_ID = '22222222-2222-4222-8222-222222222222'
+
+  async function limitReachingSql(query: Record<string, unknown>): Promise<unknown> {
+    const { db, calls } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_spaces"/, rows: [SPACE_ROW] },
+      {
+        match: /SELECT \* FROM "public"\."wk_webhook_endpoints"/,
+        rows: [{ id: ENDPOINT_ID, space_id: SPACE_ROW.id, url: 'https://example.com/hooks/wikikit' }],
+      },
+      { match: /FROM wk_webhook_deliveries d/, rows: [] },
+    ])
+    const result = await HANDLERS.listWebhookDeliveriesHandler!(
+      handlerDeps(db),
+      handlerInput({ params: { space: 'demo', id: ENDPOINT_ID }, query }),
+    )
+    expect(result!.status).toBe(200)
+    const read = calls.find((call) => call.sql.includes('FROM wk_webhook_deliveries d'))
+    expect(read, 'the delivery read never happened').toBeDefined()
+    return read!.values[1]
+  }
+
+  test('?limit=200 is the number the query runs with', async () => {
+    expect(await limitReachingSql({ limit: 200 })).toBe(200)
+  })
+
+  test('a limit-less request still gets the documented default of 50', async () => {
+    // The console now names the ceiling, but the default is the contract for
+    // everything that does not — raising it silently would change what an
+    // existing integration receives without anybody asking for it.
+    expect(await limitReachingSql({})).toBe(50)
+  })
+})

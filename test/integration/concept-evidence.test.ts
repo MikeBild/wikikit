@@ -29,12 +29,12 @@
 // citation fan-out, the `draft` status, source distinctness, agreement with the
 // detail read, and the cost at the 200-row clamp.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import pg from 'pg'
 import type { Config } from '../../src/config.ts'
-import { createPostgres, type Database, type Db, type PoolLike } from '../../src/db/postgres.ts'
+import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import type { ClaimStatus } from '../../src/domain/claims.ts'
 import { getConcept, listConcepts, type ConceptSummary } from '../../src/domain/concepts.ts'
+import { countingPool } from '../helpers/counting-pool.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
@@ -422,42 +422,4 @@ async function seedBulk(space: string, pages: number): Promise<void> {
         locator: '',
       })),
   )
-}
-
-/**
- * A PoolLike that records every statement before passing it through.
- *
- * `createPostgres` already takes an injected pool for exactly this kind of
- * observation, so nothing in production code has to grow a hook to be
- * measurable. Note it wraps `connect()` too: `db.tx` runs through a checked-out
- * client, and a pool that only counted autocommit statements would report zero
- * for anything transactional.
- */
-function countingPool(url: string): { pool: PoolLike; statements: string[] } {
-  const inner = new pg.Pool({ connectionString: url, max: 4 })
-  const statements: string[] = []
-  return {
-    statements,
-    pool: {
-      async query(sql, values) {
-        statements.push(sql)
-        const result = await inner.query(sql, values as unknown[])
-        return { rows: result.rows as Record<string, unknown>[], rowCount: result.rowCount }
-      },
-      async connect() {
-        const client = await inner.connect()
-        return {
-          async query(sql, values) {
-            statements.push(sql)
-            const result = await client.query(sql, values as unknown[])
-            return { rows: result.rows as Record<string, unknown>[], rowCount: result.rowCount }
-          },
-          release: () => client.release(),
-        }
-      },
-      async end() {
-        await inner.end()
-      },
-    },
-  }
 }

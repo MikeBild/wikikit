@@ -184,8 +184,17 @@ export function WebhooksPage() {
   const selected = endpoints.find((endpoint) => endpoint.id === chosen) ?? endpoints[0] ?? null
 
   const deliveriesQuery = useQuery({
+    // The key stays `(space, id)` and does not carry the limit, unlike the
+    // stream read on the sources page. There the limit is half of a key a
+    // mutation has to invalidate by hand, so the two must agree; here nothing
+    // mutates deliveries and `DELIVERY_CEILING` is a module constant that
+    // cannot vary between two renders — putting it in the key would only add a
+    // second place for it to be wrong.
     queryKey: keys.webhookDeliveries(space, selected?.id ?? 'none'),
-    queryFn: () => wk.webhooks.deliveries(space, selected!.id),
+    // The ceiling, asked for explicitly. Naming no limit is not "everything",
+    // it is fifty (`clampLimit(args.limit, 50, 200)`) — and silently, which is
+    // the failure this page's whole delivery panel exists to avoid.
+    queryFn: () => wk.webhooks.deliveries(space, selected!.id, { limit: DELIVERY_CEILING }),
     enabled: selected !== null,
   })
 

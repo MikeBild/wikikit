@@ -256,6 +256,63 @@ describe('drift', () => {
     }
   })
 
+  // ARCHITECTURE.md carries a table of every SQL function declared by more than
+  // one migration and which migration holds the live body. That table is the
+  // only place a reader is told that an early migration can be showing them a
+  // superseded function — a stale table would reproduce the exact confusion it
+  // exists to prevent, so it is generated-checked rather than trusted.
+  //
+  // Checked by NAME, not by argument list. Postgres identity is name+argtypes
+  // and the table's left column carries signatures, but parsing SQL argument
+  // types with a regex would be a second, worse parser; the doc's "Declared in"
+  // column is likewise left uncontrolled because it records curated nuance a
+  // scan cannot see (0010 RENAMES a function into wk_apply_proposal_core_0003
+  // rather than declaring it). What must not drift is the set of names a reader
+  // needs to be warned about, and which file wins for each.
+  test('ARCHITECTURE.md redeclared-function table ↔ src/db/migrations', () => {
+    const dir = join(root, 'src/db/migrations')
+    const files = readdirSync(dir)
+      .filter((name) => /^\d+_.*\.sql$/.test(name))
+      .sort()
+    expect(files.length, 'migrations not found — path or naming changed').toBeGreaterThanOrEqual(30)
+
+    // Both `create function` and `create or replace function` declare a body;
+    // 0010 uses the former to add an overload alongside a renamed original.
+    const declaredIn = new Map<string, string[]>()
+    for (const file of files) {
+      const tag = file.slice(0, 4)
+      const sql = readFileSync(join(dir, file), 'utf8')
+      for (const match of sql.matchAll(/create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\(/gi)) {
+        const name = match[1]!
+        const tags = declaredIn.get(name) ?? []
+        if (!tags.includes(tag)) tags.push(tag)
+        declaredIn.set(name, tags)
+      }
+    }
+    expect(declaredIn.size, 'function scan matched nothing — regex drifted').toBeGreaterThanOrEqual(15)
+
+    const redeclared = new Map([...declaredIn].filter(([, tags]) => tags.length > 1))
+    expect(redeclared.size, 'no redeclared functions parsed — the scan is broken, not the history').toBeGreaterThan(0)
+
+    const arch = read('docs/ARCHITECTURE.md')
+    // Table rows only: `| `name(args)` | 0001, 0003 | **0016** |`
+    const documented = new Map<string, string>()
+    for (const match of arch.matchAll(/^\|\s*`(wk_[a-z0-9_]+)[^`]*`\s*\|[^|]*\|\s*\*\*(\d{4})\*\*\s*\|/gim)) {
+      documented.set(match[1]!, match[2]!)
+    }
+
+    eqSets(
+      new Set(documented.keys()),
+      new Set(redeclared.keys()),
+      'ARCHITECTURE.md redeclared-function table vs functions actually declared twice',
+    )
+
+    for (const [name, tags] of redeclared) {
+      const live = tags[tags.length - 1]!
+      expect(documented.get(name), `ARCHITECTURE.md names the wrong live migration for ${name}`).toBe(live)
+    }
+  })
+
   // Six tagged releases once shipped with no CHANGELOG entry. The version in
   // package.json is the release being cut, so it must be described.
   test('CHANGELOG has an entry for the current version', () => {

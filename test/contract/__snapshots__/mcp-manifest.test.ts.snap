@@ -177,7 +177,7 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk hits carry none.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1161,7 +1161,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk hits carry none.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2234,7 +2234,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk hits carry none.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3372,7 +3372,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept.",
+    "description": "Ranked full-text search over the knowledge base (current concept revisions and visible claims). mode:'approved_then_sources' additionally searches archived source chunks — those hits carry tier:'source_evidence' and are NOT approved knowledge (cite a chunk_id in wikikit_propose to curate one). Returns raw evidence with <mark> headlines — no synthesis. Use wikikit_read to fetch a full concept. Hits with kind:'concept' carry evidence:{claims,uncited_claims,sources} over visible claims — the same summary the concept list serves — so you can spend the read on a page the archive stands behind; claim and source-chunk hits carry none.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

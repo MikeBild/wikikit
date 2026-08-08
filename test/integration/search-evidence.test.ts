@@ -1,0 +1,320 @@
+// The evidence summary on SEARCH hits, against real Postgres.
+//
+// 0.25.0 gave the concept LIST three numbers per row — claims, uncited_claims,
+// sources — so a reader could tell, before spending a click, which pages the
+// archive stands behind. Search was the other place that choice gets made, and
+// it was still silent: a ranked headline says a page matched, never how the
+// wiki knows what it says. Same question, same gap, one surface later.
+//
+// WHAT THIS FILE HOLDS TO THE DATABASE (src/query/search.ts, SearchHit):
+//
+//   kind='concept'       carries `evidence`, counted by the SAME aggregate the
+//                        list uses (EVIDENCE_LATERAL), in the hit's OWN space.
+//   kind='claim'         carries none — the page's totals answer a different
+//                        question than a claim hit raises.
+//   kind='source_chunk'  carries none — that tier is explicitly NOT approved
+//                        knowledge, and an evidence summary would say so.
+//
+// test/unit/query-search.test.ts pins the same rules against a stub, which is
+// where the wiring belongs. What a stub cannot see is what this file is for:
+// that the numbers a hit reports are the numbers the list and the page report
+// for the same slug (one aggregate, three surfaces, or the product contradicts
+// itself in front of a reader), that the visible-status filter survives the
+// second statement, and that the extra statement stays exactly one no matter
+// how many hits come back. RUN_INTEGRATION=1 gated.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import type { Config } from '../../src/config.ts'
+import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
+import { runMigrations } from '../../src/db/migrate.ts'
+import type { ClaimStatus } from '../../src/domain/claims.ts'
+import { conceptEvidenceBySlug, listConcepts } from '../../src/domain/concepts.ts'
+import { search, type SearchHit } from '../../src/query/search.ts'
+import { countingPool } from '../helpers/counting-pool.ts'
+import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
+
+const integration = process.env.RUN_INTEGRATION === '1'
+const it = integration ? test : test.skip
+
+setDefaultTimeout(120_000)
+
+let database: Database
+let db: Db
+let spaceId = ''
+let databaseUrl = ''
+let sourceIds: string[] = []
+
+/** The one token every fixture matches on — nothing else in the space uses it. */
+const QUERY = 'thermostat'
+
+interface SeedClaim {
+  status: ClaimStatus
+  /** Indices into `sourceIds`; empty = an uncited claim. */
+  cites: number[]
+}
+
+let claimSeq = 0
+
+/**
+ * A readable page whose title, body AND claims all mention QUERY, so one search
+ * produces both a concept hit and claim hits for it.
+ *
+ * Written straight into the tables rather than staged through
+ * wk_apply_proposal for the reason test/integration/concept-evidence.test.ts
+ * gives: approval only ever produces `verified` claims, so the `draft` status —
+ * one of the two that must NOT count — is unreachable through that path.
+ */
+async function seedPage(slug: string, claims: SeedClaim[]): Promise<void> {
+  const [concept] = await db.insert<{ id: string }>('wk_concepts', { space_id: spaceId, slug, title: slug })
+  const [revision] = await db.insert<{ id: string }>('wk_concept_revisions', {
+    space_id: spaceId,
+    concept_id: concept!.id,
+    rev: 1,
+    status: 'current',
+    title: `Thermostat ${slug}`,
+    summary: `Everything about the ${QUERY} in ${slug}.`,
+    markdown: `# ${slug}\n\nThe ${QUERY} reports its firmware version on boot.`,
+  })
+  await db.update('wk_concepts', { id: `eq.${concept!.id}` }, { current_revision_id: revision!.id })
+
+  for (const claim of claims) {
+    claimSeq += 1
+    const [row] = await db.insert<{ id: string }>('wk_claims', {
+      space_id: spaceId,
+      concept_id: concept!.id,
+      subject: QUERY,
+      predicate: 'reports',
+      // Distinct per claim so nothing here looks like a contradicting frame.
+      object: `fact-${claimSeq}`,
+      status: claim.status,
+    })
+    if (claim.cites.length === 0) continue
+    await db.insert(
+      'wk_citations',
+      claim.cites.map((index) => ({
+        space_id: spaceId,
+        claim_id: row!.id,
+        source_id: sourceIds[index]!,
+        quote: `Verbatim about the ${QUERY} for fact-${claimSeq}`,
+        locator: '',
+      })),
+    )
+  }
+}
+
+/** The list's answer for one slug — the number the hit has to match. */
+async function listEvidence(slug: string): Promise<SearchHit['evidence']> {
+  const page = await listConcepts(db, spaceId, { limit: 200 })
+  return page.items.find((item) => item.slug === slug)?.evidence
+}
+
+function conceptHit(hits: SearchHit[], slug: string): SearchHit {
+  const hit = hits.find((entry) => entry.kind === 'concept' && entry.slug === slug)
+  if (!hit) throw new Error(`${slug} did not rank for "${QUERY}" — the fixture never became searchable`)
+  return hit
+}
+
+describe('search evidence (integration)', () => {
+  beforeAll(async () => {
+    if (!integration) return
+    databaseUrl = await provisionIntegrationDatabase('wikikit_test_search_evidence')
+    await runMigrations({ databaseUrl })
+    database = createPostgres({ databaseUrl } as Config)
+    db = database.db
+    const [space] = await db.insert<{ id: string }>('wk_spaces', { slug: 'search-evidence', name: 'Search evidence' })
+    spaceId = space!.id
+
+    const sources = await db.insert<{ id: string }>(
+      'wk_sources',
+      Array.from({ length: 3 }, (_unused, index) => ({
+        space_id: spaceId,
+        content_hash: `hash-${index}`.padEnd(64, '0'),
+        kind: 'markdown',
+        title: `Source ${index}`,
+        raw_content: `# Source ${index}`,
+        markdown: `# Source ${index}\n\nThe ${QUERY} ships with firmware 4.2.`,
+      })),
+    )
+    sourceIds = sources.map((source) => source.id)
+
+    await seedPage('thermostat-firmware', [
+      { status: 'verified', cites: [0] },
+      { status: 'disputed', cites: [0, 1] },
+      { status: 'verified', cites: [] },
+    ])
+    await seedPage('thermostat-notes', [])
+    await seedPage('thermostat-staged', [
+      { status: 'proposed', cites: [0] },
+      { status: 'draft', cites: [2] },
+    ])
+
+    // One archived chunk in the source-evidence tier, matching the same query.
+    await db.insert('wk_source_chunks', {
+      space_id: spaceId,
+      source_id: sourceIds[0]!,
+      chunk_index: 0,
+      heading: 'Firmware',
+      content: `The ${QUERY} refuses to pair after a firmware downgrade.`,
+      tokens: 12,
+    })
+  })
+
+  afterAll(async () => {
+    if (!integration) return
+    await database.close()
+  })
+
+  it('a concept hit reports what the list reports for the same page', async () => {
+    // The defect worth the most here. A reader who searches, then browses the
+    // index, is comparing two reads of one fact — and "5 claims, 1 uncited" on
+    // one surface beside "3 claims" on the other does not read as two code
+    // paths, it reads as a wiki that does not know what it holds. Both numbers
+    // come from EVIDENCE_LATERAL; this asserts that they arrive equal.
+    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    expect(hits.length).toBeGreaterThanOrEqual(3)
+    for (const hit of hits) {
+      expect(hit.evidence, hit.slug ?? '').toEqual(await listEvidence(hit.slug!))
+    }
+    expect(conceptHit(hits, 'thermostat-firmware').evidence).toEqual({
+      claims: 3,
+      uncited_claims: 1,
+      sources: 2,
+    })
+  })
+
+  it('each hit gets its OWN numbers, and a page that cites nothing gets a measured zero', async () => {
+    // A lookup keyed by anything but the slug — position, the first row, the
+    // top hit — passes every count assertion and quietly gives every page the
+    // same evidence. And the hand-written page is the state this whole feature
+    // exists to surface: three zeros, present, never an absent object a console
+    // would render as "unknown".
+    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const notes = conceptHit(hits, 'thermostat-notes')
+    expect(notes.evidence).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+    expect(notes.evidence).toBeDefined()
+    for (const value of Object.values(notes.evidence!)) {
+      // count() is bigint; pg hands bigint back as a STRING unless the read
+      // casts. '0' survives every equality check a client makes and then
+      // renders as the wrong thing.
+      expect(value).toBeNumber()
+    }
+    expect(conceptHit(hits, 'thermostat-firmware').evidence).not.toEqual(notes.evidence!)
+  })
+
+  it('staged claims are not knowledge — a page carrying only those searches as unevidenced', async () => {
+    // Every claim on this page carries a citation. The only thing between it
+    // and a healthy-looking hit is the status filter, and if that leaks the
+    // search advertises evidence for a page whose reader sees none: getConcept
+    // serves visible statuses only, so those claims are invisible on the page
+    // itself. Two surfaces, one page, opposite answers.
+    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    expect(conceptHit(hits, 'thermostat-staged').evidence).toEqual({
+      claims: 0,
+      uncited_claims: 0,
+      sources: 0,
+    })
+  })
+
+  it('claim hits carry no evidence, and archived source chunks carry none either', async () => {
+    // Both deliberate, for opposite reasons. A claim hit raises "is THIS claim
+    // quoted?", which none of the three numbers answers — lending it the page's
+    // totals would put `claims: 3` on one claim. A chunk hit is explicitly NOT
+    // approved knowledge: an evidence summary there would dress an unreviewed
+    // archived paragraph in the badge of a curated page, which is the worst
+    // misreading this field admits.
+    const hits = await search(db, spaceId, { q: QUERY, mode: 'approved_then_sources', limit: 50 })
+    const claims = hits.filter((hit) => hit.kind === 'claim')
+    const chunks = hits.filter((hit) => hit.kind === 'source_chunk')
+    expect(claims.length).toBeGreaterThan(0)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const hit of [...claims, ...chunks]) expect(hit.evidence, hit.kind).toBeUndefined()
+    // …while the concept hits in the SAME response are all measured. A guard
+    // that suppressed the field for everything would satisfy the loop above.
+    for (const hit of hits.filter((entry) => entry.kind === 'concept')) expect(hit.evidence).toBeDefined()
+  })
+
+  it('an unreadable page is ABSENT from the aggregate, not a measured zero', async () => {
+    // The distinction the wire field's `optional()` exists for, held to the
+    // database rather than to the doc comment that asserts it. A concept with
+    // no current revision is not readable, so the aggregate must decline to
+    // answer for it — the search agent's rule is that a page which stopped
+    // being readable between the ranking and the count comes back absent, so
+    // that `0` keeps meaning "measured, and it cites nothing".
+    //
+    // This is asked of conceptEvidenceBySlug directly because it cannot be
+    // asked through search(): an unreadable page has no search vector and can
+    // never rank, so the only way to reach the gate is to name the slug. Both
+    // halves are asserted in one call — without the readable-page JOIN the
+    // unreadable slug comes back as three zeros and becomes indistinguishable
+    // from the page below it, which genuinely is zero.
+    const [orphan] = await db.insert<{ id: string }>('wk_concepts', {
+      space_id: spaceId,
+      slug: 'thermostat-unreadable',
+      title: 'thermostat-unreadable',
+    })
+    expect(orphan!.id).toBeString()
+    const measured = await conceptEvidenceBySlug(db, spaceId, ['thermostat-unreadable', 'thermostat-notes'])
+    expect(measured.has('thermostat-unreadable')).toBe(false)
+    expect(measured.get('thermostat-notes')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+  })
+
+  it('the cost is one extra statement per search, and it does not grow with the hits', async () => {
+    // The failure this guards is N+1: an evidence lookup per hit reads fine,
+    // tests fine on a fixture of one, and turns a 50-hit search into 51 round
+    // trips. Statements are counted, not timed — see countingPool.
+    const { pool, statements } = countingPool(databaseUrl)
+    // createPostgres will not end an injected pool, so the finally below owns
+    // it; a leaked pool keeps the suite alive after bun test prints its summary.
+    const counted = createPostgres({ databaseUrl } as Config, { pool })
+    try {
+      statements.length = 0
+      const many = await search(counted.db, spaceId, { q: QUERY, kind: 'concept', limit: 50 })
+      const atMany = statements.length
+
+      statements.length = 0
+      const one = await search(counted.db, spaceId, { q: QUERY, kind: 'concept', limit: 1 })
+      const atOne = statements.length
+
+      expect(many.length).toBeGreaterThan(one.length)
+      // Three pages cost what one page costs: the ranking, then the aggregate.
+      expect(atMany).toBe(atOne)
+      expect(atMany).toBe(2)
+
+      // A search that produces no concept hit does not pay for the aggregate at
+      // all — the claim-filtered and the missed search stay exactly as cheap as
+      // they were before this feature existed.
+      statements.length = 0
+      await search(counted.db, spaceId, { q: QUERY, kind: 'claim' })
+      expect(statements.length).toBe(1)
+
+      statements.length = 0
+      await search(counted.db, spaceId, { q: 'nothing-in-this-space-matches-this' })
+      expect(statements.length).toBe(1)
+    } finally {
+      await pool.end()
+    }
+  })
+
+  it('the aggregate is asked about at most the hits it got — bounded by the search cap, not the wiki', async () => {
+    // The list runs this aggregate over 200 rows; search is capped at 50 per
+    // tier, so the bound here is strictly tighter — and the slug list is
+    // deduplicated, so the several claim hits a page contributes never turn
+    // into several counts of that page.
+    const { pool, statements } = countingPool(databaseUrl)
+    const counted = createPostgres({ databaseUrl } as Config, { pool })
+    try {
+      statements.length = 0
+      const hits = await search(counted.db, spaceId, { q: QUERY, limit: 50 })
+      const distinctConcepts = new Set(hits.flatMap((hit) => (hit.kind === 'concept' ? [hit.slug] : []))).size
+      const aggregates = statements.filter((sql) => sql.includes('CROSS JOIN LATERAL'))
+      expect(aggregates.length).toBe(1)
+      expect(distinctConcepts).toBeLessThanOrEqual(50)
+      // The response holds more hits than pages — the claim hits ride on
+      // concepts that are already in the list — so a per-hit lookup would show
+      // up here as more than one aggregate.
+      expect(hits.length).toBeGreaterThan(distinctConcepts)
+      expect(hits.filter((hit) => hit.kind === 'claim').length).toBeGreaterThan(0)
+    } finally {
+      await pool.end()
+    }
+  })
+})

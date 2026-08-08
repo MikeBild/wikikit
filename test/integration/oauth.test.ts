@@ -596,7 +596,26 @@ describe('MCP OAuth 2.1 (integration)', () => {
       // Lockout guard: a metadata-only PUT keeps a stored ceiling …
       const metaOnly = await putGrant({ email: 'still-managed@example.test' })
       expect(metaOnly.status).toBe(200)
-      expect(((await metaOnly.json()) as { allowed_scopes: string[] }).allowed_scopes).toEqual(['knowledge:read'])
+      const stamped = (await metaOnly.json()) as { allowed_scopes: string[]; email: string | null }
+      expect(stamped.allowed_scopes).toEqual(['knowledge:read'])
+      expect(stamped.email).toBe('still-managed@example.test')
+
+      // `email` carries THREE states on the update path, because the column is
+      // nullable and an omitted field is kept: absent = keep, null = clear,
+      // string = set. Without the middle one an operator removing a stale
+      // address closed the dialog on a request that changed nothing — no error
+      // and no change, the one answer they cannot tell from success.
+      const kept = await putGrant({ display_name: 'Managed' })
+      expect(kept.status).toBe(200)
+      expect(((await kept.json()) as { email: string | null }).email).toBe('still-managed@example.test')
+      const cleared = await putGrant({ email: null })
+      expect(cleared.status).toBe(200)
+      expect(((await cleared.json()) as { email: string | null }).email).toBeNull()
+      // '' is refused at the boundary rather than stored: NULL is already this
+      // column's "no email" (the SSO callback writes it when the provider
+      // asserts none), and one nullable column holding two kinds of empty is a
+      // distinction every reader downstream would have to carry.
+      expect((await putGrant({ email: '' })).status).toBe(400)
       // … but on a row whose stored ceiling is EMPTY (allowed_scopes is NOT
       // NULL since 0030, but nothing forbids '{}') it would keep the empty
       // array while stamping grant_source='admin' — a silent lockout,

@@ -365,7 +365,8 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/search',
     scope: 'knowledge:read',
-    summary: 'LLM-free full-text search; ranked hits with <mark> headlines',
+    summary:
+      'LLM-free full-text search; ranked hits with <mark> headlines. Concept hits carry the same evidence summary (visible claims, uncited claims, distinct sources) the concept list serves; claim and source-chunk hits do not',
     handler: 'searchHandler',
     request: { params: 'zSpaceParams', query: 'zSearchQuery' },
     responses: { 200: { schema: 'zSearchResponse', type: 'application/json', desc: 'Ranked hits' } },
@@ -525,9 +526,9 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/webhooks/{id}/deliveries',
     scope: 'admin',
-    summary: 'Delivery attempts for one endpoint (status, attempts, backoff)',
+    summary: 'Delivery attempts for one endpoint (status, attempts, backoff; newest first, `?limit=` up to 200)',
     handler: 'listWebhookDeliveriesHandler',
-    request: { params: 'zSpaceIdParams' },
+    request: { params: 'zSpaceIdParams', query: 'zDeliveryListQuery' },
     responses: { 200: { schema: 'zDeliveryListResponse', type: 'application/json', desc: 'Deliveries' } },
   },
   {
@@ -569,7 +570,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/identities/{provider}/{subject}',
     scope: 'admin',
     summary:
-      'Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation.',
+      'Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address.',
     handler: 'upsertIdentityHandler',
     request: { params: 'zIdentityParams', body: 'zUpsertIdentityRequest' },
     responses: {
@@ -1541,7 +1542,8 @@ export const HANDLERS: Record<string, Handler> = {
 
   async listWebhookDeliveriesHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'admin')
-    const items = await listWebhookDeliveries(deps.db, space.id, { endpointId: input.params.id! })
+    const query = input.query as { limit?: number }
+    const items = await listWebhookDeliveries(deps.db, space.id, { endpointId: input.params.id!, limit: query.limit })
     return { status: 200, body: { items } }
   },
 
@@ -1642,13 +1644,19 @@ export const HANDLERS: Record<string, Handler> = {
       throw new UnprocessableError(`'${providerId}' is not a configured oidc provider`)
     }
     const body = input.body as {
-      email?: string
+      email?: string | null
       display_name?: string
       role?: RoleName
       scopes?: string[]
       source?: 'seed'
       restore?: boolean
     }
+    // Three states, not two: the key is absent (keep the stored address), the
+    // key is null (clear it), or it carries a string (set it). COALESCE cannot
+    // express that — it reads null as "no instruction" — so the UPDATE below
+    // takes a separate boolean and `body.email ?? null` alone is not enough to
+    // reconstruct the caller's intent by the time it reaches the SQL.
+    const emailSupplied = 'email' in body && body.email !== undefined
     // role XOR scopes — the role shortcut is expanded HERE and never stored:
     // the scope ceiling is the only truth the auth path ever reads.
     if (body.role !== undefined && body.scopes !== undefined) {
@@ -1696,15 +1704,30 @@ export const HANDLERS: Record<string, Handler> = {
       return { status: 201, body: toIdentityWire(rows[0]!) }
     }
     const { rows } = await deps.db.query<IdentityRow>(
+      // `email` is the one column here whose empty is NULL, so it is the one
+      // that cannot ride on COALESCE: the CASE is what lets a caller clear it.
+      // The others keep COALESCE deliberately — `display_name` is NOT NULL and
+      // says "empty" with '', and `allowed_scopes` has no clearing spelling at
+      // all (the lockout guard above exists precisely so it can never end up
+      // empty by accident).
       `UPDATE wk_oauth_identities
-          SET email = COALESCE($3, email),
-              display_name = COALESCE($4, display_name),
-              allowed_scopes = COALESCE($5::text[], allowed_scopes),
-              grant_source = $6,
-              revoked_at = CASE WHEN $7::boolean THEN NULL ELSE revoked_at END
+          SET email = CASE WHEN $3::boolean THEN $4::text ELSE email END,
+              display_name = COALESCE($5, display_name),
+              allowed_scopes = COALESCE($6::text[], allowed_scopes),
+              grant_source = $7,
+              revoked_at = CASE WHEN $8::boolean THEN NULL ELSE revoked_at END
         WHERE provider = $1 AND provider_subject = $2
         RETURNING ${IDENTITY_FIELDS}`,
-      [providerId, subject, body.email ?? null, body.display_name ?? null, scopes, source, body.restore === true],
+      [
+        providerId,
+        subject,
+        emailSupplied,
+        body.email ?? null,
+        body.display_name ?? null,
+        scopes,
+        source,
+        body.restore === true,
+      ],
     )
     return { status: 200, body: toIdentityWire(rows[0]!) }
   },

@@ -32,7 +32,7 @@ import { useCan, useSession } from '@/lib/session'
 import { compareText, compareTime } from '@/lib/table-view'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import type { FilterSpec } from '@/lib/url-filters'
-import { identityGrantBody, type RolePreset } from '@/pages/identities.logic'
+import { grantIntent, identityGrantBody, matchExistingGrant, type RolePreset } from '@/pages/identities.logic'
 
 /**
  * Who may sign in, and how far they reach once they have.
@@ -556,21 +556,39 @@ function GrantAccess({
   const [role, setRole] = useState<RolePreset>('reader')
   const [scopes, setScopes] = useState<readonly string[]>(editing?.allowed_scopes ?? ['knowledge:read'])
 
+  /** The form was loaded from a stored row, so an emptied box means "cleared". */
+  const prefilled = editing !== null
+
   const grant = useMutation({
     mutationFn: () =>
       wk.identities.grant(
         provider.trim(),
         subject.trim(),
         // Which fields the body carries is decided in `identities.logic.ts`,
-        // because the answer depends on the server's COALESCE and not on
+        // because the answer depends on where each box started rather than on
         // anything visible in this form.
-        identityGrantBody({ mode, role, scopes, displayName, email }, editing !== null),
+        identityGrantBody({ mode, role, scopes, displayName, email }, prefilled),
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.identities() })
       onOpenChange(false)
     },
   })
+
+  /**
+   * The row the typed provider/subject already addresses.
+   *
+   * The server decides create-vs-update by whether that row exists; this dialog
+   * used to decide it by which button opened it, and the two disagree the
+   * moment somebody types an identity that is already listed. Asking is free —
+   * the page has the list — and the answer is what the wording below is built
+   * on, so the dialog never announces a grant while the server performs an
+   * edit.
+   */
+  const match = prefilled ? null : matchExistingGrant(existing, provider, subject)
+  const intent = grantIntent(prefilled, match)
+  /** True whether the operator opened a row or typed one that exists. */
+  const editingReach = intent === 'edit'
 
   /**
    * A revoked grant already exists for what is being typed.
@@ -580,12 +598,7 @@ function GrantAccess({
    * and not about anything the operator can press. Re-admitting is a decision
    * with its own confirmation on the row, and this points at it.
    */
-  const collision =
-    editing === null
-      ? (existing.find(
-          (row) => row.provider === provider.trim() && row.subject === subject.trim() && row.revoked_at !== null,
-        ) ?? null)
-      : null
+  const collision = intent === 'restore' ? match : null
 
   const problem =
     provider.trim().length === 0
@@ -619,7 +632,11 @@ function GrantAccess({
     >
       <DialogContent data-testid="grant-dialog" closeDisabled={grant.isPending} className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editing ? 'Change what this person reaches' : 'Grant access'}</DialogTitle>
+          {/* The title follows what the SERVER will do, not which button
+              opened this — an existing provider/subject typed into "Grant
+              access" is an edit, and calling it a grant is exactly the wrong
+              word over a ceiling somebody already holds. */}
+          <DialogTitle>{editingReach ? 'Change what this person reaches' : 'Grant access'}</DialogTitle>
           <DialogDescription>
             WikiKit reads this ceiling on every request, so whatever you set here is in force on this person's next call
             — there is no session to wait out and nothing to re-issue.
@@ -683,6 +700,16 @@ function GrantAccess({
               />
             </div>
           </div>
+          {/* Only on a form that was loaded from the row: there, an empty box
+              is the operator emptying a value they can see, and it is sent as
+              such. On a blank form the same empty box means nothing was typed,
+              so promising that it clears anything would be a lie. */}
+          {prefilled ? (
+            <p className="text-muted-foreground text-xs" data-testid="grant-clearing-note">
+              Emptying either box removes what is stored. The identity provider may write the email back at their next
+              sign-in — it asserts one or it does not, and WikiKit records what it asserts.
+            </p>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             {/* Not a <Label>: what follows is a group of controls rather than
@@ -781,6 +808,30 @@ function GrantAccess({
             </Alert>
           ) : null}
 
+          {/* Not a refusal: re-granting somebody who is already admitted is a
+              legitimate thing to do from the top of this page. It is a
+              correction of what the dialog claims to be doing — and of the one
+              consequence the "Grant access" wording hides, which is that the
+              ceiling below REPLACES the one they hold rather than adding to it. */}
+          {match && intent === 'edit' ? (
+            <Alert tone="warning" title="This person already has access" data-testid="grant-takeover">
+              <div className="flex flex-col gap-2">
+                <p>
+                  {personLabel(match)} is already admitted on this provider and subject, so this is not a new grant.
+                  Submitting replaces their current ceiling —{' '}
+                  {match.allowed_scopes.length === 0
+                    ? 'currently nothing, so every login is denied'
+                    : match.allowed_scopes.join(', ')}{' '}
+                  — with the one chosen above, in force on their very next request.
+                </p>
+                <p>
+                  This form did not load their row, so a name or email left blank here keeps what is stored rather than
+                  clearing it. To remove either one, close this and use Change ceiling on their row.
+                </p>
+              </div>
+            </Alert>
+          ) : null}
+
           {refusal ? (
             <Alert tone={refusal.tone} title={refusal.title} actions={refusal.actions} data-testid="grant-refusal">
               {refusal.message}
@@ -807,7 +858,7 @@ function GrantAccess({
               onClick={() => grant.mutate()}
             >
               {grant.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
-              {editing ? 'Set ceiling' : 'Grant access'}
+              {editingReach ? 'Set ceiling' : 'Grant access'}
             </Button>
           </DisabledReason>
         </DialogFooter>

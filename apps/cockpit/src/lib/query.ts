@@ -20,6 +20,15 @@ import { askingAgainCouldHelp } from '@/lib/failure'
  * refetches on every tab switch fights the SSE change stream planned to replace
  * polling, and a surprise refetch under a confirm dialog is how an operator
  * approves the proposal that just moved.
+ *
+ * Exactly one query overrides it, and it is named here so the default and its
+ * exception cannot drift apart: the `['session']` whoami read in
+ * `components/session-gate.tsx`, whose policy is stated and tested in
+ * `session-gate.logic.ts`. The reasoning above does not reach it — it is not a
+ * list anybody acts on, and re-reading it is what renews the operator's cookie,
+ * so for that one query a refetch on return is the point rather than the
+ * hazard. Anything else that wants this flag should ask why it is not a live
+ * read (`lib/live.ts`) instead.
  */
 export function createQueryClient(): QueryClient {
   return new QueryClient({

@@ -99,7 +99,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts, each with an `evidence` summary (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read    | Read a concept: markdown + claims + citations + relations |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
-| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key) |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
 | POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal, incl. `relations_removed` (same review gate) |
@@ -114,12 +114,12 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/spaces/{space}/import`                   | knowledge:propose | Import a bundle (zip): sources archived, knowledge staged as ONE proposal |
 | GET    | `/v1/spaces/{space}/webhooks`                 | admin             | List webhook endpoints |
 | POST   | `/v1/spaces/{space}/webhooks`                 | admin             | Register a webhook endpoint (Standard Webhooks; secret shown once) |
-| GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin             | Delivery attempts for one endpoint (status, attempts, backoff) |
+| GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin             | Delivery attempts for one endpoint (status, attempts, backoff); newest first, `?limit=` up to 200 |
 | GET    | `/v1/api-keys`                                | admin             | List visible API keys without plaintext or hashes |
 | POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
 | DELETE | `/v1/api-keys/{id}`                           | admin             | Revoke a DB-backed API key idempotently |
 | GET    | `/v1/identities`                              | admin             | List SSO identity grants (scope ceiling, source, revocation) — never tokens or hashes |
-| PUT    | `/v1/identities/{provider}/{subject}`         | admin             | Create/update an SSO identity grant (role XOR scopes; only `restore:true` clears a revocation) |
+| PUT    | `/v1/identities/{provider}/{subject}`         | admin             | Create/update an SSO identity grant (role XOR scopes; only `restore:true` clears a revocation; an omitted field is kept, `email: null` clears the stored address) |
 | DELETE | `/v1/identities/{provider}/{subject}`         | admin             | Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent) |
 | GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
 | GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
@@ -191,7 +191,7 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
 - **Caching:** concept lists carry `ETag: "<space-epoch>"`; the epoch bumps on
   every approved proposal, so `If-None-Match` gives cheap 304s on any read of
   approved knowledge.
-- **Evidence in the concept list:** every item of `GET .../concepts` carries
+- **Evidence in the concept list and on search hits:** every item of `GET .../concepts` carries
   `evidence: {claims, uncited_claims, sources}` — how many claims the page
   makes, how many of those cite nothing, and how many distinct sources back it.
   Only visible claims count (`verified|disputed|deprecated`); `proposed` and
@@ -206,6 +206,15 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   without sources: a real state of published knowledge, not an error and not a
   missing field. The counts describe the page as it stands now — claims hang
   off the concept, not off a revision, so they do not move with `rev`.
+  `GET .../search` serves the same object on every `kind: "concept"` hit, from
+  the same aggregate over the same visible claims, so the numbers agree with the
+  list for the same page and the choice of which result to open is as informed
+  as the choice of which row to open. `kind: "claim"` and `kind: "source_chunk"`
+  hits deliberately carry no `evidence`: the page's totals do not answer whether
+  the matched claim itself is quoted, and a source-evidence hit is unreviewed
+  archive material — giving it an evidence summary would advertise it as
+  approved knowledge, which is exactly what its tier says it is not. Absence
+  therefore never means zero; on a concept hit the three numbers are measured.
 - **Async ingest:** `POST .../ingest` answers `202` with
   `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
   `done` (carries `source_id`; `proposal_id` is nullable when no affected or new
@@ -654,9 +663,19 @@ history does not travel.
 | `broken-relations` | error |
 | `stale-claims` | warn |
 | `orphan-concepts` | warn |
+| `unsourced-concepts` | warn |
+| `tombstoned-sources` | warn |
+| `broken-cross-space-links` | warn |
 | `empty-concepts` | info |
 | `unreviewed-proposals` | info |
 | `dangling-sources` | info |
+
+`unsourced-concepts` is the page-level evidence rule: a readable page across
+whose visible claims there is not one citation — no archived document stands
+behind it. It is a warn and not an error because a hand-written page is a
+legitimate thing to have, and the finding names the fix (ingest a source and let
+synthesis quote it). A page with no claims at all is reported by both this rule
+and `empty-concepts`; `counts` is a census of findings, not of pages.
 
 ---
 
@@ -758,7 +777,11 @@ client secrets in the production secret store, never in the repository.
 Lifecycle: `/health` (liveness), `/ready` (readiness — `{status, version}`;
 deploy gates match **both** fields; 503 while draining). On SIGTERM/SIGINT the
 service fails `/ready`, stops the workers, drains in-flight requests, then
-exits 0. Logs are structured JSON on stdout with request ids; API keys are
+exits 0. A draining instance keeps serving the probes, the `/cockpit` bundle
+and the human sign-in funnel, and refuses everything else: REST routes and the
+OAuth machine plane (discovery, registration, token mint and revocation) with
+`503 {"code":"draining"}`, and `/mcp` with a 503 carrying a JSON-RPC error
+frame — re-run `initialize` against another instance. Logs are structured JSON on stdout with request ids; API keys are
 never logged.
 
 **Checks:** `bun run gate` runs everything CI runs (~60s, needs Docker) and
@@ -807,8 +830,9 @@ becomes a citable source.
   configured `WIKIKIT_LLM_PROVIDER`); all LLM-free routes
   keep working meanwhile.
 - **Webhook endpoint stopped receiving** — check
-  `GET .../webhooks/{id}/deliveries`; after repeated failures the circuit
-  breaker pauses the endpoint for 15 minutes.
+  `GET .../webhooks/{id}/deliveries` (newest first; `?limit=` up to 200,
+  default 50, no cursor — a full answer is a truncated one); after repeated
+  failures the circuit breaker pauses the endpoint for 15 minutes.
 - **MCP client loops on session errors** — re-initialize on JSON-RPC `-32001`;
   sessions expire after `WIKIKIT_MCP_SESSION_TTL_MS` idle.
 - **MCP review returns `human_review_required`** — the client cannot show the
