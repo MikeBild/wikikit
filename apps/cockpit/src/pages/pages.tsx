@@ -6,6 +6,7 @@ import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { RelativeTime } from '@/components/ui/relative-time'
@@ -17,21 +18,27 @@ import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
-import { CHANGE_WINDOW_LABEL, changedWithin } from '@/pages/page.logic'
+import { CHANGE_WINDOW_LABEL, changedWithin, evidenceRank, pageEvidence, type EvidenceCounts } from '@/pages/page.logic'
 
 /**
  * Every page in this wiki.
  *
  * The index of a wiki is a place to FIND something, so the row is the page's
- * name and its own words — title, slug, summary — and everything else is
- * secondary. Two things the reader might expect are deliberately not here, and
- * both are the read's doing rather than a choice:
+ * name and its own words — title, slug, summary. Beside them now sits the
+ * question a reader of THIS product asks before any other, because every claim
+ * here is supposed to carry a verbatim quote from an archived source: **how does
+ * the wiki know this?**
  *
- *  - **No claim counts.** `/v1/spaces/{space}/concepts` answers slug, title,
- *    summary, rev and updated_at, and nothing about claims or citations. The
- *    only way to put "12 claims, 2 uncited" in a row would be one concept read
- *    per row — two hundred requests to draw a list — so the evidence lives on
- *    the page itself, where it is read one page at a time and is complete.
+ *  - **Evidence is a column.** It was not one for a long time, and the reason
+ *    was arithmetic rather than taste: `/v1/spaces/{space}/concepts` answered
+ *    slug, title, summary, rev and updated_at, so putting "12 claims, 2 uncited"
+ *    in a row would have meant one concept read per row — two hundred requests
+ *    to draw a list. The list read now answers an `evidence` object per row —
+ *    `claims`, `uncited_claims`, `sources` — in the same statement that answers
+ *    the rest, so the fact costs nothing extra to show and there is no longer
+ *    any excuse for a list that cannot say which pages nothing backs.
+ *    `pageEvidence` in `page.logic` owns what those three numbers mean; this
+ *    file only draws them.
  *  - **No pending-change marker.** The proposals list carries a change's title
  *    and status but not which concepts it touches, so a "has a change waiting"
  *    column could only be guessed at from a title string. A guess about whether
@@ -40,7 +47,9 @@ import { CHANGE_WINDOW_LABEL, changedWithin } from '@/pages/page.logic'
  * The read asks for the server's maximum in one request rather than walking its
  * keyset cursor, because that is what makes the sort and the filter honest: both
  * are done here, over rows the console fully holds, and `cap` prints the ceiling
- * beside the count so "203 pages" can never read as "all of them".
+ * beside the count so "203 pages" can never read as "all of them". The evidence
+ * sort inherits that honesty for free — "show me the pages nothing backs" is one
+ * click on the header, over every row the console holds.
  */
 
 const LIST_ID = 'pages'
@@ -72,6 +81,20 @@ interface PageRow {
   summary: string
   rev: number
   updated_at: string
+  /**
+   * Optional here, and required on the wire — deliberately, not defensively.
+   *
+   * The server declares `evidence` as three required non-negative integers, and
+   * it is right to: `claims: 0` is a measured fact about a hand-written page,
+   * not missing data. This console is served by the binary it talks to, so the
+   * two are normally the same version. A ROLLING UPGRADE is where that stops
+   * being true — a tab loaded from the replaced instance, its next request
+   * landing on the one still running the old build — and those rows carry no
+   * `evidence` at all. Typing it required would be a lie the compiler agreed to,
+   * and the column would print "No claims" for every page in the wiki, which is
+   * the single most alarming thing this list can say.
+   */
+  evidence?: EvidenceCounts | null
 }
 
 /**
@@ -99,6 +122,19 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
         <span className="truncate font-mono text-xs text-muted-foreground">{row.slug}</span>
       </div>
     ),
+  },
+  {
+    id: 'evidence',
+    label: 'Evidence',
+    // Second, ahead of the page's own summary, and that ordering is the only
+    // thing here that costs anything. Below `md` a row's last cell is pinned and
+    // everything between the first column and it is reached by scrolling the
+    // table sideways (components/ui/table.tsx) — so at 390px a column placed
+    // after `summary` is a column an operator on a phone never sees. Evidence is
+    // asked before the summary is read, not after: the summary says what the
+    // page claims, this says whether anything backs the claim.
+    compare: (left, right) => compareNumber(evidenceRank(left.evidence), evidenceRank(right.evidence)),
+    cell: (row) => <EvidenceCell row={row} />,
   },
   {
     id: 'summary',
@@ -248,6 +284,59 @@ export function PagesPage() {
         }
       />
     </Page>
+  )
+}
+
+/**
+ * What backs this page, in one cell.
+ *
+ * Three shapes, because two of the states share the amber tone and a colour is
+ * never allowed to be the whole difference (CUI-A11Y-5):
+ *
+ *   12 claims  [2 uncited]     a page whose evidence has holes — the common case
+ *   4 sources
+ *
+ *   [No claims]                a page written by hand: nothing backs a word of it
+ *
+ *   12 claims                  every claim quoting a source — the promise kept,
+ *   4 sources                  stated in plain text and wearing no pill at all
+ *
+ *   —                          the counts never arrived, which is not a zero
+ *
+ * The em dash is the one that has to be gettable by a reader who cannot see it,
+ * so the visible glyph is hidden from the accessibility tree and the sentence
+ * behind it is not: a screen reader that announced "dash" would learn exactly as
+ * much as a reader who saw `0`.
+ *
+ * The whole reading sits on `title` as well, because "2 uncited" is a number a
+ * reader may want spelled into a sentence before they decide to open the page,
+ * and every word of it is also on screen — the attribute adds, it never carries.
+ */
+function EvidenceCell({ row }: { row: PageRow }) {
+  const evidence = pageEvidence(row.evidence)
+  const testId = `pages-row-${row.slug}-evidence`
+
+  if (evidence.level === 'unmeasured')
+    return (
+      <span className="text-muted-foreground" data-testid={testId} data-evidence={evidence.level}>
+        <span aria-hidden="true">—</span>
+        <span className="sr-only">{evidence.reading}</span>
+      </span>
+    )
+
+  return (
+    <div
+      className="flex flex-col items-start gap-0.5"
+      data-testid={testId}
+      data-evidence={evidence.level}
+      title={evidence.reading}
+    >
+      <div className="flex items-center gap-1.5">
+        {evidence.count ? <span className="tabular-nums">{evidence.count}</span> : null}
+        {evidence.flag ? <Badge tone={evidence.tone}>{evidence.flag}</Badge> : null}
+      </div>
+      {evidence.detail ? <span className="text-xs text-muted-foreground">{evidence.detail}</span> : null}
+    </div>
   )
 }
 

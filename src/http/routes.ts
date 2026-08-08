@@ -334,7 +334,8 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/concepts',
     scope: 'knowledge:read',
-    summary: 'List concepts (keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match)',
+    summary:
+      'List concepts, each with an evidence summary (visible claims, uncited claims, distinct sources) — keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match',
     handler: 'listConceptsHandler',
     request: { params: 'zSpaceParams', query: 'zListQuery' },
     responses: {

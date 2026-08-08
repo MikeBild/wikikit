@@ -107,6 +107,19 @@ the URL so it can be sent to somebody. `useTableView` remembers column choices
 per list; it does not remember filters, because a stored filter is a list that
 lies about what it is showing.
 
+`wk.concepts.list` already answers "how does the wiki know this?" per row:
+every item carries `evidence: {claims, uncited_claims, sources}` — the claims
+the page makes, how many of those cite nothing, and how many distinct sources
+back it. Only visible claims (`verified`, `disputed`, `deprecated`) are
+counted; a `proposed` or `draft` claim belongs to a change, not to the page.
+Render it from the list. Never fetch each page to recount it — that is one
+request per row for a number the list already sent.
+
+`evidence.claims === 0` is a **measured** zero: a page somebody wrote by hand,
+with no sources behind it. It renders as `0`. `—` stays reserved for the value
+nobody sent (CUI-SEV-2) — "makes no claims" and "we never asked" are different
+facts about a page and must not look the same.
+
 ## Actions
 
 - A link navigates and does nothing else; a button changes something

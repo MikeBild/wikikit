@@ -278,7 +278,21 @@ function stubDb(): Db {
           return [{ slug: 'wikikit', title: 'WikiKit', summary: 'Headless knowledge system.' }]
         }
         if (text.includes('FROM wk_concepts c') && text.includes('JOIN wk_concept_revisions r')) {
-          return [{ slug: 'wikikit', title: 'WikiKit', summary: 'Headless knowledge system.', rev: 3, updated_at: NOW }]
+          // listConcepts: the evidence lateral is part of the SAME statement,
+          // so its three counts arrive as columns of this row — a page with 2
+          // visible claims, one of them uncited, backed by 1 source.
+          return [
+            {
+              slug: 'wikikit',
+              title: 'WikiKit',
+              summary: 'Headless knowledge system.',
+              rev: 3,
+              updated_at: NOW,
+              claims: 2,
+              uncited_claims: 1,
+              sources: 1,
+            },
+          ]
         }
 
         // source streams (sync contract) -------------------------------------

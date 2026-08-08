@@ -390,6 +390,21 @@ export const zDecisionResponse = zDecisionSummary.extend({
 // Concepts
 // ---------------------------------------------------------------------------
 
+/**
+ * The page index. `evidence` is ADDITIVE — every field this list has ever
+ * served stays, unchanged and in place: agents pin this response, and a rename
+ * here is a broken reader somewhere that nobody sees fail.
+ *
+ * The counts are over VISIBLE claims only (`zVisibleClaimStatus` — the same
+ * set `zConceptResponse.claims[].status` admits). `proposed` and `draft` claims
+ * belong to a pending proposal, not to the page: counting them would let an
+ * unreviewed proposal make a page look evidenced, which inverts the review
+ * gate this product exists to hold.
+ *
+ * Three required integers, never nullable and never optional: `claims: 0` is a
+ * measured fact ("this page cites nothing" — a hand-written page), not missing
+ * data, and an optional field would license clients to render it as unknown.
+ */
 export const zConceptListResponse = z.object({
   items: z.array(
     z.object({
@@ -398,6 +413,14 @@ export const zConceptListResponse = z.object({
       summary: z.string(),
       rev: z.number().int(),
       updated_at: z.string(),
+      evidence: z.object({
+        /** Visible claims the page makes. */
+        claims: z.number().int().nonnegative(),
+        /** Subset of `claims` carrying no citation at all — read against `claims`, never alone. */
+        uncited_claims: z.number().int().nonnegative(),
+        /** Distinct sources backing those claims — breadth, NOT `claims - uncited_claims`. */
+        sources: z.number().int().nonnegative(),
+      }),
     }),
   ),
   next_after: z.string().nullable(),

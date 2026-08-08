@@ -303,7 +303,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List concepts (keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match) */
+        /** List concepts, each with an evidence summary (visible claims, uncited claims, distinct sources) — keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match */
         get: operations["listConcepts"];
         put?: never;
         post?: never;
@@ -1604,6 +1604,11 @@ export interface components {
                 summary: string;
                 rev: number;
                 updated_at: string;
+                evidence: {
+                    claims: number;
+                    uncited_claims: number;
+                    sources: number;
+                };
             }[];
             next_after: string | null;
             epoch: number;

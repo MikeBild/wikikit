@@ -285,8 +285,17 @@ describe('http surface (integration)', () => {
     expect(res.status).toBe(200)
     const etag = res.headers.get('etag')
     expect(etag).toBe('"1"') // one approved proposal bumped the epoch once
-    const body = (await res.json()) as { items: { slug: string }[]; epoch: number }
+    const body = (await res.json()) as {
+      items: { slug: string; evidence: { claims: number; uncited_claims: number; sources: number } }[]
+      epoch: number
+    }
     expect(body.items.map((i) => i.slug)).toContain('okf-notes')
+    // Evidence reaches the wire: the ingested page is backed by its source, so
+    // a client can rank pages without a second request per row.
+    const okf = body.items.find((i) => i.slug === 'okf-notes')!
+    expect(okf.evidence.claims).toBeGreaterThan(0)
+    expect(okf.evidence.sources).toBeGreaterThan(0)
+    expect(okf.evidence.uncited_claims).toBeLessThanOrEqual(okf.evidence.claims)
 
     const cached = await fetch(`${base}/v1/spaces/demo/concepts`, {
       headers: { ...bearer(readerKey), 'if-none-match': etag! },

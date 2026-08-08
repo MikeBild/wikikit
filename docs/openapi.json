@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.24.0",
+    "version": "0.25.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -961,7 +961,7 @@
     },
     "/v1/spaces/{space}/concepts": {
       "get": {
-        "summary": "List concepts (keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match)",
+        "summary": "List concepts, each with an evidence summary (visible claims, uncited claims, distinct sources) — keyset pagination via ?after=; ETag over the space epoch, 304 on If-None-Match",
         "operationId": "listConcepts",
         "responses": {
           "200": {
@@ -4014,9 +4014,19 @@
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
                 "rev": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
-                "updated_at": { "type": "string" }
+                "updated_at": { "type": "string" },
+                "evidence": {
+                  "type": "object",
+                  "properties": {
+                    "claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "uncited_claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "sources": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["claims", "uncited_claims", "sources"],
+                  "additionalProperties": false
+                }
               },
-              "required": ["slug", "title", "summary", "rev", "updated_at"],
+              "required": ["slug", "title", "summary", "rev", "updated_at", "evidence"],
               "additionalProperties": false
             }
           },

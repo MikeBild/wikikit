@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.0 - 2026-08-08
+
+### Added
+
+- **The page list now says how well each page is evidenced.** WikiKit's premise
+  is that every claim on a page carries a verbatim quote from an archived
+  source. Until now the index would not tell you whether a given page honoured
+  that. "How does this wiki know this?" — the first question a reader has, and
+  the one this product exists to answer — could only be answered by opening the
+  page, and then the next one, and then the one after that. The owner of an
+  installation asked why the list was silent about the only thing that
+  distinguishes a WikiKit page from a paragraph somebody typed. It no longer is.
+
+  Every row of `GET /v1/spaces/{space}/concepts` now carries an `evidence`
+  object of three numbers: **`claims`**, how many claims the page makes;
+  **`uncited_claims`**, how many of those have no quote behind them; and
+  **`sources`**, how many distinct archived documents the page draws on. Only
+  visible claims are counted — `verified`, `disputed` and `deprecated` — never a
+  `proposed` or `draft` one, because counting staged work would let an
+  unreviewed change make a page look evidenced before anybody agreed it was.
+  The three answer different questions and none is derivable from the others:
+  five claims quoting one document and five quoting five are the same
+  `uncited_claims` and very different pages.
+
+  The state this makes visible for the first time is the **page written by hand
+  that cites nothing at all** — zero claims, zero sources. It is a legitimate
+  thing to have in a wiki, and it was also completely indistinguishable from a
+  fully sourced page in every list WikiKit had ever drawn. It now reads as a
+  measured `0` and is flagged in the console, which is the point: a reader can
+  see, before spending a click, which pages the archive stands behind and which
+  are somebody's memory. `0` is an answer here, never a blank — the console
+  keeps its em dash for the row whose counts genuinely never arrived.
+
+  The cockpit's page index gains a sortable **Evidence** column built on those
+  numbers, placed second so it survives a narrow screen. It costs nothing extra
+  to draw: the counts ride along on the list read the console was already
+  making, in the same single statement, so a wiki of any size still answers the
+  index in the queries it answered it in before.
+
 ## 0.24.0 - 2026-08-08
 
 ### Fixed

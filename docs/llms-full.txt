@@ -96,7 +96,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | DELETE | `/v1/spaces/{space}/source-streams/{external_source_id}` | knowledge:propose | Tombstone a source stream (idempotent soft delete — the upstream document is gone) |
 | GET    | `/v1/spaces/{space}/decisions`                | knowledge:read    | List decisions (active/superseded), newest first — the decision log |
 | GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read    | Read one decision: context, decision, rationale, rejected alternatives |
-| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
+| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts, each with an `evidence` summary (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read    | Read a concept: markdown + claims + citations + relations |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines |
@@ -191,6 +191,21 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
 - **Caching:** concept lists carry `ETag: "<space-epoch>"`; the epoch bumps on
   every approved proposal, so `If-None-Match` gives cheap 304s on any read of
   approved knowledge.
+- **Evidence in the concept list:** every item of `GET .../concepts` carries
+  `evidence: {claims, uncited_claims, sources}` — how many claims the page
+  makes, how many of those cite nothing, and how many distinct sources back it.
+  Only visible claims count (`verified|disputed|deprecated`); `proposed` and
+  `draft` claims belong to a pending proposal, not to knowledge, and are never
+  counted — an unreviewed proposal must not make a page look evidenced.
+  This is what lets an agent decide **which page to read before reading it**:
+  ask for the list, then spend the fetch on a page whose claims are cited by
+  sources rather than on one that asserts more than it can show. Read
+  `uncited_claims` against `claims`, not on its own, and treat `sources` as
+  breadth — one source usually backs several claims, so it is not
+  `claims - uncited_claims`. `claims: 0` is a page a human wrote by hand
+  without sources: a real state of published knowledge, not an error and not a
+  missing field. The counts describe the page as it stands now — claims hang
+  off the concept, not off a revision, so they do not move with `rev`.
 - **Async ingest:** `POST .../ingest` answers `202` with
   `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
   `done` (carries `source_id`; `proposal_id` is nullable when no affected or new

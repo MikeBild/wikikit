@@ -6,6 +6,7 @@
 // proposal with an invalid slug or an empty body is one a reviewer has to
 // reject for a reason the author could have been told immediately.
 import { describe, expect, test } from 'bun:test'
+import type { ConceptEvidence } from '../../../src/domain/concepts.ts'
 import {
   CONCEPT_SLUG,
   claimSentence,
@@ -13,7 +14,9 @@ import {
   currentRevisionId,
   draftProblem,
   evidenceOf,
+  evidenceRank,
   evidenceSummary,
+  pageEvidence,
   proposalTitle,
   slugify,
   statusBadge,
@@ -167,6 +170,158 @@ describe('evidence', () => {
     ] as never)
     expect(summary).toBeString()
     expect(summary.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the evidence on a row of the pages index', () => {
+  // The index now says how the wiki knows what a page claims. `pageEvidence`
+  // is the whole rule: three numbers in, one reading out. What is protected
+  // here is that the four states stay four — a rule that collapses any two of
+  // them turns the column into decoration.
+  const backed = pageEvidence({ claims: 4, uncited_claims: 0, sources: 2 })
+  const partly = pageEvidence({ claims: 4, uncited_claims: 1, sources: 2 })
+  const nothingCited = pageEvidence({ claims: 4, uncited_claims: 4, sources: 0 })
+  const noClaims = pageEvidence({ claims: 0, uncited_claims: 0, sources: 0 })
+  const unmeasured = pageEvidence({})
+
+  test('the console reads the counts the SERVER actually sends', () => {
+    // The one test that spans both halves of this change, and the only place
+    // the two field lists ever meet. `listConcepts` builds `ConceptEvidence`;
+    // this console parses it. Typing the fixture as the server's own interface
+    // means a name that exists on only one side cannot pass: the console falls
+    // through to `unmeasured` on every row, the index quietly renders an em
+    // dash for a wiki full of cited pages, and nothing else in either suite
+    // notices — the server tests pass, the console tests pass, and the feature
+    // is invisible in production.
+    const fromServer: ConceptEvidence = { claims: 4, uncited_claims: 1, sources: 2 }
+    const evidence = pageEvidence(fromServer)
+    expect(evidence.level).not.toBe('unmeasured')
+    expect(evidence.level).toBe('partial')
+    expect(evidence.count).toBe('4 claims')
+    expect(evidence.flag).toBe('1 uncited')
+  })
+
+  test('fully cited, partly cited and nothing cited are three different readings', () => {
+    // Not three tones — their design gives `partial` and all-uncited the same
+    // amber on purpose, because the NUMBERS beside it are more precise than
+    // any third colour would be. So what has to differ is what a reader
+    // actually reads, and it has to differ in every rendered field the cell
+    // uses, not just in one that happens to be shown.
+    const readings = [backed, partly, nothingCited].map((evidence) => evidence.reading)
+    expect(new Set(readings).size).toBe(3)
+    expect(new Set([backed.flag, partly.flag, nothingCited.flag]).size).toBe(3)
+    expect(backed.flag).toBeNull() // the baseline promise is not an achievement
+    expect(partly.flag).toBeString()
+    expect(nothingCited.flag).toBeString()
+  })
+
+  test('the rank orders them least-backed first, and separates all three', () => {
+    // The header sorts on this, so "show me the pages nothing backs" is one
+    // click. A rank that tied two of these states would make the sort silently
+    // useless exactly where it matters.
+    expect(evidenceRank({ claims: 4, uncited_claims: 4, sources: 0 })).toBeLessThan(
+      evidenceRank({ claims: 4, uncited_claims: 1, sources: 2 })!,
+    )
+    expect(evidenceRank({ claims: 4, uncited_claims: 1, sources: 2 })).toBeLessThan(
+      evidenceRank({ claims: 4, uncited_claims: 0, sources: 2 })!,
+    )
+  })
+
+  test('nothing cited never wears a token that means healthy or verified', () => {
+    // The product's entire promise is that a claim carries a quote. A page
+    // whose claims carry none, and a page that claims nothing at all, must
+    // never render in the token a reader has learned to read as "checked" —
+    // that would be the interface asserting the opposite of the data.
+    for (const evidence of [nothingCited, noClaims, partly]) {
+      expect(evidence.tone).not.toBe('success')
+      expect(evidence.level).not.toBe('backed')
+      expect(evidence.reading.toLowerCase()).not.toContain('every one quoting')
+    }
+  })
+
+  test('a page with no claims says so, and is not mistaken for a well-backed one', () => {
+    // The hand-written page — typed into this console, zero claims by
+    // construction — and the state this whole change exists to make visible.
+    // It is its own reading, not a quiet `0` that looks like every other row.
+    expect(noClaims.level).toBe('none')
+    expect(noClaims.count).toBeNull()
+    expect(noClaims.flag).toBeString()
+    expect(noClaims.reading).not.toBe(backed.reading)
+    expect(noClaims.reading).not.toBe(unmeasured.reading)
+  })
+
+  test('absent counts read as unknown, and unknown is not zero', () => {
+    // CUI-SEV-2. A console talking to a binary that predates these counts gets
+    // rows without them, and printing `0 claims` there would invent a
+    // measurement — it would accuse a fully cited wiki of citing nothing.
+    expect(unmeasured.level).toBe('unmeasured')
+    expect(unmeasured.tone).toBe('unknown')
+    expect(unmeasured.count).toBeNull()
+    // The two must not be interchangeable in ANY field the row uses: the text
+    // a reader sees, and the key the sort orders on.
+    expect(unmeasured.reading).not.toBe(noClaims.reading)
+    expect(unmeasured.rank).toBeNull()
+    expect(noClaims.rank).toBe(0)
+  })
+
+  test('a HALF-answered row is unknown, not half-measured', () => {
+    // The subtle version, and the one a naive `?? 0` gets wrong: `claims`
+    // arrived, `uncited_claims` did not. Defaulting the missing one to zero
+    // reports "3 claims, every one quoting a source" — a fabricated clean bill
+    // of health, which is worse than admitting the column knows nothing.
+    expect(pageEvidence({ claims: 3 }).level).toBe('unmeasured')
+    expect(pageEvidence({ uncited_claims: 1 }).level).toBe('unmeasured')
+    expect(pageEvidence({ claims: 3, uncited_claims: null }).level).toBe('unmeasured')
+  })
+
+  test('every state carries a word, never colour alone', () => {
+    // CUI-A11Y-5. `reading` is the cell's title and the unmeasured row's only
+    // text, so an empty one is a row that says nothing to a screen reader.
+    for (const evidence of [backed, partly, nothingCited, noClaims, unmeasured]) {
+      expect(evidence.reading.length, evidence.level).toBeGreaterThan(0)
+    }
+  })
+
+  test('a page nothing backs is not an error either', () => {
+    // The other half of "never healthy". Writing a page by hand and leaving it
+    // for the ingest to evidence is a thing this console invites an operator to
+    // do — nobody failed, nothing broke — so the row must not wear the token
+    // that means a request was refused or a claim was disputed. Amber, because
+    // the state resolves when a human acts; red would be the console calling a
+    // legitimate act a fault, and a list that cries wolf gets scrolled past.
+    for (const evidence of [noClaims, nothingCited, partly]) {
+      expect(evidence.tone, evidence.level).not.toBe('danger')
+    }
+  })
+
+  test('the order asks whether the evidence is complete, not how much there is', () => {
+    // A wiki is not better because a page asserts more. Three claims with three
+    // quotes is a page a reader can check end to end; two hundred claims with
+    // one gap is not, and it sorts below — which is also what stops a busy page
+    // from burying the small unbacked one at the top of the list.
+    const whole = evidenceRank({ claims: 3, uncited_claims: 0, sources: 1 })
+    const nearly = evidenceRank({ claims: 200, uncited_claims: 1, sources: 40 })
+    expect(whole).toBeGreaterThan(nearly!)
+  })
+
+  test('breadth is reported by the server, never derived from the claim counts', () => {
+    // Five claims quoting one document and five quoting five are the same
+    // number of cited claims and NOT the same knowledge — the second is
+    // corroborated, the first rests on one archive entry. That is why the row
+    // carries `sources` at all, so the cell prints it rather than computing
+    // `claims - uncited_claims` and calling the answer breadth.
+    expect(pageEvidence({ claims: 5, uncited_claims: 0, sources: 1 }).detail).toBe('1 source')
+    expect(pageEvidence({ claims: 5, uncited_claims: 0, sources: 5 }).detail).toBe('5 sources')
+  })
+
+  test('a count the server contradicts itself about is never rendered as fact', () => {
+    // More uncited claims than claims, and a negative count, are a server that
+    // is wrong about itself. The console prints neither: "13 of 12" is a row an
+    // operator would rightly stop believing, and it would sort between the
+    // pages nothing backs and the pages something does.
+    expect(pageEvidence({ claims: 12, uncited_claims: 13, sources: 0 }).flag).toBe('12 uncited')
+    expect(pageEvidence({ claims: -1, uncited_claims: 0, sources: 0 }).level).toBe('unmeasured')
+    expect(pageEvidence({ claims: 2.5, uncited_claims: 0, sources: 0 }).level).toBe('unmeasured')
   })
 })
 

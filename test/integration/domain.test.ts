@@ -174,6 +174,11 @@ describe('domain modules (integration)', () => {
     const listed = await listConcepts(db, space.id, {})
     expect(listed.items.map((item) => item.slug)).toEqual(['okf'])
     expect(listed.epoch).toBe(1)
+    // The evidence lateral against real Postgres: the approved proposal
+    // verified one claim carrying one citation from one source. This is the
+    // only place the counting SQL actually runs — a stubbed query proves the
+    // mapping, never the aggregate.
+    expect(listed.items[0]!.evidence).toEqual({ claims: 1, uncited_claims: 0, sources: 1 })
 
     const history = await getConceptHistory(db, space.id, { slug: 'okf' })
     expect(history.length).toBe(1)
@@ -740,6 +745,17 @@ describe('domain modules (integration)', () => {
       agent_meta: AGENT_META,
       concepts: [{ slug: 'gamma', title: 'Gamma', summary: '', markdown: '# Gamma', claims: [], relations: [] }],
     })
+
+    // This fixture is also the complete evidence matrix for the concept list,
+    // so it is asserted here rather than rebuilt: alpha carries one visible
+    // claim with no citation, beta is a published page with no claims at all,
+    // and gamma's claims sit in a PENDING proposal — unreviewed content must
+    // never make a page look evidenced, and gamma is not even readable.
+    const evidence = new Map((await listConcepts(db, space.id, {})).items.map((item) => [item.slug, item.evidence]))
+    expect([...evidence.keys()]).toEqual(['alpha', 'beta'])
+    expect(evidence.get('alpha')).toEqual({ claims: 1, uncited_claims: 1, sources: 0 })
+    // The measured zero: a page that cites nothing reports 0/0/0, never null.
+    expect(evidence.get('beta')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
 
     const report = await lintSpace(db, space.id)
     const rules = report.findings.map((finding) => finding.rule)

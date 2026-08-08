@@ -12,12 +12,45 @@ import { VISIBLE_CLAIM_STATUSES, type ClaimWithCitations, listClaimsForConcept }
 import { NotFoundError } from './errors.ts'
 import { clampLimit, decodeCursor, encodeCursor, isoString } from './sources.ts'
 
+/**
+ * Per-row answer to "how does the wiki know this?" — the first question a
+ * reader of an evidence-backed wiki has, and until now answerable only by
+ * opening the page.
+ *
+ * WHY these three numbers and not others. What a list row must answer is "is
+ * this page evidenced, and by how much", and that needs exactly a total, a
+ * shortfall and a breadth:
+ *   - `claims` alone cannot distinguish ten cited claims from ten bare
+ *     assertions, so it cannot answer the question at all.
+ *   - `uncited_claims` is the alarm — the only one of the three where a
+ *     non-zero value is bad news — and it is only readable against `claims`.
+ *   - `sources` is breadth: five claims from one source is a page that rests
+ *     on one document, five claims from five sources is a corroborated one.
+ * Rejected: a total CITATION count (it flatters a page that quotes the same
+ * document ten times, which is exactly the page a reader should be warned
+ * about), and source ids/titles (a second read per row — the list is where you
+ * decide WHICH page to open, not where you chase provenance; that is §5.3).
+ *
+ * Nested rather than three flat columns because these three only mean anything
+ * read together, and one named object keeps `evidence.claims` unambiguous
+ * against `zConceptResponse.claims`, which is the claim ARRAY.
+ */
+export interface ConceptEvidence {
+  /** Visible claims the page makes (VISIBLE_CLAIM_STATUSES — staged claims are not knowledge). */
+  claims: number
+  /** Subset of `claims` with no wk_citations row at all. */
+  uncited_claims: number
+  /** DISTINCT wk_citations.source_id across those claims. */
+  sources: number
+}
+
 export interface ConceptSummary {
   slug: string
   title: string
   summary: string
   rev: number
   updated_at: string
+  evidence: ConceptEvidence
 }
 
 /** Compact index handed to the classify LLM call — slug/title/summary only. */
@@ -109,6 +142,13 @@ interface ConceptRevisionRow {
  * WHY slug-ordered instead of updated_at: a wiki listing is an index, and a
  * slug keyset is immune to rows moving while a client pages (an approval
  * bumping updated_at would make a time-ordered keyset skip or repeat).
+ *
+ * Every row carries its `evidence` (see ConceptEvidence): in a product whose
+ * premise is that each claim quotes an archived source, "how does the wiki
+ * know this?" is the first question a reader has, and answering it per row is
+ * what lets a caller decide which page to open. It is counted in THIS
+ * statement — never a second read per row, which on a 200-row page would be
+ * 200 round trips for three integers.
  */
 export async function listConcepts(
   db: Db,
@@ -127,13 +167,69 @@ export async function listConcepts(
     keyset = ' AND c.slug > $2'
   }
   values.push(limit + 1)
-  const { rows } = await db.query<{ slug: string; title: string; summary: string; rev: number; updated_at: Date }>(
-    `SELECT c.slug, r.title, r.summary, r.rev, c.updated_at
-       FROM wk_concepts c
-       JOIN wk_concept_revisions r ON r.id = c.current_revision_id
-      WHERE c.space_id = $1${keyset}
-      ORDER BY c.slug ASC
-      LIMIT $${values.length}`,
+  const { rows } = await db.query<{
+    slug: string
+    title: string
+    summary: string
+    rev: number
+    updated_at: Date
+    claims: number
+    uncited_claims: number
+    sources: number
+  }>(
+    // The keyset page is computed FIRST, in its own CTE, and the evidence
+    // lateral hangs off that. Written the obvious way — lateral on the main
+    // FROM, LIMIT at the top — the planner is free to sort-then-limit, and
+    // then the lateral runs once per concept IN THE SPACE instead of once per
+    // row returned. On the 5000-page wiki that most needs this feature that is
+    // the difference between 51 index probes and 5000. With the LIMIT inside
+    // the CTE the bound is structural, not a plan the optimizer happens to
+    // pick today.
+    //
+    // Cost at the 200-row clamp (`clampLimit` above): one extra statement is
+    // NOT issued — this is still the same single round trip. Per page row the
+    // lateral does one index scan on wk_claims_concept_idx (concept_id,
+    // status) plus one wk_citations_claim_idx probe per visible claim. So the
+    // work is linear in the CLAIMS on the page (≈ 201 + Σ claims probes),
+    // never quadratic in rows: a 200-row page of 30-claim pages is ~6000 index
+    // probes on covered indexes, not 200 × 200 anything. One lateral
+    // evaluation is wasted on the +1 lookahead row that `slice` drops; paying
+    // for one extra row beats a second statement to avoid it.
+    //
+    // count(DISTINCT) over the claim×citation fan-out rather than a nested
+    // pre-aggregate per claim: the fan-out is citations-per-claim (single
+    // digits), and `sources` needs the distinct across the whole page anyway,
+    // so the nested form would buy nothing and cost a second grouping level.
+    //
+    // The statuses are interpolated, not bound: they are a frozen module-level
+    // `as const` in claims.ts, never input, so there is no injection surface —
+    // and literals let the planner use the status column's statistics, which
+    // `= ANY($n::text[])` does not. Reused from VISIBLE_CLAIM_STATUSES so the
+    // list and the detail read can never disagree about what "visible" means.
+    // Keeping them out of `values` also keeps the `$${values.length}` cursor
+    // arithmetic above readable.
+    `WITH page AS (
+       SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at
+         FROM wk_concepts c
+         JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+        WHERE c.space_id = $1${keyset}
+        ORDER BY c.slug ASC
+        LIMIT $${values.length}
+     )
+     SELECT p.slug, p.title, p.summary, p.rev, p.updated_at,
+            ev.claims, ev.uncited_claims, ev.sources
+       FROM page p
+       CROSS JOIN LATERAL (
+         SELECT count(DISTINCT cl.id)::int AS claims,
+                count(DISTINCT cl.id) FILTER (WHERE ci.id IS NULL)::int AS uncited_claims,
+                count(DISTINCT ci.source_id)::int AS sources
+           FROM wk_claims cl
+           LEFT JOIN wk_citations ci ON ci.claim_id = cl.id
+          WHERE cl.space_id = $1
+            AND cl.concept_id = p.id
+            AND cl.status IN (${VISIBLE_CLAIM_STATUSES.map((status) => `'${status}'`).join(', ')})
+       ) ev
+      ORDER BY p.slug ASC`,
     values,
   )
   const page = rows.slice(0, limit)
@@ -143,6 +239,16 @@ export async function listConcepts(
     summary: row.summary,
     rev: row.rev,
     updated_at: isoString(row.updated_at),
+    // Zero is MEASURED, never absent. An un-grouped aggregate returns exactly
+    // one row even when the concept has no claims at all, which is why this is
+    // a CROSS JOIN and not a LEFT JOIN with a COALESCE: there is no NULL to
+    // defend against, by construction. That matters because "this page cites
+    // nothing" is the single most important fact this change surfaces — a page
+    // written by hand through the console has zero claims and looked exactly
+    // like a fully cited one until now. Nullable numbers would be rendered as
+    // "unknown" (the console reserves an em dash for what nobody sent), and
+    // "makes no claims" must never look like "we did not ask".
+    evidence: { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources },
   }))
   const last = page.at(-1)
   return {

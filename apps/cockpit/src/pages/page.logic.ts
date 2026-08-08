@@ -98,6 +98,210 @@ export function changedWithin(updatedAt: string | null | undefined, window: stri
   return now - at <= days * DAY_MS
 }
 
+/* ------------------------------------------------------- the index's evidence */
+
+/**
+ * How well the archive backs one row of the pages list.
+ *
+ * Four states, and the fourth is the one every dashboard drops. `unmeasured` is
+ * NOT `none`: the counts arrive with the list read, so a console talking to a
+ * binary that predates them — a tab left open across a rolling upgrade, a
+ * request that landed on the instance not yet replaced — gets rows carrying no
+ * `evidence` object at all. "The server did not say" and "the server said zero"
+ * are different facts about the world, and CUI-SEV-2 exists because a surface
+ * that prints `0` for the first one invents a measurement (see the em dash in
+ * the cell, and `compareNumber`, which refuses to sort an unmeasured value as
+ * though it were zero).
+ *
+ * `none` covers the page nobody has evidenced yet — a page written by hand
+ * through the console carries zero claims, and until now no list said so. It
+ * folds into no other state: it is not `partial` (there is nothing to be
+ * partial about) and it is emphatically not `backed`.
+ *
+ * A page whose claims are ALL uncited is `partial` rather than a state of its
+ * own, because the cell says "12 claims" beside "12 uncited" and those two
+ * numbers are more precise than any word a level name could carry.
+ */
+export type EvidenceLevel = 'unmeasured' | 'none' | 'partial' | 'backed'
+
+/**
+ * The `evidence` object one row of `GET /v1/spaces/{space}/concepts` carries.
+ *
+ * The server declares all three as required non-negative integers, and they are
+ * optional and nullable HERE and only here, because this shape's job is to
+ * describe what the console might actually receive — which includes a response
+ * from a deployment that has never heard of them (see `pageEvidence`).
+ *
+ * `claims` counts VISIBLE claims only (`verified | disputed | deprecated`);
+ * `proposed` and `draft` belong to a pending proposal rather than to the page,
+ * and counting them would let an unreviewed change make a page look evidenced.
+ * `sources` is BREADTH — distinct sources — and is emphatically not
+ * `claims - uncited_claims`: five claims quoting one document and five claims
+ * quoting five are the same number of cited claims and not the same knowledge.
+ */
+export interface EvidenceCounts {
+  claims?: number | null
+  uncited_claims?: number | null
+  sources?: number | null
+}
+
+export interface PageEvidence {
+  level: EvidenceLevel
+  /** The claim count as printed, or null where there is no count to print. */
+  count: string | null
+  /** The exception worth a badge, or null when the row has nothing to flag. */
+  flag: string | null
+  /** The `flag`'s tone. `unknown` where there is no flag, so a caller cannot paint one. */
+  tone: Tone
+  /** What backs it, in sources. Null when the server did not count them. */
+  detail: string | null
+  /** The whole state as one sentence — the cell's `title`, and its only text when unmeasured. */
+  reading: string
+  /** Ascending order = least-backed first. Null is unmeasured, never "worst". */
+  rank: number | null
+}
+
+/**
+ * A count the server actually sent, or null.
+ *
+ * A negative or fractional count is a server that is wrong about itself, and the
+ * console reads that as "not measured" rather than rendering an impossible row:
+ * `-1 claims` teaches an operator nothing and would sort between the pages
+ * nothing backs and the pages something does.
+ */
+function measuredCount(value: number | null | undefined): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  if (value < 0 || !Number.isInteger(value)) return null
+  return value
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
+}
+
+/**
+ * The sort key, alone, because the comparator runs O(n log n) times.
+ *
+ * Building a whole `PageEvidence` — four strings, one object — inside a
+ * comparator over two hundred rows allocates a few thousand objects for every
+ * click on the header, so the ordering rule is extracted and `pageEvidence`
+ * calls it rather than the other way round.
+ *
+ * The key is the SHARE of a page's claims that carry a quote, not the number of
+ * them: the column answers "is this page's evidence complete", so a page with
+ * three claims and three quotes ranks above one with two hundred claims and one
+ * missing quote. Volume is not the question — a wiki is not better because a
+ * page asserts more.
+ *
+ * A page with no claims ranks 0, alongside a page whose every claim is uncited,
+ * and that is deliberate: in both, nothing in the archive backs a word of it.
+ * Unmeasured is `null` and NOT 0 — `compareNumber` puts unmeasured below every
+ * measured value, which is the console's one rule for blanks everywhere. In
+ * practice the two never mix: the counts come from one response, so either every
+ * row has them or none does.
+ */
+export function evidenceRank(counts: EvidenceCounts | null | undefined): number | null {
+  const claims = measuredCount(counts?.claims)
+  const uncited = measuredCount(counts?.uncited_claims)
+  if (claims === null || uncited === null) return null
+  if (claims === 0) return 0
+  return (claims - Math.min(uncited, claims)) / claims
+}
+
+/**
+ * One row's evidence, ready to render.
+ *
+ * The tone is the decision worth defending, and only two states get one at all:
+ *
+ *  - **`backed` wears no badge, and certainly not a green one.** Every claim
+ *    quoting a source is this product's baseline promise, not an achievement; a
+ *    `success` pill on two thirds of a list stops meaning anything by the third
+ *    row, and it is exactly the token CUI-AI-1 forbids putting anywhere near
+ *    "how does the wiki know this". The plain count IS the statement — the same
+ *    refusal `evidenceOf` already makes for a single cited claim.
+ *  - **`partial` is `warning`** — `STATE_TOKEN`'s `blocked`, "stopped until a
+ *    human acts", which is literally the state: those claims stay unbacked until
+ *    somebody finds the quote or withdraws them.
+ *  - **`none` is `warning` too, and the alternatives were both wrong.**
+ *    `success` is forbidden outright: a page nothing backs must never wear a
+ *    token that reads as verified (CUI-AI-1, CUI-SEV-1). `danger` overstates it
+ *    — nobody erred, a hand-written page legitimately starts with no claims and
+ *    the operator who wrote it did exactly what the editor invited. And
+ *    `unknown` — the muted dashed pill — is the trap: that is this console's
+ *    word for "not measured", and the very same column needs it for the row
+ *    whose counts never arrived. Spending it on a measured zero as well would
+ *    collapse the one distinction CUI-SEV-2 is about, in the one place the
+ *    product cannot afford to lose it.
+ *
+ * `none` and `partial` therefore share a colour, and the CELL is what separates
+ * them: `partial` prints a claim count with the amber flag beside it as the
+ * exception, `none` prints the flag and no count at all, `backed` prints a count
+ * and no flag. Three shapes, three readings, and a word on every one of them
+ * because colour alone says nothing (CUI-A11Y-5).
+ */
+export function pageEvidence(counts: EvidenceCounts | null | undefined): PageEvidence {
+  const claims = measuredCount(counts?.claims)
+  const uncited = measuredCount(counts?.uncited_claims)
+  const rank = evidenceRank(counts)
+
+  if (claims === null || uncited === null)
+    return {
+      level: 'unmeasured',
+      count: null,
+      flag: null,
+      tone: 'unknown',
+      detail: null,
+      reading: 'This list came back without evidence counts, so how well this page is backed is not known here.',
+      rank,
+    }
+
+  // Clamped rather than trusted: more uncited claims than claims is a server
+  // that contradicts itself, and "13 of 12" is a row an operator would rightly
+  // stop believing. The clamp reads as "all of them", which is the worst case
+  // either number could mean.
+  const missing = Math.min(uncited, claims)
+  const sources = measuredCount(counts?.sources)
+  // A page with no claims necessarily has no sources, so "0 sources" beside "No
+  // claims" is the same fact twice. Everywhere else the count is printed even at
+  // zero, because a measured zero is a fact (CUI-SEV-2).
+  const detail = sources === null || claims === 0 ? null : plural(sources, 'source', 'sources')
+  const backing = detail ? `, backed by ${detail}` : ''
+
+  if (claims === 0)
+    return {
+      level: 'none',
+      count: null,
+      flag: 'No claims',
+      tone: 'warning',
+      detail: null,
+      reading: 'This page makes no claims yet, so nothing in the archive backs it.',
+      rank,
+    }
+
+  const count = plural(claims, 'claim', 'claims')
+
+  if (missing === 0)
+    return {
+      level: 'backed',
+      count,
+      flag: null,
+      tone: 'unknown',
+      detail,
+      reading: `${count}, every one quoting a source${backing}.`,
+      rank,
+    }
+
+  return {
+    level: 'partial',
+    count,
+    flag: `${missing} uncited`,
+    tone: 'warning',
+    detail,
+    reading: `${count}, ${missing} of them with no quote behind it${backing}.`,
+    rank,
+  }
+}
+
 /* ---------------------------------------------------------------- the claims */
 
 /** The part of a claim this module decides on. The wire carries more. */

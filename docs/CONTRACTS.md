@@ -802,7 +802,7 @@ export function listConcepts(
   db: Db,
   spaceId: string,
   args: { limit?: number; after?: string },
-): Promise<{ items: ConceptSummary[]; next_after: string | null; epoch: number }>
+): Promise<{ items: ConceptSummary[]; next_after: string | null; epoch: number }> // ConceptSummary carries `evidence` over VISIBLE claims — §5.3
 export function getConcept(db: Db, spaceId: string, args: { slug: string }): Promise<ConceptDetail> // markdown + claims + citations + relations + rev
 export function getConceptHistory(db: Db, spaceId: string, args: { slug: string }): Promise<RevisionSummary[]> // incl. agent_meta
 export function getConceptIndex(db: Db, spaceId: string): Promise<ConceptIndexEntry[]> // compact index for classify
@@ -1065,7 +1065,7 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read                     | `getSourceHandler`             | params `zSpaceIdParams`                                                | 200 `zSourceResponse`                                                                                                                                            |
 | GET    | `/v1/spaces/{space}/decisions`                | knowledge:read                     | `listDecisionsHandler`         | query `zListQuery`                                                     | 200 `zDecisionListResponse`                                                                                                                                      |
 | GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read                     | `getDecisionHandler`           | params `zDecisionParams`                                               | 200 `zDecisionResponse`                                                                                                                                          |
-| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read                     | `listConceptsHandler`          | query `zListQuery`                                                     | 200 `zConceptListResponse` (ETag = `"<space-epoch>"`, 304 on If-None-Match)                                                                                      |
+| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read                     | `listConceptsHandler`          | query `zListQuery`                                                     | 200 `zConceptListResponse` (ETag = `"<space-epoch>"`, 304 on If-None-Match; every item carries `evidence`, counted over VISIBLE claims only — §5.3)              |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read                     | `getConceptHandler`            | params `zConceptParams`                                                | 200 `zConceptResponse`                                                                                                                                           |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read                     | `getConceptHistoryHandler`     | params `zConceptParams`                                                | 200 `zConceptHistoryResponse`                                                                                                                                    |
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read                     | `searchHandler`                | query `zSearchQuery`                                                   | 200 `zSearchResponse`                                                                                                                                            |
@@ -1220,6 +1220,53 @@ export const zCreateApiKeyRequest = z.object({
   space: z.string().optional(), // space slug; omitted = all spaces
 })
 ```
+
+`zConceptListResponse` (the page index) — every row answers "how does the wiki
+know this?" without a second request:
+
+```ts
+export const zConceptListResponse = z.object({
+  items: z.array(
+    z.object({
+      slug: z.string(),
+      title: z.string(),
+      summary: z.string(),
+      rev: z.number().int(),
+      updated_at: z.string(),
+      evidence: z.object({
+        claims: z.number().int().nonnegative(), // visible claims the page makes
+        uncited_claims: z.number().int().nonnegative(), // ⊆ claims: those with no wk_citations row
+        sources: z.number().int().nonnegative(), // DISTINCT wk_citations.source_id across those claims
+      }),
+    }),
+  ),
+  next_after: z.string().nullable(),
+  epoch: z.number().int(),
+})
+```
+
+**Visibility is binding, not an implementation detail.** `evidence` counts only
+claims in `verified | disputed | deprecated` — `VISIBLE_CLAIM_STATUSES` in
+`src/domain/claims.ts`, `zVisibleClaimStatus` here, the same set
+`zConceptResponse.claims[].status` admits. `proposed` and `draft` are STAGED:
+they belong to a pending proposal, not to knowledge, and MUST NOT be counted.
+Counting them would let an unreviewed proposal make a page look evidenced,
+which inverts the review gate — the one guarantee this product exists to keep.
+
+Invariants a client may rely on:
+
+- `evidence` is always present and always three integers. There is no null and
+  no absent case: the numbers are measured on every read.
+- `uncited_claims <= claims`. `claims - uncited_claims` is how many claims are
+  cited, which is **not** `sources` — `sources` is distinct sources, and one
+  source commonly backs many claims.
+- `claims === 0` implies `uncited_claims === 0` and `sources === 0`. That
+  triple is a **measured** zero and a legitimate state of a published page: a
+  page written by hand through the cockpit carries no claims at all. It is not
+  an error and not missing data.
+- `wk_claims` hangs off `concept_id`, not off a revision (§1.5), so `evidence`
+  describes the page as it stands now. It does not move with `rev`, and reading
+  an older revision through `/history` does not change it.
 
 `zConceptResponse` (the full read used by REST **and** `wikikit_read`):
 
