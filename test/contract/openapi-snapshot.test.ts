@@ -17,12 +17,23 @@ const SNAPSHOT_URL = new URL('../../docs/openapi.json', import.meta.url)
 
 // One copy-pasteable command (no helper script to drift on its own): rebuild
 // the snapshot from the same registry + version this test compares against.
+//
+// WHY the JSON is written COMPACT and handed to prettier rather than indented
+// here: prettier 3 defaults to `objectWrap: "preserve"`, so it keeps an object
+// expanded when the input already had a line break inside it. Writing
+// `JSON.stringify(…, null, 2)` therefore survives formatting unchanged and
+// re-inflates a 1,500-line document into 8,800 — a diff nobody can review, in
+// a file whose entire justification is that its diffs get reviewed. Worse, the
+// tests below cannot catch it: they compare PARSED JSON, and the re-inflated
+// document is byte-different but semantically identical. Compact in, prettier
+// out, and the diff for a one-word change is one line.
 const REGENERATE =
   'docs/openapi.json is stale — regenerate it from the repo root with:\n\n' +
   `  bun -e "const { ROUTES } = await import('./src/http/routes.ts');` +
   ` const { buildOpenApi } = await import('./src/http/openapi.ts');` +
   ` const pkg = JSON.parse(await Bun.file('package.json').text());` +
-  ` await Bun.write('docs/openapi.json', JSON.stringify(buildOpenApi(ROUTES, { version: pkg.version }), null, 2) + '\\n')"\n\n` +
+  ` await Bun.write('docs/openapi.json', JSON.stringify(buildOpenApi(ROUTES, { version: pkg.version })))"` +
+  ` && bun run format\n\n` +
   'then commit the diff (a snapshot change IS an API change — review it as one).'
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }

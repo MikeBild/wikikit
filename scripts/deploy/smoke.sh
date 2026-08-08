@@ -45,14 +45,48 @@ skip() {
   printf '  \033[33m–\033[0m skipped: %s\n' "$1"
 }
 
-# Status code only.
-code() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
-# Body only, failures swallowed so a refusal is data rather than a crash.
-body() { curl -sS "$@" 2>/dev/null || true; }
+# WHEN this script runs: seconds after the deployer moved a new binary into
+# place and restarted the unit. A connection refused or reset in that window is
+# the service still coming up, not a broken release — but nothing here can tell
+# the two apart from a single attempt, and every check reads a refusal as a
+# fact about the deployment. So a connection-level failure is retried before it
+# is believed.
+#
+# `--retry-connrefused` because a refusal is the exact shape a not-yet-listening
+# socket has. `--connect-timeout` separately from `--max-time` so a black-holed
+# packet gives up in seconds while a genuinely slow page still gets its time.
+# HTTP responses are not retried by this: curl retries 5xx as well, and no check
+# below expects one, so the only effect there would be to arrive at the same
+# answer more slowly.
+#
+# This is not only about production. Run against a loopback server under load —
+# which is what the test suite does — an occasional refusal made the whole gate
+# non-deterministic, and a gate people re-run instead of read has stopped being
+# a gate.
+# How long to keep believing the service is still coming up. Tunable because
+# the right answer belongs to whoever runs the deployer, not to this file: a
+# unit that restarts in a second wants none of this, and one that reconnects a
+# pool first may want more.
+CURL_RETRY=(--retry "${SMOKE_CONNECT_RETRIES:-2}" --retry-delay 1 --retry-connrefused --connect-timeout 5 --max-time 30)
+
+# Status code only. `000` is curl's "no HTTP response at all" — a caller that
+# compares against a real status must treat it as absence, never as a value.
+#
+# The failure is swallowed, like `body`'s, so an unreachable installation is
+# DATA rather than a crash. Without this, `set -e` killed the script inside the
+# first command substitution and printed one raw curl line: a run that promises
+# a named list of checks would end having reported none of them, on precisely
+# the deployment somebody most needs the list for. Now every check gets asked
+# and every one of them says `got 000`.
+code() { curl -sS "${CURL_RETRY[@]}" -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || true; }
+# Body only, failures swallowed so a refusal is data rather than a crash. Every
+# caller judges the body's CONTENT, so an empty string fails whatever it was
+# asked — no check below is satisfied by a body's silence.
+body() { curl -sS "${CURL_RETRY[@]}" "$@" 2>/dev/null || true; }
 # Headers only, lower-cased so a proxy's capitalisation is not a test result,
 # and de-CRed so a header value never carries a stray \r into a comparison or
 # into the diagnostic printed next to a failure.
-head_of() { curl -sSI "$@" 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true; }
+head_of() { curl -sSI "${CURL_RETRY[@]}" "$@" 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true; }
 
 # The directive of a Content-Security-Policy that actually governs <script>:
 # `script-src` when the policy names one, `default-src` when it does not,
@@ -138,17 +172,35 @@ esac
 # all: the service binds 127.0.0.1 and the gate lives in front of it. Reporting
 # a pass there would be the check claiming to have verified something it never
 # saw, and reporting a failure would train people to ignore a red line.
+#
+# SMOKE_PROXIED=1 forces the judged branch for an address that looks like
+# loopback. It exists so this branch can be held against installations that are
+# wrong on purpose — it is the only check here that a loopback fixture could
+# not otherwise reach, and an unreachable check is an unproven one.
+LOOPBACK=no
 case "$BASE" in
-  http://127.0.0.1* | http://localhost* | 'http://[::1]'*)
+  http://127.0.0.1* | http://localhost* | 'http://[::1]'*) LOOPBACK=yes ;;
+esac
+[ "${SMOKE_PROXIED:-}" = '1' ] && LOOPBACK=no
+if [ "$LOOPBACK" = yes ]; then
+  METRICS=loopback
+else
+  METRICS="$(code "$BASE/metrics")"
+fi
+case "$METRICS" in
+  loopback)
     skip "/metrics gating (no reverse proxy in front of a loopback address)"
     ;;
-  *)
-    METRICS="$(code "$BASE/metrics")"
-    case "$METRICS" in
-      200) fail "/metrics is not reachable from outside" "answered 200 — the reverse proxy is not gating it" ;;
-      *) pass "/metrics is not reachable from outside (${METRICS})" ;;
-    esac
+  200) fail "/metrics is not reachable from outside" "answered 200 — the reverse proxy is not gating it" ;;
+  # No HTTP response at all, after retries. This is NOT evidence of gating, and
+  # calling it one would be the worst reading available: `000` is equally what a
+  # firewall dropping the packet looks like and what a broken network looks
+  # like, and only the first of those is the deployment being correct. Nothing
+  # here can tell them apart, so this run did not make the check.
+  000)
+    skip "/metrics gating (no HTTP response — a dropped packet and a network fault look identical from here)"
     ;;
+  *) pass "/metrics is not reachable from outside (${METRICS})" ;;
 esac
 
 echo "· the cockpit is served"

@@ -45,7 +45,7 @@ const CHOOSER_PATH = '/v1/identity/choose'
  * `csp` is null for the deployment that serves no policy at all — the case the
  * script has to treat as a failure rather than as an absence of bad news.
  */
-function installation(csp: string | null): (request: Request) => Response {
+function installation(csp: string | null, metricsStatus = 404): (request: Request) => Response {
   return (request) => {
     const path = new URL(request.url).pathname
     const head = request.method === 'HEAD'
@@ -68,6 +68,14 @@ function installation(csp: string | null): (request: Request) => Response {
         return send('{"error":"unauthorized"}', { status: 401, headers: { 'content-type': 'application/json' } })
       case '/mcp':
         return send('', { status: 401, headers: { 'www-authenticate': 'Bearer resource_metadata="/x"' } })
+      // The default is the shape of a correctly gated installation: the reverse
+      // proxy answers for the path itself, so the service behind it is never
+      // asked. 200 is the open endpoint this check exists to catch.
+      case '/metrics':
+        return send('# HELP wikikit_requests_total', {
+          status: metricsStatus,
+          headers: { 'content-type': 'text/plain' },
+        })
       case '/v1/session':
         return send('{"session":null}', { headers: { 'content-type': 'application/json' } })
       case '/v1/identity/cockpit-login':
@@ -101,8 +109,11 @@ interface Run {
  * JavaScript handler on this very event loop, so a synchronous child that waits
  * for it would wait forever.
  */
-async function smoke(csp: string | null): Promise<Run> {
-  const server = Bun.serve({ port: 0, fetch: installation(csp) })
+async function smoke(
+  csp: string | null,
+  { env: extraEnv = {}, metrics = 404 }: { env?: Record<string, string>; metrics?: number } = {},
+): Promise<Run> {
+  const server = Bun.serve({ port: 0, fetch: installation(csp, metrics) })
   try {
     const proc = Bun.spawn(['bash', SMOKE], {
       env: {
@@ -113,6 +124,7 @@ async function smoke(csp: string | null): Promise<Run> {
         // proxy instead.
         no_proxy: '*',
         NO_PROXY: '*',
+        ...extraEnv,
       },
       stdout: 'pipe',
       stderr: 'pipe',
@@ -200,6 +212,78 @@ describe.skipIf(!HAS_BASH || !HAS_CURL)('the deploy smoke test', () => {
     const run = await smoke(GOOD_CSP.replace(" 'sha256-Zm9vYmFyYmF6'", ''))
     expect(verdict(run, BY_HASH)).toBe('fail')
     expect(verdict(run, NO_UNSAFE_INLINE)).toBe('pass')
+  })
+
+  // The /metrics gate is the one check a loopback fixture skips, so until now
+  // nothing had ever run it. An unexercised check in a script whose entire job
+  // is to be exercised is the same bet as no check at all — SMOKE_PROXIED
+  // exists to settle it.
+  describe('the /metrics gate', () => {
+    const PROXIED = { env: { SMOKE_PROXIED: '1' } }
+    const LABEL = '/metrics is not reachable from outside'
+
+    test('a loopback address is skipped, not judged', async () => {
+      const run = await smoke(GOOD_CSP)
+      expect(verdict(run, LABEL)).toBe('missing')
+      expect(run.out).toContain('no reverse proxy in front of a loopback address')
+    })
+
+    test('a proxy answering for the path is the passing shape', async () => {
+      const run = await smoke(GOOD_CSP, { ...PROXIED, metrics: 404 })
+      expect(verdict(run, LABEL)).toBe('pass')
+      expect(run.code).toBe(0)
+    })
+
+    test('an open metrics endpoint fails', async () => {
+      // The regression this check exists for: the service answering /metrics
+      // straight through to the internet.
+      const run = await smoke(GOOD_CSP, { ...PROXIED, metrics: 200 })
+      expect(verdict(run, LABEL)).toBe('fail')
+      expect(run.out).toContain('the reverse proxy is not gating it')
+      expect(run.code).toBe(1)
+    })
+
+    test('no HTTP response at all is skipped rather than passed', async () => {
+      // `000` is curl saying it never got an answer, and that is EQUALLY what a
+      // firewall dropping the packet and a broken network look like. Only the
+      // first is the deployment being right, so the old `anything but 200 is a
+      // pass` printed a green tick for a check it had not made — the exact
+      // false green this file exists to prevent.
+      //
+      // Reached by pointing the script at a port nothing listens on: every
+      // other check fails, which is expected and not what is asserted here.
+      const dead = Bun.serve({ port: 0, fetch: () => new Response('') })
+      const port = dead.port
+      await dead.stop(true)
+      const proc = Bun.spawn(['bash', SMOKE], {
+        env: {
+          ...process.env,
+          WIKIKIT_DEPLOY_URL: `http://127.0.0.1:${port}`,
+          SMOKE_PROXIED: '1',
+          // Nothing is coming up behind this port, so waiting for it only makes
+          // the test slow.
+          SMOKE_CONNECT_RETRIES: '0',
+          no_proxy: '*',
+          NO_PROXY: '*',
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+      const run: Run = { code: await proc.exited, out: out + err }
+
+      expect(verdict(run, LABEL)).not.toBe('pass')
+      expect(run.out).toContain('a dropped packet and a network fault look identical from here')
+
+      // And it got that far at all: an unreachable installation used to kill
+      // the script inside the first command substitution, so a run that
+      // promises a named list of checks reported none of them — on exactly the
+      // deployment somebody most needs the list for. Every check is asked, each
+      // says what it did not get, and the summary is still printed.
+      expect(run.out).toContain('expected 200, got 000')
+      expect(run.out).toMatch(/✗ \d+ of \d+ checks failed/)
+      expect(run.code).toBe(1)
+    })
   })
 
   test('the version check stays quiet unless EXPECT_VERSION asks for it', async () => {

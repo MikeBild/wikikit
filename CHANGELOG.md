@@ -6,6 +6,99 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.26.1 - 2026-08-08
+
+Nothing in the binary changed. Almost every fix here is in
+`scripts/deploy/smoke.sh`, the script that stands between a release and the
+claim that the release is good — and they were found by chasing a test that
+failed once in ten runs rather than dismissing it as noise.
+
+### Fixed
+
+- **The OpenAPI regeneration instruction produced an unreviewable diff.** The
+  command the snapshot test prints when it goes stale wrote the document
+  indented. Prettier 3 preserves an object's expansion when the input already
+  had a line break inside it, so that formatting survived untouched and turned
+  a 1,500-line document into 8,800 — in the one file whose entire justification
+  is that its diffs get read in review. Nothing caught it: the tests compare
+  parsed JSON, and the re-inflated document is byte-different but semantically
+  identical, so it would have passed the gate and landed. The command now
+  writes compact JSON and lets `bun run format` do the layout, which makes the
+  diff for a one-word change one line.
+
+- **A green tick over a check that was never made.** `/metrics` is
+  unauthenticated by design and has to be gated by the reverse proxy, so the
+  check asked for it from outside and treated anything other than `200` as
+  proof of gating. But `000` is not a status — it is curl reporting that it
+  never got an answer at all, and it is equally what a firewall dropping the
+  packet and a broken network look like. Only the first of those is the
+  deployment being correct, and nothing at that point can tell them apart. The
+  run now says so and counts it as skipped. This is the third false green found
+  in this file and the same shape as the other two: a check whose passing
+  condition was the absence of bad news rather than the presence of good news.
+
+- **An unreachable installation reported none of its checks.** `set -e` killed
+  the script inside the first command substitution, so a host that did not
+  answer produced one raw curl line and no list — on precisely the deployment
+  somebody most needs the list for. A connection failure is now data, like a
+  body's, so every check is asked, each says `got 000`, and the summary still
+  prints.
+
+- **A restart the script was too impatient for.** It runs seconds after the
+  deployer moves a binary into place and restarts the unit, which is exactly
+  when a connection refused means "still coming up" rather than "broken" —
+  and it believed the first attempt. Connection-level failures are now retried
+  (`SMOKE_CONNECT_RETRIES`, default 2), which also removes the flake this
+  release started with: an occasional refusal against a loopback fixture under
+  load made `bun run gate` non-deterministic, and a gate people re-run instead
+  of read has stopped being a gate.
+
+### Known
+
+- **The page list and the linter disagree about the same pages, and 0.26.0's
+  reasoning for the new rule was measured on the wrong one of them.** That entry
+  motivated `unsourced-concepts` with "roughly a third of published pages carry
+  no claims at all". That number came from the concept list, which counts every
+  page. The rule counts a smaller set: it excludes revisions marked as import
+  scaffolding. Held against a real installation of sixteen wikis, the list
+  reports about fifty pages with no evidence and the rule reports thirteen — so
+  the sentence is true about the list and misleading about the rule it was
+  written to justify.
+
+  The gap is not an error in either query; both do what they say. It is that
+  two surfaces answer the same question differently, which is exactly what the
+  same entry promised to avoid when it aligned search with the list. An
+  operator looking at one wiki sees twenty-four pages reported with `sources: 0`
+  in the index, opens the linter to find out what to do about them, and is told
+  nothing is wrong.
+
+  The excluded pages are not invisible furniture, either. They carry a title,
+  they appear in the index, a reader can open them, and they are blank — their
+  summary says they were created as targets for relations imported from
+  elsewhere, and they now have no relations at all. Calling them "never a page
+  anybody wrote to be read" describes where they came from, not what they are
+  now.
+
+  This is left open deliberately rather than settled here, because every way of
+  closing it changes what an operator's linter says about their own wikis, and
+  the three candidates differ in kind: report them as unsourced like any other
+  page; give them their own rule that names what is actually wrong with them
+  (leftover import stub — delete it, rather than "ingest a source"); or keep the
+  exclusion and have the index stop presenting their zero as if it were a
+  knowledge page's zero, the way a search hit omits evidence rather than
+  reporting it as zero. Related: the exclusion list in `src/domain/lint.ts`
+  hardcodes one installation's private migration tag, which is a fact about a
+  particular deployment living in a product that otherwise knows nothing about
+  where it runs.
+
+### Added
+
+- **The `/metrics` gate is now actually exercised.** It was the one check a
+  loopback fixture skipped, so no test had ever run it — an unexercised check
+  in a script whose whole job is to be exercised is the same bet as no check at
+  all. `SMOKE_PROXIED=1` forces the judged branch, and all four outcomes
+  (skipped on loopback, pass, open endpoint, no response) are now pinned.
+
 ## 0.26.0 - 2026-08-08
 
 This release closes both items 0.24.0 left under **Known** — the `contradictions`
