@@ -44,7 +44,11 @@ export const wk = {
       unwrap(api.GET('/v1/spaces/{space}/sources', { params: { path: { space }, query: query as never } })),
     get: (space: string, id: string) =>
       unwrap(api.GET('/v1/spaces/{space}/sources/{id}', { params: { path: { space, id } } })),
-    streams: (space: string) => unwrap(api.GET('/v1/spaces/{space}/source-streams', { params: { path: { space } } })),
+    // Takes a query for one reason: `zSourceStreamListQuery` accepts a `limit`
+    // and defaults to 50 without one, and a caller that cannot name the limit
+    // cannot know which ceiling it is under.
+    streams: (space: string, query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/spaces/{space}/source-streams', { params: { path: { space }, query: query as never } })),
     forgetStream: (space: string, externalSourceId: string) =>
       unwrapAs<unknown>(
         api.DELETE('/v1/spaces/{space}/source-streams/{external_source_id}', {
@@ -174,7 +178,10 @@ export const keys = {
   decision: (space: string, slug: string) => ['spaces', space, 'decisions', slug] as const,
   sources: (space: string, query?: unknown) => ['spaces', space, 'sources', query ?? null] as const,
   source: (space: string, id: string) => ['spaces', space, 'sources', id] as const,
-  streams: (space: string) => ['spaces', space, 'source-streams'] as const,
+  // The query slot is part of the key, exactly as it is for sources and
+  // concepts: two reads of this list under different limits are two different
+  // answers, and a mutation must invalidate the one it changed by naming it.
+  streams: (space: string, query?: unknown) => ['spaces', space, 'source-streams', query ?? null] as const,
   search: (space: string, query: unknown) => ['spaces', space, 'search', query] as const,
   changes: (space: string, query?: unknown) => ['spaces', space, 'changes', query ?? null] as const,
   change: (id: string) => ['changes', id] as const,

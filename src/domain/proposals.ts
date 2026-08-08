@@ -19,6 +19,7 @@ import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
 import {
   findContradictions,
+  getFunctionalPredicates,
   getPredicateRegistry,
   zClaimTriple,
   type ClaimStatus,
@@ -54,7 +55,11 @@ export interface ProposalSummary {
 export interface ClaimDiff extends ClaimTriple {
   status: ClaimStatus
   confidence: number
-  /** Pending only: exact-frame collision with an existing visible claim. */
+  /**
+   * Pending only: this claim and an existing visible one form a pair that
+   * wk_apply_proposal flip 5 WILL dispute on approval. Not a bare frame match
+   * — a collision the flip would skip must never be flagged (see getProposal).
+   */
   collides: boolean
   citations: { source_id: string; quote: string; locator: string; source_title: string | null }[]
 }
@@ -844,8 +849,8 @@ interface ProposalRow {
  * space_id against the key's space). Claims are grouped:
  *   added      — every claim this proposal stages
  *   disputed   — claims that ARE disputed (post-approval) or WOULD BE
- *                (pending: exact-frame collision with an existing visible
- *                claim) — the reviewer sees the dispute before deciding
+ *                (pending: a collision approval's flip 5 will actually
+ *                dispute) — the reviewer sees the dispute before deciding
  *   deprecated — claims of this proposal in status 'deprecated' (empty in
  *                v0.1 flows; the shape is part of the wire contract)
  */
@@ -872,9 +877,32 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     [args.id],
   )
 
-  // One query for all proposal claims with a "collides" flag computed by the
-  // same frame rule as wk_apply_proposal flip 5 — used only while pending
-  // (after approval the persisted 'disputed' status is the truth).
+  // One query for all proposal claims with a "collides" flag — used only while
+  // pending (after approval the persisted 'disputed' status is the truth).
+  //
+  // Every condition below is a condition of wk_apply_proposal flip 5 (0022),
+  // because the review surfaces render this flag as "approval disputes BOTH
+  // sides". A flag BROADER than the flip tells the reviewer a consequence the
+  // approval will not produce, which is worse than no flag at all:
+  //   * functional predicates — predicate cardinality is space configuration
+  //     and the declared set is EMPTY by default (0003, 0021). A bare
+  //     subject+predicate+different-object match therefore promises a dispute
+  //     in every space that never declared one, i.e. in most spaces.
+  //   * context / normalized object / overlapping validity / the
+  //     adjudication='complementary' stamp / explicit supersession — the 0021
+  //     refinements. A partitioned frame ('region:eu' vs 'region:us'), two
+  //     canonically equal values ('1 GiB' vs '1024 MiB'), disjoint validity
+  //     (succession), an adjudicated complement and a staged supersession all
+  //     look like collisions to the coarse rule, and none of them dispute.
+  // The declared set arrives as a PARAMETER, resolved by
+  // getFunctionalPredicates — the TypeScript mirror of the SQL
+  // wk_functional_predicates, which the raw-query guard rightly refuses to let
+  // this module name (db.call is the only RPC path, §1.15). Rejected: inlining
+  // the settings lookup in SQL, because settings carry the declaration in TWO
+  // representations (the typed predicate_defs registry and the legacy
+  // functional_predicates array) and a hand-inlined copy that reads only one
+  // of them under-reports collisions without ever failing a query.
+  const functionalPredicates = await getFunctionalPredicates(db, proposal.space_id)
   const claims = await db.query<{
     id: string
     concept_id: string
@@ -886,19 +914,30 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     collides: boolean
   }>(
     `SELECT cl.id, cl.concept_id, cl.subject, cl.predicate, cl.object, cl.status, cl.confidence,
-            EXISTS (
-              SELECT 1 FROM wk_claims other
-               WHERE other.space_id = cl.space_id
-                 AND other.subject = cl.subject
-                 AND other.predicate = cl.predicate
-                 AND other.object <> cl.object
-                 AND other.proposal_id IS DISTINCT FROM cl.proposal_id
-                 AND other.status IN ('verified', 'disputed')
+            (
+              cl.predicate = ANY ($2::text[])
+              AND coalesce(cl.agent_meta->>'adjudication', '') <> 'complementary'
+              AND EXISTS (
+                SELECT 1 FROM wk_claims other
+                 WHERE other.space_id = cl.space_id
+                   AND other.subject = cl.subject
+                   AND other.predicate = cl.predicate
+                   AND coalesce(other.context, '') = coalesce(cl.context, '')
+                   AND coalesce(other.object_normalized, other.object)
+                       <> coalesce(cl.object_normalized, cl.object)
+                   AND other.proposal_id IS DISTINCT FROM cl.proposal_id
+                   AND other.status IN ('verified', 'disputed')
+                   AND coalesce(cl.valid_from, '-infinity'::timestamptz)
+                       < coalesce(other.valid_until, 'infinity'::timestamptz)
+                   AND coalesce(other.valid_from, '-infinity'::timestamptz)
+                       < coalesce(cl.valid_until, 'infinity'::timestamptz)
+                   AND (cl.supersedes_claim_id IS NULL OR cl.supersedes_claim_id <> other.id)
+              )
             ) AS collides
        FROM wk_claims cl
       WHERE cl.proposal_id = $1
       ORDER BY cl.created_at ASC`,
-    [args.id],
+    [args.id, functionalPredicates],
   )
 
   // Citations for every staged claim, with the source title resolved — the

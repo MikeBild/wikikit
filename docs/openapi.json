@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.23.0",
+    "version": "0.24.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -3035,6 +3035,10 @@
           "403": {
             "description": "Identity or requested access denied",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "429": {
+            "description": "Registration rate limit exceeded for this address",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
           }
         }
       }
@@ -3338,6 +3342,13 @@
           },
           "403": {
             "description": "Identity or requested access denied",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "429": {
+            "description": "Too many sign-in attempts from this address",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
               "text/html": { "schema": { "type": "string" } }

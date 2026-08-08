@@ -13,6 +13,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { NAV, GROUPS, entryFor } from '../../apps/cockpit/src/app/nav.ts'
+import { isProxied } from '../../apps/cockpit/dev-proxy.ts'
 import { holdsScope } from '../../src/http/auth.ts'
 import { ROUTES } from '../../src/http/routes.ts'
 
@@ -116,6 +117,30 @@ describe('the groups', () => {
   test('exactly one group is separated — the installation block', () => {
     const separated = GROUPS.filter((group) => group.separated)
     expect(separated.map((group) => group.id)).toEqual(['installation'])
+  })
+})
+
+describe('the dev server forwards everything the console reaches', () => {
+  test('every declared path is proxied by `bun run dev:cockpit`', () => {
+    // The same declaration, read for a different purpose. `entry.api` already
+    // has to name every path a page reaches, so it is also the complete list of
+    // what Vite must forward to the running server — and a path missing from
+    // the proxy is not a 404 an operator would recognise, it is Vite's SPA
+    // fallback answering with 200 text/html. The page then fails to parse its
+    // own JSON and shows its error state, on every dev run, for as long as
+    // nobody thinks to compare two lists by hand.
+    for (const entry of NAV) {
+      for (const path of entry.api) {
+        expect(isProxied(path), `${entry.to} reaches ${path}, which dev-proxy.ts does not forward`).toBe(true)
+      }
+    }
+  })
+
+  test('no proxy prefix swallows the console itself', () => {
+    // The console is served at /cockpit/ by Vite. A prefix that captured it
+    // would forward the app's own assets to the API and serve nothing.
+    expect(isProxied('/cockpit/')).toBe(false)
+    expect(isProxied('/')).toBe(false)
   })
 })
 

@@ -15,7 +15,10 @@ import {
   ingestBody,
   ingestProblem,
   sourceLabel,
+  STREAM_CAP_NOTE,
+  STREAM_CEILING,
 } from '../../../apps/cockpit/src/pages/sources.logic.ts'
+import { zSourceStreamListQuery } from '../../../src/http/schemas.ts'
 
 describe('when to stop polling', () => {
   test('the terminal set is the database’s vocabulary, not an invented one', () => {
@@ -170,5 +173,30 @@ describe('reading a source', () => {
     expect(sourceLabel({ title: 'Handbook', url: 'https://example.test/h', id: 'abc' })).toBe('Handbook')
     expect(sourceLabel({ title: null, url: 'https://example.test/h', id: 'abc' })).toContain('example.test')
     expect(sourceLabel({ title: null, url: null, id: 'abc' })).toContain('abc')
+  })
+})
+
+// The connector streams list is the only table in this console whose ceiling
+// hides a CONTROL. Forget lives in a stream's row, so a stream the read never
+// returned cannot be stopped from here — and until this fix, nothing on the
+// page said the read had a ceiling at all: the request named no limit, which
+// `listStreams` reads as fifty.
+describe('how many connector streams the page asks for', () => {
+  test('it asks for the endpoint’s own maximum, not the default it would get for free', () => {
+    // The schema is the contract. If the endpoint's maximum ever rises, this
+    // fails and the console is told to come and take the rest.
+    expect(zSourceStreamListQuery.parse({ limit: STREAM_CEILING }).limit).toBe(STREAM_CEILING)
+    expect(() => zSourceStreamListQuery.parse({ limit: STREAM_CEILING + 1 })).toThrow()
+  })
+
+  test('it asks for more than the fifty a limit-less request would return', () => {
+    // `listStreams` calls clampLimit(args.limit, 50, 200): naming no limit is
+    // not "everything", it is fifty, silently.
+    expect(STREAM_CEILING).toBeGreaterThan(50)
+  })
+
+  test('the caveat names the ceiling and the control that goes missing past it', () => {
+    expect(STREAM_CAP_NOTE).toContain(String(STREAM_CEILING))
+    expect(STREAM_CAP_NOTE).toContain('forgotten')
   })
 })

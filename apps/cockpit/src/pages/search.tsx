@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
 import type { FilterSpec } from '@/lib/url-filters'
+import { RESULT_LIMIT, resultCeilingNote } from '@/pages/search.logic'
 
 /**
  * Search, in two tiers — and the tier is the whole point.
@@ -40,9 +41,8 @@ import type { FilterSpec } from '@/lib/url-filters'
  */
 type SearchHit = Awaited<ReturnType<typeof wk.search.run>>['hits'][number]
 
-/** `zSearchQuery`: `q` is 1–500 chars and `limit` is capped at 50 per tier. */
+/** `zSearchQuery`: `q` is 1–500 chars. `RESULT_LIMIT` and its ceiling note live in `search.logic.ts`. */
 const MAX_QUERY = 500
-const RESULT_LIMIT = 25
 /** `zQueryRequest.top_k` — how many pages the answer is allowed to lean on. */
 const ANSWER_TOP_K = 8
 
@@ -246,6 +246,11 @@ function Results({
 }) {
   const approved = hits.filter((hit) => hit.tier === 'approved')
   const evidence = hits.filter((hit) => hit.tier === 'source_evidence')
+  // Measured per tier because the server limits per tier: a search that filled
+  // the approved ceiling and found three excerpts has been truncated in one
+  // section and answered completely in the other.
+  const approvedCeiling = resultCeilingNote(approved.length, 'hits')
+  const evidenceCeiling = resultCeilingNote(evidence.length, 'excerpts')
 
   return (
     <div className="flex flex-col gap-6">
@@ -264,6 +269,11 @@ function Results({
             <p className="text-muted-foreground text-xs">
               {approved.length === 1 ? '1 hit' : `${approved.length} hits`} on pages a human reviewed and published.
             </p>
+            {approvedCeiling ? (
+              <p className="text-muted-foreground text-xs" data-testid="search-approved-ceiling">
+                {approvedCeiling}
+              </p>
+            ) : null}
           </div>
           <ul className="flex flex-col gap-3" data-testid="search-approved">
             {approved.map((hit, index) => (
@@ -290,6 +300,11 @@ function Results({
               this wiki archived. Nobody has reviewed {evidence.length === 1 ? 'it' : 'them'} into a page, so
               {evidence.length === 1 ? ' it is' : ' they are'} evidence to follow up — not something this wiki knows.
             </p>
+            {evidenceCeiling ? (
+              <p className="text-muted-foreground text-xs" data-testid="search-evidence-ceiling">
+                {evidenceCeiling}
+              </p>
+            ) : null}
           </div>
           <ul className="flex flex-col gap-3" data-testid="search-evidence">
             {evidence.map((hit, index) => (

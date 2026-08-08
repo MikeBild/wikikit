@@ -32,6 +32,7 @@ import { useCan, useSession } from '@/lib/session'
 import { compareText, compareTime } from '@/lib/table-view'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import type { FilterSpec } from '@/lib/url-filters'
+import { identityGrantBody, type RolePreset } from '@/pages/identities.logic'
 
 /**
  * Who may sign in, and how far they reach once they have.
@@ -102,9 +103,7 @@ const ROLE_PRESETS = [
   { id: 'reader', label: 'Reader', scopes: 'knowledge:read' },
   { id: 'contributor', label: 'Contributor', scopes: 'knowledge:read, knowledge:propose' },
   { id: 'reviewer', label: 'Reviewer', scopes: 'knowledge:read, knowledge:propose, knowledge:review' },
-] as const
-
-type RolePreset = (typeof ROLE_PRESETS)[number]['id']
+] as const satisfies readonly { id: RolePreset; label: string; scopes: string }[]
 
 /** Where the grant came from. Provenance, never a verdict — so every tone is neutral. */
 const SOURCE_WORDS: Record<string, string> = {
@@ -559,13 +558,14 @@ function GrantAccess({
 
   const grant = useMutation({
     mutationFn: () =>
-      wk.identities.grant(provider.trim(), subject.trim(), {
-        // Exactly one of `role` or `scopes`: the server answers 422 to a body
-        // carrying both, and it expands the preset itself.
-        ...(mode === 'role' ? { role } : { scopes }),
-        ...(displayName.trim() ? { display_name: displayName.trim() } : {}),
-        ...(email.trim() ? { email: email.trim() } : {}),
-      }),
+      wk.identities.grant(
+        provider.trim(),
+        subject.trim(),
+        // Which fields the body carries is decided in `identities.logic.ts`,
+        // because the answer depends on the server's COALESCE and not on
+        // anything visible in this form.
+        identityGrantBody({ mode, role, scopes, displayName, email }, editing !== null),
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.identities() })
       onOpenChange(false)

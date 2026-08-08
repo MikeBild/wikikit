@@ -16,12 +16,14 @@ import { createApp, type App } from '../../src/app.ts'
 import { hashApiKey } from '../../src/http/auth.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { createLogger } from '../../src/logger.ts'
+import { COCKPIT_LOGIN_MAX_PER_MINUTE } from '../../src/oauth/server.ts'
 import * as realOidc from '../../src/oauth/oidc.ts'
 
 const PEPPER = 'cockpit-session-pepper'
 const BOOTSTRAP = 'wk_test-bootstrap-key'
 const PUBLIC_URL = 'https://wikikit.test'
 const SESSION_TOKEN = `wkos_${'s'.repeat(43)}`
+const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000
 
 const OPERATOR = {
   id: '00000000-0000-0000-0000-0000000000a1',
@@ -33,18 +35,38 @@ const OPERATOR = {
   provider_id: 'workforce',
   provider_subject: 'mike',
   scopes: ['knowledge:read', 'knowledge:propose'],
+  expires_at: new Date(Date.now() + EIGHT_HOURS_MS).toISOString(),
 }
 
 /**
  * Minimal Db stub. `session` is what the operator-session lookup finds;
  * `identity` is the live grant its scopes are re-cut against on every read
- * (an identity session with no live grant is a dead session, by design).
+ * (an identity session with no live grant is a dead session, by design);
+ * `renewedExpiresAt` is what the sliding `UPDATE … RETURNING expires_at`
+ * hands back, which is where the operator cookie's Max-Age comes from — set it
+ * BELOW the eight-hour slide to model a session near its 24-hour cap, because
+ * `least(absolute_expires_at, …)` is what clamps it in real Postgres.
+ *
+ * A login state that was inserted is served back to the funnel's own lookup.
+ * The state_hash is not matched: the funnel validates the token's shape before
+ * it queries, and the point of these tests is what the funnel does with the row
+ * it finds, not that Postgres can compare two hashes.
  */
-function stubDb(options: { session?: typeof OPERATOR | null; identity?: { allowed_scopes: string[] } | null } = {}) {
+function stubDb(
+  options: {
+    session?: typeof OPERATOR | null
+    identity?: { allowed_scopes: string[] } | null
+    renewedExpiresAt?: string
+  } = {},
+) {
   const inserts: { table: string; body: Record<string, unknown> }[] = []
   const updates: { table: string; body: Record<string, unknown> }[] = []
   const db: Db = {
     async query(sql: string) {
+      if (sql.includes('UPDATE wk_oauth_operator_sessions')) {
+        const expires = options.renewedExpiresAt ?? new Date(Date.now() + EIGHT_HOURS_MS).toISOString()
+        return { rows: [{ expires_at: expires }] as never[], rowCount: 1 }
+      }
       if (sql.includes('FROM wk_oauth_operator_sessions')) {
         const row = options.session === undefined ? null : options.session
         return { rows: (row ? [{ ...row }] : []) as never[], rowCount: row ? 1 : 0 }
@@ -52,6 +74,11 @@ function stubDb(options: { session?: typeof OPERATOR | null; identity?: { allowe
       if (sql.includes('FROM wk_oauth_identities')) {
         const grant = options.identity === undefined ? { allowed_scopes: OPERATOR.scopes } : options.identity
         return { rows: (grant ? [grant] : []) as never[], rowCount: grant ? 1 : 0 }
+      }
+      if (sql.includes('FROM wk_oauth_login_states')) {
+        const minted = inserts.findLast((insert) => insert.table === 'wk_oauth_login_states')
+        if (!minted) return { rows: [], rowCount: 0 }
+        return { rows: [{ id: '00000000-0000-0000-0000-0000000000c1', ...minted.body }] as never[], rowCount: 1 }
       }
       return { rows: [], rowCount: 0 }
     },
@@ -206,6 +233,55 @@ describe('GET /v1/session', () => {
   })
 })
 
+/**
+ * The regression: `currentOperator` slid `expires_at` in the DATABASE on every
+ * read, but nothing re-wrote the browser's cookie outside login/consent/logout.
+ * An operator working continuously was therefore hard-signed-out eight hours
+ * after signing in — by their own browser dropping a cookie whose session was
+ * still alive — while CONTRACTS.md promised a sliding eight-hour IDLE limit.
+ */
+describe('the operator cookie slides with the session it stands for', () => {
+  function maxAgeOf(setCookie: string | null): number {
+    const match = /Max-Age=(\d+)/.exec(setCookie ?? '')
+    if (!match) throw new Error(`no Max-Age in set-cookie: ${setCookie}`)
+    return Number(match[1])
+  }
+
+  test("re-stamps the cookie from the row's renewed idle deadline", async () => {
+    const { db } = stubDb({ session: OPERATOR })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/session`, { headers: { cookie } })
+    const setCookie = res.headers.get('set-cookie')
+    // The SAME token, so this renews a session rather than minting one.
+    expect(setCookie).toContain(`__Host-wikikit_operator=${SESSION_TOKEN}`)
+    expect(setCookie).toContain('HttpOnly')
+    expect(setCookie).toContain('Secure')
+    expect(maxAgeOf(setCookie)).toBeGreaterThan(EIGHT_HOURS_MS / 1000 - 10)
+    expect(maxAgeOf(setCookie)).toBeLessThanOrEqual(EIGHT_HOURS_MS / 1000)
+  })
+
+  test('never hands the browser more life than the 24-hour absolute cap left', async () => {
+    // 45 minutes short of the cap: `least(absolute_expires_at, now() + 8h)`
+    // has clamped the row, and the cookie must inherit the clamp rather than a
+    // fresh eight hours — otherwise the renewal quietly becomes the extension
+    // the absolute cap exists to forbid.
+    const { db } = stubDb({ session: OPERATOR, renewedExpiresAt: new Date(Date.now() + 45 * 60 * 1000).toISOString() })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/session`, { headers: { cookie } })
+    const maxAge = maxAgeOf(res.headers.get('set-cookie'))
+    expect(maxAge).toBeGreaterThan(45 * 60 - 10)
+    expect(maxAge).toBeLessThanOrEqual(45 * 60)
+  })
+
+  test('sets no cookie for a tab that is not signed in', async () => {
+    const { db } = stubDb({ session: null })
+    const base = await boot(db)
+    const res = await fetch(`${base}/v1/session`, { headers: { cookie } })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+})
+
 describe('DELETE /v1/session', () => {
   test('refuses without a same-origin Origin — SameSite=Lax does not cover every write', async () => {
     const { db, updates } = stubDb({ session: OPERATOR })
@@ -272,12 +348,118 @@ describe('GET /v1/identity/cockpit-login', () => {
     ['a path outside the cockpit', '/v1/api-keys'],
     ['a path that merely starts with the prefix', '/cockpitfoo'],
     ['nothing at all', ''],
+    // Everything below is a code point node's res.setHeader refuses to write —
+    // by throwing, halfway through a redirect the funnel has already committed
+    // to. The browser percent-encodes location.pathname/search before the
+    // console ever builds a return_to, so none of these is a deep link anybody
+    // typed.
+    ['a NUL byte', `/cockpit/${String.fromCharCode(0)}`],
+    ['a DEL byte', `/cockpit/${String.fromCharCode(0x7f)}`],
+    ['a bare CR', `/cockpit/${String.fromCharCode(13)}Location:%20https://evil.example`],
+    ['a raw non-ASCII code point', '/cockpit/Ā'],
+    ['a Unicode line separator', `/cockpit/${String.fromCharCode(0x2028)}`],
   ])('falls back to the cockpit root for %s', async (_case, returnTo) => {
     const { db, inserts } = stubDb({ session: null })
     const base = await boot(db)
     await fetch(`${base}/v1/identity/cockpit-login?return_to=${encodeURIComponent(returnTo)}`, { redirect: 'manual' })
     const state = inserts.find((insert) => insert.table === 'wk_oauth_login_states')
     expect(state?.body.return_to).toBe('/cockpit/')
+  })
+
+  test('a crafted return_to cannot end a sign-in on a 500 with the state already spent', async () => {
+    // The whole crafted link, walked end to end: an operator clicks
+    // `?return_to=/cockpit/%00`, signs in with an API key, and lands. Before
+    // the non-printable rule the NUL survived into the login state, and
+    // `finishCockpitLogin` stamped `consumed_at` BEFORE building the redirect
+    // whose `location` header node then refused to write — so the operator got
+    // a 500, and the single-use state that would have let them retry was gone.
+    const { db, inserts, updates } = stubDb({ session: null })
+    const base = await boot(db)
+    const crafted = `/cockpit/changes${String.fromCharCode(0)}`
+    const entry = await fetch(`${base}/v1/identity/cockpit-login?return_to=${encodeURIComponent(crafted)}`, {
+      redirect: 'manual',
+    })
+    expect(entry.status).toBe(302)
+    const loginState = new URL(entry.headers.get('location') ?? '').searchParams.get('login_state') ?? ''
+    expect(loginState).toStartWith('wkl_')
+
+    const landed = await fetch(`${base}/v1/identity/login/start`, {
+      method: 'POST',
+      body: new URLSearchParams({ provider: 'api-key', login_state: loginState, api_key: BOOTSTRAP }),
+      redirect: 'manual',
+    })
+    expect(landed.status).toBe(302)
+    expect(landed.headers.get('location')).toBe('/cockpit/')
+    expect(landed.headers.get('set-cookie')).toContain('__Host-wikikit_operator=wkos_')
+    // The state was consumed exactly once, for a sign-in that actually landed.
+    expect(inserts.find((insert) => insert.table === 'wk_oauth_login_states')?.body.return_to).toBe('/cockpit/')
+    expect(updates.filter((update) => update.table === 'wk_oauth_login_states')).toHaveLength(1)
+  })
+})
+
+/**
+ * The only login-state-minting path with no client, no credential and no
+ * consent behind it: every anonymous GET used to buy an INSERT into
+ * `wk_oauth_login_states`, a table the housekeeping sweep only visits hourly.
+ */
+describe('GET /v1/identity/cockpit-login is rate limited per remote address', () => {
+  test('a burst past the limit is refused as a page a human can read', async () => {
+    const { db, inserts } = stubDb({ session: null })
+    const base = await boot(db)
+    for (let attempt = 1; attempt <= COCKPIT_LOGIN_MAX_PER_MINUTE; attempt += 1) {
+      const res = await fetch(`${base}/v1/identity/cockpit-login`, { redirect: 'manual' })
+      expect(res.status, `sign-in ${attempt} of the allowance`).toBe(302)
+    }
+    const refused = await fetch(`${base}/v1/identity/cockpit-login`, { redirect: 'manual' })
+    expect(refused.status).toBe(429)
+    // A browser surface answers a browser. Raw JSON here would be a page an
+    // operator cannot act on.
+    expect(refused.headers.get('content-type')).toContain('text/html')
+    const html = await refused.text()
+    expect(html).toContain('data-auth-contract="mcp-auth"')
+    expect(html).toContain('Too many sign-in attempts')
+    // NOT the expired-state message: that would send a throttled operator
+    // straight back into the loop that throttled them.
+    expect(html).not.toContain('expired or was already used')
+    expect(inserts.filter((insert) => insert.table === 'wk_oauth_login_states')).toHaveLength(
+      COCKPIT_LOGIN_MAX_PER_MINUTE,
+    )
+  })
+
+  test('an operator who already holds a session is never charged for arriving', async () => {
+    // No row is created for them, so there is nothing to meter — and metering
+    // it would throttle the one person the door exists for.
+    const { db, inserts } = stubDb({ session: OPERATOR })
+    const base = await boot(db)
+    for (let attempt = 1; attempt <= COCKPIT_LOGIN_MAX_PER_MINUTE + 5; attempt += 1) {
+      const res = await fetch(`${base}/v1/identity/cockpit-login?return_to=%2Fcockpit%2Fpages`, {
+        headers: { cookie },
+        redirect: 'manual',
+      })
+      expect(res.status, `arrival ${attempt}`).toBe(302)
+      expect(res.headers.get('location')).toBe('/cockpit/pages')
+    }
+    expect(inserts.some((insert) => insert.table === 'wk_oauth_login_states')).toBe(false)
+  })
+
+  test('the registration bucket and the sign-in bucket do not spend each other', async () => {
+    // Both limits live in one store; if the bucket name were not part of the
+    // key, a client-registration flood would lock operators out of the console.
+    const { db } = stubDb({ session: null })
+    const base = await boot(db)
+    const register = () =>
+      fetch(`${base}/v1/oauth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ redirect_uris: ['https://client.example/callback'] }),
+      })
+    let exhausted = false
+    for (let attempt = 1; attempt <= 20 && !exhausted; attempt += 1) {
+      exhausted = (await register()).status === 429
+    }
+    expect(exhausted).toBe(true)
+    const signIn = await fetch(`${base}/v1/identity/cockpit-login`, { redirect: 'manual' })
+    expect(signIn.status).toBe(302)
   })
 })
 

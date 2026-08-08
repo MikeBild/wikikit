@@ -137,10 +137,23 @@ export function createCockpit(deps: { logger: Logger }, options: CockpitOptions 
   function read(path: string, relativePath: string): Asset | null {
     const cached = cache.get(path)
     if (cached) return cached
-    // On-disk first, embedded second. On disk is what a developer running
-    // `bun run build:cockpit` sees without restarting; embedded is what a
-    // compiled binary has, because a single-file binary has no assets/ next to
-    // it. Same precedence as docs-embedded.ts, for the same reason.
+    // On-disk first, embedded second: on disk is what a checkout has after
+    // `bun run build:cockpit`, embedded is what a compiled binary has, because
+    // a single-file binary has no assets/ next to it. Same precedence as
+    // docs-embedded.ts, for the same reason.
+    //
+    // On disk does NOT mean live-reloading. The cache above is never
+    // invalidated, so the first index.html this process reads is the one it
+    // serves until it exits. Rebuilding under a running `bun run start` is
+    // therefore worse than a no-op: vite empties outDir and fingerprints fresh
+    // chunk names, so the pinned index keeps naming chunks that are gone, the
+    // SPA fallback answers those .js URLs with the shell as text/html, and
+    // nosniff correctly refuses to execute it — a blank console with an empty
+    // error log, the least debuggable failure this file can produce. The dev
+    // loop is `bun run dev:cockpit`: vite serves the app from its own port and
+    // proxies /v1 and friends through to the running server, so this mount is
+    // not in the picture at all. A `build:cockpit` against a live `bun run
+    // start` needs that process restarted.
     let body: Buffer | null = null
     try {
       if (statSync(path).isFile()) body = readFileSync(path)

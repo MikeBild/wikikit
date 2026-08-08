@@ -35,6 +35,8 @@ import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import {
   EMPTY_INGEST_DRAFT,
+  STREAM_CAP_NOTE,
+  STREAM_CEILING,
   describeIngest,
   ingestBody,
   ingestProblem,
@@ -64,6 +66,17 @@ type SourceStream = Awaited<ReturnType<typeof wk.sources.streams>>['items'][numb
  * below — so the number is a window size and nothing here has to caveat it.
  */
 const PAGE_SIZE = 25
+
+/**
+ * The stream read, spelled once.
+ *
+ * A module constant rather than an object literal at the call site because it
+ * is BOTH the request and half of the query key: two literals would be deep
+ * equal today and one edit away from a mutation that invalidates a key nothing
+ * is registered under, which is a list that keeps showing a stream somebody
+ * just forgot.
+ */
+const STREAM_QUERY = { limit: STREAM_CEILING } as const
 
 const KIND_WORDS: Record<string, string> = {
   markdown: 'Markdown',
@@ -183,8 +196,8 @@ export function SourcesPage() {
   })
 
   const streamsQuery = useQuery({
-    queryKey: keys.streams(space),
-    queryFn: () => wk.sources.streams(space),
+    queryKey: keys.streams(space, STREAM_QUERY),
+    queryFn: () => wk.sources.streams(space, STREAM_QUERY),
   })
 
   const sourcesView = useTableView('sources', SOURCE_COLUMNS, 'cursor')
@@ -193,7 +206,11 @@ export function SourcesPage() {
 
   const forget = useMutation({
     mutationFn: (externalSourceId: string) => wk.sources.forgetStream(space, externalSourceId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.streams(space) }),
+    // The SAME key the read registered under, query slot included. A key of
+    // `keys.streams(space)` spells that slot `null`, which is not a prefix of
+    // `[..., { limit }]` and would invalidate nothing at all — the forgotten
+    // stream would sit in the table until a reload.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.streams(space, STREAM_QUERY) }),
     // Deliberately no `onError` toast. `Confirm` awaits `mutateAsync`, catches
     // the rejection and prints the server's own words inside the dialog the
     // operator is still standing in — a toast in the corner as well would
@@ -346,12 +363,17 @@ export function SourcesPage() {
             query={streamsQuery}
             view={streamsView.view}
             onViewChange={streamsView.setView}
-            // A whole-list read — `/v1/spaces/{space}/source-streams` answers
-            // every live stream at once — so the window is minted here and the
-            // walk is real even though most wikis have one screen of streams.
+            // A whole-list read with a CEILING, which is not the same thing as
+            // an answer that holds everything: the endpoint offers no cursor,
+            // so the window below is minted here over the rows that arrived,
+            // and `cap` is what stops a full response from reading as a
+            // complete one. Most wikis have one screen of streams; the ones
+            // that do not are exactly the ones an operator needs told.
             page={streamPage}
             onPageChange={setStreamPage}
             unit="streams"
+            cap={STREAM_CEILING}
+            capNote={STREAM_CAP_NOTE}
             empty={
               <EmptyState
                 icon={Radio}

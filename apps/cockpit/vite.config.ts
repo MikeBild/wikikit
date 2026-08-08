@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwind from '@tailwindcss/vite'
+import { DEV_PROXY_PATHS } from './dev-proxy.ts'
 
 // WikiKit serves this bundle itself, so the build lands in the directory the
 // embedding generator packs into src/cockpit-embedded.ts. Nothing about the
@@ -11,17 +12,11 @@ import tailwind from '@tailwindcss/vite'
 // number.
 const API_ORIGIN = process.env.WIKIKIT_DEV_ORIGIN || 'http://127.0.0.1:4060'
 
-// The dev server has to look like the API origin to the browser: same origin so
-// the session cookie applies and so the same-origin rule on cookie-authenticated
-// writes is satisfied. Everything the console links to or calls is proxied
-// through, including /review — the public proposal review page the cockpit
-// hands out as a URL.
-const proxy = Object.fromEntries(
-  ['/v1', '/openapi.json', '/health', '/ready', '/llms.txt', '/review'].map((path) => [
-    path,
-    { target: API_ORIGIN, changeOrigin: true },
-  ]),
-)
+// Which paths are forwarded, and why, lives in ./dev-proxy.ts — where a unit
+// test can hold the list against what the navigation table says the console
+// reaches, instead of it being a literal only a human re-reading this file
+// would ever notice was missing an entry.
+const proxy = Object.fromEntries(DEV_PROXY_PATHS.map((path) => [path, { target: API_ORIGIN, changeOrigin: true }]))
 
 /**
  * The contract marker, DERIVED rather than typed — CUI-MARK-1.

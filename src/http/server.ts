@@ -1,10 +1,18 @@
 // node:http server — request lifecycle for the ROUTES registry.
 //
-// Per-request pipeline (WikiKit contracts):
-//   request-id → drain gate → raw mounts (/mcp, /cockpit) → route match → auth
-//   (401/403) → body read (size-capped) → zod validation (params/query/body)
-//   → handler → JSON/text response — with every failure mapped to the §8.1
-//   error envelope carrying the same x-request-id as the response header.
+// Per-request pipeline, in the order dispatch() actually runs it:
+//   request-id → raw exact mounts (/mcp plus the OAuth/session plane app.ts
+//   registers) → raw prefix mounts (/cockpit) → route match (no match → 404)
+//   → drain gate (503 'draining') → auth (401/403) → body read (size-capped)
+//   → zod validation (params/query/body) → handler → JSON/text response —
+//   with every failure mapped to the §8.1 error envelope carrying the same
+//   x-request-id as the response header.
+//
+// Two consequences of that order read backwards from what one expects, so
+// they are stated here rather than discovered: the raw mounts run BEFORE the
+// drain gate and therefore never reach it, and the drain gate sits AFTER
+// matchRoute, so a path matching no route answers 404 while draining, not
+// 503. Whether each of those is right is argued at the code that causes it.
 //
 // WHY no web framework (house rule): the surface is ~30 routes with template
 // paths; a compiled regex table + this file IS the framework, auditable in
@@ -179,8 +187,34 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
     const url = new URL(req.url ?? '/', 'http://internal')
     const pathname = url.pathname
 
-    // Raw mounts run before everything else (drain excepted): the MCP
-    // transport owns its own protocol including errors and sessions.
+    // Raw mounts run before everything else, drain gate included: the gate is
+    // further down, past matchRoute, and a request answered here never gets
+    // there. The MCP transport owns its own protocol including errors and
+    // sessions, and so do the OAuth/session paths app.ts mounts the same way.
+    //
+    // Sitting outside the drain gate is defensible for the cockpit and is not
+    // for /mcp, and the two deserve to be separated rather than shrugged at
+    // together:
+    //
+    // The cockpit is static and holds no knowledge — a bundle that renders a
+    // sign-in prompt until the API answers it. Serving it during a drain costs
+    // a file read, and refusing it would cost the operator the one console
+    // that shows them the drain: a page that goes blank halfway through a
+    // deploy reports nothing, it just looks broken. The API calls that page
+    // makes are ordinary routes and DO hit the gate, so the console degrades
+    // to "the server is draining" — which is the true answer — instead of
+    // vanishing.
+    //
+    // /mcp is the opposite case. It keeps accepting sessions and tool calls
+    // for the whole drain window, so an agent can begin work that close() in
+    // app.ts tears down seconds later, where the identical operation over REST
+    // would have been refused with a clean 503 'draining' and retried against
+    // an instance that is staying up. That is a real gap and it is recorded
+    // here rather than quietly fixed: gating /mcp means deciding how the
+    // transport reports a refusal inside its own protocol — a JSON-RPC error
+    // an MCP client will actually act on, not an HTTP envelope it never reads
+    // — which is a behavioural decision for a human, not an edit to the
+    // dispatch order.
     const raw = rawMounts.get(pathname)
     if (raw) {
       await raw(req, res)
@@ -203,7 +237,13 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
     const { def, params } = matched
 
     // Drain gate: probes stay up so the LB/deploy gate can observe the drain;
-    // everything else refuses fast (§8.2 'draining').
+    // every other MATCHED route refuses fast (§8.2 'draining').
+    //
+    // Placed after matchRoute, which means an unknown path 404s while draining
+    // instead of 503-ing. That is the truthful answer for it: the path does
+    // not exist on this build and will not exist on the next one either, so a
+    // 503 would invite a caller to retry something that can never succeed.
+    // Only a route that does exist has a meaningful "come back later".
     if (deps.state.draining && !['/health', '/ready', '/metrics'].includes(pathname)) {
       sendJson(res, 503, { error: 'server is draining', code: 'draining', request_id: requestId })
       return

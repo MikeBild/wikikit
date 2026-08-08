@@ -200,6 +200,28 @@ export function describeIngest(job: IngestJobView): IngestReport {
   }
 }
 
+/**
+ * How many connector streams one read may hold — the endpoint's own maximum,
+ * asked for out loud.
+ *
+ * `zSourceStreamListQuery` takes a `limit` of at most 200 and `listStreams`
+ * clamps with `clampLimit(args.limit, 50, 200)`, so a request that names no
+ * limit gets the 50 most recently updated streams and nothing says so. That is
+ * worse here than in a read-only list: the Forget control lives in a stream's
+ * row, so the streams past the ceiling had no control at all — a connector
+ * pushing a document nobody wants tracked any more could not be stopped from
+ * this page, and the page gave no hint that it existed.
+ *
+ * 200 is the ceiling and not a page: this read offers no cursor, so `cap` on
+ * the table is what keeps a full answer from reading as a complete one.
+ * `test/unit/cockpit-pages/sources.test.ts` holds this number against the
+ * server's own schema, so it cannot drift below what the endpoint allows.
+ */
+export const STREAM_CEILING = 200
+
+/** The caveat under a stream list that came back full. */
+export const STREAM_CAP_NOTE = `only the ${STREAM_CEILING} most recently updated streams are loaded — a stream past that cannot be seen or forgotten here`
+
 /** Which half of a source page opens first. */
 export type SourceView = 'rendered' | 'verbatim'
 

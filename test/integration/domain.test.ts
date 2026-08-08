@@ -286,6 +286,85 @@ describe('domain modules (integration)', () => {
     expect(report.counts.error).toBeGreaterThanOrEqual(1)
   })
 
+  // The counterpart of the flow above, and the case that is the DEFAULT:
+  // predicate cardinality is space configuration and no space declares a
+  // functional predicate until someone does, so wk_apply_proposal flip 5
+  // disputes nothing here. The pending diff must promise nothing either — the
+  // review surfaces turn ClaimDiff.collides into "approval disputes BOTH
+  // sides", and a reviewer told that about an approval that leaves both claims
+  // verified has been told a falsehood about the decision they are making.
+  it('undeclared predicate: the pending diff promises no dispute, and approval produces none', async () => {
+    const space = await seedSpace('multi-valued-space')
+    const sourceA = await createSource(db, space.id, {
+      kind: 'text',
+      raw: 'A: on postgres',
+      markdown: 'A: on postgres',
+    })
+    const first = await createProposal(db, space.id, {
+      title: 'A',
+      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v2'),
+      source_ids: [sourceA.source.id],
+      agent_meta: AGENT_META,
+      concepts: [
+        {
+          slug: 'okf',
+          title: 'OKF',
+          summary: '',
+          markdown: '# OKF',
+          claims: [
+            {
+              subject: 'okf',
+              predicate: 'depends_on',
+              object: 'postgres',
+              confidence: 0.8,
+              citations: [{ source_id: sourceA.source.id, quote: 'A: on postgres' }],
+            },
+          ],
+          relations: [],
+        },
+      ],
+    })
+    await approveProposal(db, { id: first.proposal_id, reviewer: 'mike' })
+
+    const sourceB = await createSource(db, space.id, { kind: 'text', raw: 'B: on redis', markdown: 'B: on redis' })
+    const second = await createProposal(db, space.id, {
+      title: 'B',
+      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v2'),
+      source_ids: [sourceB.source.id],
+      agent_meta: AGENT_META,
+      concepts: [
+        {
+          slug: 'okf-cache',
+          title: 'OKF Cache',
+          summary: '',
+          markdown: '# OKF Cache',
+          claims: [
+            {
+              subject: 'okf',
+              predicate: 'depends_on',
+              object: 'redis',
+              confidence: 0.9,
+              citations: [{ source_id: sourceB.source.id, quote: 'B: on redis' }],
+            },
+          ],
+          relations: [],
+        },
+      ],
+    })
+
+    const pendingDetail = await getProposal(db, { id: second.proposal_id })
+    const cacheDiff = pendingDetail.concepts.find((concept) => concept.slug === 'okf-cache')!
+    expect(cacheDiff.claims_disputed).toEqual([])
+    expect(cacheDiff.claims.map((claim) => claim.collides)).toEqual([false])
+    // Both review surfaces read the same flag, so the markdown must be silent too.
+    expect(renderProposalMarkdown(pendingDetail)).not.toContain('Claims disputed')
+
+    const applied = await approveProposal(db, { id: second.proposal_id, reviewer: 'mike' })
+    expect(applied.claims_disputed).toBe(0)
+    const okf = await getConcept(db, space.id, { slug: 'okf' })
+    expect(okf.claims.map((claim) => claim.status)).toEqual(['verified'])
+  })
+
   it('relation removal: staged is invisible, approve deactivates atomically, reject leaves it untouched', async () => {
     const space = await seedSpace('removal-space')
     const propose = (title: string, args: Record<string, unknown>) =>

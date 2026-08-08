@@ -6,6 +6,154 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.0 - 2026-08-08
+
+### Fixed
+
+A second adversarial review, this time of the console shipped in 0.22.0 and of
+the credential plane underneath it. Nothing here was visible to the gate — the
+recurring theme is a surface that states something the server does not do, which
+no assertion about the server can catch.
+
+- **A crafted sign-in link ended the attempt on a 500 and burned it.**
+  `GET /v1/identity/cockpit-login?return_to=…` rejected CR and LF and nothing
+  else, but node's `res.setHeader` throws on any other non-printable code point
+  too — and the single-use login state is marked consumed _before_ the redirect
+  is built. So a link carrying a NUL, a DEL or a stray `U+2028` answered an
+  operator's sign-in with a 500, with the attempt already spent and the page
+  explaining nothing. A `return_to` is now printable ASCII or it is not used;
+  the console builds it out of an already percent-encoded `location.pathname`,
+  so nothing legitimate arrives outside that range. A refusal was never an
+  error — the operator still lands signed in, one navigation from where they
+  meant to be.
+
+- **Working continuously signed you out after eight hours.** The session row's
+  idle deadline slid on every authenticated read, exactly as documented, but the
+  cookie's `Max-Age` was written once at sign-in and re-written only by
+  login, consent and sign-out. The browser therefore dropped a cookie whose
+  session was still alive — eight hours in, typically mid-review.
+  `GET /v1/session` now re-stamps the same token with the deadline the renewing
+  UPDATE actually returned, so the documented idle window is true on the browser
+  side too and the 24-hour absolute cap still cannot be read past: the `Max-Age`
+  comes from what `least(absolute_expires_at, …)` wrote, never from a fresh
+  clock. It renews when the console loads rather than on a timer, so a single
+  tab left open past the cap still needs a reload.
+
+- **The cockpit's sign-in door was the cheapest row in the system to create from
+  outside.** It takes no client, no credential and no consent, and every request
+  past the already-signed-in check inserted a ten-minute login state while the
+  housekeeping sweep only collects hourly. It is now metered per remote address
+  like dynamic client registration, at twenty a minute — charged _after_ that
+  short-circuit, so an operator moving around their own console never spends a
+  slot, and set above the DCR limit because with `WIKIKIT_TRUST_PROXY` off a
+  whole office behind one NAT shares a single bucket. The refusal renders as an
+  HTML page in the same shell as every other funnel error, and `docs/openapi.json`
+  now documents that 429 — along with the one `POST /v1/oauth/register` has been
+  answering, undocumented, since it grew a limit.
+
+- **A pending change showed disputes that approving it would not produce.** The
+  review diff flagged a claim as colliding whenever any visible claim shared its
+  subject and predicate with a different object. Approval disputes far less than
+  that: only predicates the wiki has _declared_ functional, only inside the same
+  context, only where the normalized values differ, only where the validity
+  intervals overlap, and never across an adjudicated complement or an explicit
+  supersession. The declared set is empty until somebody declares one, so in most
+  wikis every ordinary multi-valued claim wore a `disputed` badge — in the diff
+  and in the rendered review Markdown both — and then approval disputed nothing.
+  The flag now carries every condition the apply applies, which also settles a
+  standing disagreement with the `contradictions_count` the
+  `wikikit.proposal.created` event reports about the same change.
+
+- **The Split confirmation promised the wrong number of changes.** It counted one
+  new pending change per page, but the server adds one more — a
+  `<title> — decisions` child — whenever the change carries decisions or leaves
+  relation removals stranded on pages it is not splitting out. The dialog and the
+  toast that followed it described different events. The dialog now counts that
+  child under the same rule the server uses, and names it.
+
+- **A change's claim review advertised a "retired" state that could not occur.**
+  Every group it renders is derived from the same staged set, so the branch was
+  unreachable; the field and its documentation are gone rather than left as a
+  promise.
+
+- **Emptying an identity's display name did nothing.** The console omitted the
+  field when it was blank and the server reads an omitted field as "keep what is
+  stored", so an operator could clear the box, save, and watch the old name come
+  back. Editing a grant now sends the empty string, which the column takes;
+  creating one still omits it, because there is nothing to clear on a row that
+  does not exist. Clearing an **email** is still a no-op and cannot be fixed from
+  the console — the request type has no way to say "make this null" — so the
+  current behaviour is pinned by a test until the contract grows one.
+
+- **Re-submitting a page after somebody else changed it returned the stale
+  change.** The console dedups a submission by hashing what it is submitting, and
+  the base revision was not in the hash — so identical text staged against a page
+  that had moved underneath handed back the earlier proposal, written against the
+  old base, instead of staging a new one. The base is part of the anchor now. One
+  consequence: a change staged by an older console and still pending across this
+  upgrade will not dedup the first time it is resubmitted.
+
+- **Three console lists claimed to show everything while showing a page.** The
+  webhook delivery log said "every attempt WikiKit has made" over the fifty
+  newest — the exact sentence that misleads the operator arriving with "our
+  webhooks stopped last Tuesday". Connector streams took the server's default of
+  fifty when two hundred were available, with Forget living in the row, so a
+  stream past the ceiling could be neither seen nor forgotten. Search reported a
+  per-tier count that read as a total. Streams now ask for the full two hundred,
+  and all three state the ceiling when the answer comes back full and stay quiet
+  when it does not. The delivery endpoint is the only list in this API with no
+  `limit` parameter at all, so fifty stands there until it grows one.
+
+- **The sidebar forgot it was collapsed.** The vendored component wrote a
+  `sidebar_state` cookie nothing in this console ever read — upstream expects a
+  server to read it back — so the sidebar sprang open on every reload while a
+  dead cookie rode every `/v1/*` and `/mcp` request. The preference is kept in
+  `localStorage` now, read before first paint so there is no flash, and sent
+  nowhere.
+
+- **The post-deploy smoke test would have passed a policy that allows inline
+  script.** `scripts/deploy/smoke.sh` looked for `unsafe-inline` immediately
+  after `script-src`, but the served directive is `script-src 'self' 'sha256-…'`
+  — so the regression the check exists to catch, a source _appended_ to it,
+  matched neither pattern and got a green tick. The hash check had the mirror
+  flaw and would have failed a correct deployment with anything inserted before
+  the hash. Both now extract the directive that actually governs `<script>`,
+  fall back to `default-src` when the policy names no `script-src`, and fail when
+  the policy constrains scripts with neither.
+
+- **The System page was permanently red in the dev loop.** `vite` did not proxy
+  `/.well-known`, where the service descriptor lives, so the page failed in
+  development and worked in production. The proxy list is now a module a test
+  holds against the navigation table, which is what will catch the next one.
+
+- **Four comments described mechanisms their files do not have** — the HTTP
+  header's account of the request pipeline (it now states the order `dispatch`
+  really runs, and names what bypasses the drain gate), and the cockpit mount's
+  claim that on-disk assets let a developer see a rebuild without restarting
+  (they do not; the first `index.html` is pinned for the process lifetime).
+
+### Known
+
+- **The `contradictions` lint rule still overstates a change's consequences,
+  for the same reason the diff did.** It is a third surface on the same review
+  screen, with its own copy of the rule and its own "approval disputes both"
+  message, and its copy reads only the legacy `functional_predicates` array —
+  so a wiki that declares functional predicates through the typed registry gets
+  no contradiction findings at all, and a wiki using the array gets the coarse
+  over-reporting the diff has just stopped doing. Space lint next to it already
+  reads both. The change is contained and the correct helper is in the same
+  file; it is called out here rather than made on the way past, because it
+  changes what a lint report says and deserves its own tests.
+
+- **`/mcp` and the whole OAuth/session plane keep accepting work while the
+  process is draining.** They are mounted raw, ahead of the drain gate, so an
+  agent can open a session or mint a token seconds before `close()` tears it
+  down, where the same operation over REST gets a clean `503 draining` and
+  retries against an instance that is staying up. Correcting it means deciding
+  how a JSON-RPC transport reports refusal, which is a behavioural decision and
+  not a reordering; it is written down in `src/http/server.ts` rather than left
+  to be rediscovered.
+
 ## 0.23.0 - 2026-08-08
 
 ### Changed

@@ -5,7 +5,14 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { Slot } from 'radix-ui'
 
 import { useIsMobile } from '@/hooks/use-mobile'
-import { SidebarContext, useSidebar, type SidebarState } from '@/hooks/use-sidebar'
+import {
+  readStoredSidebar,
+  resolveSidebarOpen,
+  SidebarContext,
+  storeSidebar,
+  useSidebar,
+  type SidebarState,
+} from '@/hooks/use-sidebar'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,8 +22,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { PanelLeftIcon } from 'lucide-react'
 
-const SIDEBAR_COOKIE_NAME = 'sidebar_state'
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = '16rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
@@ -40,7 +45,28 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  //
+  // A DELIBERATE DEVIATION from the vendored component — do not "restore" it on
+  // the next re-vendor. Stock writes `document.cookie = 'sidebar_state=…'` here
+  // and never reads it anywhere, because upstream targets a server-rendered
+  // app: the SERVER reads that cookie and passes the value down as
+  // `defaultOpen`, which is what makes a collapsed sidebar render collapsed on
+  // the first paint. This console is a static bundle served by WikiKit itself.
+  // Nothing was reading the cookie, no caller passes `defaultOpen`, so the
+  // sidebar started expanded after every single reload while the write happily
+  // continued — an operator who collapsed it met it open again the next time
+  // they opened the console, and a dead cookie under a name breaking the
+  // `wk-cockpit-` convention rode every /v1/* and /mcp request in the meantime.
+  //
+  // The fix is the read that was missing, moved to where the only reader is:
+  // one synchronous localStorage read in the initialiser, so it happens before
+  // first paint and there is no expanded-then-collapsed flash. Removing the
+  // write instead would have been half the work and none of the outcome —
+  // forgetting on every reload is a papercut an operator meets several times a
+  // day. `hooks/use-sidebar.ts` holds the key and the rule, both so the storage
+  // choice is stated once next to the other console preferences and so this
+  // file's distance from the shared design contract stays as small as it can be.
+  const [_open, _setOpen] = React.useState(() => resolveSidebarOpen(readStoredSidebar(), defaultOpen))
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -51,8 +77,7 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      storeSidebar(openState)
     },
     [setOpenProp, open],
   )

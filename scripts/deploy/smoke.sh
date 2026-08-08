@@ -49,8 +49,46 @@ skip() {
 code() { curl -sS -o /dev/null -w '%{http_code}' "$@"; }
 # Body only, failures swallowed so a refusal is data rather than a crash.
 body() { curl -sS "$@" 2>/dev/null || true; }
-# Headers only, lower-cased so a proxy's capitalisation is not a test result.
-head_of() { curl -sSI "$@" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true; }
+# Headers only, lower-cased so a proxy's capitalisation is not a test result,
+# and de-CRed so a header value never carries a stray \r into a comparison or
+# into the diagnostic printed next to a failure.
+head_of() { curl -sSI "$@" 2>/dev/null | tr -d '\r' | tr '[:upper:]' '[:lower:]' || true; }
+
+# The directive of a Content-Security-Policy that actually governs <script>:
+# `script-src` when the policy names one, `default-src` when it does not,
+# because that is the fallback the browser applies. Prints the whole directive
+# ("script-src 'self' 'sha256-…'") or nothing at all.
+#
+# WHY this parses instead of globbing the raw header for two adjacent tokens,
+# which is what it used to do: `cockpitCsp` builds the directive as
+# "script-src 'self'" followed by one hash per inline block, so the regression
+# this check exists to catch — a source getting APPENDED — produces
+# `script-src 'self' 'sha256-…' 'unsafe-inline'`. That string contains neither
+# "script-src 'self' 'unsafe-inline'" nor "script-src 'unsafe-inline'", so an
+# adjacency glob prints a green tick over precisely the deployment where
+# injected markup runs. Splitting on ';' and judging the whole directive cannot
+# be fooled by where in it a source appears.
+#
+# awk rather than a shell loop: the policy is one line of ';'-separated
+# directives with significant leading spaces, and awk splits and trims it in
+# four lines where the pure-shell version needs a nested peel-and-trim loop.
+# awk is POSIX and is already as certain to be present as curl and sed.
+script_directive() {
+  printf '%s\n' "$1" | awk '
+    /^content-security-policy:/ {
+      policy = $0
+      sub(/^content-security-policy:[ \t]*/, "", policy)
+      count = split(policy, directives, ";")
+      for (i = 1; i <= count; i++) {
+        directive = directives[i]
+        gsub(/^[ \t]+|[ \t]+$/, "", directive)
+        if (directive ~ /^script-src([ \t]|$)/) script = directive
+        else if (directive ~ /^default-src([ \t]|$)/) fallback = directive
+      }
+    }
+    END { print (script != "" ? script : fallback) }
+  '
+}
 
 expect_code() {
   local label="$1" want="$2" got
@@ -124,19 +162,26 @@ case "$COCKPIT_HEAD" in
   *"cache-control: no-cache"*) pass "the shell is never cached" ;;
   *) fail "the shell is never cached" "index.html is the only file naming the current bundle" ;;
 esac
-case "$COCKPIT_HEAD" in
-  *"script-src 'self' 'sha256-"*) pass "the CSP admits the inline theme script by hash" ;;
-  *) fail "the CSP admits the inline theme script by hash" "script-src is not hash-based — check src/cockpit.ts" ;;
+CSP_SCRIPT="$(script_directive "$COCKPIT_HEAD")"
+case "$CSP_SCRIPT" in
+  "script-src 'self'"*"'sha256-"*) pass "the CSP admits the inline theme script by hash" ;;
+  *) fail "the CSP admits the inline theme script by hash" "script-src is not hash-based — check src/cockpit.ts (${CSP_SCRIPT:-no script-src})" ;;
 esac
-# Two steps, deliberately. "no unsafe-inline in script-src" is a statement
+# Three outcomes, deliberately. "no unsafe-inline in script-src" is a statement
 # about a policy, and a deployment serving NO policy would satisfy it by
 # absence — which is the worst possible false green, since it is precisely the
-# deployment where injected markup runs.
+# deployment where injected markup runs. A policy naming neither script-src nor
+# default-src is the same hole wearing a header: nothing constrains a <script>
+# there either, and `script_directive` returns nothing for it rather than
+# something reassuringly free of the word unsafe-inline.
 case "$COCKPIT_HEAD" in
   *"content-security-policy:"*)
-    case "$COCKPIT_HEAD" in
-      *"script-src 'self' 'unsafe-inline'"* | *"script-src 'unsafe-inline'"*)
-        fail "the CSP carries no script unsafe-inline" "unsafe-inline is the directive that lets injected markup run"
+    case "$CSP_SCRIPT" in
+      '')
+        fail "the CSP carries no script unsafe-inline" "the policy constrains scripts with neither script-src nor default-src"
+        ;;
+      *"'unsafe-inline'"*)
+        fail "the CSP carries no script unsafe-inline" "unsafe-inline lets injected markup run (${CSP_SCRIPT})"
         ;;
       *) pass "the CSP carries no script unsafe-inline" ;;
     esac

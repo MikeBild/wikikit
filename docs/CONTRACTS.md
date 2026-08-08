@@ -1117,11 +1117,11 @@ it shares the auth middleware.
 The **cockpit plane** is likewise outside the registry, on the OAuth raw mount
 (documented in `src/oauth/openapi.ts`, so it does reach `/openapi.json`):
 
-| Method | Path                         | Scope | Contract                                                                                                                                                                                                                                                                                                                                |
-| ------ | ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/identity/cockpit-login` | —     | 302 into the provider chooser, or straight to `return_to` for a live session. `return_to` MUST be a same-origin path under `/cockpit`; anything else falls back to `/cockpit/`. Mints a login state with `purpose = 'cockpit'` — never an authorization request, and a CHECK constraint enforces the two shapes are mutually exclusive. |
-| GET    | `/v1/session`                | —     | 200 `{session: {name, kind, scopes, space_id, provider_id}}` or `{session: null}`. MUST NOT answer 401: an anonymous caller is an answer, not a failure.                                                                                                                                                                                |
-| DELETE | `/v1/session`                | —     | 204, cookie cleared. Requires a same-origin `Origin` header.                                                                                                                                                                                                                                                                            |
+| Method | Path                         | Scope | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/identity/cockpit-login` | —     | 302 into the provider chooser, or straight to `return_to` for a live session. `return_to` MUST be a same-origin path under `/cockpit` and printable ASCII; anything else falls back to `/cockpit/` rather than erroring. Mints a login state with `purpose = 'cockpit'` — never an authorization request, and a CHECK constraint enforces the two shapes are mutually exclusive. Minting is rate-limited per remote address (20/minute); a refusal is 429 as an HTML page, since this is a browser surface. A caller who already holds a session is redirected without minting and is never charged. |
+| GET    | `/v1/session`                | —     | 200 `{session: {name, kind, scopes, space_id, provider_id}}` or `{session: null}`. MUST NOT answer 401: an anonymous caller is an answer, not a failure. Re-emits the operator cookie with the session's renewed idle deadline when one resolves, so the browser copy slides with the row (never past `absolute_expires_at`).                                                                                                                                                                                                                                                                        |
+| DELETE | `/v1/session`                | —     | 204, cookie cleared. Requires a same-origin `Origin` header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 `GET /cockpit` and everything under it is a raw **prefix** mount serving the
 built SPA: unknown paths fall back to `index.html` (they are client routes),
@@ -1538,10 +1538,17 @@ enforcement side has always applied: `knowledge:approve` implies
 `knowledge:review`, so an approve-ceiling identity is offered the review
 checkbox it is entitled to. `knowledge:read` is mandatory and a request that
 explicitly omits it is denied rather than expanded. Every login method creates
-the same revocable operator session with an eight-hour idle limit and 24-hour
-absolute cap; authorize render and decision revalidate expiry, revocation and
-current identity policy. The common `W` card exposes explicit logout/account
-switching without combining WikiKit identities with another product.
+the same revocable operator session with a sliding eight-hour idle limit and a
+24-hour absolute cap. Both halves of the session slide: every authenticated
+read renews the row's idle deadline, and `GET /v1/session` re-emits the
+operator cookie with that renewed deadline, so the browser's copy cannot expire
+under a session the server still considers live. Neither half can extend the
+cap — the renewal is `least(absolute_expires_at, now() + 8 hours)` and the
+cookie's `Max-Age` is derived from its result, so the last renewal before the
+cap hands the browser only the remainder. Authorize render and decision
+revalidate expiry, revocation and current identity policy. The common `W` card
+exposes explicit logout/account switching without combining WikiKit identities
+with another product.
 
 The common non-browser boundary is `GET /v1/identity/providers` and
 `POST /v1/identity/sessions`. Discovery returns configured methods in SSO-first

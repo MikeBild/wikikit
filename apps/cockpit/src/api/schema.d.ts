@@ -7073,6 +7073,15 @@ export interface operations {
                     "application/json": components["schemas"]["OAuthError"];
                 };
             };
+            /** @description Registration rate limit exceeded for this address */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                };
+            };
         };
     };
     authorizeOAuthClient: {
@@ -7591,6 +7600,16 @@ export interface operations {
             };
             /** @description Identity or requested access denied */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthError"];
+                    "text/html": string;
+                };
+            };
+            /** @description Too many sign-in attempts from this address */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

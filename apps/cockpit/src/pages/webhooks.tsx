@@ -32,6 +32,7 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { compareText, compareTime } from '@/lib/table-view'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
+import { DELIVERY_CAP_NOTE, DELIVERY_CEILING, deliverySubject } from '@/pages/webhooks.logic'
 
 /**
  * Where this wiki tells other systems what happened.
@@ -187,6 +188,11 @@ export function WebhooksPage() {
     queryFn: () => wk.webhooks.deliveries(space, selected!.id),
     enabled: selected !== null,
   })
+
+  // Held once rather than read twice: the sentence above the table and the
+  // table's own ceiling are two statements about the same answer, and reading
+  // the cache separately for each is how they end up disagreeing mid-refetch.
+  const deliveries = deliveriesQuery.data?.items ?? []
 
   const mayAdmin = can('admin')
 
@@ -409,6 +415,11 @@ export function WebhooksPage() {
             page={endpointPage}
             onPageChange={setEndpointPage}
             unit="endpoints"
+            // No `cap`, checked rather than assumed: `listWebhookEndpoints`
+            // selects with an order and no limit, and `db.select` emits a LIMIT
+            // clause only when it is given one — so this read really is every
+            // endpoint in the wiki and the footer's "of N" is a total. The
+            // deliveries table below is the one with a ceiling.
             empty={
               <EmptyState
                 icon={Radio}
@@ -440,7 +451,10 @@ export function WebhooksPage() {
             </h2>
             <p className="text-muted-foreground text-sm" data-testid="deliveries-subject">
               {selected
-                ? `Every attempt WikiKit has made against ${selected.url}. A retrying delivery is still scheduled; one it has given up on will never be sent again.`
+                ? // `data`, not `deliveries.length`: a read still in the air and
+                  // a read that answered nothing are the same empty array, and
+                  // only one of them may be described as every attempt there is.
+                  deliverySubject(selected.url, deliveriesQuery.data ? deliveries.length : null)
                 : 'One attempt at one event. Register an endpoint and its attempts appear here.'}
             </p>
           </div>
@@ -448,7 +462,7 @@ export function WebhooksPage() {
             <DataTable
               testId="deliveries"
               columns={deliveryColumns}
-              rows={deliveriesQuery.data?.items ?? []}
+              rows={deliveries}
               rowKey={(row) => row.id}
               rowTestId={(row) => `delivery-row-${row.id}`}
               rowAttributes={(row) => ({ 'data-status': row.status })}
@@ -458,6 +472,13 @@ export function WebhooksPage() {
               page={deliveryPage}
               onPageChange={setDeliveryPage}
               unit="deliveries"
+              // The ceiling stated unconditionally: `isCapped` only speaks once
+              // the rows reach it, and nothing on this page narrows the answer
+              // before it gets here, so the row count IS the response count and
+              // the two-step `atCeiling ? rows.length : null` the filtered lists
+              // need would say the same thing with more moving parts.
+              cap={DELIVERY_CEILING}
+              capNote={DELIVERY_CAP_NOTE}
               empty={
                 <EmptyState
                   icon={Send}

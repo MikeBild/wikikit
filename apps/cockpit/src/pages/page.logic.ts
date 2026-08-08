@@ -260,15 +260,51 @@ export function proposalTitle(draft: PageDraft, isNew: boolean): string {
  * NUL separates the fields because it is the one character a Markdown editor
  * cannot produce, so no title can be crafted to collide with a markdown body.
  * The leading tag namespaces cockpit hashes away from the pipeline's.
+ *
+ * The BASE REVISION is one of those fields, and it is the field the first
+ * version of this digest was missing. The text is not the whole of what was
+ * staged: the same paragraph written against revision 7 and against revision 8
+ * are two different proposals, because a reviewer reads the second one against a
+ * page that has moved underneath it. Without the base in here, an author whose
+ * page was approved out from under them re-submits and the server's pending
+ * dedup (`createProposal`, src/domain/proposals.ts) hands back the OLD proposal
+ * — the one anchored to the revision that is now stale. They do land on a change
+ * page that says the merge will most likely fail, so nobody is misled, but there
+ * is no way to stage a fresh one except by altering a byte of their own prose,
+ * and "type a space to make the button work" is not an instruction a product may
+ * need.
+ *
+ * The tag says `v2` because the field list changed, and the version in the tag
+ * IS the field list: two different lists under one name would make the namespace
+ * a lie. Nothing persists a cockpit digest, so the only consequence of the bump
+ * is that a proposal staged by an older console and still pending across the
+ * upgrade does not dedup against a re-submission — once, and it converges again
+ * from there.
  */
-export function stagingDigest(space: string, draft: PageDraft): string {
-  return ['wikikit-cockpit/page/v1', space, draft.slug, draft.title.trim(), draft.summary.trim(), draft.markdown].join(
-    '\u0000',
-  )
+export function stagingDigest(space: string, draft: PageDraft, baseRevisionId: string | null | undefined): string {
+  // Spelled with a prefix rather than dropped in raw so the three states stay
+  // readable in the digest itself: an id, `none` (a new page, written against
+  // no revision), `unresolved` (the history read failed, so the server will
+  // fall back to its own pointer). `unresolved` is the one case where two
+  // submissions can still converge on a base that moved between them — the
+  // console cannot hash an anchor it never learned. That is the same exposure
+  // this whole field closes, now confined to the read-failure path instead of
+  // being the normal case.
+  const base =
+    baseRevisionId === undefined ? 'base:unresolved' : baseRevisionId === null ? 'base:none' : `base:${baseRevisionId}`
+  return [
+    'wikikit-cockpit/page/v2',
+    space,
+    draft.slug,
+    draft.title.trim(),
+    draft.summary.trim(),
+    base,
+    draft.markdown,
+  ].join('\u0000')
 }
 
-export function proposalInputHash(space: string, draft: PageDraft): string {
-  return sha256Hex(stagingDigest(space, draft))
+export function proposalInputHash(space: string, draft: PageDraft, baseRevisionId: string | null | undefined): string {
+  return sha256Hex(stagingDigest(space, draft, baseRevisionId))
 }
 
 /**
@@ -319,7 +355,11 @@ export function conceptProposalBody(args: {
   return {
     title: proposalTitle(draft, isNew),
     summary,
-    input_hash: proposalInputHash(space, draft),
+    // The EFFECTIVE base — the one this body actually carries, after `isNew`
+    // has forced it to null — and not the caller's argument: the dedup anchor
+    // has to describe the request that was sent, or two bodies that differ in
+    // the field a reviewer reads would hash the same.
+    input_hash: proposalInputHash(space, draft, base),
     source_ids: [],
     concepts: [concept],
   }

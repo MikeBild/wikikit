@@ -43,6 +43,19 @@ export const OAUTH_CHALLENGE_SCOPE = OAUTH_SCOPES.filter((scope) => scope !== 'o
 // turn existing read/propose integrations into approvers on reconnect.
 const DEFAULT_SCOPE = 'knowledge:read knowledge:propose offline_access'
 const DCR_MAX_PER_MINUTE = 10
+/**
+ * Ceiling on cockpit sign-in states one remote address may mint per minute.
+ *
+ * Deliberately looser than the DCR ceiling. A dynamic registration comes from
+ * one machine; a cockpit sign-in comes from a person, and with `trustProxy`
+ * off every operator behind the same reverse proxy or office NAT shares ONE
+ * bucket key — a ten-a-minute limit would lock a team out of their own console
+ * on a Monday morning. Twenty is far above what humans produce (a sign-in is a
+ * single redirect, and even a stubborn back-button loop is a handful) and far
+ * below what makes unauthenticated row creation worth doing: at most two
+ * hundred live ten-minute states per address.
+ */
+export const COCKPIT_LOGIN_MAX_PER_MINUTE = 20
 const MAX_FORM_BYTES = 32 * 1024
 // Human-facing GET surfaces of the browser login funnel. Failures here render
 // an HTML error page in the shared TOKENS shell; the JSON {error,
@@ -56,6 +69,11 @@ const BROWSER_FUNNEL_PATHS = [
 ]
 const NOT_AUTHORIZED_MESSAGE = 'Your account is not authorized for WikiKit. Contact the operator.'
 const STATE_PROBLEM_MESSAGE = 'This sign-in attempt expired or was already used. Please sign in again.'
+// Deliberately free of the word "state": browserErrorMessage rewrites any
+// description matching /state/i into STATE_PROBLEM_MESSAGE, and telling a
+// throttled operator their sign-in expired would send them straight back into
+// the loop that throttled them.
+const TOO_MANY_LOGINS_MESSAGE = 'Too many sign-in attempts from this address. Wait a minute and try again.'
 
 interface ClientRow {
   client_id: string
@@ -123,6 +141,16 @@ interface OperatorSessionRow {
   provider_id: string | null
   provider_subject: string | null
   scopes: string[]
+  /**
+   * The row's idle deadline as it stands AFTER this read renewed it — already
+   * clamped to `absolute_expires_at` by the UPDATE that wrote it.
+   *
+   * Carried on the row rather than recomputed as `now() + 8h` in JavaScript
+   * because it is what the browser cookie's Max-Age is derived from: the clamp
+   * lives in one SQL expression, and reading its result back is the only way
+   * the cookie cannot be handed a life the row does not have.
+   */
+  expires_at: Date | string
 }
 
 class OAuthError extends Error {
@@ -144,6 +172,11 @@ function randomToken(prefix: string): string {
 // invalid_request at the request boundary, never by the NOT NULL constraint
 // on wk_oauth_authorization_codes exploding into a 500 at consent time.
 const PKCE_CHALLENGE = /^[A-Za-z0-9_-]{43,128}$/
+
+// Anything that must never reach a `location:` header this server builds out of
+// somebody else's query string. See safeCockpitReturnTo for why the bar is
+// printable ASCII rather than just CR/LF.
+const UNSAFE_IN_LOCATION = /[^\x20-\x7e]/
 
 function pkceChallenge(verifier: string): string {
   return createHash('sha256').update(verifier).digest('base64url')
@@ -322,6 +355,21 @@ function operatorToken(request: Request, config: Config): string {
 function withOperatorCookie(response: Response, config: Config, token: string, maxAge?: number): Response {
   response.headers.append('set-cookie', operatorCookie(config, token, maxAge))
   return response
+}
+
+/**
+ * Seconds of life left in a session row, for the cookie that stands for it.
+ *
+ * Zero when the row is already at (or past) its deadline, which as a Max-Age
+ * means "delete this cookie" — the honest answer for a session whose absolute
+ * cap lands within the second. An unparseable timestamp lands there too rather
+ * than emitting `Max-Age=NaN`, which browsers read as a session cookie and
+ * would quietly grant the row MORE life than it has.
+ */
+function operatorCookieMaxAge(session: Pick<OperatorSessionRow, 'expires_at'>): number {
+  const expires = session.expires_at instanceof Date ? session.expires_at : new Date(session.expires_at)
+  const remaining = Math.floor((expires.getTime() - Date.now()) / 1000)
+  return Number.isFinite(remaining) && remaining > 0 ? remaining : 0
 }
 
 function resourceId(config: Config): string {
@@ -610,25 +658,43 @@ export interface OAuthMount {
 }
 
 export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; logger: Logger }): OAuthMount {
-  const dcrBuckets = new Map<string, { count: number; resetAt: number }>()
+  /**
+   * Every per-remote-address minute bucket on this mount, in one store keyed by
+   * `<bucket> <address>`.
+   *
+   * One Map per limit was the alternative and it was rejected: the part worth
+   * having exactly once is not the counting, it is the 10_000-entry eviction
+   * below — the guard that stops the rate limiter from becoming the memory
+   * exhaustion it exists to prevent. Two stores means two chances to forget it.
+   * The bucket name is part of the key so two limits over the same address
+   * cannot spend each other's budget.
+   */
+  const rateBuckets = new Map<string, { count: number; resetAt: number }>()
 
-  function dcrAllowed(req: Request): boolean {
-    const address = config.trustProxy
+  // With trustProxy on, the left-most X-Forwarded-For hop is the client the
+  // edge saw; with it off, the only address that cannot be spoofed is the one
+  // the handler stamped from the socket.
+  function remoteAddress(req: Request): string {
+    return config.trustProxy
       ? (req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-        req.headers.get('x-wikikit-remote-address') ??
-        'unknown')
+          req.headers.get('x-wikikit-remote-address') ??
+          'unknown')
       : (req.headers.get('x-wikikit-remote-address') ?? 'unknown')
+  }
+
+  function rateAllowed(req: Request, bucket: string, limitPerMinute: number): boolean {
+    const key = `${bucket} ${remoteAddress(req)}`
     const now = Date.now()
-    const current = dcrBuckets.get(address)
+    const current = rateBuckets.get(key)
     if (!current || current.resetAt <= now) {
-      if (dcrBuckets.size >= 10_000) {
-        for (const [key, value] of dcrBuckets) if (value.resetAt <= now) dcrBuckets.delete(key)
-        if (dcrBuckets.size >= 10_000) return false
+      if (rateBuckets.size >= 10_000) {
+        for (const [entry, value] of rateBuckets) if (value.resetAt <= now) rateBuckets.delete(entry)
+        if (rateBuckets.size >= 10_000) return false
       }
-      dcrBuckets.set(address, { count: 1, resetAt: now + 60_000 })
+      rateBuckets.set(key, { count: 1, resetAt: now + 60_000 })
       return true
     }
-    if (current.count >= DCR_MAX_PER_MINUTE) return false
+    if (current.count >= limitPerMinute) return false
     current.count += 1
     return true
   }
@@ -638,7 +704,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     if (!rawToken) return null
     const { rows } = await deps.db.query<OperatorSessionRow>(
       `SELECT id, principal_kind, principal_key_id, principal_key_hash, principal_name,
-              principal_space_id, provider_id, provider_subject, scopes
+              principal_space_id, provider_id, provider_subject, scopes, expires_at
          FROM wk_oauth_operator_sessions
         WHERE token_hash = $1 AND revoked_at IS NULL
           AND expires_at > now() AND absolute_expires_at > now()
@@ -688,12 +754,19 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       if (!ceiling) return null
       session.scopes = ceiling
     }
-    await deps.db.query(
+    // `least(absolute_expires_at, …)` is the whole of the 24-hour cap: no read,
+    // however busy, can push the idle deadline past it. RETURNING the result
+    // rather than assuming `now() + 8h` is what lets the cookie be re-stamped
+    // from the row (see GET /v1/session) without ever outliving it — the last
+    // renewal before the cap simply hands the browser whatever is left.
+    const { rows: renewed } = await deps.db.query<{ expires_at: Date | string }>(
       `UPDATE wk_oauth_operator_sessions
           SET last_used_at = now(), expires_at = least(absolute_expires_at, now() + interval '8 hours')
-        WHERE id = $1`,
+        WHERE id = $1
+        RETURNING expires_at`,
       [session.id],
     )
+    if (renewed[0]) session.expires_at = renewed[0].expires_at
     return session
   }
 
@@ -849,11 +922,26 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
    * disagreement, and the cockpit only ever wants to land back on one of its
    * own routes. `//evil.example` is a protocol-relative URL that a naive
    * "starts with /" check would wave through, so it is rejected explicitly.
+   *
+   * The printable-ASCII rule subsumes the CR/LF rule this used to carry alone.
+   * CR and LF were rejected as the header-injection pair; the rest of the range
+   * has to go for a duller reason that hurts the operator more. Node's
+   * `res.setHeader` refuses any code point outside tab, `\x20-\x7e` and
+   * latin-1, and it refuses by THROWING — while `finishCockpitLogin` stamps
+   * `consumed_at` BEFORE building the redirect. So a link mailed to an operator
+   * carrying `?return_to=/cockpit/%00` ended their sign-in on a 500 with a
+   * single-use state already spent, and the page explained nothing. The latin-1
+   * window node happens to tolerate goes too: the console builds `return_to`
+   * from `location.pathname`/`location.search`, which the browser has already
+   * percent-encoded, so a raw non-ASCII byte arriving here is not a deep link
+   * anybody typed. Rejection is never an error — it is the cockpit root, so the
+   * operator still lands signed in, one navigation from where they were going.
    */
   function safeCockpitReturnTo(value: string | null | undefined): string {
     const candidate = value ?? ''
     if (!candidate.startsWith(COCKPIT_PREFIX)) return `${COCKPIT_PREFIX}/`
-    if (candidate.startsWith('//') || /[\r\n]/.test(candidate) || candidate.length > 2048) return `${COCKPIT_PREFIX}/`
+    if (candidate.startsWith('//') || UNSAFE_IN_LOCATION.test(candidate) || candidate.length > 2048)
+      return `${COCKPIT_PREFIX}/`
     // '/cockpitfoo' is not under the cockpit; '/cockpit' and '/cockpit/…' are.
     const next = candidate.charAt(COCKPIT_PREFIX.length)
     if (next && next !== '/' && next !== '?') return `${COCKPIT_PREFIX}/`
@@ -955,7 +1043,23 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       // screen where nothing is wrong. The console branches on `session: null`.
       if (request.method === 'GET' && path === '/v1/session') {
         const operator = await currentOperator(request)
-        return json({ session: operator ? sessionPayload(operator) : null })
+        const response = json({ session: operator ? sessionPayload(operator) : null })
+        if (!operator) return response
+        // The renewal the browser can see. `currentOperator` just slid the
+        // ROW's idle deadline, as it does on every authenticated read — but the
+        // cookie's Max-Age was written once, at login, and nothing re-wrote it
+        // outside the login/consent/logout paths. So an operator working
+        // continuously was hard-signed-out eight hours after signing in, by
+        // their own browser dropping a cookie whose session was still alive:
+        // signed out mid-review, the failure this product can least afford.
+        //
+        // Re-stamping the SAME token with the row's current deadline is what
+        // makes the documented eight-hour IDLE limit true on the browser side
+        // too, and this is the natural place for it — /v1/session is the whoami
+        // the console reads before it renders anything. It cannot extend the
+        // 24-hour cap: the Max-Age comes from the value
+        // `least(absolute_expires_at, …)` just wrote, never from a fresh clock.
+        return withOperatorCookie(response, config, operatorToken(request, config), operatorCookieMaxAge(operator))
       }
       if (request.method === 'DELETE' && path === '/v1/session') {
         // Same-origin only. The session cookie is SameSite=Lax, which a
@@ -992,6 +1096,19 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         // arrive back where they already had the right to be.
         if (operator) {
           return new Response(null, { status: 302, headers: { location: returnTo, 'cache-control': 'no-store' } })
+        }
+        // Past this line every request INSERTs a row, and this is the only
+        // login-state-minting path with no client, no credential and no consent
+        // behind it — the cheapest row in the system to create from the
+        // outside, and one the housekeeping sweep only collects hourly. Same
+        // per-address bucket the DCR endpoint uses, under its own name and its
+        // own limit.
+        //
+        // Charged AFTER the already-signed-in short-circuit above on purpose:
+        // an operator bouncing around their own console never spends a slot,
+        // because a session they already hold costs no row at all.
+        if (!rateAllowed(request, 'cockpit-login', COCKPIT_LOGIN_MAX_PER_MINUTE)) {
+          throw new OAuthError('too_many_requests', TOO_MANY_LOGINS_MESSAGE, 429)
         }
         const loginState = randomToken('wkl_')
         const [state] = await deps.db.insert<IdentityLoginStateRow>('wk_oauth_login_states', {
@@ -1036,7 +1153,8 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       if (request.method === 'POST' && path === '/v1/oauth/register') {
         if (config.oauthDynamicRegistrationEnabled === false)
           throw new OAuthError('registration_not_supported', 'dynamic registration is disabled')
-        if (!dcrAllowed(request)) throw new OAuthError('too_many_requests', 'registration rate limit exceeded', 429)
+        if (!rateAllowed(request, 'register', DCR_MAX_PER_MINUTE))
+          throw new OAuthError('too_many_requests', 'registration rate limit exceeded', 429)
         const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
         const redirectUris = body?.redirect_uris
         if (

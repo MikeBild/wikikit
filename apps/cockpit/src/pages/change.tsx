@@ -33,6 +33,7 @@ import {
   reviewUrl,
   severityLabel,
   severityState,
+  splitPlan,
   staleSlugs,
   type ConceptDiff,
 } from '@/pages/change.logic'
@@ -188,6 +189,11 @@ function ChangeBody({
   const stale = staleSlugs(detail.concepts)
   const pending = detail.status === 'pending'
   const deferable = isDeferable(detail.status, detail.concepts.length)
+  // Read here rather than inside the dialog: the confirmation has to promise the
+  // same number the success toast will report, and that number is the server's
+  // child count — pages, plus the catch-all child 0020 adds for anything staged
+  // that no page-sized child can carry.
+  const splitting = splitPlan(detail)
 
   const approveReason = can('knowledge:approve')
     ? null
@@ -561,10 +567,21 @@ function ChangeBody({
                     title="Split into one change per page?"
                     description="Nothing is decided and nothing is published — the pages are dealt out so they can be decided one at a time."
                     details={
-                      <span>
-                        {detail.concepts.length} pages become {detail.concepts.length} pending changes. THIS change
-                        becomes terminal and can never move again.
-                      </span>
+                      <div className="flex flex-col gap-2" data-testid="split-details">
+                        <span>
+                          {detail.concepts.length} pages become {splitting.children} pending changes, one per page
+                          {splitting.leftovers ? (
+                            <>
+                              {' '}
+                              plus one more — <code className="font-mono text-xs">{splitting.leftovers.title}</code> —
+                              carrying {splitting.leftovers.holds}, which belongs to no single page and would otherwise
+                              be stranded on this change once it goes terminal
+                            </>
+                          ) : null}
+                          .
+                        </span>
+                        <span>THIS change becomes terminal and can never move again.</span>
+                      </div>
                     }
                     confirmLabel="Split it up"
                     ids={{
@@ -656,9 +673,9 @@ function ConceptCard({
 
         <ConceptDiffView diff={diff} slug={concept.slug} />
 
-        {claims.staged.length > 0 || claims.retired.length > 0 ? (
+        {claims.staged.length > 0 ? (
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-medium">Claims ({claims.staged.length + claims.retired.length})</h3>
+            <h3 className="text-sm font-medium">Claims ({claims.staged.length})</h3>
             {claims.staged.map(({ claim, change }, index) => (
               <ClaimRow
                 key={`${claim.subject}-${claim.predicate}-${claim.object}-${index}`}
@@ -667,19 +684,6 @@ function ConceptCard({
                 claim={claim}
                 change={change}
               />
-            ))}
-            {claims.retired.map(({ triple, change }, index) => (
-              <div
-                key={`retired-${triple.subject}-${triple.predicate}-${index}`}
-                data-testid={`claim-retired-${concept.slug}-${index}`}
-                className="flex flex-col gap-1 rounded-lg border border-border p-3"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={change === 'deprecated' ? 'unknown' : 'danger'}>{change}</Badge>
-                  <span className="text-muted-foreground text-xs">already visible in the wiki</span>
-                </div>
-                <Triple triple={triple} />
-              </div>
             ))}
           </section>
         ) : null}

@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   CONCEPT_SLUG,
   claimSentence,
+  conceptProposalBody,
   currentRevisionId,
   draftProblem,
   evidenceOf,
@@ -89,6 +90,59 @@ describe('the proposal title', () => {
     expect(proposalTitle({ slug: 'onboarding', title: 'Onboarding', summary: '', markdown: 'x' }, false)).toContain(
       'Onboarding',
     )
+  })
+})
+
+describe('the dedup anchor a change is staged under', () => {
+  // `input_hash` is what the server's pending dedup compares (createProposal,
+  // src/domain/proposals.ts): a body whose hash matches a pending proposal is
+  // NOT staged — the existing proposal comes back instead. So this hash decides
+  // when two submissions are the same act, and the base revision is part of
+  // that act, not just the text.
+  const draft = { slug: 'onboarding', title: 'Onboarding', summary: 'How', markdown: 'Text.' }
+  const hashOf = (base: string | null | undefined, over = draft) =>
+    conceptProposalBody({ space: 'ops', draft: over, isNew: false, baseRevisionId: base }).input_hash
+
+  test('the same text against a MOVED base is a different change', () => {
+    // Somebody edits a page, a reviewer approves a different change to it in
+    // the meantime, the author reloads and re-submits their identical text. If
+    // the hash ignored the base, the server would hand back the proposal
+    // anchored to the revision that is now stale, and no amount of pressing
+    // Submit could stage a fresh one — only editing a byte of prose could.
+    expect(hashOf('11111111-1111-4111-8111-111111111111')).not.toBe(hashOf('22222222-2222-4222-8222-222222222222'))
+  })
+
+  test('pressing submit twice on the same text and the same base still converges', () => {
+    // The other half of the promise: idempotent retries must not put two
+    // identical items in a reviewer's queue.
+    expect(hashOf('11111111-1111-4111-8111-111111111111')).toBe(hashOf('11111111-1111-4111-8111-111111111111'))
+  })
+
+  test('an unresolvable base is not the same as no base', () => {
+    // `undefined` (the history read failed — the server falls back to its own
+    // pointer) and `null` ("written against no revision") are different
+    // instructions on the wire, so they must not hash alike.
+    expect(hashOf(undefined)).not.toBe(hashOf(null))
+  })
+
+  test('changing a single character still stages a new change', () => {
+    const base = '11111111-1111-4111-8111-111111111111'
+    expect(hashOf(base)).not.toBe(hashOf(base, { ...draft, markdown: 'Text!' }))
+  })
+
+  test('the hash follows the base the BODY carries, not the argument', () => {
+    // A new page forces the base to null whatever the caller passed, and the
+    // anchor has to describe what was sent.
+    const asNew = (base: string | null | undefined) =>
+      conceptProposalBody({ space: 'ops', draft, isNew: true, baseRevisionId: base })
+    expect(asNew('11111111-1111-4111-8111-111111111111').input_hash).toBe(asNew(null).input_hash)
+    expect(asNew('11111111-1111-4111-8111-111111111111').concepts).toEqual([
+      expect.objectContaining({ base_revision_id: null }),
+    ])
+  })
+
+  test('the digest is a sha-256 hex digest, which is all the schema accepts', () => {
+    expect(hashOf(null)).toMatch(/^[0-9a-f]{64}$/)
   })
 })
 

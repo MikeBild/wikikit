@@ -273,6 +273,76 @@ export function isDeferable(status: string, conceptCount: number): boolean {
   return status === 'pending' && conceptCount > 1
 }
 
+/** The staged content, reduced to what a FULL split deals out. */
+export interface SplitScope {
+  /** The parent's title — the children are named after it, verbatim. */
+  title: string
+  concepts: readonly { slug: string }[]
+  decisions: readonly unknown[]
+  relations_removed: readonly { from_slug: string }[]
+}
+
+export interface SplitPlan {
+  /** How many pending children a full split creates, the catch-all included. */
+  children: number
+  /**
+   * The child that is not a page, when there is one: the title the server will
+   * give it, and what it will be holding.
+   */
+  leftovers: { title: string; holds: string } | null
+}
+
+/**
+ * What a full split will actually create — which is not always one child per page.
+ *
+ * `wk_split_proposal` (migration 0020) deals each staged concept into its own
+ * pending child, and then, when anything staged would be left behind on a parent
+ * that is about to go terminal, it creates ONE more child titled
+ * `<parent title> — decisions` and moves that leftover into it. Two things end up
+ * there: every staged decision, and every relation-removal marker whose
+ * from-concept this change does not stage — the per-concept loop re-points only
+ * the markers that leave a concept being split out, so a removal from a page this
+ * change never touches has nowhere else to go.
+ *
+ * Counting `concepts.length` and calling it the answer is therefore wrong in
+ * exactly the cases that matter most: a change carrying decisions is the one a
+ * reviewer splits, and the confirmation promised N while the success toast then
+ * reported N+1. Two numbers for one action is how an operator learns to stop
+ * reading confirmations.
+ *
+ * The catch-all is named rather than counted silently, because "3 pending
+ * changes" from a 2-page change reads as a bug until the reviewer sees the third
+ * one in the queue and can recognise it by its title.
+ *
+ * Full split only. Defer (`split` with a concept list) never produces the
+ * catch-all: the parent stays PENDING and keeps its decisions and its remaining
+ * markers, so nothing is orphaned and there is nothing to rescue.
+ *
+ * Two things this leans on, both worth stating because a future reader will
+ * otherwise re-derive them: 0027 re-declares `wk_split_proposal` verbatim apart
+ * from the review-channel whitelist, so 0020 is still the reasoning to read; and
+ * the function counts `status = 'proposed'` decisions while the wire sends every
+ * staged decision regardless of status — the same set, because decisions only
+ * flip to `active` in `wk_approve_proposal` and the split button exists only
+ * while the change is pending.
+ */
+export function splitPlan(scope: SplitScope): SplitPlan {
+  const staged = new Set(scope.concepts.map((concept) => concept.slug))
+  const orphanedRemovals = scope.relations_removed.filter((edge) => !staged.has(edge.from_slug)).length
+  const decisions = scope.decisions.length
+  if (decisions === 0 && orphanedRemovals === 0) return { children: scope.concepts.length, leftovers: null }
+
+  const holds = [
+    decisions > 0 ? count(decisions, 'decision') : null,
+    orphanedRemovals > 0
+      ? `${count(orphanedRemovals, 'relation removal')} from a page this change does not stage`
+      : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' and ')
+  return { children: scope.concepts.length + 1, leftovers: { title: `${scope.title} — decisions`, holds } }
+}
+
 /* ----------------------------------------------------------------- claims */
 
 /** A claim, as the wire carries one: subject–predicate–object and nothing else. */
@@ -288,12 +358,6 @@ export type ClaimChange = 'added' | 'disputed' | 'deprecated' | null
 export interface ClaimReview<C> {
   /** The claims this change stages, each labelled with what happens to it. */
   staged: { claim: C; change: ClaimChange }[]
-  /**
-   * Triples the change acts on that it does NOT stage — existing visible claims
-   * it disputes or retires. They carry no citations because they are not new
-   * text; they are knowledge already in the wiki that this change contradicts.
-   */
-  retired: { triple: ClaimTriple; change: 'disputed' | 'deprecated' }[]
 }
 
 /**
@@ -306,11 +370,19 @@ export interface ClaimReview<C> {
  * `claims_deprecated` carry bare triples and say what the change DOES.
  *
  * A reviewer needs both facts on one line: this sentence is being added, and
- * here is the quote that backs it. So the lists are joined on the triple. The
- * join also surfaces the case a naive render loses entirely — a disputed or
- * deprecated triple with no staged counterpart is an existing claim about to be
- * knocked down by a change that never quotes it, which is exactly the kind of
- * consequence a reviewer must not have to infer.
+ * here is the quote that backs it. So the lists are joined on the triple, and
+ * the result is one row per STAGED claim — never a second list.
+ *
+ * A triple that is disputed or deprecated WITHOUT being staged would be exactly
+ * that second list, and it cannot arrive: `buildProposalDetail` in
+ * `src/domain/proposals.ts` derives all four fields from the same per-concept
+ * array, so every triple in the three lists is by construction also a staged
+ * row. This file used to carry a branch and a render block for the other case;
+ * they were unreachable, and a block that claims to handle a case it can never
+ * receive is worse than no block, because the next reader believes the surface
+ * is covered. For it to come back the server would have to report the claims a
+ * change knocks down on OTHER pages — triples it acts on but never stages — and
+ * that is a change to the wire contract first, not to this function.
  */
 export function annotateClaims<C extends ClaimTriple>(concept: {
   claims: readonly C[]
@@ -336,17 +408,7 @@ export function annotateClaims<C extends ClaimTriple>(concept: {
           : null
     return { claim, change }
   })
-
-  const stagedKeys = new Set(concept.claims.map(tripleKey))
-  const retired: { triple: ClaimTriple; change: 'disputed' | 'deprecated' }[] = []
-  for (const triple of concept.claims_deprecated) {
-    if (!stagedKeys.has(tripleKey(triple))) retired.push({ triple, change: 'deprecated' })
-  }
-  for (const triple of concept.claims_disputed) {
-    const key = tripleKey(triple)
-    if (!stagedKeys.has(key) && !deprecated.has(key)) retired.push({ triple, change: 'disputed' })
-  }
-  return { staged, retired }
+  return { staged }
 }
 
 /** A NUL join, so a subject ending in a separator cannot collide with the next field. */

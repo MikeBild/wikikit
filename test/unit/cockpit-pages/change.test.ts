@@ -24,6 +24,7 @@ import {
   lineDiff,
   proposedBy,
   severityState,
+  splitPlan,
   staleSlugs,
 } from '../../../apps/cockpit/src/pages/change.logic.ts'
 
@@ -182,6 +183,64 @@ describe('deferring', () => {
   })
 })
 
+describe('the split confirmation promises what the server will create', () => {
+  // The number in the dialog and the number in the success toast are the same
+  // number — the toast reports `children.length` straight off the response.
+  // `wk_split_proposal` (migration 0020) creates one child per staged concept
+  // AND one more, `<title> — decisions`, whenever decisions or leftover removal
+  // markers would be stranded on the parent it is about to make terminal.
+  const pages = [{ slug: 'alpha' }, { slug: 'beta' }]
+
+  test('pages alone become one child each, with no catch-all invented', () => {
+    expect(splitPlan({ title: 'Handbook', concepts: pages, decisions: [], relations_removed: [] })).toEqual({
+      children: 2,
+      leftovers: null,
+    })
+  })
+
+  test('a staged decision adds a child, and the dialog names it', () => {
+    // Without this the confirmation said "2 pages become 2 pending changes" and
+    // the toast then reported 3 — the reviewer is left to guess which promise
+    // was the lie, and the third change sits in the queue unrecognised.
+    const plan = splitPlan({ title: 'Handbook', concepts: pages, decisions: [{}], relations_removed: [] })
+    expect(plan.children).toBe(3)
+    expect(plan.leftovers?.title).toBe('Handbook — decisions')
+    expect(plan.leftovers?.holds).toBe('1 decision')
+  })
+
+  test('a removal from a page this change does not stage adds the same child', () => {
+    // 0020 re-points a removal marker onto the child of the concept the edge
+    // LEAVES FROM. An edge leaving a page nobody staged has no such child, so
+    // it lands in the catch-all — which is why counting relations_removed
+    // wholesale would be as wrong as ignoring them.
+    const plan = splitPlan({
+      title: 'Handbook',
+      concepts: pages,
+      decisions: [],
+      relations_removed: [{ from_slug: 'gamma' }],
+    })
+    expect(plan.children).toBe(3)
+    expect(plan.leftovers?.holds).toContain('1 relation removal')
+  })
+
+  test('a removal that leaves a staged page rides with that page, not with a catch-all', () => {
+    expect(
+      splitPlan({ title: 'Handbook', concepts: pages, decisions: [], relations_removed: [{ from_slug: 'alpha' }] }),
+    ).toEqual({ children: 2, leftovers: null })
+  })
+
+  test('decisions and a stranded removal are described together in one child', () => {
+    const plan = splitPlan({
+      title: 'Handbook',
+      concepts: pages,
+      decisions: [{}, {}],
+      relations_removed: [{ from_slug: 'gamma' }, { from_slug: 'beta' }],
+    })
+    expect(plan.children).toBe(3)
+    expect(plan.leftovers?.holds).toBe('2 decisions and 1 relation removal from a page this change does not stage')
+  })
+})
+
 describe('stale bases', () => {
   test('names every concept whose base moved, and nothing else', () => {
     expect(
@@ -231,21 +290,23 @@ describe('claims and their evidence', () => {
       claims_deprecated: [],
     })
     expect(reviewed.staged[0]?.change).toBe('added')
-    expect(reviewed.retired).toEqual([])
   })
 
-  test('a disputed triple with no staged counterpart is surfaced as retired, not dropped', () => {
-    // The case a naive render loses entirely: an existing visible claim this
-    // change knocks down without ever quoting it. A reviewer must not have to
-    // infer that from the diff, because it is not in the diff.
+  test('a disputed triple is labelled on its staged row — there is no second list to render', () => {
+    // `buildProposalDetail` (src/domain/proposals.ts) derives claims,
+    // claims_added, claims_disputed and claims_deprecated from ONE per-concept
+    // array, so a triple in any of the three lists is always also staged. The
+    // page used to carry a "retired" list for the impossible remainder; it was
+    // dead code advertising coverage the wire cannot deliver. Pinning the shape
+    // is the point of this test — a resurrected second list fails it.
     const reviewed = annotateClaims({
-      claims: [],
-      claims_added: [],
+      claims: [triple],
+      claims_added: [triple],
       claims_disputed: [triple],
       claims_deprecated: [],
     })
-    expect(reviewed.staged).toEqual([])
-    expect(reviewed.retired).toEqual([{ triple, change: 'disputed' }])
+    expect(reviewed.staged).toEqual([{ claim: triple, change: 'disputed' }])
+    expect(Object.keys(reviewed)).toEqual(['staged'])
   })
 
   test('the strongest consequence wins when a triple is in more than one list', () => {

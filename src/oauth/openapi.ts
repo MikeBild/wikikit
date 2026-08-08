@@ -157,7 +157,14 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
           },
         }),
       },
-      responses: { 201: { description: 'Client registered', content: json({ type: 'object' }) }, ...errorResponses },
+      responses: {
+        201: { description: 'Client registered', content: json({ type: 'object' }) },
+        ...errorResponses,
+        429: {
+          description: 'Registration rate limit exceeded for this address',
+          content: json({ $ref: '#/components/schemas/OAuthError' }),
+        },
+      },
     },
   }
   paths['/v1/oauth/authorize'] = {
@@ -287,6 +294,9 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       responses: {
         302: { description: 'Redirect to the provider chooser, or straight back for a live session' },
         ...browserErrorResponses,
+        // Charged per remote address AFTER the already-signed-in short-circuit,
+        // so an operator moving around their own console never spends a slot.
+        429: browserError('Too many sign-in attempts from this address'),
       },
     },
   }
