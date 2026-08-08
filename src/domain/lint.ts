@@ -13,9 +13,9 @@
 // surface the staging backlog.
 import type { Db } from '../db/postgres.ts'
 import { getFunctionalPredicates, VISIBLE_CLAIM_STATUSES } from './claims.ts'
-import { EVIDENCE_LATERAL, NOT_SCAFFOLDING } from './concepts.ts'
+import { EVIDENCE_LATERAL, notScaffolding, type ScaffoldingOptions } from './concepts.ts'
 
-// NOT_SCAFFOLDING (and the SCAFFOLDING_KINDS behind it) is defined beside
+// notScaffolding (and the marker set behind it) is defined beside
 // EVIDENCE_LATERAL in concepts.ts, and its full reasoning is there: it now
 // serves two callers with two different purposes, the linter suppressing fault
 // reports about those pages and the concept index declining to measure them,
@@ -23,6 +23,11 @@ import { EVIDENCE_LATERAL, NOT_SCAFFOLDING } from './concepts.ts'
 // knowledge. It moved rather than being duplicated for the same reason the
 // aggregate is shared — this file cannot own a definition the read model also
 // needs without concepts.ts importing back from the linter.
+//
+// It takes the installation's markers as an argument because only part of that
+// set is WikiKit's own (concepts.ts explains which part and why), so the rules
+// below thread `options.scaffoldingKinds` down from lintSpace rather than
+// closing over a module constant.
 //
 // What holds HERE: every page-level rule that reports a FAULT excludes them —
 // orphan-concepts, unsourced-concepts, empty-concepts — because a rule that
@@ -32,7 +37,7 @@ import { EVIDENCE_LATERAL, NOT_SCAFFOLDING } from './concepts.ts'
 // it: it reports a page that is blank in every sense at once, which is what a
 // structural target has BECOME once nothing points through it any more. Its
 // reasoning is at the rule; what matters here is that a new page-level rule
-// reaching for NOT_SCAFFOLDING is making a claim about faults, not inheriting a
+// reaching for notScaffolding is making a claim about faults, not inheriting a
 // default.
 
 export type LintRule =
@@ -266,14 +271,14 @@ async function staleClaims(db: Db, spaceId: string): Promise<LintFinding[]> {
 // A readable concept no active relation touches (either direction) is
 // unreachable by graph navigation — usually a missed relation, occasionally a
 // genuinely standalone page (hence warn, not error).
-async function orphanConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
        JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
-        AND ${NOT_SCAFFOLDING}
+        AND ${notScaffolding(kinds)}
         AND NOT EXISTS (
           SELECT 1 FROM wk_relations rel
            WHERE rel.status = 'active'
@@ -333,14 +338,18 @@ async function orphanConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
 // the concept list renders. A second hand-written copy could drift over the
 // visible statuses or a forgotten DISTINCT and then tell an operator that a
 // page the index shows with `sources: 1` rests on nothing.
-async function unsourcedConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function unsourcedConcepts(
+  db: Db,
+  spaceId: string,
+  kinds: readonly string[] | undefined,
+): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string; claims: number; sources: number }>(
     `WITH page AS (
        SELECT c.id, c.slug
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1
-          AND ${NOT_SCAFFOLDING}
+          AND ${notScaffolding(kinds)}
      )
      SELECT p.slug, ev.claims, ev.sources
        FROM page p
@@ -376,21 +385,21 @@ async function unsourcedConcepts(db: Db, spaceId: string): Promise<LintFinding[]
 //
 // WHY the rule exists. The concept list's evidence summary counts claims and
 // sources over every page; `unsourced-concepts` reports the pages with zero
-// sources but skips SCAFFOLDING_KINDS, and on a real installation that gap was
-// large enough to break the linter's promise: a space whose index showed two
-// dozen pages with `sources: 0` produced not one finding, so the operator who
-// opened the report to find out what to do about them was told nothing was
-// wrong. The pages behind that silence are not the linter's own furniture —
-// they have titles, they are in the index, a reader can open them — they are
-// simply blank. Something has to say so.
+// sources but skips the scaffolding markers, and on a real installation that
+// gap was large enough to break the linter's promise: a space whose index
+// showed two dozen pages with `sources: 0` produced not one finding, so the
+// operator who opened the report to find out what to do about them was told
+// nothing was wrong. The pages behind that silence are not the linter's own
+// furniture — they have titles, they are in the index, a reader can open them —
+// they are simply blank. Something has to say so.
 //
-// WHY this rule does NOT look at SCAFFOLDING_KINDS, in either direction. Not as
-// an exclusion, because excluding them is the defect this rule exists to fix.
-// But equally not as a REQUIREMENT: keying off the marker would make the rule a
-// report about one deployment's private migration tag rather than about the
-// knowledge base, and it would find nothing at all on an installation that
-// never ran that import — while the same blank pages arise wherever a relation
-// target is created and then the relation goes away. Every condition below is
+// WHY this rule does NOT look at the scaffolding markers, in either direction.
+// Not as an exclusion, because excluding them is the defect this rule exists
+// to fix. But equally not as a REQUIREMENT: keying off the marker would make
+// the rule a report about one deployment's private migration tag rather than
+// about the knowledge base, and it would find nothing at all on an installation
+// that never ran that import — while the same blank pages arise wherever a
+// relation target is created and then the relation goes away. Every condition below is
 // observable in what the page IS, never in how it came to exist, so the rule
 // means the same thing on every installation. Suppressing furniture from
 // `orphan-concepts` and friends stays correct: those rules describe a fault
@@ -455,14 +464,14 @@ async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
 
 // Readable concept with zero visible claims: prose without a single
 // verifiable statement — fine for a stub, worth knowing about.
-async function emptyConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
        JOIN wk_concept_revisions r ON r.id = c.current_revision_id
       WHERE c.space_id = $1
         AND c.current_revision_id IS NOT NULL
-        AND ${NOT_SCAFFOLDING}
+        AND ${notScaffolding(kinds)}
         AND NOT EXISTS (
           SELECT 1 FROM wk_claims cl
            WHERE cl.concept_id = c.id
@@ -824,7 +833,8 @@ export async function lintProposal(
  * of output is always the worst problem; counts let CI gate with a single
  * jq expression (plan §13.F).
  */
-export async function lintSpace(db: Db, spaceId: string): Promise<LintReport> {
+export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOptions = {}): Promise<LintReport> {
+  const kinds = options.scaffoldingKinds
   // Sequential on purpose: lint runs on demand over one pool — eight parallel
   // queries would hog connections for a diagnostics endpoint.
   const findings: LintFinding[] = [
@@ -832,12 +842,12 @@ export async function lintSpace(db: Db, spaceId: string): Promise<LintReport> {
     ...(await missingCitations(db, spaceId)),
     ...(await brokenRelations(db, spaceId)),
     ...(await staleClaims(db, spaceId)),
-    ...(await orphanConcepts(db, spaceId)),
-    ...(await unsourcedConcepts(db, spaceId)),
+    ...(await orphanConcepts(db, spaceId, kinds)),
+    ...(await unsourcedConcepts(db, spaceId, kinds)),
     ...(await tombstonedSources(db, spaceId)),
     ...(await brokenCrossSpaceLinks(db, spaceId)),
     ...(await stubConcepts(db, spaceId)),
-    ...(await emptyConcepts(db, spaceId)),
+    ...(await emptyConcepts(db, spaceId, kinds)),
     ...(await unreviewedProposals(db, spaceId)),
     ...(await danglingSources(db, spaceId)),
   ]

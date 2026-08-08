@@ -12,8 +12,14 @@
 // evidence on the one screen that also shows unreviewed material. Which hits
 // are allowed to make it, and what the answer means, are the rules below.
 import { describe, expect, test } from 'bun:test'
-import { pageEvidence } from '../../../apps/cockpit/src/pages/page.logic.ts'
-import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '../../../apps/cockpit/src/pages/search.logic.ts'
+import { pageEvidence, rendersAsDash } from '../../../apps/cockpit/src/pages/page.logic.ts'
+import {
+  RESULT_LIMIT,
+  hitEvidence,
+  resultCeilingNote,
+  searchMeasuresEvidence,
+  type EvidenceBearingHit,
+} from '../../../apps/cockpit/src/pages/search.logic.ts'
 import { zSearchQuery } from '../../../src/http/schemas.ts'
 
 describe('the ceiling note', () => {
@@ -119,6 +125,209 @@ describe('a hit’s evidence', () => {
     expect(partial?.flag).toBe('2 uncited')
     expect(partial?.count).toBe('12 claims')
     expect(partial?.detail).toBe('4 sources')
+  })
+})
+
+// Why a search hit draws the em dash — and why the two reasons may never become
+// one sentence.
+//
+// A concept hit arrives without counts for two unrelated reasons that look
+// identical in the hit:
+//
+//   (a) the page is a REFERENCE TARGET — a row an import created so reviewed
+//       relations had somewhere to land, whose own body says the knowledge lives
+//       on the pages it points at. The server declines to measure it. Nothing is
+//       pending, nothing is broken, there is no ingest to run.
+//   (b) the RESPONSE measured nothing — a tab that outlived a rolling upgrade,
+//       answered by a build that predates the counts. Nothing here is known
+//       about any page, and the next reload fixes it.
+//
+// Until now this screen said (b) under every dash, including the dashes on
+// reference targets in responses whose other hits carried counts — a surface
+// stating something false about a page, said only in `sr-only` text, so the
+// reader most likely to be told the untrue thing was the one using a screen
+// reader. These tests are what keeps the two apart.
+describe('the dash on a search hit', () => {
+  const backedCounts = { claims: 12, uncited_claims: 2, sources: 4 }
+
+  // One response, three concept hits: a page with evidence, a page that
+  // genuinely rests on nothing, and a reference target. Plus the two kinds that
+  // never carry evidence, because a real response has them mixed in.
+  const measuringResponse: readonly EvidenceBearingHit[] = [
+    { tier: 'approved', kind: 'concept', evidence: backedCounts },
+    { tier: 'approved', kind: 'concept', evidence: { claims: 0, uncited_claims: 0, sources: 0 } },
+    { tier: 'approved', kind: 'concept' },
+    { tier: 'approved', kind: 'claim' },
+    { tier: 'source_evidence', kind: 'source_chunk' },
+  ]
+
+  // The same shape from a build that never heard of the counts: every concept
+  // hit is bare, and no page on the screen may be described as anything.
+  const silentResponse: readonly EvidenceBearingHit[] = [
+    { tier: 'approved', kind: 'concept' },
+    { tier: 'approved', kind: 'concept' },
+    { tier: 'approved', kind: 'claim' },
+  ]
+
+  test('a reference target in a measuring response says what the PAGE is, not what the response failed to do', () => {
+    // The defect, pinned. This is the hit that used to read "This list came back
+    // without evidence counts" on a screen whose other cards were printing them.
+    expect(searchMeasuresEvidence(measuringResponse)).toBe(true)
+
+    const target = hitEvidence({ tier: 'approved', kind: 'concept' }, searchMeasuresEvidence(measuringResponse))
+    expect(target?.level).toBe('reference')
+    expect(rendersAsDash(target!.level)).toBe(true)
+    expect(target?.reading).toMatch(/reference target/i)
+    expect(target?.reading).toMatch(/not measured/i)
+    // And never the other sentence, in any wording: "the counts did not arrive"
+    // is a statement about a response, and this response answered fine.
+    expect(target?.reading).not.toMatch(/came back without/i)
+  })
+
+  test('a response that measured nothing says so, and calls no page a reference target', () => {
+    expect(searchMeasuresEvidence(silentResponse)).toBe(false)
+
+    const unknown = hitEvidence({ tier: 'approved', kind: 'concept' }, searchMeasuresEvidence(silentResponse))
+    expect(unknown?.level).toBe('unmeasured')
+    expect(rendersAsDash(unknown!.level)).toBe(true)
+    // The console may not invent a property of a page on the strength of a
+    // response that never measured one.
+    expect(unknown?.reading).not.toMatch(/reference target/i)
+  })
+
+  test('the two readings are two sentences and never collapse into one', () => {
+    // Stated as an inequality as well as by content, so a future edit that
+    // "unifies the wording" fails here rather than in production.
+    const target = hitEvidence({ tier: 'approved', kind: 'concept' }, true)
+    const unknown = hitEvidence({ tier: 'approved', kind: 'concept' }, false)
+    expect(target?.reading).not.toBe(unknown?.reading)
+    expect(target?.level).not.toBe(unknown?.level)
+    // Both still print nothing — the distinction is in the words, not in a
+    // number one of them sneaks in.
+    expect(target?.count).toBeNull()
+    expect(unknown?.count).toBeNull()
+    expect(target?.flag).toBeNull()
+    expect(unknown?.flag).toBeNull()
+  })
+
+  test('a page with real counts prints them whatever the response answer is', () => {
+    // The response-level flag is only ever consulted for an ABSENT measurement.
+    // A hit that carries numbers renders numbers, and would go on doing so if
+    // the discriminator were wrong in either direction.
+    for (const measured of [true, false]) {
+      const backed = hitEvidence({ tier: 'approved', kind: 'concept', evidence: backedCounts }, measured)
+      expect(backed?.level).toBe('partial')
+      expect(backed?.count).toBe('12 claims')
+      expect(backed?.detail).toBe('4 sources')
+      expect(rendersAsDash(backed!.level)).toBe(false)
+    }
+  })
+
+  test('a measured zero is a fact and prints as one — never the dash (CUI-SEV-2)', () => {
+    // The page written by hand through the console: it makes no claims, and
+    // saying so is the single most useful thing this line does. Drawing the dash
+    // for it would put it back among the pages nobody measured.
+    const zero = hitEvidence(
+      { tier: 'approved', kind: 'concept', evidence: { claims: 0, uncited_claims: 0, sources: 0 } },
+      searchMeasuresEvidence(measuringResponse),
+    )
+    expect(zero?.level).toBe('none')
+    expect(rendersAsDash(zero!.level)).toBe(false)
+    expect(zero?.flag).toBe('No claims')
+
+    // And a measured zero inside a page that does make claims is printed as the
+    // digit it is, in the same response.
+    const nothingBehindIt = hitEvidence(
+      { tier: 'approved', kind: 'concept', evidence: { claims: 4, uncited_claims: 4, sources: 0 } },
+      true,
+    )
+    expect(rendersAsDash(nothingBehindIt!.level)).toBe(false)
+    expect(nothingBehindIt?.detail).toBe('0 sources')
+    expect(nothingBehindIt?.count).toBe('4 claims')
+  })
+
+  test('claim and source-chunk hits are untouched by the response answer', () => {
+    // A third reason for silence, and it is neither of the two above: the three
+    // numbers do not answer the question a claim hit raises, and a source chunk
+    // is not approved knowledge at all. Both draw NOTHING — not a dash, not a
+    // sentence — however the response is read.
+    for (const measured of [true, false]) {
+      expect(hitEvidence({ tier: 'approved', kind: 'claim' }, measured)).toBeNull()
+      expect(hitEvidence({ tier: 'approved', kind: 'claim', evidence: backedCounts }, measured)).toBeNull()
+      expect(hitEvidence({ tier: 'source_evidence', kind: 'source_chunk' }, measured)).toBeNull()
+      expect(hitEvidence({ tier: 'source_evidence', kind: 'concept', evidence: backedCounts }, measured)).toBeNull()
+    }
+  })
+
+  test('the default is the sentence that claims the least', () => {
+    // A caller that has not established anything about the response gets (b),
+    // which is true of every absence. Being vague is allowed; being wrong is not.
+    expect(hitEvidence({ tier: 'approved', kind: 'concept' })?.level).toBe('unmeasured')
+  })
+})
+
+// The discriminator itself: one boolean per response, and where it may look for
+// its evidence.
+describe('whether a search response measured evidence', () => {
+  test('one measured page hit is enough — and no page hit at all is not', () => {
+    expect(searchMeasuresEvidence([])).toBe(false)
+    expect(searchMeasuresEvidence([{ tier: 'approved', kind: 'concept' }])).toBe(false)
+    expect(
+      searchMeasuresEvidence([
+        { tier: 'approved', kind: 'concept' },
+        { tier: 'approved', kind: 'concept', evidence: { claims: 0, uncited_claims: 0, sources: 0 } },
+      ]),
+    ).toBe(true)
+  })
+
+  test('only page hits may vouch for the build', () => {
+    // A claim hit and a source chunk carry no evidence BY DESIGN, so they can
+    // never prove a build measures. If a server ever attached counts to one,
+    // letting it vouch would be this module trusting a number `hitEvidence`
+    // refuses to render.
+    expect(
+      searchMeasuresEvidence([
+        { tier: 'approved', kind: 'claim', evidence: { claims: 4, uncited_claims: 0, sources: 2 } },
+        { tier: 'source_evidence', kind: 'concept', evidence: { claims: 4, uncited_claims: 0, sources: 2 } },
+        { tier: 'approved', kind: 'concept' },
+      ]),
+    ).toBe(false)
+  })
+
+  test('a search filtered to claims is not mistaken for an old server', () => {
+    // `?kind=claim` returns hits that legitimately carry nothing. There is no
+    // page hit in it to be described either way, so the answer costs nothing —
+    // but a version of this that counted every hit would read the whole response
+    // as unmeasured and be wrong about a build that measures.
+    expect(
+      searchMeasuresEvidence([
+        { tier: 'approved', kind: 'claim' },
+        { tier: 'approved', kind: 'claim' },
+      ]),
+    ).toBe(false)
+  })
+
+  test('a hit the server contradicts itself about does not vouch for the response', () => {
+    // `pageEvidence` reads a negative or half-filled count as unmeasured, so
+    // such a hit draws a dash of its own. Letting it prove the build measures
+    // would describe every bare hit beside it as a reference target.
+    expect(
+      searchMeasuresEvidence([{ tier: 'approved', kind: 'concept', evidence: { claims: -1, uncited_claims: 0 } }]),
+    ).toBe(false)
+    expect(searchMeasuresEvidence([{ tier: 'approved', kind: 'concept', evidence: { claims: 3 } }])).toBe(false)
+  })
+
+  test('is one answer for the whole response, not one per tier', () => {
+    // The two sections on screen are one answer split for the reader. A page hit
+    // must not say a different thing about itself because of the list it was
+    // drawn in, so the discriminator is handed the response and never a section.
+    const response: readonly EvidenceBearingHit[] = [
+      { tier: 'approved', kind: 'concept', evidence: { claims: 2, uncited_claims: 0, sources: 1 } },
+      { tier: 'approved', kind: 'concept' },
+      { tier: 'source_evidence', kind: 'source_chunk' },
+    ]
+    expect(searchMeasuresEvidence(response)).toBe(true)
+    expect(searchMeasuresEvidence(response.filter((hit) => hit.tier === 'approved'))).toBe(true)
   })
 })
 

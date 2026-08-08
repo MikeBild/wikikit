@@ -50,6 +50,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_USAGE_HMAC_SECRET`           | Independent secret for product-local actor/session HMACs; required when telemetry is enabled                   | (unset)                                                            |
 | `WIKIKIT_USAGE_RETENTION_DAYS`        | Raw usage event retention (31–365 days)                                                                        | `90`                                                               |
 | `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | Opt-in: store stemmed lexemes (never the question text) of unanswered queries for coverage-gap topics          | `false`                                                            |
+| `WIKIKIT_SCAFFOLDING_KINDS`           | Extra revision kinds marking a page as structure, not knowledge (evidence absent, no lint faults)              | legacy import marker (`structural-reference` always recognised)    |
 | `WIKIKIT_OAUTH_DCR_ENABLED`           | Enable RFC 7591 dynamic registration for ChatGPT and other remote MCP clients                                  | `true`                                                             |
 | `WIKIKIT_OAUTH_CODE_TTL_MS`           | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`   | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
@@ -220,6 +221,50 @@ comma-separated, surface-specific `group_by` dimensions. Each response is
 `wikikit.usage-stats.v1`, reports exact full-window actor/session uniques,
 keeps ratio numerator/denominator evidence, distinguishes zero from missing,
 declares `sampled:false`, and never returns raw events.
+
+## Reference-target pages (`WIKIKIT_SCAFFOLDING_KINDS`)
+
+Some concept pages are not knowledge — they are structure. An import creates
+them so that reviewed relations have somewhere to land, and their own body says
+so: the knowledge stays on the pages they point at. WikiKit recognises such a
+page by the `kind` its current revision carries in `agent_meta`, and treats it
+differently in exactly two places: the concept list and `kind: "concept"` search
+hits report `evidence` as **absent** rather than as `{claims: 0,
+uncited_claims: 0, sources: 0}` (absent means "not measured"; a zero would read
+as the finding that a knowledge page rests on nothing — see `docs/CONTRACTS.md`
+§5.3), and `orphan-concepts` / `unsourced-concepts` / `empty-concepts` do not
+report faults against it. Nothing is hidden: the page is listed, readable, and
+serves its body and relations as before.
+
+`WIKIKIT_SCAFFOLDING_KINDS` is the comma-separated list of those markers, in the
+same shape as `WIKIKIT_OAUTH_ALLOWED_SCOPES`. Entries must be alphanumeric
+markers (`.`, `_` and `-` allowed); a malformed one fails the boot with the
+offending value in the message rather than producing a query that behaves
+oddly.
+
+- **WikiKit's own `structural-reference` is always recognised** and is prepended
+  whatever you set. The product writes that revision and the product reads it
+  back, so it is not a deployment fact and not configurable away.
+- **Unset, empty, or whitespace-only all mean "nothing was written"** and fall
+  back to the default — the same reading the other comma-separated lists here
+  use, so a variable an operator cleared does not silently become an empty list.
+- **What you set REPLACES the default**, it does not add to it. That is
+  deliberate: an installation that declares its own markers must be able to stop
+  carrying somebody else's, and a value that could only ever be appended to
+  would be unremovable by configuration.
+
+The default is the one place this file cannot be fully self-describing. It is a
+single legacy import marker, kept because one installation's data has depended
+on it since before this variable existed: 49 pages across 5 wikis report their
+evidence as absent only because that marker is recognised, and an upgrade that
+shipped an empty default would silently turn those absences back into a
+measured zero — the sentence "this page rests on nothing", said about pages that
+hold nothing by design. A default that breaks a running deployment is not a win
+for cleanliness. It is nonetheless a fact about somebody's import history living
+in a product that otherwise knows nothing about where it runs, which is why it
+is a default you can replace and not a constant. The literal is in
+`src/config.ts`; it is not repeated in the documentation, and the day every
+installation declares its own markers it can be deleted without asking anybody.
 
 ## Zero-config development
 

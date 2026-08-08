@@ -438,7 +438,7 @@ export const zConceptListResponse = z.object({
       // hit: ABSENT and ZERO are different statements, and only one of them is
       // a measurement. A hit omits it where the page could not be measured; a
       // row omits it where the page must not be — a reference target
-      // (SCAFFOLDING_KINDS, src/domain/concepts.ts) is a landing place for
+      // (notScaffolding, src/domain/concepts.ts) is a landing place for
       // reviewed relations whose own body says the knowledge lives on the pages
       // it points at. Three zeros there are indistinguishable from a knowledge
       // page that genuinely rests on nothing, which is the row an operator is

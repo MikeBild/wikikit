@@ -1276,17 +1276,29 @@ Invariants a client may rely on:
 
 - Wherever `evidence` is served it is three integers and never null. It is
   ABSENT on exactly one kind of row: a **reference-target page**, whose current
-  revision is marked as scaffolding (`SCAFFOLDING_KINDS`,
-  `src/domain/concepts.ts`) — a page an import created so that reviewed
-  relations had somewhere to land, and whose own body says the knowledge lives
-  on the pages it points at. It holds no knowledge to be evidenced, so it has no
-  measurement; three zeros there would be indistinguishable from the knowledge
-  page that genuinely rests on nothing, which is the row an operator must act
-  on. **Absent is not zero, and a client must not render it as one** — the same
-  rule the search hit's optional `evidence` has always carried. The linter
-  excludes those pages from `orphan-concepts`, `unsourced-concepts` and
-  `empty-concepts` for the same reason, so the two surfaces stay silent about
-  the same pages.
+  revision carries one of the space's scaffolding markers (`notScaffolding`,
+  `src/domain/concepts.ts`: WikiKit's built-in `structural-reference` plus
+  whatever `WIKIKIT_SCAFFOLDING_KINDS` declares) — a page an import created so
+  that reviewed relations had somewhere to land, and whose own body says the
+  knowledge lives on the pages it points at. It holds no knowledge to be
+  evidenced, so it has no measurement; three zeros there would be
+  indistinguishable from the knowledge page that genuinely rests on nothing,
+  which is the row an operator must act on. **Absent is not zero, and a client
+  must not render it as one** — the same rule the search hit's optional
+  `evidence` has always carried. The linter excludes those pages from
+  `orphan-concepts`, `unsourced-concepts` and `empty-concepts` for the same
+  reason, so the two surfaces stay silent about the same pages.
+
+  Which markers count is a fact about ONE installation, so it is read from that
+  installation's environment and never from this repository: the built-in
+  `structural-reference` always, plus whatever `WIKIKIT_SCAFFOLDING_KINDS`
+  declares (see `docs/CONFIGURATION.md`). Two installations may therefore
+  withhold `evidence` on different rows while obeying the same contract — what
+  a client may rely on is the meaning of an absence, not the set of pages that
+  produce one. The set is resolved at boot and threaded from `deps.config` into
+  the read model, so the concept list, `kind: 'concept'` search hits, `/query`
+  retrieval and the linter all answer from one set within a process.
+
 - `uncited_claims <= claims`. `claims - uncited_claims` is how many claims are
   cited, which is **not** `sources` — `sources` is distinct sources, and one
   source commonly backs many claims.
@@ -1858,6 +1870,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_USAGE_HMAC_SECRET`           | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
 | `WIKIKIT_USAGE_RETENTION_DAYS`        | `90`                                                               | 31–365 days                                                 |
 | `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | `false`                                                            | opt-in gap-topic lexemes; never stores question text        |
+| `WIKIKIT_SCAFFOLDING_KINDS`           | legacy import marker                                               | extra structure markers; `structural-reference` is built in |
 | `WIKIKIT_OAUTH_DCR_ENABLED`           | `true`                                                             | RFC 7591 remote-client registration                         |
 | `WIKIKIT_OAUTH_CODE_TTL_MS`           | `600000` (10 min)                                                  | 1–15 min                                                    |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`   | `3600000` (1 h)                                                    | 5 min–24 h                                                  |

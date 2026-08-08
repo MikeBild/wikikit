@@ -70,7 +70,10 @@ export async function answerQuestion(
   spaceId: string,
   llm: LlmProvider,
   args: AnswerArgs,
-  deps: { vector?: { available: boolean } } = {},
+  // scaffoldingKinds is forwarded to search unchanged: the retrieval half of an
+  // answer must see the same pages, and be silent about the same reference
+  // targets, as a bare /search on the same installation.
+  deps: { vector?: { available: boolean }; scaffoldingKinds?: readonly string[] } = {},
 ): Promise<QueryAnswer> {
   const input = zAnswerArgs.parse(args)
   if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
@@ -85,7 +88,7 @@ export async function answerQuestion(
     db,
     spaceId,
     { q: input.question, limit: input.top_k, mode: input.mode },
-    { llm, vector: deps.vector },
+    { llm, vector: deps.vector, scaffoldingKinds: deps.scaffoldingKinds },
   )
   const slugs = [...new Set(hits.flatMap((hit) => (hit.slug ? [hit.slug] : [])))]
 

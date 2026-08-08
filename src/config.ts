@@ -185,6 +185,12 @@ export interface Config {
   readonly embeddingApiKeyEnv?: string
   /** True when embeddingProvider is set and its key is present — starts the embedder worker. */
   readonly embeddingConfigured?: boolean
+  /**
+   * Revision kinds (`agent_meta->>'kind'`) whose pages are structural
+   * scaffolding rather than knowledge — see WIKIKIT_SCAFFOLDING_KINDS below.
+   * Always contains WikiKit's own `structural-reference`.
+   */
+  readonly scaffoldingKinds?: readonly string[]
 }
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
@@ -284,6 +290,68 @@ function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[
     }
   }
   return [...new Set(scopes)] as IdentityScope[]
+}
+
+/**
+ * The revision kinds an installation stamps on pages that are STRUCTURE rather
+ * than knowledge — the rows an import creates so a reviewed relation has
+ * somewhere to land. WikiKit declines to measure such a page's evidence and its
+ * linter suppresses fault reports about it (src/domain/concepts.ts holds that
+ * reasoning); this is only the question of which markers say so.
+ *
+ * `structural-reference` is WikiKit's own name for the shape — the product
+ * writes that revision and the product reads it back — so it is not
+ * configurable, it is prepended unconditionally below. Everything else is a fact
+ * about ONE database: the tag whoever ran an import happened to choose. A
+ * product that claims to know nothing about where it runs cannot hold a list of
+ * those, so they belong here, in the environment, where the installation that
+ * knows them declares them.
+ *
+ * WHY the legacy default exists anyway, and why it is not a purity failure.
+ * This list was a hardcoded pair inside the domain for two releases, and one
+ * installation's data has depended on it since: 49 pages across 5 wikis report
+ * their evidence as ABSENT — the honest answer for a page that holds no
+ * knowledge — precisely because the second marker is recognised. Shipping an
+ * empty deployment-specific default would, on upgrade, silently turn those 49
+ * absences back into `{claims: 0, uncited_claims: 0, sources: 0}`: a measured
+ * zero, which is the sentence "this page rests on nothing", said about pages
+ * that rest on nothing BY DESIGN. That is a worse product than the wart, and a
+ * default that breaks a running deployment is not a win for cleanliness.
+ *
+ * So the default carries it, and the variable REPLACES it rather than adding to
+ * it. Replacement is the point: the honest long-term state is that an
+ * installation declares its own markers and this fallback becomes dead weight
+ * that can be deleted without asking anybody. If setting the variable merely
+ * appended, the historical tag would be permanent — unremovable by
+ * configuration, which is exactly the property that made it a defect.
+ */
+const BUILT_IN_SCAFFOLDING_KIND = 'structural-reference'
+const LEGACY_SCAFFOLDING_KINDS = ['subkit-domain-migration-relation-repair']
+
+/**
+ * Same shape as parseIdentityScopes above — split on commas, trim, drop empties,
+ * and treat "nothing was written" (unset OR empty OR all-whitespace) as the
+ * fallback rather than as an empty list.
+ *
+ * Validated because these strings are interpolated into SQL literals, not bound
+ * as parameters (the fragment they build is a module-level string, and the kinds
+ * are a small closed set the planner benefits from seeing literally). The
+ * builder in domain/concepts.ts escapes quotes regardless; this is what turns a
+ * typo into a refused boot with the operator's own value in the message instead
+ * of a query that behaves oddly at runtime.
+ */
+function parseScaffoldingKinds(raw: string, name: string, fallback: readonly string[]): readonly string[] {
+  const values = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  const kinds = values.length > 0 ? values : fallback
+  for (const kind of kinds) {
+    if (!/^[a-z0-9][a-z0-9._-]{0,126}$/i.test(kind)) {
+      throw new Error(`${name} entries must be alphanumeric revision-kind markers ('.', '_' and '-' allowed): ${kind}`)
+    }
+  }
+  return [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...kinds])]
 }
 
 function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthProviderConfig[] {
@@ -505,6 +573,11 @@ export function loadConfig(): Config {
     embeddingApiKeyEnv:
       embeddingProvider === 'none' ? 'WIKIKIT_EMBEDDING_PROVIDER' : LLM_PROVIDER_KEY_ENV[embeddingProvider],
     embeddingConfigured: embeddingProvider !== 'none' && providerKeys[embeddingProvider].length > 0,
+    scaffoldingKinds: parseScaffoldingKinds(
+      str('WIKIKIT_SCAFFOLDING_KINDS'),
+      'WIKIKIT_SCAFFOLDING_KINDS',
+      LEGACY_SCAFFOLDING_KINDS,
+    ),
   })
 
   if (config.usageTelemetryEnabled && !config.usageHmacSecret) {

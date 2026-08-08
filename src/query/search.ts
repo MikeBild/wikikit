@@ -54,6 +54,15 @@ export type SearchArgs = z.input<typeof zSearchArgs>
 export interface SearchDeps {
   llm?: Pick<LlmProvider, 'embedConfigured' | 'embed'>
   vector?: { available: boolean }
+  /**
+   * The installation's scaffolding markers, forwarded to the evidence
+   * aggregate below. It rides in this bag rather than in SearchArgs because it
+   * is not something a caller of /search asks for — it is deployment
+   * configuration, and SearchArgs is the validated wire input. Absent means
+   * WikiKit's own marker only (see ScaffoldingOptions in domain/concepts.ts);
+   * the transports fill it from `deps.config`.
+   */
+  scaffoldingKinds?: readonly string[]
 }
 
 export interface SearchHit {
@@ -86,7 +95,7 @@ export interface SearchHit {
    * absences, neither of them a measured zero and neither to be dressed as one:
    * a page that stopped being readable between the ranking and the count, and a
    * reference target — a page whose current revision is scaffolding, which
-   * holds no knowledge to be evidenced (see NOT_SCAFFOLDING in
+   * holds no knowledge to be evidenced (see notScaffolding in
    * src/domain/concepts.ts, where both are one filter on one aggregate, so a
    * hit and the index row for the same slug can never disagree about which).
    *
@@ -205,7 +214,9 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
   // because each space must be counted in its own space_id.
   const conceptSlugs = hits.flatMap((hit) => (hit.kind === 'concept' && hit.slug ? [hit.slug] : []))
   if (conceptSlugs.length > 0) {
-    const evidence = await conceptEvidenceBySlug(db, spaceId, conceptSlugs)
+    const evidence = await conceptEvidenceBySlug(db, spaceId, conceptSlugs, {
+      scaffoldingKinds: deps.scaffoldingKinds,
+    })
     for (const hit of hits) {
       if (hit.kind !== 'concept' || !hit.slug) continue
       const measured = evidence.get(hit.slug)

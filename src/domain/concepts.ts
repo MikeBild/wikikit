@@ -52,7 +52,7 @@ export interface ConceptSummary {
   updated_at: string
   /**
    * ABSENT for a page the measurement does not apply to — a reference target
-   * (SCAFFOLDING_KINDS, below), which holds no knowledge to be evidenced.
+   * (the scaffolding markers below), which holds no knowledge to be evidenced.
    * Present on every other row, and there it is three measured integers where
    * `0` is a fact about the page. Absence and zero are different statements
    * and a reader must not have to guess which one they are holding.
@@ -122,7 +122,7 @@ export const EVIDENCE_LATERAL = `SELECT count(DISTINCT cl.id)::int AS claims,
 //     repeated per rule, so those three cannot silently disagree about what
 //     counts as a real page. (`stub-concepts` deliberately does NOT consult it;
 //     its reasoning is at the rule, and a new page-level rule reaching for
-//     NOT_SCAFFOLDING is making a claim about faults, not inheriting a default.)
+//     notScaffolding is making a claim about faults, not inheriting a default.)
 //
 //   - the reads in THIS file DECLINE TO MEASURE them. `evidence` answers "how
 //     does the wiki know this?", and a reference target holds no knowledge to
@@ -145,10 +145,58 @@ export const EVIDENCE_LATERAL = `SELECT count(DISTINCT cl.id)::int AS claims,
 // not on the concept, so a page stops being scaffolding the moment a revision
 // that is not scaffolding becomes current — which is what makes the withheld
 // measurement self-healing rather than a permanent property of a slug.
-export const SCAFFOLDING_KINDS = ['structural-reference', 'subkit-domain-migration-relation-repair'] as const
-export const NOT_SCAFFOLDING = `coalesce(r.agent_meta->>'kind', '') NOT IN (${SCAFFOLDING_KINDS.map(
-  (kind) => `'${kind}'`,
-).join(', ')})`
+//
+// WHY the list is no longer a single frozen constant here. `structural-reference`
+// is WikiKit's OWN name for the shape — the product creates such a revision and
+// the product reads it back, so it is knowledge about WikiKit and belongs in
+// WikiKit. Every OTHER marker is a fact about one installation's history: the
+// tag some import happened to stamp on the rows it created. A product whose
+// stated principle is that it knows nothing about where it runs cannot carry a
+// list of somebody's migration tags, so the rest of the set is configuration
+// (WIKIKIT_SCAFFOLDING_KINDS, src/config.ts) and arrives through the parameter
+// below.
+export const BUILT_IN_SCAFFOLDING_KINDS: readonly string[] = ['structural-reference']
+
+/**
+ * How an installation's scaffolding markers reach the reads that act on them.
+ *
+ * The SQL builders below are module-level string fragments, and configuration
+ * is not available at module scope in this codebase — so the kinds ride in on
+ * the call, the same way `SearchDeps` carries the optional retrieval wiring and
+ * `registerWebhookEndpoint` takes its `Config` explicitly. The composition
+ * boundaries (src/http/routes.ts handlers and src/mcp/tools.ts executes, both
+ * of which hold `deps.config`) are the only places that fill it in.
+ *
+ * Omitted means BUILT_IN_SCAFFOLDING_KINDS — the product's own marker and
+ * nothing else. That is the honest answer for a caller with no installation in
+ * scope (every unit test), and it is deliberately NOT the answer a request
+ * gets: a live deployment's extra markers come from its configuration, whose
+ * own default carries them (see WIKIKIT_SCAFFOLDING_KINDS in src/config.ts).
+ */
+export interface ScaffoldingOptions {
+  readonly scaffoldingKinds?: readonly string[]
+}
+
+/**
+ * `coalesce(r.agent_meta->>'kind','') NOT IN (…)` for the given markers.
+ *
+ * Single quotes are doubled rather than trusted. The statuses in
+ * EVIDENCE_LATERAL above may be interpolated bare because they are a frozen
+ * `as const` that no input can reach; these are not — they come from an
+ * operator's environment now, and a fragment that is safe only because
+ * src/config.ts happens to validate its input is a fragment that stops being
+ * safe the first time somebody adds a second source of kinds. Boot-time
+ * validation there is the error message; this is the guarantee.
+ */
+export function notScaffolding(kinds: readonly string[] = BUILT_IN_SCAFFOLDING_KINDS): string {
+  // No markers at all would make `NOT IN ()` a syntax error, and the honest
+  // reading of "this installation recognises nothing as scaffolding" is that
+  // every page is measurable.
+  if (kinds.length === 0) return 'true'
+  return `coalesce(r.agent_meta->>'kind', '') NOT IN (${kinds
+    .map((kind) => `'${kind.replaceAll("'", "''")}'`)
+    .join(', ')})`
+}
 
 /** Compact index handed to the classify LLM call — slug/title/summary only. */
 export interface ConceptIndexEntry {
@@ -251,6 +299,7 @@ export async function listConcepts(
   db: Db,
   spaceId: string,
   args: { limit?: number; after?: string } = {},
+  options: ScaffoldingOptions = {},
 ): Promise<{ items: ConceptSummary[]; next_after: string | null; epoch: number }> {
   const limit = clampLimit(args.limit, 50, 200)
   const [space] = await db.select<{ epoch: string | number }>('wk_spaces', { id: `eq.${spaceId}`, limit: 1 })
@@ -309,7 +358,7 @@ export async function listConcepts(
     // filter would drop the page out of somebody's index.
     `WITH page AS (
        SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at,
-              ${NOT_SCAFFOLDING} AS measurable
+              ${notScaffolding(options.scaffoldingKinds)} AS measurable
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1${keyset}
@@ -389,7 +438,7 @@ export async function listConcepts(
  *   - it is not readable (no current revision), so a page that stopped being
  *     readable between the ranking and this call is absent rather than reported
  *     as a page that cites nothing;
- *   - its current revision is scaffolding (NOT_SCAFFOLDING above), so it is a
+ *   - its current revision is scaffolding (notScaffolding above), so it is a
  *     reference target rather than knowledge, and the same silence the concept
  *     list keeps for it is kept for a search hit that points at it.
  * Zero is a measurement and must keep meaning one. The caller reads absence off
@@ -400,6 +449,7 @@ export async function conceptEvidenceBySlug(
   db: Db,
   spaceId: string,
   slugs: string[],
+  options: ScaffoldingOptions = {},
 ): Promise<Map<string, ConceptEvidence>> {
   // Deduplicated because a search page can hold several claim-derived rows for
   // one concept, and skipped entirely when empty — a search with no concept
@@ -421,7 +471,7 @@ export async function conceptEvidenceBySlug(
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1 AND c.slug = ANY($2::text[])
-          AND ${NOT_SCAFFOLDING}
+          AND ${notScaffolding(options.scaffoldingKinds)}
      )
      SELECT p.slug, ev.claims, ev.uncited_claims, ev.sources
        FROM page p

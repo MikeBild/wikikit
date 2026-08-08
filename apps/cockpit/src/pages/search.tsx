@@ -16,11 +16,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
 import type { FilterSpec } from '@/lib/url-filters'
 import { rendersAsDash, type EvidenceCounts } from '@/pages/page.logic'
-import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
+import { RESULT_LIMIT, hitEvidence, resultCeilingNote, searchMeasuresEvidence } from '@/pages/search.logic'
 
 /**
  * Search, in two tiers — and the tier is the whole point.
@@ -280,6 +281,13 @@ function Results({
   // no evidence line anywhere, and a heading promising one would send the reader
   // hunting for something that is legitimately absent.
   const explainsEvidence = approved.some((hit) => hit.kind === 'concept')
+  // The one fact about this response that no single card can carry: whether the
+  // server measured evidence at all. Derived once here, over `hits` and not over
+  // `approved`, because it is a property of the answer rather than of a section
+  // — and handed down the tree, because a card that asked the question itself
+  // would have only itself to ask and would go on saying the vaguer of the two
+  // sentences forever (`searchMeasuresEvidence`).
+  const measured = searchMeasuresEvidence(hits)
 
   return (
     <div className="flex flex-col gap-6">
@@ -309,7 +317,7 @@ function Results({
           </div>
           <ul className="flex flex-col gap-3" data-testid="search-approved">
             {approved.map((hit, index) => (
-              <ApprovedHit key={hitKey(hit, index)} hit={hit} index={index} space={space} />
+              <ApprovedHit key={hitKey(hit, index)} hit={hit} index={index} space={space} measured={measured} />
             ))}
           </ul>
         </section>
@@ -349,7 +357,18 @@ function Results({
   )
 }
 
-function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; space: string }) {
+function ApprovedHit({
+  hit,
+  index,
+  space,
+  measured,
+}: {
+  hit: SearchHit
+  index: number
+  space: string
+  /** Whether the RESPONSE this hit arrived in measured evidence anywhere. */
+  measured: boolean
+}) {
   return (
     <li className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -381,7 +400,7 @@ function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; spa
           what a reader weighs once they have seen the match, and it holds the
           same last line on every card so a list of ten can be scanned down that
           one column rather than read. */}
-      <PageEvidenceLine hit={hit} index={index} />
+      <PageEvidenceLine hit={hit} index={index} measured={measured} />
     </li>
   )
 }
@@ -389,13 +408,13 @@ function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; spa
 /**
  * What the archive puts behind the page this hit is on.
  *
- * Same four states as the pages index and the same three shapes, laid out on one
- * line because a search result is a card of prose rather than a table cell:
+ * Same five states as the pages index and the same shapes, laid out on one line
+ * because a search result is a card of prose rather than a table cell:
  *
  *   Evidence: 12 claims · 4 sources                a page whose promise is kept
  *   Evidence: 12 claims · 4 sources  [2 uncited]   a page with holes in it
  *   Evidence: [No claims]                          a hand-written page, backed by nothing
- *   Evidence: —                                    the counts never arrived
+ *   Evidence: —                                    a reference target, OR counts that never arrived
  *
  * The word "Evidence:" is here and is not on the index, where the column header
  * carries it — a bare "12 claims · 4 sources" under a paragraph of excerpt would
@@ -404,29 +423,62 @@ function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; spa
  * `backed` still wears no badge and emphatically no green one: every claim
  * quoting a source is this product's baseline, not an achievement, and a success
  * token beside "how does the wiki know this" is exactly what CUI-AI-1 forbids.
- * The plain count is the whole statement. The em dash is hidden from the
- * accessibility tree with the sentence behind it left in, because a screen
- * reader that announced "dash" would learn less than a reader who saw a zero —
- * and a zero is the one thing that state does not mean (CUI-SEV-2).
+ * The plain count is the whole statement.
+ *
+ * The em dash is ONE glyph over two different facts, and until now this card
+ * printed one sentence under it — the wrong one, on every reference target in a
+ * response whose other hits carried counts. That is a screen stating something
+ * false about a page, which is precisely what the release that split the two
+ * states apart exists to stop; the fix is not a new field but the response
+ * itself, read by `searchMeasuresEvidence` and handed in as `measured`.
+ *
+ * And the sentence is now reachable by a reader who can SEE the dash as well,
+ * on the same reasoning the pages index already settled: `sr-only` alone made
+ * the only reader who could get at the reason the one using a screen reader,
+ * which is backwards — an operator asking "why is this blank" has a pointer and
+ * a keyboard and nowhere to ask. So the dash is a Tooltip trigger, not a
+ * `title=` (CUI-WORDS-2: a native title is one sentence offered to a pointer and
+ * to nobody else, and here it would be CARRYING the explanation rather than
+ * adding to one already on screen — which is why the measured branch below may
+ * keep its `title`, every word of that reading being rendered beside it).
+ *
+ * The `sr-only` sentence stays as well as the tooltip, and the redundancy is
+ * deliberate: a tooltip nobody opens says nothing, so a screen reader going down
+ * a list of cards would otherwise reach an `aria-hidden` glyph and hear a line
+ * that reads "Evidence:" and stops.
  */
-function PageEvidenceLine({ hit, index }: { hit: SearchHit; index: number }) {
-  const evidence = hitEvidence(hit)
+function PageEvidenceLine({ hit, index, measured }: { hit: SearchHit; index: number; measured: boolean }) {
+  const evidence = hitEvidence(hit, measured)
   if (evidence === null) return null
 
   const testId = `search-hit-${index}-evidence`
 
   // Asked by the predicate rather than by name, because "has no number to print"
-  // is now two levels and this branch is the one that prints no number. A hit
-  // cannot reach the second of them today — `hitEvidence` has only the hit in
-  // hand and never the whole response, so it cannot tell a reference target from
-  // a build that reports nothing, and it says the lesser thing rather than guess
-  // — but a surface that asked `=== 'unmeasured'` would fall through to the
-  // measured branch the day it can, and render "Evidence:" followed by nothing.
+  // is two levels and this branch is the one that prints no number. A surface
+  // that asked `=== 'unmeasured'` would fall through to the measured branch for
+  // a reference target and render "Evidence:" followed by nothing.
   if (rendersAsDash(evidence.level))
     return (
       <p className="text-muted-foreground text-xs" data-testid={testId} data-evidence={evidence.level}>
-        <span className="font-medium">Evidence:</span> <span aria-hidden="true">—</span>
-        <span className="sr-only">{evidence.reading}</span>
+        <span className="font-medium">Evidence:</span>{' '}
+        {/* Its own provider, like every other Tooltip in this console: Radix
+            throws rather than degrades when a Tooltip cannot find one, and these
+            cards are rendered under a route that mounts no tree of its own. */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                tabIndex={0}
+                className="focus-visible:ring-ring/50 rounded focus-visible:ring-[3px] focus-visible:outline-none"
+                data-testid={`${testId}-dash`}
+              >
+                <span aria-hidden="true">—</span>
+                <span className="sr-only">{evidence.reading}</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent data-testid={`${testId}-reason`}>{evidence.reading}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </p>
     )
 

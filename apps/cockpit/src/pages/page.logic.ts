@@ -333,9 +333,16 @@ export function pageEvidence(counts: EvidenceCounts | null | undefined, listMeas
       // broken, and there is no ingest to run. The page is furniture holding a
       // reviewed relation, and the knowledge it points at is on the pages it
       // links to.
+      // The fallback names no surface. It was written for the pages index and
+      // said "This list came back…", which is a lie on the search screen — a
+      // column of cards is not a list, and this module now answers for both.
+      // Naming the wrong furniture is a small wrongness next to the reason
+      // being wrong, but it is on the same line and in the same release, and a
+      // sentence shown to a reader who is already confused should not add a
+      // thing for them to be confused about.
       reading: listMeasured
         ? 'This page is a reference target for relations, not a knowledge page, so evidence is not measured for it.'
-        : 'This list came back without evidence counts, so how well this page is backed is not known here.',
+        : 'The evidence counts did not arrive with this result, so how well this page is backed is not known here.',
       rank,
     }
 

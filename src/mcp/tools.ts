@@ -417,7 +417,7 @@ export const TOOLS: McpToolDef[] = [
       const args = zSearchToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
       const searchArgs = { q: args.q, kind: args.kind, limit: args.limit, mode: args.mode }
-      const searchDeps = { llm: deps.llm, vector: deps.vector }
+      const searchDeps = { llm: deps.llm, vector: deps.vector, scaffoldingKinds: deps.config.scaffoldingKinds }
       if (args.include_imports) {
         if (principal.spaceId) {
           throw new ForbiddenError('this key is scoped to a single space and cannot search imported spaces')
@@ -542,7 +542,7 @@ export const TOOLS: McpToolDef[] = [
     async execute(deps, principal, input) {
       const args = zLintToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
-      return lintSpace(deps.db, space.id)
+      return lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
     },
   },
   {

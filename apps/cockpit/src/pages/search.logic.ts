@@ -8,7 +8,7 @@
  * module that touches `window` or `localStorage` stops typechecking the moment
  * a test loads it, which is the pressure that keeps these rules provable.
  */
-import { pageEvidence, type EvidenceCounts, type PageEvidence } from '@/pages/page.logic'
+import { listMeasuresEvidence, pageEvidence, type EvidenceCounts, type PageEvidence } from '@/pages/page.logic'
 
 /**
  * How many hits this console asks for PER TIER.
@@ -71,6 +71,76 @@ export interface EvidenceBearingHit {
 }
 
 /**
+ * Which hits are PAGES — the only hits an evidence summary belongs on.
+ *
+ * Two callers now depend on this being one answer rather than two: the reading
+ * of a single hit, and the reading of the whole response that tells one absence
+ * from the other. If they ever disagreed, a response could be judged "measures
+ * evidence" on the strength of a hit whose evidence the console then refuses to
+ * read, which is a discriminator vouching for something it does not believe.
+ *
+ *  - **A `source_evidence` hit is never a page, whatever the response
+ *    contains.** It is a line a document happened to hold — nobody approved it,
+ *    nothing vouches for it, and it is not a page for anything to back. Dressing
+ *    it in "4 claims · 2 sources" would make the one hit on this screen that
+ *    carries no verdict look like the best-evidenced thing on it, which is the
+ *    exact confusion the two-section split exists to prevent. The gate is here
+ *    rather than left to the server's discretion because it is the console's own
+ *    guarantee, and a guarantee nothing enforces is a hope.
+ *  - **A `claim` hit is not a page either, and its silence is NOT an unmeasured
+ *    value.** The response carries `evidence` on concept hits; a claim hit is
+ *    one sentence from a page, not the page. Printing the em dash there would
+ *    report a gap in the answer that is not one — the counts were never in
+ *    scope, not missing — and CUI-SEV-2 is about keeping "not measured" meaning
+ *    exactly that. The card already says "A claim on this page" and links to the
+ *    page, where the full evidence lives.
+ */
+function isPageHit(hit: EvidenceBearingHit): boolean {
+  return hit.tier === 'approved' && hit.kind === 'concept'
+}
+
+/**
+ * Did THIS RESPONSE measure evidence at all?
+ *
+ * The pages index answers the same question with `listMeasuresEvidence`, and for
+ * the same reason: a concept hit can arrive without counts for two reasons that
+ * look identical in the hit and call for opposite sentences. One is a fact about
+ * the PAGE — the server declines to measure a reference target, a row an import
+ * created so reviewed relations had somewhere to land, whose own body says the
+ * knowledge lives on the pages it points at. The other is a fact about the
+ * RESPONSE — a build that predates the counts, reached by a tab that outlived a
+ * rolling upgrade, which reports them on nothing.
+ *
+ * The discriminator is the rest of the response, and it needs no new field: a
+ * response in which SOME concept hit carries counts came from a build that
+ * measures, so a bare concept hit beside it is one the server declined to
+ * measure. A response where not one concept hit carries them is the old build,
+ * and no hit in it may be called a reference target.
+ *
+ * Only page hits are consulted, because only page hits are ever measured. A
+ * claim hit and a source-evidence hit carry nothing BY DESIGN (`isPageHit`), so
+ * counting them could only ever drag the answer toward "this build does not
+ * measure" — a search filtered to `kind=claim` would otherwise look like an old
+ * server. And the day a server started attaching counts to a claim hit, letting
+ * that vouch for the build would be this module trusting a number it refuses to
+ * render two lines further down.
+ *
+ * The one case this cannot separate is a response whose every page hit is a
+ * reference target: nothing measures, so every one of them falls back to the
+ * vaguer reading. That is the deliberate direction to be wrong in — "this search
+ * came back without evidence counts" is still TRUE of such a response, merely
+ * less specific, whereas the reference-target sentence asserted about an old
+ * build would be false about every page on the screen.
+ *
+ * Read over the WHOLE response and never over the section a card sits in: the
+ * two tiers are one answer split into two lists for the reader, and a page hit
+ * must not change what it says about itself because of where it was drawn.
+ */
+export function searchMeasuresEvidence(hits: readonly EvidenceBearingHit[]): boolean {
+  return listMeasuresEvidence(hits.filter(isPageHit))
+}
+
+/**
  * How the archive backs the page behind one hit — or `null` where that question
  * has no answer, which is two thirds of the hits this page draws.
  *
@@ -79,30 +149,21 @@ export interface EvidenceBearingHit {
  * as, and which of them is allowed a token; 0.25.0 settled all of that one
  * surface earlier and a second, subtly different reading of the same three
  * integers on a second screen would be worse than showing nothing. This
- * function decides one thing only: whether the hit in front of it is a page.
+ * function decides two things only: whether the hit in front of it is a page
+ * (`isPageHit`), and which of the two absences a bare page hit is.
  *
- *  - **A `source_evidence` hit never gets evidence, whatever the response
- *    contains.** It is a line a document happened to hold — nobody approved it,
- *    nothing vouches for it, and it is not a page for anything to back. Dressing
- *    it in "4 claims · 2 sources" would make the one hit on this screen that
- *    carries no verdict look like the best-evidenced thing on it, which is the
- *    exact confusion the two-section split exists to prevent. The gate is here
- *    rather than left to the server's discretion because it is the console's own
- *    guarantee, and a guarantee nothing enforces is a hope.
- *  - **A `claim` hit gets none either, and this is NOT an unmeasured value.**
- *    The response carries `evidence` on concept hits; a claim hit is one
- *    sentence from a page, not the page. Printing the em dash there would report
- *    a gap in the answer that is not one — the counts were never in scope, not
- *    missing — and CUI-SEV-2 is about keeping "not measured" meaning exactly
- *    that. The card already says "A claim on this page" and links to the page,
- *    where the full evidence lives.
- *
- * A concept hit whose counts did not arrive DOES come back, as `unmeasured`:
- * there the field was supposed to be there and was not, which is the em dash's
- * actual job.
+ * `responseMeasured` is that second decision, and it is a parameter rather than
+ * a default because a hit cannot answer it alone — see `searchMeasuresEvidence`,
+ * which is what a caller holding the whole response calls to get it. It defaults
+ * to `false`, the reading that claims the least: a caller that has not
+ * established the response measures anything gets "the counts did not arrive",
+ * which is true of every absence. Until this release there was no parameter at
+ * all and every dash on this screen said that sentence — including the ones on
+ * reference targets in a response whose other hits carried counts, where it was
+ * flatly false, on the surface belonging to the release whose whole thesis was
+ * that a screen must not say something untrue about a page.
  */
-export function hitEvidence(hit: EvidenceBearingHit): PageEvidence | null {
-  if (hit.tier !== 'approved') return null
-  if (hit.kind !== 'concept') return null
-  return pageEvidence(hit.evidence)
+export function hitEvidence(hit: EvidenceBearingHit, responseMeasured = false): PageEvidence | null {
+  if (!isPageHit(hit)) return null
+  return pageEvidence(hit.evidence, responseMeasured)
 }

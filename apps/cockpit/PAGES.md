@@ -140,6 +140,15 @@ sentence that is not otherwise on screen), and keeps its `sr-only` text: a
 tooltip nobody opens says nothing, and a linear screen-reader pass would
 otherwise hit an `aria-hidden` glyph and hear an empty cell.
 
+All of that holds on **every** surface that draws these counts, not only in a
+table — the concept hits of `wk.search.run` carry the same optional `evidence`
+and the search card reads it the same way (`searchMeasuresEvidence` in
+`search.logic.ts`, the response-level answer `hitEvidence` needs). A surface
+that has only one row in hand cannot tell the two absences apart and must say
+the weaker sentence; the fix is to hand it the response's answer, never to
+guess and never to invent an API field for a question the response already
+settles.
+
 ## Actions
 
 - A link navigates and does nothing else; a button changes something

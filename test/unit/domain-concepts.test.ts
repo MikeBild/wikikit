@@ -1,6 +1,8 @@
 // concepts domain — read-model assembly and the visibility-by-construction
 // rule (reads join over current_revision_id, never over a status filter).
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
 import { VISIBLE_CLAIM_STATUSES } from '../../src/domain/claims.ts'
@@ -250,4 +252,104 @@ describe('getConceptIndex', () => {
     expect(calls[0]!.sql).toContain('r.id = c.current_revision_id')
     expect(calls[0]!.values).toEqual(['space-1'])
   })
+})
+
+/**
+ * The hole `ScaffoldingOptions` leaves open, closed structurally.
+ *
+ * The installation's scaffolding markers ride in as an OPTIONAL trailing
+ * option, and omitting it is not a type error — it silently resolves to
+ * BUILT_IN_SCAFFOLDING_KINDS, WikiKit's own marker and nothing else. That
+ * default is right for a unit test with no installation in scope and wrong for
+ * every request: on a deployment carrying the shipped fallback it turns pages
+ * whose evidence is deliberately ABSENT back into a measured `{claims: 0, …}`,
+ * the sentence "this page rests on nothing" printed about pages that hold
+ * nothing by design. A configuration that is correct in src/config.ts and
+ * forgotten at the call site is worse than no configuration, because it is
+ * wrong while looking configured.
+ *
+ * Making the parameter required would close it in the type system and cost
+ * about thirty test call sites — but it would not actually buy the guarantee.
+ * `{}` satisfies a required options bag exactly as well as omitting an optional
+ * one, so the compiler would be enforcing that somebody typed two characters,
+ * not that they forwarded the configuration; and it cannot reach `search` and
+ * `answerQuestion` at all, whose deps bags are legitimately optional for `llm`
+ * and `vector`. So the rule is stated here instead, where it can be about the
+ * thing that matters: a call from a module that HOLDS the configuration must
+ * pass it.
+ *
+ * Scanned as source rather than exercised as behaviour because the failure
+ * being guarded is a call site that does not exist yet — a handler somebody
+ * adds next release, which no behavioural test would cover precisely because
+ * they forgot it. The same reason drift.test.ts reads src/config.ts as text.
+ */
+describe('every composition boundary forwards the installation scaffolding markers', () => {
+  // The modules that hold `deps.config` (or a deps bag filled from it) and call
+  // a read which acts on the markers. A new entry here is a deliberate act; a
+  // new CALL inside one of these files is caught below without any edit.
+  const BOUNDARIES = ['src/http/routes.ts', 'src/mcp/tools.ts', 'src/query/answer.ts', 'src/query/search.ts']
+  // Every read that takes the markers, directly or through a deps bag.
+  const READS = [
+    'listConcepts',
+    'conceptEvidenceBySlug',
+    'lintSpace',
+    'search',
+    'searchAcrossImports',
+    'answerQuestion',
+  ]
+  // Types that carry the markers as a field, so a parameter annotated with one
+  // of them is forwarding rather than dropping. Add a type here only after
+  // giving it a `scaffoldingKinds` field.
+  const CARRYING_TYPES = ['SearchDeps', 'ScaffoldingOptions']
+
+  /**
+   * Argument text of each CALL to `name`, by balanced parentheses. The
+   * declaration of the same name is skipped — `src/query/search.ts` both
+   * defines `search` and calls `conceptEvidenceBySlug`, and a parameter list is
+   * not a call site.
+   */
+  function callArguments(source: string, name: string): string[] {
+    const found: string[] = []
+    const call = new RegExp(String.raw`(?<![\w.])(?<!function )${name}\s*\(`, 'g')
+    for (const match of source.matchAll(call)) {
+      let depth = 1
+      let index = match.index + match[0].length
+      const start = index
+      while (index < source.length && depth > 0) {
+        if (source[index] === '(') depth += 1
+        else if (source[index] === ')') depth -= 1
+        index += 1
+      }
+      found.push(source.slice(start, index - 1))
+    }
+    return found
+  }
+
+  for (const file of BOUNDARIES) {
+    test(`${file} passes scaffoldingKinds to every read that takes it`, () => {
+      const source = readFileSync(join(import.meta.dir, '../..', file), 'utf8')
+      for (const name of READS) {
+        for (const args of callArguments(source, name)) {
+          // A call may name the markers inline, or hand over a bag that carries
+          // them — resolved one level, because that IS how these modules do it
+          // (`const searchDeps = { …, scaffoldingKinds }` in both transports,
+          // and `searchAcrossImports` forwarding its own `deps: SearchDeps`
+          // straight through). A rule that refused either would only teach the
+          // next author to route around the rule.
+          const carriers = [...args.matchAll(/[A-Za-z_$][\w$]*/g)].map((match) => match[0])
+          const forwarded =
+            args.includes('scaffoldingKinds') ||
+            carriers.some(
+              (id) =>
+                new RegExp(String.raw`const\s+${id}\s*=\s*\{[^}]*scaffoldingKinds`).test(source) ||
+                new RegExp(String.raw`\b${id}\s*:\s*(${CARRYING_TYPES.join('|')})\b`).test(source),
+            )
+          expect(
+            forwarded,
+            `${file}: ${name}(${args.replace(/\s+/g, ' ').trim()}) does not forward scaffoldingKinds`,
+          ).toBe(true)
+        }
+      }
+    })
+  }
 })

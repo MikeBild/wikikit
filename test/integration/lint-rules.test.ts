@@ -28,7 +28,7 @@
 // RUN_INTEGRATION=1 gated.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { randomUUID } from 'node:crypto'
-import type { Config } from '../../src/config.ts'
+import { loadConfig, type Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
@@ -127,6 +127,28 @@ async function approvePage(page: {
 
 const slugsFor = async (spaceId: string, rule: string): Promise<string[]> =>
   (await lintSpace(db, spaceId)).findings.filter((finding) => finding.rule === rule).map((f) => f.concept_slug!)
+
+/**
+ * The scaffolding markers a build with NOTHING configured ships with — read
+ * out of loadConfig() rather than assumed, with WIKIKIT_SCAFFOLDING_KINDS
+ * deleted first so a developer's own .env cannot make this pass.
+ *
+ * process.env is snapshotted and restored around the call because loadConfig()
+ * writes to it by design (it layers .env.defaults over anything still
+ * undefined, and downstream libraries read the result), and this file shares
+ * one process with twenty other integration tests that are entitled to the
+ * environment they were started in.
+ */
+function shippedScaffoldingKinds(): readonly string[] {
+  const saved = { ...process.env }
+  try {
+    delete process.env.WIKIKIT_SCAFFOLDING_KINDS
+    return loadConfig().scaffoldingKinds!
+  } finally {
+    for (const name of Object.keys(process.env)) if (!(name in saved)) delete process.env[name]
+    Object.assign(process.env, saved)
+  }
+}
 
 const contradictionsOf = async (spaceId: string, proposalId: string): Promise<string[]> =>
   (await lintProposal(db, spaceId, proposalId)).findings
@@ -371,6 +393,122 @@ describe('lint rules (integration)', () => {
     expect(byRule('orphan-concepts')).toEqual([])
     expect(byRule('unsourced-concepts')).toEqual([])
     expect(byRule('empty-concepts')).toEqual([])
+  })
+
+  it('a CONFIGURED scaffolding kind is a reference target; an unknown one is an ordinary page', async () => {
+    // The marker set is no longer a hardcoded pair in the domain: WikiKit owns
+    // 'structural-reference' and the installation declares the rest
+    // (WIKIKIT_SCAFFOLDING_KINDS → config.scaffoldingKinds → these options).
+    // What has to hold is that the DECLARATION is what does the work — both
+    // surfaces treat a declared kind exactly as they treat the built-in one,
+    // and treat an undeclared kind as knowledge, because a marker that worked
+    // without being declared would mean the product still knows one
+    // deployment's private history.
+    const spaceId = await seedSpace('configured-scaffolding-space', {})
+    const configured = { scaffoldingKinds: ['structural-reference', 'acme-relation-import'] }
+
+    await approvePage({ spaceId, slug: 'acme-target', kind: 'acme-relation-import' })
+    await approvePage({ spaceId, slug: 'built-in-target', kind: 'structural-reference' })
+    await approvePage({ spaceId, slug: 'unknown-kind', kind: 'some-other-pipeline' })
+    await approvePage({ spaceId, slug: 'plain' })
+
+    // The index declines to MEASURE a reference target — absent, never zero.
+    const listed = new Map((await listConcepts(db, spaceId, {}, configured)).items.map((i) => [i.slug, i.evidence]))
+    expect(listed.get('acme-target')).toBeUndefined()
+    expect(listed.get('built-in-target')).toBeUndefined()
+    // Both of these hold no knowledge either, and both are measured and say so
+    // with three honest zeros: the difference is not what the page contains, it
+    // is whether the installation declared it as structure.
+    expect(listed.get('unknown-kind')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+    expect(listed.get('plain')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+
+    // The linter suppresses FAULT reports about the same two pages and only
+    // those. Asserted per rule rather than as a total, because a rule that
+    // stopped consulting the marker set would still leave the count plausible.
+    const { findings } = await lintSpace(db, spaceId, configured)
+    for (const rule of ['orphan-concepts', 'unsourced-concepts', 'empty-concepts']) {
+      expect(
+        findings.filter((f) => f.rule === rule).map((f) => f.concept_slug),
+        rule,
+      ).toEqual(['plain', 'unknown-kind'])
+    }
+
+    // And the control: with NO configuration in scope the declared marker means
+    // nothing, so the same page is measured and reported like any other. This
+    // is the assertion that fails if a future edit makes an arbitrary kind
+    // count as scaffolding on its own.
+    const unconfigured = new Map((await listConcepts(db, spaceId, {})).items.map((i) => [i.slug, i.evidence]))
+    expect(unconfigured.get('acme-target')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+    expect(unconfigured.get('built-in-target')).toBeUndefined()
+    expect(
+      (await lintSpace(db, spaceId)).findings.filter((f) => f.rule === 'orphan-concepts').map((f) => f.concept_slug),
+    ).toEqual(['acme-target', 'plain', 'unknown-kind'])
+  })
+
+  it('the SHIPPED DEFAULT, with nothing configured, still treats the historical marker as a reference target', async () => {
+    // THE upgrade regression, and the only test in this repository that can
+    // fail when it happens.
+    //
+    // Until 0.29.0 the marker set was a frozen pair in the domain, and one
+    // installation's data has depended on the second of them since: 49 pages
+    // across 5 wikis report their evidence as ABSENT — the honest answer for a
+    // page that holds no knowledge — only because that marker is recognised.
+    // 0.29.0 moved the set into configuration. An operator upgrading a running
+    // deployment sets nothing, so what those 49 pages get is whatever the
+    // SHIPPED DEFAULT resolves to, threaded through the read model and the
+    // linter. If that chain breaks anywhere — the default emptied, the literal
+    // retyped, notScaffolding stops escaping, a call site stops forwarding —
+    // those absences become `{claims: 0, uncited_claims: 0, sources: 0}`: the
+    // sentence "this page rests on nothing", printed about pages that hold
+    // nothing by design, which is the exact defect 0.28.0 shipped to fix.
+    //
+    // WHY the marker is written out here as a literal, when no other file in
+    // the tree repeats it. Every other assertion about this variable is about
+    // SHAPE — how many markers the default holds, which one is WikiKit's,
+    // whether configuration replaces or accumulates — and shape is exactly
+    // what a changed VALUE leaves intact. Retyping the literal in
+    // src/config.ts keeps every one of those green while breaking all 49
+    // pages. A guarantee about a value needs a second copy of the value, and
+    // there is nowhere else to put it: docs/ and the console are guard-scanned
+    // and must not name it. When the day comes that no installation needs the
+    // fallback, this literal and that one are deleted in a single commit —
+    // which is a deliberate act, and is the point.
+    //
+    // Read through loadConfig() rather than from an import, because the thing
+    // under test is not the constant, it is the whole boot path an upgraded
+    // deployment actually takes.
+    const legacyMarker = 'subkit-domain-migration-relation-repair'
+    const shipped = { scaffoldingKinds: shippedScaffoldingKinds() }
+    expect(shipped.scaffoldingKinds, 'the shipped default must still carry the historical marker').toContain(
+      legacyMarker,
+    )
+    expect(shipped.scaffoldingKinds, "and WikiKit's own marker, which is never configurable away").toContain(
+      'structural-reference',
+    )
+
+    const spaceId = await seedSpace('shipped-default-scaffolding-space', {})
+    await approvePage({ spaceId, slug: 'legacy-target', kind: legacyMarker })
+    await approvePage({ spaceId, slug: 'built-in-target', kind: 'structural-reference' })
+    await approvePage({ spaceId, slug: 'plain' })
+
+    // The index declines to measure both markers' pages — absent, never zero —
+    // and measures the ordinary page, so a passing assertion cannot be the
+    // whole column having gone silent.
+    const listed = new Map((await listConcepts(db, spaceId, {}, shipped)).items.map((i) => [i.slug, i.evidence]))
+    expect(listed.get('legacy-target')).toBeUndefined()
+    expect(listed.get('built-in-target')).toBeUndefined()
+    expect(listed.get('plain')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+
+    // And the linter keeps the same silence, per rule rather than as a total:
+    // a rule that stopped consulting the marker set would still leave a count
+    // plausible.
+    const { findings } = await lintSpace(db, spaceId, shipped)
+    for (const rule of ['orphan-concepts', 'unsourced-concepts', 'empty-concepts']) {
+      expect(
+        findings.filter((f) => f.rule === rule).map((f) => f.concept_slug),
+        rule,
+      ).toEqual(['plain'])
+    }
   })
 
   it('stub-concepts: warn in the counts census, overlapping empty-concepts on purpose', async () => {

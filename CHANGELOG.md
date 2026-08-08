@@ -6,6 +6,200 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.29.0 - 2026-08-08
+
+0.28.0 left two defects standing under **Known**, and this release closes both.
+One was on the screen: the console's SEARCH results gave the wrong reason a page
+has no evidence number, and gave it in text only a screen reader would ever
+reach. The other was in the product: the list of revision markers that make a
+page a reference target was one deployment's private migration tag, hardcoded in
+a repository that ships to installations which never ran that import.
+
+Nothing about how evidence is measured changed, and no page's counts move.
+What changed is who gets to say which pages the measurement does not apply to,
+and what the console says about a page when it does not.
+
+### Fixed
+
+- **The console's search screen no longer gives the wrong reason for the em
+  dash.** A `kind: 'concept'` hit on a reference target drew the dash correctly
+  (0.28.0), but the sentence behind it read _"This list came back without
+  evidence counts, so how well this page is backed is not known here."_ That is
+  the sentence for a tab that outlived a rolling upgrade and is talking to a
+  build which predates the counts — and it was false in the situation that
+  actually put it on screen: a search whose other hits carry counts came from a
+  server that measures, so a bare hit beside them is one the server **declined**
+  to measure, which is a fact about that page and not about the response. It
+  also said "list" on a screen that is not one.
+
+  It was hidden text — `sr-only`, no tooltip — so the reader most likely ever to
+  meet that sentence was the one using a screen reader, which is the wrong way
+  round for a defect to land. The operator with a pointer, looking at a column
+  of blanks and wondering why, had nowhere to ask at all.
+
+  **What tells the two reasons apart is the rest of the response**, and it needs
+  no new API field, because the response already settles it. If some concept hit
+  in it carries counts, this build measures, and a bare concept hit beside it is
+  a reference target. If not one concept hit carries them, it is the old build,
+  and no hit in that response may be called a reference target — a console must
+  not describe a page as furniture on the strength of a response that never
+  measured anything. Three properties of that rule are deliberate:
+
+  - It runs the **same predicate as the pages index** (`listMeasuresEvidence`,
+    `page.logic.ts`), so the two screens cannot disagree about what proves a
+    build measures — including that a self-contradicting row vouches for
+    nothing.
+  - **Only concept hits vouch.** Claim hits and source-evidence hits carry no
+    `evidence` by design, so counting them could only drag the answer toward
+    "old build": a search filtered to `kind=claim` would otherwise look like a
+    rolling upgrade to every reader on it.
+  - **The case it cannot separate falls to the weaker sentence.** In a response
+    whose every concept hit is a reference target nothing measures, so all of
+    them keep the vaguer reading — still true of such a response, merely less
+    specific, where the reference-target sentence asserted about an old build
+    would be false about every page on the screen. Same direction the pages
+    index chose.
+
+  The dash itself is now reachable by pointer and keyboard as a tooltip trigger,
+  the way the pages list's Evidence cell already was: a sentence that is not
+  otherwise on screen may not be carried by a `title` attribute (invisible on
+  touch, unreachable by keyboard). The `sr-only` sentence stays **as well as**
+  the tooltip — a tooltip nobody opens says nothing, and a linear screen-reader
+  pass would otherwise hit an `aria-hidden` glyph and hear a line that reads
+  "Evidence:" and stops.
+
+  And the fallback sentence no longer says "list" either, on any surface. The
+  discriminator above moves most reference-target hits off that sentence, but it
+  stays reachable on the search screen — a response whose every concept hit is a
+  reference target, or a genuinely old build — and there it was still telling
+  the reader about a list they are not looking at. It now reads _"The evidence
+  counts did not arrive with this result…"_, which is true of a table row and of
+  a search card, and `pageEvidence` answers for both.
+
+### Changed
+
+- **Which revision kinds mark a reference target is now the installation's to
+  declare (`WIKIKIT_SCAFFOLDING_KINDS`).** Carried under **Known** since 0.26.1
+  and growing a caller per release, the list was a hardcoded pair naming a
+  revision kind that exists because one particular installation ran one
+  particular import. This repository states the argument against that itself, in
+  `scripts/deploy/smoke.sh`: the deploy URL comes from the environment and never
+  from a committed file, because WikiKit knows nothing about where it runs, and
+  a hostname committed here would be both wrong for every other installation and
+  a fact about somebody's infrastructure sitting in a public repo. A revision
+  marker from somebody's import history is the same kind of fact, and by 0.28.0
+  it was load-bearing in a way a hostname in a smoke test never is: it decided a
+  response field. An installation that never ran that import got neither the
+  index's silence nor the linter's.
+
+  So the set now comes from the environment, comma-separated in the same shape
+  as `WIKIKIT_OAUTH_ALLOWED_SCOPES`. WikiKit's own `structural-reference` is
+  prepended unconditionally — the product writes that revision and reads it
+  back, so it is not a deployment fact and cannot be configured away — and what
+  an operator sets **replaces** the rest rather than adding to it. Replacement is
+  the point: a value that could only be appended to would make the historical
+  marker permanent and unremovable by configuration, which is the exact property
+  that made it a defect.
+
+  **And the default still carries that tag.** This is worth saying plainly
+  rather than burying: 49 pages across five wikis report their evidence as
+  absent only because that marker is recognised, and an upgrade shipping an
+  empty deployment-specific default would silently turn those 49 absences back
+  into `{claims: 0, uncited_claims: 0, sources: 0}` — the sentence "this page
+  rests on nothing", said about pages that hold nothing by design, which is
+  precisely the defect 0.28.0 shipped to fix. A default that breaks a running
+  deployment is not a win for cleanliness. The honest long-term state is that
+  every installation declares its own markers and the fallback becomes dead
+  weight that can be deleted without asking anybody; that state has **not**
+  arrived, and this release only makes it reachable.
+
+  That default is pinned end to end by one integration test, and it is the only
+  test in the tree that can fail when this particular thing breaks. Every other
+  assertion about this variable is about SHAPE — how many markers the default
+  holds, which one is WikiKit's, whether configuration replaces or accumulates —
+  and a changed VALUE leaves all of them intact: retyping the literal in
+  `src/config.ts` kept the entire suite green while breaking all 49 pages. So
+  the test boots `loadConfig()` with the variable deleted, seeds a page carrying
+  the marker, and asserts the real SQL reports it as absent and the linter files
+  no fault against it. It has to write the marker out a second time to do that,
+  which is the one place in the tree besides `src/config.ts` that names it — a
+  guarantee about a value needs a second copy of the value. Both are deleted in
+  one commit the day the fallback goes.
+
+  The literal moved rather than being copied: it is now in `src/config.ts` and
+  no longer in `src/domain/concepts.ts`, where `SCAFFOLDING_KINDS` became
+  `notScaffolding(kinds)`. Configuration reaches the read model as an optional
+  trailing options bag filled in at the composition boundaries that already hold
+  `deps.config` — the concept list, `/search`, `/lint`, `/query`, and the
+  `wikikit_search` and `wikikit_lint` tools. Two costs came with it. `/query`
+  retrieves through search, so `answerQuestion` grew a deps field it only
+  forwards; leaving it out would have let `/query` and `/search` disagree about
+  which pages are reference targets on one installation, which is worse than an
+  extra hop. And the three page-level lint rules each take one more parameter,
+  real churn in a file whose diff would otherwise have been four lines.
+
+  One hardening: the kinds are interpolated into a SQL literal (a small closed
+  set the planner benefits from seeing literally) and now arrive from an
+  operator's environment rather than a frozen constant, so the builder doubles
+  single quotes and `loadConfig` refuses a malformed marker at boot with the
+  operator's own value in the message. An empty marker set evaluates to `true`
+  rather than emitting `NOT IN ()`.
+
+### Known
+
+0.28.0 carried four bullets here. The two defects are closed above. The second —
+that 0.27.0's remaining silence was answered by the index declining to speak
+rather than by a new lint rule — was a record of a closure, not an open
+question, and it stays closed: nothing was added to the linter here either. The
+third survives verbatim and is carried forward, wider than it was.
+
+- **A scaffolding-marked page that does hold claims is absent too.** Unchanged
+  from 0.28.0: the marker decides, not the counts, so such a row reports no
+  evidence summary even though its claims are real and the page read still shows
+  them. This release makes it slightly broader rather than narrower — the set of
+  markers is now an operator's to write, so an operator can now withhold a real
+  measurement from their own index by declaring a marker that pages with claims
+  carry. That follows from wanting a rule readable off a single row, and from
+  the marker being the deployment's statement about the row. No such page exists
+  on the installation measured here.
+
+- **The default still names one deployment's private migration tag, and the
+  documentation cannot say which.** The defect closed above is closed as an
+  architecture matter: the list is configuration, and an installation that
+  declares its own markers never sees the fallback. What is left is the fallback
+  itself, in `src/config.ts` for the continuity reason stated above. It also
+  makes `docs/CONFIGURATION.md` slightly worse than the page wanted to be: the
+  guard that keeps production references out of `docs/` also keeps that value
+  out, so an operator reads "a single legacy import marker" and must open
+  `src/config.ts` to learn what it is. Both of these end the day the fallback is
+  deleted.
+
+- **A call site that forgets the configuration is caught by a test, not by the
+  compiler.** `scaffoldingKinds` is an optional trailing option, so a new caller
+  of the concept list, the linter or search that omits
+  `deps.config.scaffoldingKinds` still compiles and still runs — and would
+  quietly answer with the built-in marker only, which on the installation above
+  reverts those 49 pages to a measured zero. Making the parameter required does
+  not actually close that: `{}` satisfies a required options bag exactly as well
+  as omitting an optional one, so the compiler would only be enforcing that
+  somebody typed two characters, and it cannot reach `search` or
+  `answerQuestion` at all, whose deps bags are legitimately optional for `llm`
+  and `vector`. The rule is enforced instead by a source scan over the four
+  modules that hold the configuration (`test/unit/domain-concepts.test.ts`),
+  which fails on a call in any of them that neither names `scaffoldingKinds` nor
+  hands over a bag that carries it. That catches the realistic failure — next
+  release's handler — but it is a list of four files, and a fifth composition
+  boundary must be added to it by hand.
+
+- **One branch of the search card is argued for rather than tested.** The logic
+  that decides which of the two sentences a hit gets is pinned by tests, and
+  every mutation of it turns one red. The JSX that chooses between the dash and
+  the counts is not: `test/unit/cockpit-pages/` proves `.logic.ts` and has no
+  renderer, so swapping the shared `rendersAsDash` predicate there for a
+  narrower equality test passes the suite. It rests on the comment at that
+  branch and on the identical pattern in the pages list, which is thinner than
+  the rest of this fix.
+
 ## 0.28.0 - 2026-08-08
 
 The entry for 0.27.0 makes three statements about a kind of page in this

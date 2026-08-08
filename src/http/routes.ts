@@ -1304,7 +1304,12 @@ export const HANDLERS: Record<string, Handler> = {
   async listConceptsHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const query = input.query as { limit?: number; after?: string }
-    const page = await listConcepts(deps.db, space.id, { limit: query.limit, after: query.after })
+    const page = await listConcepts(
+      deps.db,
+      space.id,
+      { limit: query.limit, after: query.after },
+      { scaffoldingKinds: deps.config.scaffoldingKinds },
+    )
     // ETag over the space epoch: the epoch bumps on
     // every approved proposal, so it is a perfect cheap validator for ANY
     // read of approved knowledge. RFC 9110 §13.1.2: If-None-Match may carry a
@@ -1353,7 +1358,7 @@ export const HANDLERS: Record<string, Handler> = {
     if (query.include_imports && input.principal!.spaceId) {
       throw new ForbiddenError('this key is scoped to a single space and cannot search imported spaces')
     }
-    const searchDeps = { llm: deps.llm, vector: deps.vector }
+    const searchDeps = { llm: deps.llm, vector: deps.vector, scaffoldingKinds: deps.config.scaffoldingKinds }
     if (query.include_imports) {
       const result = await searchAcrossImports(deps.db, space, query, searchDeps)
       return { status: 200, body: result }
@@ -1368,7 +1373,10 @@ export const HANDLERS: Record<string, Handler> = {
   async queryHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const body = input.body as { question: string; top_k?: number; mode?: 'approved_only' | 'approved_then_sources' }
-    const answer = await answerQuestion(deps.db, space.id, deps.llm, body, { vector: deps.vector })
+    const answer = await answerQuestion(deps.db, space.id, deps.llm, body, {
+      vector: deps.vector,
+      scaffoldingKinds: deps.config.scaffoldingKinds,
+    })
     // Demand-vs-coverage telemetry: an honest "the knowledge base does not
     // cover this" is a successful transport but an unanswered question — the
     // knowledge-surface usage row records it as 'no_answer'.
@@ -1490,7 +1498,7 @@ export const HANDLERS: Record<string, Handler> = {
 
   async lintHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const report = await lintSpace(deps.db, space.id)
+    const report = await lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
     return { status: 200, body: report }
   },
 

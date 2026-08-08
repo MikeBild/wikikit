@@ -44,6 +44,7 @@ const MANAGED = [
   'WIKIKIT_USAGE_RETENTION_DAYS',
   'WIKIKIT_OAUTH_PROVIDERS',
   'WIKIKIT_OAUTH_ALLOWED_SCOPES',
+  'WIKIKIT_SCAFFOLDING_KINDS',
   'LOG_LEVEL',
 ]
 
@@ -289,6 +290,77 @@ describe('the identity scope ceiling', () => {
     const alphabet = server.match(/const OAUTH_SCOPES = \[([\s\S]*?)\] as const/)?.[1] ?? ''
     expect(alphabet).not.toContain("'admin'")
     expect(alphabet).toContain("'knowledge:approve'")
+  })
+})
+
+describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
+  // The literal value of the legacy default is deliberately never written in
+  // this file. It is one installation's private import tag; the assertions
+  // below are about SHAPE — how many markers there are, which one is WikiKit's,
+  // and whether configuration replaces or accumulates — and every one of them
+  // stays true when that tag is finally deleted.
+  const builtIn = 'structural-reference'
+
+  test('unset keeps both defaults, so an upgrade cannot silently un-recognise a live page', () => {
+    // A running installation has 49 pages whose evidence reports as ABSENT only
+    // because the second, deployment-specific marker is recognised. Shipping an
+    // empty default would turn those absences into measured zeros — the
+    // sentence "this page rests on nothing", said about pages that hold no
+    // knowledge by design. The default carries the legacy marker for exactly
+    // that reason, and this is the test that notices if someone drops it.
+    const kinds = loadConfig().scaffoldingKinds!
+    expect(kinds).toHaveLength(2)
+    expect(kinds[0]).toBe(builtIn)
+    expect(kinds[1]).not.toBe(builtIn)
+  })
+
+  test('configuration REPLACES the deployment-specific portion; the built-in survives', () => {
+    // Replacement, not addition, is the whole point: an installation that
+    // declares its own markers must be able to stop carrying somebody else's,
+    // otherwise the historical tag is permanent and unremovable by
+    // configuration — which is the property that made it a defect.
+    const legacy = loadConfig().scaffoldingKinds![1]!
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = 'acme-relation-import'
+    const kinds = loadConfig().scaffoldingKinds!
+    expect(kinds).toEqual([builtIn, 'acme-relation-import'])
+    expect(kinds).not.toContain(legacy)
+  })
+
+  test("'structural-reference' is WikiKit's own and is never configurable away", () => {
+    // It is the marker the product itself writes and reads back, so it is not
+    // an installation's to withdraw — naming other kinds adds to it, and naming
+    // it explicitly does not duplicate it.
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = 'acme-relation-import,other-import'
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn, 'acme-relation-import', 'other-import'])
+
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = `acme-relation-import,${builtIn}`
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn, 'acme-relation-import'])
+  })
+
+  test('empty and whitespace-only read as "nothing was written", exactly like the neighbouring lists', () => {
+    // Same rule WIKIKIT_OAUTH_ALLOWED_SCOPES follows: an operator who leaves the
+    // line in the template with no value has not declared an empty set, they
+    // have declared nothing. `.env.defaults` ships exactly that empty line.
+    const fallback = loadConfig().scaffoldingKinds
+
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = ''
+    expect(loadConfig().scaffoldingKinds).toEqual(fallback)
+
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = '   ,  ,'
+    expect(loadConfig().scaffoldingKinds).toEqual(fallback)
+
+    // Surrounding whitespace on a real entry is trimmed, not treated as part of
+    // the marker — the value is compared against a database column.
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = ' acme-relation-import , other-import '
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn, 'acme-relation-import', 'other-import'])
+  })
+
+  test('a marker that could not survive SQL interpolation fails the boot', () => {
+    // These are interpolated into a SQL literal rather than bound. The builder
+    // escapes quotes regardless; this is what turns a typo into a refused boot
+    // naming the operator's own value, instead of a query that behaves oddly.
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = "acme','anything"
+    expect(() => loadConfig()).toThrow(/WIKIKIT_SCAFFOLDING_KINDS/)
   })
 })
 

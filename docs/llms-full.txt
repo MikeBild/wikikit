@@ -220,7 +220,13 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   points at. There is nothing there to evidence, and three zeros would read as
   the finding that a knowledge page rests on nothing. Absence therefore never
   means zero: where the three numbers are served they are measured, and where
-  they are missing the question did not apply.
+  they are missing the question did not apply. A reference target is recognised
+  by the `kind` its current revision carries: WikiKit's own
+  `structural-reference` always, plus whatever markers the installation declares
+  in `WIKIKIT_SCAFFOLDING_KINDS` (§11) — a fact about one deployment's import
+  history, so it is read from the environment rather than known by the product.
+  Two installations may therefore withhold `evidence` on different rows; what
+  never varies is what an absence means.
 - **Async ingest:** `POST .../ingest` answers `202` with
   `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
   `done` (carries `source_id`; `proposal_id` is nullable when no affected or new
@@ -741,6 +747,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_USAGE_HMAC_SECRET` | independent product-local HMAC secret; required when enabled | (unset) |
 | `WIKIKIT_USAGE_RETENTION_DAYS` | raw usage retention (31–365 days) | `90` |
 | `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | opt-in: store stemmed lexemes (never text) of unanswered queries | `false` |
+| `WIKIKIT_SCAFFOLDING_KINDS` | extra revision kinds marking a page as structure, not knowledge (evidence reported absent, not zero); `structural-reference` is always built in | legacy import marker |
 | `WIKIKIT_OAUTH_DCR_ENABLED` | RFC 7591 dynamic registration for remote MCP clients | `true` |
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
