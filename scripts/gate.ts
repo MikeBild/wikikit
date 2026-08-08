@@ -32,6 +32,13 @@ const STAGES: Stage[] = [
   // Cheapest first: a formatting failure should not cost you a database spin-up.
   { id: 'lint', title: 'lint + format', command: ['bun', 'run', 'lint'] },
   { id: 'typecheck', title: 'typecheck', command: ['bun', 'run', 'typecheck'] },
+  // The console is a committed build artifact: assets/cockpit and
+  // src/cockpit-embedded.ts are generated, committed and served — the binary
+  // reads the embed, so a stale one ships last week's console with this week's
+  // API. This rebuilds and fails on any diff. It runs before the test stages
+  // because the offline drift test reads the bundle this produces, and a Vite
+  // build is seconds against a Postgres spin-up's tens of them.
+  { id: 'cockpit', title: 'cockpit build + embed drift', command: ['bun', 'run', 'check:cockpit-drift'] },
   // Includes the drift gates: docs, env templates, OpenAPI snapshot, tool
   // lists, CHANGELOG, prompt budgets. This is the stage that keeps the docs
   // honest, which is why it is not optional.

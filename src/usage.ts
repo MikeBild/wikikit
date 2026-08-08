@@ -76,8 +76,18 @@ function statusOutcome(status: number): UsageOutcome {
   return 'success'
 }
 
+/**
+ * Traffic that is WikiKit talking to itself, not somebody using it.
+ *
+ * `/cockpit` belongs here for the same reason `/health` does: an operator
+ * loading the console is not API demand, and counting it as such would let a
+ * reload inflate the very numbers the System page reports back to them.
+ * `index.html` is `no-cache`, so every navigation writes a row and a cold load
+ * writes one per fingerprinted chunk — the ledger would fill with the act of
+ * reading it.
+ */
 function isInternalRoute(route: string): boolean {
-  return /^(?:\/health|\/ready|\/metrics|\/openapi\.json|\/llms(?:-full)?\.txt|\/v1\/stats\/|\/v1\/spaces\/(?:\{space\}|:space)\/stats\/)/.test(
+  return /^(?:\/health|\/ready|\/metrics|\/openapi\.json|\/llms(?:-full)?\.txt|\/cockpit|\/v1\/stats\/|\/v1\/spaces\/(?:\{space\}|:space)\/stats\/)/.test(
     route,
   )
 }

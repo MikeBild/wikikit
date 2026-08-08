@@ -15,9 +15,12 @@ dist/
 # Editor/OS noise
 .DS_Store
 
-# NOTE: src/db/migrations/embedded.ts (generated) is deliberately NOT ignored —
-# it is committed and guarded by the embedded-drift test, like ContentKit's
-# check:embedded-drift. Regenerate with `bun run gen:migrations`.
+# NOTE: the generated artifacts are deliberately NOT ignored — they are
+# committed and guarded by drift tests, because a generated file that is not
+# drift-checked is a generated file that is stale:
+#   src/db/migrations/embedded.ts   `bun run gen:migrations`
+#   src/cockpit-embedded.ts         `bun run build:cockpit`
+#   assets/cockpit/                 `bun run build:cockpit`
 
 # Planning docs — never committed
 docs/plans/

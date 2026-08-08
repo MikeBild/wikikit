@@ -1,0 +1,8 @@
+{
+  "to": "/api-keys",
+  "label": "API keys",
+  "icon": "KeyRound",
+  "scope": "admin",
+  "group": "installation",
+  "api": ["/v1/api-keys", "/v1/api-keys/{id}"]
+}

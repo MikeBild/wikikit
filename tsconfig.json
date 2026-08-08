@@ -24,7 +24,19 @@
     "exactOptionalPropertyTypes": false,
 
     "skipLibCheck": true,
-    "types": ["bun"]
+    "types": ["bun"],
+
+    // The cockpit's own alias, so the unit tests that hold its pure modules
+    // against the server's (scope implication, the navigation table, the diff)
+    // can import them by the same path the console does.
+    //
+    // Note what this does NOT do: `lib` stays ES2023 with no DOM, so only a
+    // genuinely browser-free module resolves here. A cockpit module that
+    // reaches for `localStorage` or `window` fails to typecheck the moment a
+    // test imports it — which is the pressure that keeps the rules pure and
+    // testable rather than tangled into the view.
+    "baseUrl": ".",
+    "paths": { "@/*": ["./apps/cockpit/src/*"] }
   },
   "include": ["bin", "src", "scripts", "test"],
   "exclude": ["node_modules", "dist"]

@@ -1,0 +1,8 @@
+{
+  "to": "/search",
+  "label": "Search",
+  "icon": "Search",
+  "scope": "knowledge:read",
+  "group": "wiki",
+  "api": ["/v1/spaces/{space}/search", "/v1/spaces/{space}/query"]
+}

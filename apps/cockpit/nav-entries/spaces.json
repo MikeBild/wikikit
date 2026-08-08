@@ -1,0 +1,8 @@
+{
+  "to": "/spaces",
+  "label": "Wikis",
+  "icon": "FolderKanban",
+  "scope": "knowledge:read",
+  "group": "installation",
+  "api": ["/v1/spaces", "/v1/spaces/{space}", "/v1/spaces/{space}/settings", "/v1/spaces/{space}/export"]
+}

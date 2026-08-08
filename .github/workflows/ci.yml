@@ -46,6 +46,19 @@ jobs:
       # exists purely as a static gate.
       - run: bun run typecheck
 
+  # The console is a committed build artifact. assets/cockpit and
+  # src/cockpit-embedded.ts are generated, committed and served — the compiled
+  # binary reads the embed, so a stale one ships an old console against a new
+  # API and nothing at runtime notices. This rebuilds from source and fails on
+  # any diff, which also proves the Vite build still works on a clean checkout.
+  cockpit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check:cockpit-drift
+
   # Unit + contract suites are pure (FakeProvider, no network, no Postgres).
   # Contract snapshots (OpenAPI, MCP manifest, webhook payloads, OKF) are the
   # promises foreign systems rely on — a snapshot diff must fail CI until it

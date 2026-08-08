@@ -1,0 +1,8 @@
+{
+  "to": "/webhooks",
+  "label": "Webhooks",
+  "icon": "Webhook",
+  "scope": "admin",
+  "group": "installation",
+  "api": ["/v1/spaces/{space}/webhooks", "/v1/spaces/{space}/webhooks/{id}/deliveries"]
+}

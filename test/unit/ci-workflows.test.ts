@@ -67,10 +67,19 @@ describe('ci.yml', () => {
     expect('pull_request' in ci.on).toBe(true)
   })
 
-  test('runs the full gate: lint, typecheck, unit+contract, integration, e2e, binary', () => {
-    expect(Object.keys(ci.jobs).sort()).toEqual(['binary', 'e2e', 'integration', 'lint', 'test', 'typecheck'])
+  test('runs the full gate: lint, typecheck, cockpit, unit+contract, integration, e2e, binary', () => {
+    expect(Object.keys(ci.jobs).sort()).toEqual([
+      'binary',
+      'cockpit',
+      'e2e',
+      'integration',
+      'lint',
+      'test',
+      'typecheck',
+    ])
     expect(runs(job(ci, 'lint'))).toContain('bun run lint')
     expect(runs(job(ci, 'typecheck'))).toContain('bun run typecheck')
+    expect(runs(job(ci, 'cockpit'))).toContain('bun run check:cockpit-drift')
     expect(runs(job(ci, 'test'))).toContain('bun test test/unit test/contract')
     expect(runs(job(ci, 'e2e'))).toContain('bun run test:e2e')
   })
@@ -80,7 +89,7 @@ describe('ci.yml', () => {
   test('CI jobs and the local gate stages are the same list', () => {
     const gate = readFileSync(new URL('../../scripts/gate.ts', import.meta.url), 'utf8')
     const stageIds = [...gate.matchAll(/\bid: '([a-z0-9-]+)'/g)].map((match) => match[1]!)
-    expect(stageIds.sort()).toEqual(['e2e', 'integration', 'lint', 'typecheck', 'unit'])
+    expect(stageIds.sort()).toEqual(['cockpit', 'e2e', 'integration', 'lint', 'typecheck', 'unit'])
     // `test` is CI's name for the gate's `unit` stage; `binary` is CI-only
     // (compiling per-platform artifacts is not something a push should pay for).
     const ciJobs = Object.keys(ci.jobs).filter((name) => name !== 'binary')

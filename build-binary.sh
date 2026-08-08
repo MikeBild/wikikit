@@ -18,6 +18,27 @@ OUTFILE="${OUTFILE:-dist/wikikit}"
 echo "› regenerating embedded migrations"
 bun scripts/gen-embedded-migrations.ts
 
+# The console travels INSIDE the binary. `bun build --compile` produces one
+# file, so a readFileSync against assets/cockpit inside it resolves to a path
+# that does not exist on the operator's machine — src/cockpit-embedded.ts is
+# how the bundle gets there. Rebuilt here rather than trusted from the
+# checkout, for the same reason the migrations are: the artifact must be built
+# from this commit's source, not from whatever happened to be on disk.
+echo "› rebuilding and embedding the cockpit"
+bun run build:cockpit
+
+# A binary with an empty embed compiles, boots, passes every test and serves a
+# 503 where the console should be — the one failure this whole pipeline exists
+# to prevent, and the one no unit test can see because it is a property of the
+# artifact. Checked here, between the build and the compile, so a broken Vite
+# run cannot become a published release.
+COCKPIT_FILES="$(bun -e 'const m = await import("./src/cockpit-embedded.ts"); console.log(m.EMBEDDED_COCKPIT_FILES)')"
+if [ "${COCKPIT_FILES:-0}" -lt 2 ]; then
+  echo "✗ the cockpit embed holds ${COCKPIT_FILES:-0} files — the console did not build." >&2
+  exit 1
+fi
+echo "  embed holds ${COCKPIT_FILES} files"
+
 VERSION="$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')"
 echo "› building ${OUTFILE} (version ${VERSION})"
 mkdir -p "$(dirname "$OUTFILE")"

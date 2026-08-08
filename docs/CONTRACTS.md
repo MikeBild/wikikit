@@ -1114,6 +1114,28 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 HTTP) is intentionally **outside** the ROUTES registry and the OpenAPI surface;
 it shares the auth middleware.
 
+The **cockpit plane** is likewise outside the registry, on the OAuth raw mount
+(documented in `src/oauth/openapi.ts`, so it does reach `/openapi.json`):
+
+| Method | Path                         | Scope | Contract                                                                                                                                                                                                                                                                                                                                |
+| ------ | ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/identity/cockpit-login` | —     | 302 into the provider chooser, or straight to `return_to` for a live session. `return_to` MUST be a same-origin path under `/cockpit`; anything else falls back to `/cockpit/`. Mints a login state with `purpose = 'cockpit'` — never an authorization request, and a CHECK constraint enforces the two shapes are mutually exclusive. |
+| GET    | `/v1/session`                | —     | 200 `{session: {name, kind, scopes, space_id, provider_id}}` or `{session: null}`. MUST NOT answer 401: an anonymous caller is an answer, not a failure.                                                                                                                                                                                |
+| DELETE | `/v1/session`                | —     | 204, cookie cleared. Requires a same-origin `Origin` header.                                                                                                                                                                                                                                                                            |
+
+`GET /cockpit` and everything under it is a raw **prefix** mount serving the
+built SPA: unknown paths fall back to `index.html` (they are client routes),
+fingerprinted assets are immutable, `index.html` is `no-cache`, and the CSP
+admits the single inline theme script by the sha256 of the bytes being served
+— never `unsafe-inline`.
+
+The operator-session cookie is a **fallback** REST credential: `dispatch`
+consults it only when a scoped route arrives with neither `Authorization` nor
+`X-API-Key`, and requires a same-origin `Origin` on any method that is not
+GET/HEAD/OPTIONS. A header credential always wins, so the 401/403 an API-key
+client sees MUST NOT change shape. Cookie-authenticated principals carry
+`keyId: "session:<id>"` so an audit row can never be mistaken for an API key.
+
 Usage telemetry contract:
 
 - Collection is disabled unless `WIKIKIT_USAGE_TELEMETRY_ENABLED=true` and

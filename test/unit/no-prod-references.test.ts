@@ -33,4 +33,19 @@ describe('no production references', () => {
     const hits = gitGrep(['-nIiE', products, '--', 'README.md', 'docs', 'examples'])
     expect(hits, `sibling product reference(s) found in docs:\n${hits}`).toBe('')
   })
+
+  test('sibling product names appear nowhere in the cockpit or its contract', () => {
+    // A stricter rule than the docs surface above, and deliberately so. The
+    // console and the cockpit-ui contract were built by adapting a shared
+    // design language, which means the obvious failure is a copied comment
+    // still naming where it came from. WikiKit carries the contract; it does
+    // not carry a roster of the products that also carry it.
+    //
+    // `Watch` and `Work` are included here and not above because they only
+    // ever arrive through that copying — nothing in the documentation surface
+    // has a reason to mention them.
+    const products = ['Content', 'Sub', 'Slide', 'Watch', 'Work'].map((p) => `${p}Kit`).join('|')
+    const hits = gitGrep(['-nIiE', products, '--', 'apps', 'contract', 'src/cockpit.ts', `:!${SELF}`])
+    expect(hits, `sibling product reference(s) found in the cockpit:\n${hits}`).toBe('')
+  })
 })

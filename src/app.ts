@@ -18,6 +18,7 @@ import type { LlmProvider } from './llm/provider.ts'
 import { createLogger, type Logger } from './logger.ts'
 import { createMetrics, type Metrics } from './metrics.ts'
 import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
+import { createCockpit, COCKPIT_PREFIX } from './cockpit.ts'
 import { createAuth, type Auth } from './http/auth.ts'
 import { createSpace, type HttpDeps } from './http/routes.ts'
 import { createHttpServer, type RawHandler } from './http/server.ts'
@@ -101,6 +102,16 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // pending notifications/elicitation/complete on the originating session.
   const reviewElicitations = createElicitationRegistry({ logger })
 
+  // ChatGPT and other remote MCP clients discover and complete OAuth without
+  // ever seeing an operator API key. One raw handler owns the OAuth wire
+  // formats (JSON, form posts and the browser HTML); exact mounts keep the
+  // ordinary REST registry and OpenAPI surface unchanged.
+  //
+  // Constructed BEFORE the HTTP server because it also owns the browser
+  // operator session, and the REST plane consults that as its credential of
+  // last resort for the cockpit's same-origin calls.
+  const oauth = createOAuthMount(config, { db, auth, logger })
+
   const httpDeps: HttpDeps = {
     config,
     logger,
@@ -113,6 +124,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     state,
     vector,
     reviewElicitations,
+    sessionAuth: oauth,
   }
   const http = createHttpServer(httpDeps)
 
@@ -135,11 +147,6 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   })
   http.mountRawHandler('/mcp', toNodeRawHandler(mcp, { maxBodyBytes: config.maxBodyBytes }))
 
-  // ChatGPT and other remote MCP clients discover and complete OAuth without
-  // ever seeing an operator API key. One raw handler owns the OAuth wire
-  // formats (JSON, form posts and the consent HTML); exact mounts keep the
-  // ordinary REST registry and OpenAPI surface unchanged.
-  const oauth = createOAuthMount(config, { db, auth, logger })
   // The ENV allowlist is a bootstrap-only path since 0028: real access
   // management lives on wk_oauth_identities via the admin REST
   // (/v1/identities). A growing allowlist means grants are being managed in
@@ -165,12 +172,21 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     '/v1/oauth/revoke',
     '/v1/identity/providers',
     '/v1/identity/sessions',
+    '/v1/identity/cockpit-login',
+    '/v1/session',
     '/v1/identity/login/start',
     '/v1/identity/login/callback',
     '/v1/identity/logout',
   ]) {
     http.mountRawHandler(path, oauth.handler)
   }
+
+  // The cockpit — WikiKit's one human surface, served from this same process at
+  // /cockpit (CUI-MOUNT-1). A prefix mount rather than exact paths: a built SPA
+  // is a directory of fingerprinted filenames plus a client-side router, and
+  // enumerating either would be a list that goes stale on the next build.
+  const cockpit = createCockpit({ logger })
+  http.mountRawPrefix(COCKPIT_PREFIX, cockpit.handler)
 
   let closed = false
   return {

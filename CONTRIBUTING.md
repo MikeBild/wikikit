@@ -90,9 +90,14 @@ a 5x bill, and nothing else fails — is only visible in e2e.
   the code it justifies.
 - Tables are prefixed `wk_`, API keys `wk_`, environment variables
   `WIKIKIT_*`.
-- WikiKit is headless: no CLI commands (only the `--migrate`/`--version` ops
-  flags) and no web UI. New capabilities land as REST routes and/or MCP
-  tools over the same domain functions.
+- WikiKit has no CLI (only the `--migrate`/`--version` ops flags). A new
+  capability lands as a REST route and/or an MCP tool over the same domain
+  function — never as logic that only one surface can reach.
+- The cockpit (`apps/cockpit/`, served at `/cockpit`) is a CONSUMER of that
+  surface, not a third place to put behaviour: it calls the documented `/v1`
+  routes and has no privileged path of its own. Read
+  [apps/cockpit/PAGES.md](apps/cockpit/PAGES.md) before adding a page and
+  [docs/COCKPIT.md](docs/COCKPIT.md) for how it is served and signed into.
 
 ## Making changes
 

@@ -940,6 +940,17 @@ export interface HttpDeps {
    *  pending notifications/elicitation/complete for the proposal. Best-effort;
    *  wikikit_proposals polling stays the durable path. */
   reviewElicitations?: { complete(proposalId: string): Promise<void> }
+  /**
+   * Browser operator-session resolver (app.ts wiring, from the OAuth mount).
+   * Consulted ONLY when a scoped route arrives with no Authorization and no
+   * X-API-Key header — that is, from the cockpit on this same origin. A header
+   * credential always wins, so no existing client's 401/403 changes shape.
+   * Absent in tests that build HttpDeps by hand: then there is no cookie plane
+   * and every scoped route needs a header, exactly as before.
+   */
+  sessionAuth?: {
+    authenticateSession(req: IncomingMessage, enforceOrigin: boolean): Promise<Principal | null>
+  }
 }
 
 export interface HandlerInput {

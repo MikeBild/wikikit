@@ -1,7 +1,7 @@
 // node:http server — request lifecycle for the ROUTES registry.
 //
 // Per-request pipeline (WikiKit contracts):
-//   request-id → drain gate → raw mounts (/mcp) → route match → auth
+//   request-id → drain gate → raw mounts (/mcp, /cockpit) → route match → auth
 //   (401/403) → body read (size-capped) → zod validation (params/query/body)
 //   → handler → JSON/text response — with every failure mapped to the §8.1
 //   error envelope carrying the same x-request-id as the response header.
@@ -30,6 +30,14 @@ export interface HttpServer {
    * this is how POST /mcp attaches without becoming a REST route (§5.2).
    */
   mountRawHandler(path: string, handler: RawHandler): void
+  /**
+   * Mount a raw handler for every pathname under a prefix, matched AFTER the
+   * exact mounts and BEFORE the ROUTES table. This is how the cockpit's static
+   * plane attaches: a built SPA is thousands of fingerprinted filenames plus a
+   * client-side router, so it cannot be enumerated as exact paths, and it must
+   * stay off the OpenAPI surface for the same reason /mcp does.
+   */
+  mountRawPrefix(prefix: string, handler: RawHandler): void
   /** The request listener, exposed for in-process testing without a socket. */
   handle(req: IncomingMessage, res: ServerResponse): Promise<void>
 }
@@ -146,6 +154,12 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
 export function createHttpServer(deps: HttpDeps): HttpServer {
   const compiled = ROUTES.map(compileRoute)
   const rawMounts = new Map<string, RawHandler>()
+  const prefixMounts: { prefix: string; handler: RawHandler }[] = []
+
+  /** '/cockpit' matches '/cockpit' and '/cockpit/…' — never '/cockpitfoo'. */
+  function matchPrefix(pathname: string): { prefix: string; handler: RawHandler } | undefined {
+    return prefixMounts.find(({ prefix }) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  }
 
   function matchRoute(method: string, pathname: string): { def: RouteDef; params: Record<string, string> } | null {
     for (const route of compiled) {
@@ -173,6 +187,14 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       return
     }
 
+    // Prefix mounts run next: the cockpit owns every path under /cockpit,
+    // including the ones its client-side router invents.
+    const prefixed = matchPrefix(pathname)
+    if (prefixed) {
+      await prefixed.handler(req, res)
+      return
+    }
+
     const matched = matchRoute(req.method ?? 'GET', pathname)
     if (!matched) {
       sendJson(res, 404, { error: `no route for ${req.method} ${pathname}`, code: 'not_found', request_id: requestId })
@@ -193,7 +215,16 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
     if (def.scope) {
       const header =
         (req.headers.authorization as string | undefined) ?? (req.headers['x-api-key'] as string | undefined)
-      principal = await deps.auth.authenticate(header)
+      // The cookie plane is a FALLBACK, never an override: a request that
+      // carries a header credential is authenticated by that credential and
+      // fails exactly as it always has. Only a headerless request — which is
+      // what the cockpit sends, having no token to put in one — is offered the
+      // browser session. Unsafe methods additionally require a same-origin
+      // Origin, because SameSite=Lax does not cover them all on its own.
+      const method = (req.method ?? 'GET').toUpperCase()
+      const safeMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+      const session = header ? null : await deps.sessionAuth?.authenticateSession(req, !safeMethod)
+      principal = session ?? (await deps.auth.authenticate(header))
       deps.auth.requireScope(principal, def.altScopes ? [def.scope, ...def.altScopes] : def.scope)
       markUsagePrincipal(req, principal)
     }
@@ -264,7 +295,8 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       // Metrics label = the ROUTE TEMPLATE, never the raw URL (bounded
       // cardinality); unmatched paths collapse into one bucket.
       const route =
-        matchRoute(req.method ?? 'GET', pathname)?.def.path ?? (rawMounts.has(pathname) ? pathname : '(unmatched)')
+        matchRoute(req.method ?? 'GET', pathname)?.def.path ??
+        (rawMounts.has(pathname) ? pathname : (matchPrefix(pathname)?.prefix ?? '(unmatched)'))
       deps.metrics.httpRequest(req.method ?? 'GET', route, res.statusCode, Date.now() - started)
       void deps.usage.recordHttp(req, res, { route, durationMs: Date.now() - started })
       deps.logger.info('request', {
@@ -312,6 +344,12 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
     mountRawHandler(path, handler) {
       if (rawMounts.has(path)) throw new Error(`raw handler already mounted at ${path}`)
       rawMounts.set(path, handler)
+    },
+    mountRawPrefix(prefix, handler) {
+      if (prefixMounts.some((mount) => mount.prefix === prefix)) {
+        throw new Error(`raw prefix handler already mounted at ${prefix}`)
+      }
+      prefixMounts.push({ prefix, handler })
     },
   }
 }

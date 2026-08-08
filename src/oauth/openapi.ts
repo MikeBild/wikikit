@@ -48,6 +48,9 @@ export const MCP_AUTH_OPERATIONS = [
   'post /v1/identity/login/start',
   'get /v1/identity/login/callback',
   'post /v1/identity/logout',
+  'get /v1/identity/cockpit-login',
+  'get /v1/session',
+  'delete /v1/session',
 ] as const
 
 export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
@@ -61,6 +64,25 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
         id: { type: 'string' },
         label: { type: 'string', enum: ['SSO', 'API key'] },
         issuer: { type: 'string', format: 'uri' },
+      },
+    },
+    SessionResponse: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['session'],
+      properties: {
+        session: {
+          type: ['object', 'null'],
+          additionalProperties: false,
+          required: ['name', 'kind', 'scopes', 'space_id', 'provider_id'],
+          properties: {
+            name: { type: 'string' },
+            kind: { type: 'string', enum: ['api_key', 'identity'] },
+            scopes: { type: 'array', items: { type: 'string' } },
+            space_id: { type: ['string', 'null'] },
+            provider_id: { type: ['string', 'null'] },
+          },
+        },
       },
     },
     ProvidersResponse: {
@@ -243,6 +265,51 @@ export function registerMcpAuthOpenApi(paths: Paths, schemas: Schemas): void {
       tags: ['MCP authentication'],
       summary: 'Revoke the browser operator session',
       responses: { ...empty, 200: { description: 'Logged out' } },
+    },
+  }
+  // The cockpit's sign-in door. It reuses this funnel WITHOUT being an OAuth
+  // client: consent exists so a third party can be told what it is about to be
+  // granted, and the console is not a third party.
+  paths['/v1/identity/cockpit-login'] = {
+    get: {
+      operationId: 'startCockpitLogin',
+      tags: ['MCP authentication'],
+      summary: 'Sign in to the cockpit',
+      parameters: [
+        {
+          name: 'return_to',
+          in: 'query',
+          required: false,
+          schema: { type: 'string' },
+          description: 'Same-origin path under /cockpit to return to. Anything else falls back to /cockpit/.',
+        },
+      ],
+      responses: {
+        302: { description: 'Redirect to the provider chooser, or straight back for a live session' },
+        ...browserErrorResponses,
+      },
+    },
+  }
+  paths['/v1/session'] = {
+    get: {
+      operationId: 'readSession',
+      tags: ['MCP authentication'],
+      summary: 'Read the browser operator session',
+      description:
+        'Never answers 401. An anonymous caller gets `{"session": null}` — "nobody is signed in" is an answer, not a failure.',
+      responses: {
+        200: {
+          description: 'The session, or null',
+          content: json({ $ref: '#/components/schemas/SessionResponse' }),
+        },
+      },
+    },
+    delete: {
+      operationId: 'endSession',
+      tags: ['MCP authentication'],
+      summary: 'Sign out of the cockpit',
+      description: 'Requires a same-origin Origin header: SameSite=Lax does not cover every write on its own.',
+      responses: { ...empty, 204: { description: 'Signed out' } },
     },
   }
 }

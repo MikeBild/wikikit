@@ -1,0 +1,1 @@
+function e(e){return e.error??e.failureReason??null}function t(e){return!e.isError&&e.isPending&&(e.failureReason??null)!==null}function n(t){return e(t)===null?t.isPending?`loading`:`ready`:`error`}export{e as n,n as r,t};

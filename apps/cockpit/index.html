@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <meta name="color-scheme" content="light dark" />
+    <title>wikikit cockpit</title>
+    <script>
+      // BLOCKING, and in the document rather than in the bundle. The class has
+      // to be on <html> before the first paint; applied from an effect instead,
+      // a dark-mode reload shows a full white frame first, which at 03:00 is
+      // the difference between reading a page and flinching away from it.
+      //
+      // The key is absent for "follow the OS" — that is why this asks whether
+      // it is missing rather than comparing it to the string 'system'
+      // (CUI-THEME-2).
+      //
+      // This is the console's ONLY inline script (CUI-MOUNT-4). The CSP in
+      // src/cockpit.ts admits it by the sha256 of these exact bytes, so a
+      // change here changes the header without anybody editing the header.
+      try {
+        var stored = localStorage.getItem('wk-cockpit-theme')
+        var dark = stored === 'dark' || (!stored && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.classList.toggle('dark', dark)
+      } catch {}
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

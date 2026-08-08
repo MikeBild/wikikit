@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.21.0",
+    "version": "0.22.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -3305,6 +3305,67 @@
         "summary": "Revoke the browser operator session",
         "responses": { "200": { "description": "Logged out" }, "204": { "description": "Completed" } }
       }
+    },
+    "/v1/identity/cockpit-login": {
+      "get": {
+        "operationId": "startCockpitLogin",
+        "tags": ["MCP authentication"],
+        "summary": "Sign in to the cockpit",
+        "parameters": [
+          {
+            "name": "return_to",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Same-origin path under /cockpit to return to. Anything else falls back to /cockpit/."
+          }
+        ],
+        "responses": {
+          "302": { "description": "Redirect to the provider chooser, or straight back for a live session" },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "401": {
+            "description": "Identity assertion rejected",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          },
+          "403": {
+            "description": "Identity or requested access denied",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } },
+              "text/html": { "schema": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/v1/session": {
+      "get": {
+        "operationId": "readSession",
+        "tags": ["MCP authentication"],
+        "summary": "Read the browser operator session",
+        "description": "Never answers 401. An anonymous caller gets `{\"session\": null}` — \"nobody is signed in\" is an answer, not a failure.",
+        "responses": {
+          "200": {
+            "description": "The session, or null",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SessionResponse" } } }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "endSession",
+        "tags": ["MCP authentication"],
+        "summary": "Sign out of the cockpit",
+        "description": "Requires a same-origin Origin header: SameSite=Lax does not cover every write on its own.",
+        "responses": { "204": { "description": "Signed out" } }
+      }
     }
   },
   "components": {
@@ -6355,6 +6416,25 @@
           "id": { "type": "string" },
           "label": { "type": "string", "enum": ["SSO", "API key"] },
           "issuer": { "type": "string", "format": "uri" }
+        }
+      },
+      "SessionResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session"],
+        "properties": {
+          "session": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["name", "kind", "scopes", "space_id", "provider_id"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "type": "string", "enum": ["api_key", "identity"] },
+              "scopes": { "type": "array", "items": { "type": "string" } },
+              "space_id": { "type": ["string", "null"] },
+              "provider_id": { "type": ["string", "null"] }
+            }
+          }
         }
       },
       "ProvidersResponse": {

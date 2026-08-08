@@ -3,8 +3,14 @@
 WikiKit is a headless TypeScript service on Bun — strict ESM, factory-function
 DI (`createX(config, deps)`), no ORM, no web framework (`node:http`
 compatible), zod v4 at every boundary. PostgreSQL is the single source of
-truth; Markdown and OKF are import/export projections. The only interfaces are
-HTTP/REST and MCP — no CLI (ops flags only), no web UI.
+truth; Markdown and OKF are import/export projections. The machine interfaces
+are HTTP/REST and MCP — no CLI (ops flags only). The one human interface is the
+cockpit at `/cockpit`: a React SPA built into the same binary and served by the
+same process, which reaches the same `/v1` routes as everything else and gets
+no privileged path of its own. Its only added surface is a credential plane —
+`GET`/`DELETE /v1/session` and `GET /v1/identity/cockpit-login`, on the OAuth
+raw mount — because a browser cannot hold an API key safely; see
+[COCKPIT.md](COCKPIT.md).
 
 ## The knowledge lifecycle
 

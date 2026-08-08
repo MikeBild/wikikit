@@ -10,10 +10,19 @@ import type { Auth, Principal } from '../http/auth.ts'
 import { cutScopesToCeiling, hashApiKey } from '../http/auth.ts'
 import type { RawHandler } from '../http/server.ts'
 import type { Logger } from '../logger.ts'
+import { COCKPIT_PREFIX } from '../cockpit.ts'
 import { cleanupOAuthRows, type OAuthCleanupReport } from './cleanup.ts'
 import { isOidcIdentityAllowed, OIDC_SIGNUP_SCOPES, type OidcIdentity } from './identity-policy.ts'
 import { finishOidcLogin, startOidcLogin, verifyOidcIdentityToken } from './oidc.ts'
-import { authHtmlResponse, renderApiKeyLogin, renderConsentPage, renderErrorPage, renderProviderChoice } from './ui.ts'
+import {
+  authHtmlResponse,
+  renderApiKeyLogin,
+  renderConsentPage,
+  renderErrorPage,
+  renderProviderChoice,
+  withScheme,
+  type LoginPurpose,
+} from './ui.ts'
 
 const OAUTH_SCOPES = [
   'knowledge:read',
@@ -39,7 +48,12 @@ const MAX_FORM_BYTES = 32 * 1024
 // an HTML error page in the shared TOKENS shell; the JSON {error,
 // error_description} envelope stays reserved for the non-browser endpoints
 // (token/register/API) and for callers that ask for application/json.
-const BROWSER_FUNNEL_PATHS = ['/v1/oauth/authorize', '/v1/identity/login/start', '/v1/identity/login/callback']
+const BROWSER_FUNNEL_PATHS = [
+  '/v1/oauth/authorize',
+  '/v1/identity/login/start',
+  '/v1/identity/login/callback',
+  '/v1/identity/cockpit-login',
+]
 const NOT_AUTHORIZED_MESSAGE = 'Your account is not authorized for WikiKit. Contact the operator.'
 const STATE_PROBLEM_MESSAGE = 'This sign-in attempt expired or was already used. Please sign in again.'
 
@@ -77,6 +91,15 @@ interface RefreshRow {
 
 interface IdentityLoginStateRow {
   id: string
+  /**
+   * Which funnel this state belongs to (0032). 'oauth' carries a validated
+   * authorization request and ends at consent; 'cockpit' carries nowhere but
+   * where to come back to, and ends at a session cookie. A CHECK constraint
+   * makes the two column shapes mutually exclusive — the columns below are
+   * non-null for 'oauth' rows only.
+   */
+  purpose: 'oauth' | 'cockpit'
+  return_to: string | null
   client_id: string
   redirect_uri: string
   scopes: string[]
@@ -185,6 +208,38 @@ function wantsJson(request: Request): boolean {
   return (request.headers.get('accept') ?? '').includes('application/json')
 }
 
+/**
+ * Whether an unsafe request came from this document's own origin.
+ *
+ * This is the CSRF control for everything the operator session cookie
+ * authenticates. A token in a header was the alternative, and it was rejected:
+ * the token has to reach JavaScript to be sent, which is the one property the
+ * cookie was chosen to avoid. `Origin` is set by the browser on every unsafe
+ * method, cannot be forged by page script, and a request with no Origin at all
+ * is not a browser — so it is refused rather than waved through.
+ */
+export function isSameOrigin(request: Request, config: Pick<Config, 'publicUrl'>): boolean {
+  const origin = request.headers.get('origin')
+  if (!origin) return false
+  let sent: string
+  try {
+    sent = new URL(origin).origin
+  } catch {
+    return false
+  }
+  // Compared against the CONFIGURED public origin, not the request's own URL:
+  // the Request here is reconstructed from the Host header over a plaintext
+  // hop behind the TLS proxy, so its scheme is always http: while the browser
+  // sends https:. The host header form is accepted too, which is what a
+  // developer hitting 127.0.0.1 directly sends.
+  if (sent === new URL(config.publicUrl).origin) return true
+  try {
+    return sent === new URL(request.url).origin
+  } catch {
+    return false
+  }
+}
+
 function browserErrorMessage(error: OAuthError): string {
   if (error.error === 'access_denied') return NOT_AUTHORIZED_MESSAGE
   if (/state/i.test(error.description)) return STATE_PROBLEM_MESSAGE
@@ -227,7 +282,20 @@ async function readCappedBody(req: IncomingMessage, maxBytes: number): Promise<B
 function cookieValue(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') || '').split(';')) {
     const [key, ...rest] = part.trim().split('=')
-    if (key === name) return decodeURIComponent(rest.join('='))
+    if (key !== name) continue
+    const raw = rest.join('=')
+    // A cookie is bytes somebody else wrote, and `decodeURIComponent('%')`
+    // throws. Unguarded, a single malformed cookie took down every HTML
+    // response in the browser funnel with a 500 — sign-in for the console AND
+    // for every MCP client — and the theme cookie is deliberately readable and
+    // writable by script, so any page on the same registrable domain could set
+    // one. A value that will not decode is used as sent; nothing downstream
+    // trusts it beyond an equality check.
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
   }
   return null
 }
@@ -521,6 +589,22 @@ async function issueTokens(
 
 export interface OAuthMount {
   handler: RawHandler
+  /**
+   * Resolve the browser operator-session cookie to a Principal, for REST
+   * routes called by the cockpit on this same origin.
+   *
+   * This is the console's ONLY credential. The alternative — mint an API key
+   * and keep it in JavaScript — puts a long-lived secret somewhere any script
+   * on the page can read and any extension can exfiltrate; an HttpOnly cookie
+   * cannot be read at all. `enforceOrigin` is true for methods that change
+   * something: SameSite=Lax still lets a cross-site GET carry the cookie, so
+   * the writes check where the request came from.
+   *
+   * Returns null for "no cookie, or the cookie no longer means anything" —
+   * never throws, so the caller falls through to the ordinary 401 and the
+   * error a header client sees does not change shape.
+   */
+  authenticateSession(req: IncomingMessage, enforceOrigin: boolean): Promise<Principal | null>
   cleanup(): Promise<OAuthCleanupReport>
   stop(): void
 }
@@ -702,7 +786,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
   async function loadLoginState(rawState: string): Promise<IdentityLoginStateRow | null> {
     if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(rawState)) return null
     const { rows } = await deps.db.query<IdentityLoginStateRow>(
-      `SELECT id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
+      `SELECT id, purpose, return_to, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
               provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier
          FROM wk_oauth_login_states
         WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
@@ -724,7 +808,11 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     }
     let retryHref: string | undefined
     if (/^wkl_[A-Za-z0-9_-]{43}$/.test(rawState)) {
-      const { rows } = await deps.db.query<{ client_id: string; redirect_uri: string; client_state: string | null }>(
+      const { rows } = await deps.db.query<{
+        client_id: string | null
+        redirect_uri: string
+        client_state: string | null
+      }>(
         `SELECT client_id, redirect_uri, client_state
            FROM wk_oauth_login_states
           WHERE state_hash = $1
@@ -732,7 +820,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         [hashApiKey(rawState, config.keyPepper)],
       )
       const row = rows[0]
-      if (row) {
+      // A cockpit state has no client_id, so there is no client to hand an
+      // access_denied redirect back to — the page offers a plain retry instead.
+      if (row?.client_id) {
         const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
           client_id: `eq.${row.client_id}`,
           limit: 1,
@@ -745,10 +835,70 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     return authHtmlResponse(renderErrorPage({ message: STATE_PROBLEM_MESSAGE, retryHref }), 400)
   }
 
-  function loginResponse(rawState: string): Response {
+  function loginResponse(rawState: string, purpose: LoginPurpose = 'oauth'): Response {
     const options = loginOptions(config)
     if (!options.length) throw new OAuthError('server_error', 'no OAuth login method is configured', 500)
-    return authHtmlResponse(renderProviderChoice({ state: rawState, providers: options }))
+    return authHtmlResponse(renderProviderChoice({ state: rawState, providers: options, purpose }))
+  }
+
+  /**
+   * Where the cockpit funnel is allowed to send a browser afterwards.
+   *
+   * A same-origin PATH, never a URL: an absolute value — even one that happens
+   * to name this origin — is an open redirect waiting for a parser
+   * disagreement, and the cockpit only ever wants to land back on one of its
+   * own routes. `//evil.example` is a protocol-relative URL that a naive
+   * "starts with /" check would wave through, so it is rejected explicitly.
+   */
+  function safeCockpitReturnTo(value: string | null | undefined): string {
+    const candidate = value ?? ''
+    if (!candidate.startsWith(COCKPIT_PREFIX)) return `${COCKPIT_PREFIX}/`
+    if (candidate.startsWith('//') || /[\r\n]/.test(candidate) || candidate.length > 2048) return `${COCKPIT_PREFIX}/`
+    // '/cockpitfoo' is not under the cockpit; '/cockpit' and '/cockpit/…' are.
+    const next = candidate.charAt(COCKPIT_PREFIX.length)
+    if (next && next !== '/' && next !== '?') return `${COCKPIT_PREFIX}/`
+    return candidate
+  }
+
+  /**
+   * The cockpit funnel's terminus: consume the login state, set the operator
+   * session cookie, send the browser back where it came from.
+   *
+   * No consent screen, deliberately. Consent exists so a THIRD party can be
+   * shown what it is about to be granted; the cockpit is this installation's
+   * own console on this installation's own origin, and a consent screen for
+   * one's own console is a screen that teaches people to click through consent
+   * screens.
+   */
+  async function finishCockpitLogin(state: IdentityLoginStateRow, sessionToken: string): Promise<Response> {
+    const consumed = await deps.db.update(
+      'wk_oauth_login_states',
+      { id: `eq.${state.id}`, consumed_at: 'is.null' },
+      { consumed_at: new Date().toISOString() },
+    )
+    // Single-use: without a consent step to defer to, the state has done its
+    // whole job the moment the session exists. A replayed state must not mint
+    // a second session.
+    if (!consumed.length) throw new OAuthError('invalid_request', 'sign-in state expired or was already used')
+    return withOperatorCookie(
+      new Response(null, {
+        status: 302,
+        headers: { location: safeCockpitReturnTo(state.return_to), 'cache-control': 'no-store' },
+      }),
+      config,
+      sessionToken,
+    )
+  }
+
+  /** What GET /v1/session answers with — the console's whole idea of who it is talking to. */
+  function sessionPayload(operator: OperatorSessionRow): Record<string, unknown> {
+    return {
+      name: operator.principal_name,
+      kind: operator.principal_kind,
+      scopes: operator.scopes,
+      space_id: operator.principal_space_id,
+      provider_id: operator.provider_id,
+    }
   }
 
   async function createIdentitySession(request: Request): Promise<Response> {
@@ -798,6 +948,65 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       }
       if (request.method === 'POST' && path === '/v1/identity/sessions') {
         return await createIdentitySession(request)
+      }
+      // The console asks this on every load, before it renders anything. It
+      // NEVER answers 401: "nobody is signed in" is an answer, not a failure,
+      // and a 401 here would make every browser devtools console red on the one
+      // screen where nothing is wrong. The console branches on `session: null`.
+      if (request.method === 'GET' && path === '/v1/session') {
+        const operator = await currentOperator(request)
+        return json({ session: operator ? sessionPayload(operator) : null })
+      }
+      if (request.method === 'DELETE' && path === '/v1/session') {
+        // Same-origin only. The session cookie is SameSite=Lax, which a
+        // cross-site GET can still carry — so the one method that destroys
+        // something checks where the request came from rather than trusting
+        // the cookie's own rules.
+        if (!isSameOrigin(request, config)) {
+          throw new OAuthError('invalid_request', 'sign-out must come from this origin', 403)
+        }
+        const operator = await currentOperator(request)
+        if (operator) {
+          await deps.db.update(
+            'wk_oauth_operator_sessions',
+            { id: `eq.${operator.id}`, revoked_at: 'is.null' },
+            { revoked_at: new Date().toISOString() },
+            { returning: false },
+          )
+        }
+        return withOperatorCookie(
+          new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } }),
+          config,
+          '',
+          0,
+        )
+      }
+      // The cockpit's one sign-in door. It mints a login state carrying only a
+      // return address and hands the browser to the same chooser every other
+      // sign-in uses, so there is exactly one place that knows how to prove who
+      // somebody is.
+      if (request.method === 'GET' && path === '/v1/identity/cockpit-login') {
+        const returnTo = safeCockpitReturnTo(url.searchParams.get('return_to'))
+        const operator = await currentOperator(request)
+        // Already signed in: no reason to walk somebody through a chooser to
+        // arrive back where they already had the right to be.
+        if (operator) {
+          return new Response(null, { status: 302, headers: { location: returnTo, 'cache-control': 'no-store' } })
+        }
+        const loginState = randomToken('wkl_')
+        const [state] = await deps.db.insert<IdentityLoginStateRow>('wk_oauth_login_states', {
+          state_hash: hashApiKey(loginState, config.keyPepper),
+          purpose: 'cockpit',
+          return_to: returnTo,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        })
+        if (!state) throw new OAuthError('server_error', 'sign-in state could not be created', 500)
+        const chooser = new URL('/v1/identity/login/start', config.publicUrl)
+        chooser.searchParams.set('login_state', loginState)
+        return new Response(null, {
+          status: 302,
+          headers: { location: chooser.toString(), 'cache-control': 'no-store' },
+        })
       }
       if (
         request.method === 'GET' &&
@@ -924,6 +1133,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
               state: loginState,
               providerId: configuredProvider.id,
               error: 'The API key is invalid or expired.',
+              purpose: state.purpose,
             }),
             401,
           )
@@ -936,6 +1146,9 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           principalSpaceId: principal.spaceId,
           scopes: principal.scopes,
         })
+        // The cockpit funnel ends here: there is no client to name and no
+        // consent to collect, only a session and a return address.
+        if (state.purpose === 'cockpit') return await finishCockpitLogin(state, session.token)
         await attachOperator(state.id, session.row)
         const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
           client_id: `eq.${state.client_id}`,
@@ -952,9 +1165,11 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         const configuredProvider = config.oauthProviders?.find((candidate) => candidate.id === providerId)
         const state = await loadLoginState(loginState)
         if (!state) return await loginStateErrorResponse(request, loginState)
-        if (!providerId) return loginResponse(loginState)
+        if (!providerId) return loginResponse(loginState, state.purpose)
         if (configuredProvider?.protocol === 'api_key') {
-          return authHtmlResponse(renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id }))
+          return authHtmlResponse(
+            renderApiKeyLogin({ state: loginState, providerId: configuredProvider.id, purpose: state.purpose }),
+          )
         }
         const provider = oidcProvider(config, providerId)
         if (!provider) throw new OAuthError('not_found', 'identity provider is not available', 404)
@@ -973,6 +1188,11 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         })
         const [ssoRow] = await deps.db.insert<IdentityLoginStateRow>('wk_oauth_login_states', {
           state_hash: hashApiKey(ssoState, config.keyPepper),
+          // The child state inherits which funnel it belongs to. Without this
+          // the callback would find an 'oauth' row with no client and try to
+          // render consent for a console that never asked for it.
+          purpose: state.purpose,
+          return_to: state.return_to,
           client_id: state.client_id,
           redirect_uri: state.redirect_uri,
           scopes: state.scopes,
@@ -995,7 +1215,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!/^wkl_[A-Za-z0-9_-]{43}$/.test(loginState))
           throw new OAuthError('invalid_request', 'a valid OIDC login state is required')
         const { rows } = await deps.db.query<IdentityLoginStateRow>(
-          `SELECT id, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
+          `SELECT id, purpose, return_to, client_id, redirect_uri, scopes, code_challenge, resource, client_state,
                   provider_subject, provider_email, provider_id, oidc_nonce, oidc_code_verifier
              FROM wk_oauth_login_states
             WHERE state_hash = $1 AND consumed_at IS NULL AND expires_at > now()
@@ -1007,11 +1227,19 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         if (!state || !provider || !state.oidc_nonce || !state.oidc_code_verifier) {
           return await loginStateErrorResponse(request, loginState)
         }
-        const [client] = await deps.db.select<ClientRow>('wk_oauth_clients', {
-          client_id: `eq.${state.client_id}`,
-          limit: 1,
-        })
-        if (!client || client.revoked_at) throw new OAuthError('invalid_client', 'unknown or revoked client')
+        // A cockpit state has no client to look up and nowhere to redirect an
+        // OAuth error to — "Sign in again" on its failure pages is a plain
+        // retry, not an RFC 6749 access_denied hand-back.
+        const cockpitFunnel = state.purpose === 'cockpit'
+        const [client] = cockpitFunnel
+          ? []
+          : await deps.db.select<ClientRow>('wk_oauth_clients', {
+              client_id: `eq.${state.client_id}`,
+              limit: 1,
+            })
+        if (!cockpitFunnel && (!client || client.revoked_at)) {
+          throw new OAuthError('invalid_client', 'unknown or revoked client')
+        }
         let identity: OidcIdentity
         try {
           // allowUnknown: the allowlist decision is NOT made inside the code
@@ -1039,7 +1267,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             { returning: false },
           )
           const denied = error instanceof Error && /not allowed/.test(error.message)
-          const retryHref = client.redirect_uris.includes(state.redirect_uri)
+          const retryHref = client?.redirect_uris.includes(state.redirect_uri)
             ? clientErrorRedirectUrl(state.redirect_uri, state.client_state)
             : undefined
           return authHtmlResponse(
@@ -1063,7 +1291,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
             { consumed_at: new Date().toISOString() },
             { returning: false },
           )
-          const retryHref = client.redirect_uris.includes(state.redirect_uri)
+          const retryHref = client?.redirect_uris.includes(state.redirect_uri)
             ? clientErrorRedirectUrl(state.redirect_uri, state.client_state)
             : undefined
           return authHtmlResponse(renderErrorPage({ message: NOT_AUTHORIZED_MESSAGE, retryHref }), 403)
@@ -1088,7 +1316,8 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
           providerSubject: identity.subject,
           scopes: ceiling,
         })
-        return await consentResponse(state, client, session.row, loginState, session.token)
+        if (cockpitFunnel) return await finishCockpitLogin(state, session.token)
+        return await consentResponse(state, client!, session.row, loginState, session.token)
       }
       if (request.method === 'POST' && path === '/v1/oauth/authorize/decision') {
         const params = new URLSearchParams(await request.text())
@@ -1380,6 +1609,28 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     }
   }
 
+  /**
+   * Render the funnel in the scheme the operator already chose in the console.
+   *
+   * The cookie is written by the cockpit's theme store and is deliberately NOT
+   * HttpOnly — it carries a colour preference and nothing else, and the script
+   * that sets it is the same script that reads localStorage one line earlier.
+   * Absence means "follow the OS", which is what the funnel's media query
+   * already does, so an unset cookie changes nothing.
+   *
+   * `vary: cookie` because two operators on the same proxy must not be served
+   * each other's scheme.
+   */
+  async function themed(request: Request, response: Response): Promise<Response> {
+    if (!response.headers.get('content-type')?.startsWith('text/html')) return response
+    const raw = cookieValue(request, 'wk-cockpit-theme')
+    const scheme = raw === 'dark' ? 'dark' : raw === 'light' ? 'light' : null
+    response.headers.append('vary', 'cookie')
+    if (!scheme) return response
+    const html = withScheme(await response.text(), scheme)
+    return new Response(html, { status: response.status, headers: response.headers })
+  }
+
   const handler: RawHandler = async (req, res) => {
     try {
       const method = req.method ?? 'GET'
@@ -1400,7 +1651,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         headers,
         ...(body ? { body: new Uint8Array(body) } : {}),
       } as RequestInit)
-      const response = await handle(request)
+      const response = await themed(request, await handle(request))
       res.statusCode = response.status
       writeResponseHeaders(res, response)
       res.end(response.body ? Buffer.from(await response.arrayBuffer()) : undefined)
@@ -1412,8 +1663,34 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
     }
   }
 
-  // Same cadence as Subkit's operational sweep. The timer is unref'd so it
-  // never pins tests or a graceful shutdown; App.close() still clears it.
+  /**
+   * The cookie plane's entry point for ordinary REST routes (see OAuthMount).
+   *
+   * Only the headers this needs are lifted out of the node request — cookie
+   * and origin — rather than reconstructing a whole Request with a body that
+   * the route handler still has to read.
+   */
+  async function authenticateSession(req: IncomingMessage, enforceOrigin: boolean): Promise<Principal | null> {
+    const cookie = req.headers.cookie
+    if (!cookie) return null
+    const headers = new Headers({ cookie })
+    const origin = req.headers.origin
+    if (typeof origin === 'string') headers.set('origin', origin)
+    const request = new Request(`http://${req.headers.host ?? '127.0.0.1'}${req.url ?? '/'}`, { headers })
+    if (enforceOrigin && !isSameOrigin(request, config)) return null
+    const operator = await currentOperator(request)
+    if (!operator) return null
+    return {
+      // Namespaced so an audit row can never be mistaken for an API key id.
+      keyId: `session:${operator.id}`,
+      name: operator.principal_name,
+      scopes: operator.scopes,
+      spaceId: operator.principal_space_id,
+    }
+  }
+
+  // Hourly operational sweep. The timer is unref'd so it never pins tests or a
+  // graceful shutdown; App.close() still clears it.
   const cleanupTimer = setInterval(
     () => {
       cleanupOAuthRows(deps.db)
@@ -1430,6 +1707,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
 
   return {
     handler,
+    authenticateSession,
     cleanup: () => cleanupOAuthRows(deps.db),
     stop: () => clearInterval(cleanupTimer),
   }

@@ -110,6 +110,27 @@ describe('privacy-safe usage telemetry', () => {
     expect(writes[0]!.session_hmac).toBeNull()
   })
 
+  test('the cockpit is internal traffic — an operator reading the console is not API demand', async () => {
+    // `index.html` is `no-cache`, so every navigation writes a row and a cold
+    // load writes one per fingerprinted chunk. Counted as organic, the ledger
+    // fills with the act of reading it, and the System page reports the
+    // operator's own browsing back to them as usage.
+    const writes: Record<string, unknown>[] = []
+    const usage = createUsageTelemetry(
+      config,
+      {
+        async insert(_table: string, row: Record<string, unknown>) {
+          writes.push(row)
+          return []
+        },
+      } as unknown as Db,
+      logger,
+    )
+    const req = { method: 'GET', headers: {} } as unknown as IncomingMessage
+    await usage.recordHttp(req, response(), { route: '/cockpit', durationMs: 1 })
+    expect(writes[0]!.traffic_class).toBe('internal')
+  })
+
   test('MCP stores only a registered tool name and resolves space without storing its slug', async () => {
     const writes: Record<string, unknown>[] = []
     const db = {

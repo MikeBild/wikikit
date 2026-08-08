@@ -193,6 +193,12 @@
       "tag": "0031_wk_charter_revisions",
       "when": 1785020400000,
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "tag": "0032_wk_cockpit_login",
+      "when": 1785024000000,
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { authHtmlResponse, renderConsentPage, renderErrorPage, renderProviderChoice } from '../../src/oauth/ui.ts'
+import {
+  authHtmlResponse,
+  renderApiKeyLogin,
+  renderConsentPage,
+  renderErrorPage,
+  renderProviderChoice,
+  withScheme,
+} from '../../src/oauth/ui.ts'
 
 const COMMON_STYLE_SHA256 = 'ebdaece15b70206254f6430990bd14abfbc51a62d319cda6383bc8163b10b4d3'
 
@@ -43,17 +50,36 @@ describe('common MCP auth UI contract', () => {
     expect(createHash('sha256').update(styles).digest('hex')).toBe(COMMON_STYLE_SHA256)
   })
 
-  test('the funnel declares both schemes, in the family palette', () => {
+  test('the funnel declares both schemes, in the contract palette', () => {
     // The funnel was `color-scheme:light` and nothing else, so an operator
-    // working in dark met a white page. WikiKit ships no console and so has no
-    // explicit preference to honour — the media query is the whole answer here,
-    // and the .scheme-* classes are carried but never set.
+    // working in dark met a white page. The media query answers the case where
+    // nobody has expressed a preference; since the cockpit landed there IS an
+    // explicit one to honour, and `withScheme` sets the .scheme-* classes the
+    // block has always carried — from a cookie, because these pages are
+    // script-free by contract and cannot read a preference themselves.
     const html = renderProviderChoice({ state: 'state', providers: [] })
     expect(html).toContain('color-scheme:light dark')
     expect(html).toContain('@media(prefers-color-scheme:dark)')
     expect(html).toContain('--background:#ffffff;--foreground:#020817')
     expect(html).toContain('--background:#020817;--foreground:#f8fafc')
     expect(html).not.toContain('--ink:')
+  })
+
+  test('the funnel says what it is for — an authorization, or the cockpit', () => {
+    // The same three screens serve two arrivals. "Choose how to authenticate
+    // this authorization request" is accurate for an MCP client and baffling
+    // for an operator opening their own console, and a sign-in page describing
+    // something the reader is not doing teaches them to stop reading sign-in
+    // pages. Caught by walking the funnel in a browser, not by a test.
+    const oauth = renderProviderChoice({ state: 'state', providers: [] })
+    expect(oauth).toContain('authorization request')
+
+    const cockpit = renderProviderChoice({ state: 'state', providers: [], purpose: 'cockpit' })
+    expect(cockpit).toContain('cockpit')
+    expect(cockpit).not.toContain('authorization request')
+
+    const keyForm = renderApiKeyLogin({ state: 'state', providerId: 'api-key', purpose: 'cockpit' })
+    expect(keyForm).not.toContain('MCP client')
   })
 
   test('sign-in failure page stays in the shared shell and escapes everything', () => {
@@ -76,5 +102,23 @@ describe('common MCP auth UI contract', () => {
     const html = renderErrorPage({ message: 'This sign-in attempt expired or was already used. Please sign in again.' })
     expect(html).toContain('<h1>Sign-in failed</h1>')
     expect(html).not.toContain('Sign in again')
+  })
+
+  test('an explicit scheme is stamped OUTSIDE the pinned block', () => {
+    // The .scheme-* classes live inside the contract bytes; setting one must
+    // happen on the document element, or the digest above changes and this
+    // funnel stops claiming the contract it implements.
+    const html = renderProviderChoice({ state: 'state', providers: [] })
+    const dark = withScheme(html, 'dark')
+    expect(dark).toContain('<html lang="en" class="scheme-dark">')
+
+    const styles = dark.match(/\/\*mcp-auth:begin\*\/([\s\S]*?)\/\*mcp-auth:end\*\//)?.[1] ?? ''
+    expect(createHash('sha256').update(styles).digest('hex')).toBe(COMMON_STYLE_SHA256)
+  })
+
+  test('no scheme leaves the document exactly as rendered', () => {
+    // Absence means "follow the OS", which the media query already does.
+    const html = renderProviderChoice({ state: 'state', providers: [] })
+    expect(withScheme(html, null)).toBe(html)
   })
 })

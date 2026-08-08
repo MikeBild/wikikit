@@ -6,6 +6,183 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.22.0 - 2026-08-08
+
+### Added
+
+- **The cockpit** — WikiKit's first human interface, served by the same binary
+  at `/cockpit`, on the same origin and at the same version as the API it talks
+  to. It presents the product as what it is: a **wiki**. A space is a wiki, a
+  concept is a Markdown page, sources are the evidence behind it, and editing a
+  page submits a **change**. The button says "Submit change" and not "Save",
+  because nothing a human writes becomes knowledge until somebody with
+  `knowledge:approve` decides it does — and an interface that said Save would be
+  promising something the server does not do.
+
+  Reviewing is the surface the rest exists for: a change renders as a line diff
+  per page, with its claims and their verbatim citations, its lint result (which
+  never blocks the diff), and approve / reject / request-changes / defer each
+  behind a confirmation that restates the exact effect. The public
+  `/review/{id}` page is unchanged and still the URL an agent hands a human; the
+  cockpit shows that address rather than replacing it.
+
+  Twelve surfaces in three sidebar blocks — where you are, the wiki, and the
+  installation folded away. Every write control gates on the scope the server
+  will actually demand, and states its reason when it cannot act, rather than
+  disappearing.
+
+- **A credential plane for browsers.** `GET /v1/session` answers
+  `{"session": null}` for an anonymous tab and **never** 401s — "nobody is
+  signed in" is an answer a console renders, not a failure it recovers from.
+  `GET /v1/identity/cockpit-login?return_to=…` enters the same provider chooser
+  every other sign-in uses, and `DELETE /v1/session` signs out.
+
+  The console is deliberately **not** an OAuth client. Consent exists so a third
+  party can be told what it is about to be granted; an installation's own
+  console is not a third party, and a consent screen for it is a screen that
+  teaches people to click through consent screens. Migration `0032` gives a
+  login state a `purpose`, with a CHECK constraint making the cockpit and
+  authorization shapes mutually exclusive — a cockpit state with a
+  `redirect_uri` would be an unvalidated authorization request, which is exactly
+  the row an open redirect needs.
+
+  The resulting operator cookie is a **fallback** REST credential: consulted
+  only when a request carries neither `Authorization` nor `X-API-Key`, with a
+  same-origin `Origin` required on every unsafe method. A header credential
+  always wins, so no API-key client's 401 or 403 changes shape. A CSRF token was
+  the alternative and was rejected: it has to reach JavaScript to be sent, which
+  is the one property an HttpOnly cookie was chosen to avoid.
+
+- **`contract/cockpit-ui.css` and `contract/COCKPIT-UI.md`** — the design
+  contract the console implements, carried as text and identified by the sha256
+  of the token bytes rather than by a version number a person types. The three
+  sentinel regions in `apps/cockpit/src/index.css` are byte-identical to it,
+  `lib/tokens.ts` restates the same table as data because an SVG stroke cannot
+  read a Tailwind class, and a test compares all three. The built `index.html`
+  announces the digest in a `<meta>` tag, derived at build time.
+
+- **`scripts/deploy/smoke.sh`** and **`scripts/deploy/verify-cockpit-prod.md`** —
+  post-deploy verification, driven entirely by `$WIKIKIT_DEPLOY_URL`. The first
+  is read-only curl: the shell served `no-cache` under a hash-based CSP, a deep
+  client route falling back to it, `/metrics` refused from outside, the chooser
+  asking for no credential on step one. The second is the browser checklist for
+  what curl cannot see — the sign-in round trip with a deep return address, the
+  theme surviving sign-out and reaching the funnel, and the loop itself.
+
+  Both were pointed at a deployment WITHOUT a cockpit before being trusted, and
+  two checks passed that should not have: "no `unsafe-inline` in `script-src`"
+  was satisfied by there being no policy at all, and "step one asks for no
+  credential" by there being no chooser to ask. Absence now fails both, which
+  is the entire difference between a smoke test and a green light.
+
+- **`scripts/check-cockpit-browser.ts`** — the layout check no unit test can
+  make: every navigable route at 390×844 and 1280×800, asserting the document
+  itself does not scroll sideways, that every table scrolls inside its own
+  container, and that no cell clips its own text. It signs in through the real
+  funnel rather than forging a cookie, so a misconfigured `WIKIKIT_PUBLIC_URL`
+  fails it instead of being routed around, and it reports how many
+  route/viewport pairs it actually checked — a run that saw nothing says so.
+
+- **`test/unit/cockpit-page-api.test.ts`** — closes the other half of CUI-NAV-2.
+  The navigation test proved every DECLARED path exists; nothing proved a page
+  reaches only what it declares, which is the drift the rule is about. This
+  parses the `wk.*` facade and every page module and compares both directions,
+  counting a download link as a reach — an export is a navigation the browser
+  owns, not a fetch.
+
+### Fixed
+
+Everything below was found by an adversarial review of the change before it
+shipped, or by walking the console in a browser. None of it was visible to the
+gate, which is the point worth recording: a green suite is evidence about what
+was asked, not about what was built.
+
+- **Navigating the console silently changed which wiki you were reading.** A
+  `<Link>` with no `search` prop does not inherit the query string, so clicking
+  Pages while reading `?space=team-b` landed on `/cockpit/pages` with no space
+  at all — and the resolver fell through to the first wiki the credential could
+  see. Sidebar, page body and every subsequent request moved to a different
+  wiki with nothing on screen saying so. Three pages had remembered to pass the
+  search through and fourteen link sites had not, which is how a per-call-site
+  convention fails. `retainSearchParams(['space'])` on the root route makes it
+  one decision instead of eighteen.
+
+- **`GET /cockpit/constructor` was an unauthenticated 500 with a stack trace.**
+  The embedded-bundle lookup used a truthiness check on a plain object, so a
+  path naming an `Object.prototype` member resolved an inherited function and
+  `Buffer.from` threw — before the miss was cached, so it repeated forever and
+  any anonymous caller could drive the 5xx rate and the error log.
+
+- **Unknown cockpit paths were unbounded memory.** Caching misses looked like
+  the obvious symmetry and was not: this mount runs before auth, so every
+  distinct `/cockpit/<random>` added a permanent map entry nothing evicts. Only
+  hits are cached now; a miss costs the stat it was avoiding.
+
+- **A malformed `wk-cockpit-theme` cookie took the whole sign-in funnel down.**
+  `decodeURIComponent('%')` throws, and the cookie parser was unguarded, so one
+  bad cookie 500'd every HTML response in the funnel — the console's sign-in
+  _and_ every MCP client's. The cookie is deliberately script-writable, so any
+  page on the same registrable domain could set it. The comment claiming the
+  worst it could achieve was a dark login page has been corrected along with
+  the code.
+
+- **A rollback's leftovers were servable.** The traversal guard compared
+  against the bundle directory without a separator, so `assets/cockpit-old`
+  satisfied `startsWith(assets/cockpit)`. Unreachable in a compiled binary,
+  which has no `assets/` on disk — and fired on precisely what a rollback
+  leaves behind.
+
+- **The review queue truncated at 50 and then said it had not.** The read sent
+  no limit, so it took the server's default, while the footer — which grades a
+  whole-list read — announced "across all 50 changes, not just this page". In a
+  wiki with more, the 51st-oldest pending change was unreachable from the
+  surface the product exists for.
+
+- **Reading the console counted as API demand.** `/cockpit` was not in the
+  usage ledger's internal-route list, so every navigation and every
+  fingerprinted chunk wrote an `organic` row — and the System page reported the
+  operator's own browsing back to them as traffic.
+
+- **The cockpit rendered "No wikis yet" on an installation with wikis.**
+  `app/root.tsx` read `data.spaces`; every list read in this API answers
+  `{items: [...]}`. The exact shape of failure an optional chain hides: no
+  error, no empty response, a page quietly claiming nothing exists. Found by
+  walking the console in a browser, not by a test.
+
+- **The sign-in funnel described an authorization request to operators who were
+  not making one.** The same three screens serve an MCP client asking to be
+  authorized and an operator opening their own console; they now say which. A
+  sign-in page that describes something the reader is not doing teaches them to
+  stop reading sign-in pages.
+
+- **`build-binary.sh` will not ship a binary with an empty console.** An empty
+  embed compiles, boots, passes every test, and serves a 503 where the cockpit
+  should be — the one failure the whole pipeline exists to prevent, and the one
+  no unit test can see, because it is a property of the artifact.
+
+### Changed
+
+- **WikiKit is no longer "no web UI".** It is still headless for agents — no CLI,
+  no console API, and every route the cockpit calls is one an agent could call.
+  What changed is that humans now have one place to do the work instead of
+  composing curl. README and `docs/ARCHITECTURE.md` say so; `docs/COCKPIT.md` is
+  the operator's account of how it is served, signed into and verified.
+
+- **The sign-in funnel follows the console's colour scheme.** The `.scheme-light`
+  and `.scheme-dark` classes the shared token block has always carried are now
+  set, from a non-HttpOnly `wk-cockpit-theme` cookie the console mirrors its
+  choice into. The funnel stays script-free, so it could not have read the
+  preference itself, and `vary: cookie` keeps two operators behind one proxy from
+  being served each other's scheme. The pinned token bytes are untouched — the
+  class goes on the document element, outside the sentinels.
+
+- **`bun run gate` and CI build the console.** `assets/cockpit` and
+  `src/cockpit-embedded.ts` are generated, committed and served — the compiled
+  binary reads the embed — so a stale one ships last week's console against this
+  week's API with nothing at runtime noticing. `check:cockpit-drift` rebuilds and
+  fails on any diff, and `build-binary.sh` rebuilds rather than trusting the
+  checkout.
+
 ## 0.21.0 - 2026-08-06
 
 ### Changed

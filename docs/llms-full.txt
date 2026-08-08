@@ -19,8 +19,9 @@ The guiding idea is curation over collection: WikiKit is not a dump of
 everything you ever saw, it is a maintained set of concept pages an agent can
 trust — every statement is a claim with a citation, a status and a lifecycle,
 and nothing becomes visible without review. It is the knowledge foundation
-that agents, dashboards and apps build on top of — WikiKit itself ships no CLI
-and no web UI.
+that agents, dashboards and apps build on top of — WikiKit itself ships no CLI,
+and its one human surface is the cockpit at `/cockpit` (§12), where the same
+review gate applies: an edit there submits a change proposal like any other.
 
 - Source: https://github.com/MikeBild/wikikit
 - License: MIT
@@ -266,6 +267,34 @@ generated and printed **once** to stdout (pin it via
 `WIKIKIT_BOOTSTRAP_API_KEY`). Recommended production key split: a read key for
 consumers, a propose key for agents, an approve key for reviewers — never hand
 the approve scope to an autonomous agent.
+
+### The cockpit's credential plane
+
+The cockpit (§12) is a browser, and a browser cannot hold an API key safely — a
+token that reaches JavaScript is a token any script on the page can read. So it
+uses the OAuth mount's browser operator session instead, over three endpoints
+that live outside the ROUTES registry for the same reason `/mcp` does:
+
+| | |
+|---|---|
+| `GET /v1/session` | `{"session": {name, kind, scopes, space_id, provider_id}}` or `{"session": null}`. **Never 401** — an anonymous tab is an answer, not a failure. |
+| `GET /v1/identity/cockpit-login?return_to=…` | Enters the same provider chooser every other sign-in uses. `return_to` must be a same-origin path under `/cockpit`; anything else falls back to `/cockpit/`. |
+| `DELETE /v1/session` | Revokes the session. Requires a same-origin `Origin` header. |
+
+The console is deliberately **not** an OAuth client: consent exists so a third
+party can be told what it is about to be granted, and an installation's own
+console is not a third party. Its login state carries `purpose = 'cockpit'` and
+a return address, and a CHECK constraint makes that shape mutually exclusive
+with an authorization request's.
+
+The resulting cookie (HttpOnly, `SameSite=Lax`, `__Host-` prefixed under https)
+is a **fallback** credential on `/v1`: it is consulted only when a request
+carries neither `Authorization` nor `X-API-Key`, so no API-key client's 401 or
+403 changes shape. Unsafe methods additionally require a same-origin `Origin` —
+`SameSite=Lax` does not cover them all, and a CSRF token would have to reach
+JavaScript, which is what the cookie was chosen to avoid. Scopes are re-cut
+against the live identity grant on every read, so narrowing a grant narrows
+every session it minted.
 
 ---
 
@@ -701,6 +730,15 @@ client secrets in the production secret store, never in the repository.
 - **Self-migrating boot:** every start (and `--migrate`) applies the embedded
   SQL migrations under a Postgres advisory lock before HTTP opens; a migration
   failure keeps `/ready` down so the deploy health gate rolls back.
+- **Cockpit:** the one human interface, served by this same process at
+  `/cockpit` and built into the same artifact — a space reads as a wiki, a
+  concept as a Markdown page, and an edit becomes a change proposal somebody
+  has to approve. `bun run dev:cockpit` runs it against a local API on :4060;
+  `bun run build:cockpit` regenerates `assets/cockpit` and
+  `src/cockpit-embedded.ts`, both committed and both drift-gated by
+  `bun run check:cockpit-drift`. Its credential plane is §3; the design
+  contract it implements is `contract/COCKPIT-UI.md`. Full notes:
+  [docs/COCKPIT.md](docs/COCKPIT.md).
 
 Lifecycle: `/health` (liveness), `/ready` (readiness — `{status, version}`;
 deploy gates match **both** fields; 503 while draining). On SIGTERM/SIGINT the

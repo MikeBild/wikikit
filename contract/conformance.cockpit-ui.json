@@ -1,0 +1,140 @@
+{
+  "$comment": [
+    "What WikiKit actually enforces of cockpit-ui, rule by rule.",
+    "",
+    "COCKPIT-UI.md never names a test. That is why this file exists — and why an",
+    "empty `enforced_by` with a real `why` is a truthful entry, not a gap to be",
+    "papered over. A style guide that is wrong about itself is worse than none.",
+    "",
+    "The honest summary of this console today: the tokens, the theme, the mount,",
+    "the marker, the navigation table and the scope model are TESTS. The rules",
+    "that grade what a page looks like were graded by review when the pages were",
+    "written, and `bun test` has no layout engine — nothing here holds that a",
+    "Tooltip opens, that focus moves, or that four states look different. The",
+    "browser check (scripts/check-cockpit-browser.ts) covers three of those and",
+    "is not in the gate; the production checklist covers the rest by hand."
+  ],
+  "contract": "cockpit-ui",
+  "rules": {
+    "CUI-TOKEN-1": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-TOKEN-2": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-TOKEN-3": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-TYPE-1": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-THEME-1": {
+      "enforced_by": ["test/unit/cockpit-embedded-drift.test.ts"],
+      "why": "Only that the served shell reads the wk-cockpit-theme key. That the store writes the same three values is held by the store's own construction, not by an assertion."
+    },
+    "CUI-THEME-2": {
+      "enforced_by": [],
+      "why": "The pre-paint script in index.html and lib/theme-store.ts both treat key-absence as system, but they are edited independently and nothing compares them."
+    },
+    "CUI-THEME-3": {
+      "enforced_by": ["test/unit/cockpit-serve.test.ts"],
+      "why": "The CSP hash is computed from the served bytes, so a shell without the inline script would ship a policy admitting a script that is not there. That is a proof the script IS in the document — not a proof it runs before paint."
+    },
+    "CUI-THEME-4": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-THEME-5": {
+      "enforced_by": [],
+      "why": "Sign-out reloads and never touches the theme key, which is visible in shell.tsx and covered by hand in scripts/deploy/verify-cockpit-prod.md §2. No test asserts the absence of a write."
+    },
+    "CUI-MOUNT-1": { "enforced_by": ["test/unit/cockpit-serve.test.ts", "test/unit/cockpit-session.test.ts"] },
+    "CUI-MOUNT-2": { "enforced_by": ["test/unit/cockpit-serve.test.ts"] },
+    "CUI-MOUNT-3": { "enforced_by": ["test/unit/cockpit-serve.test.ts"] },
+    "CUI-MOUNT-4": { "enforced_by": ["test/unit/cockpit-serve.test.ts"] },
+    "CUI-MARK-1": { "enforced_by": ["test/unit/cockpit-serve.test.ts"] },
+    "CUI-MARK-2": {
+      "enforced_by": [],
+      "why": "data-cockpit-ui is on the SidebarProvider in app/shell.tsx. Reading it would need a rendered tree, and this runner has no DOM."
+    },
+    "CUI-PAGE-1": { "enforced_by": [], "why": "A judgement about a page's subject. Graded at review." },
+    "CUI-PAGE-2": {
+      "enforced_by": ["test/unit/cockpit-navigation.test.ts"],
+      "why": "Indirectly: every routed path resolves to exactly one nav entry, and router.tsx names one component export per route."
+    },
+    "CUI-LADDER-1": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-LADDER-2": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-LADDER-3": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-ACT-1": {
+      "enforced_by": [],
+      "why": "Sign-in is an anchor and the nav entries are Links, which is the case that mattered most; nothing asserts it, and nothing stops the next page from using a button to navigate."
+    },
+    "CUI-ACT-2": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-ACT-3": { "enforced_by": [], "why": "Graded at review. A lint rule would hold this and does not exist yet." },
+    "CUI-ACT-4": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-ACT-5": {
+      "enforced_by": [],
+      "why": "The Button primitive composes disabled with a spinner rather than swapping its label, so the affordance exists. Whether a page uses it is not checked."
+    },
+    "CUI-WORDS-1": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-WORDS-2": { "enforced_by": [], "why": "Graded at review. No test forbids a title= attribute." },
+    "CUI-SEV-1": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
+    "CUI-SEV-2": {
+      "enforced_by": [],
+      "why": "The rule every dashboard breaks, and the one least covered here: nothing asserts that a missing count renders as an em dash rather than 0. Checked by hand in verify-cockpit-prod.md §7."
+    },
+    "CUI-LOAD-1": {
+      "enforced_by": [],
+      "why": "DataState and DataTable render skeletons in the shape of the result, so a page using them cannot get this wrong. A page not using them is unchecked."
+    },
+    "CUI-LOAD-2": {
+      "enforced_by": [],
+      "why": "ApiError carries the server's words and next_best_actions through to the alert; no test renders one."
+    },
+    "CUI-LOAD-3": {
+      "enforced_by": [],
+      "why": "EmptyState requires a title and a description in its type — enforced by the compiler, not by a test."
+    },
+    "CUI-LOAD-4": { "enforced_by": [], "why": "Requires a layout engine. verify-cockpit-prod.md §7." },
+    "CUI-LAYOUT-1": {
+      "enforced_by": [],
+      "why": "index.css sets body overflow:hidden and the shell carries min-h-0/min-w-0, which is the mechanism — but only a browser can prove the document does not scroll. scripts/check-cockpit-browser.ts asserts it and is not in the gate."
+    },
+    "CUI-LAYOUT-2": { "enforced_by": [], "why": "Graded at review. No lint rule forbids space-y-*." },
+    "CUI-LAYOUT-3": {
+      "enforced_by": [],
+      "why": "scripts/check-cockpit-browser.ts asserts every table has a horizontally scrolling ancestor. Not in the gate: it needs a browser, a database and a running server."
+    },
+    "CUI-RESP-1": {
+      "enforced_by": [],
+      "why": "scripts/check-cockpit-browser.ts runs every route at 390x844. Same caveat as CUI-LAYOUT-3."
+    },
+    "CUI-A11Y-1": {
+      "enforced_by": [],
+      "why": "The vendored Dialog requires a title; no test asserts each call site supplies one."
+    },
+    "CUI-A11Y-2": {
+      "enforced_by": [],
+      "why": "Focus behaviour is Radix's, and this runner has no DOM to observe it in."
+    },
+    "CUI-A11Y-3": {
+      "enforced_by": [],
+      "why": "Confirm blocks dismissal while its mutation is in flight, in code that has no test around it yet."
+    },
+    "CUI-A11Y-4": {
+      "enforced_by": [],
+      "why": "Aspirational as a rule about EVERY element. The testids the production checklist drives are present because the checklist would fail without them, which is a weaker guarantee than a test."
+    },
+    "CUI-A11Y-5": {
+      "enforced_by": [],
+      "why": "Aspirational. Badges carry a word beside their tone by construction, but nothing forbids a page from colouring alone."
+    },
+    "CUI-NAV-1": { "enforced_by": ["test/unit/cockpit-navigation.test.ts"] },
+    "CUI-NAV-2": { "enforced_by": ["test/unit/cockpit-navigation.test.ts"] },
+    "CUI-AI-1": {
+      "enforced_by": [],
+      "why": "The rule this product needs most: a synthesised claim is not a measurement. STATUS_STATE maps `proposed` to blocked rather than succeeded, which is the mechanism; nothing asserts a page honours it."
+    },
+    "CUI-AI-2": {
+      "enforced_by": [],
+      "why": "The console shows no model output directly today — synthesis lands as a change proposal, reviewed as a diff. Revisit when it does."
+    },
+    "CUI-AI-3": {
+      "enforced_by": [],
+      "why": "Every claim carries its citation quotes in the page and in the change diff, which IS this rule for this product. Graded at review, not asserted."
+    },
+    "CUI-AI-4": {
+      "enforced_by": ["test/unit/cockpit-navigation.test.ts"],
+      "why": "Indirectly: the changes entry declares the four decision endpoints, and the test proves they exist in ROUTES. An accept/reject affordance without a recording endpoint would fail there."
+    }
+  }
+}

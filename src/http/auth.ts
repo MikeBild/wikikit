@@ -110,6 +110,36 @@ export const ROLE_SCOPES = {
 
 export type RoleName = keyof typeof ROLE_SCOPES
 
+/**
+ * Does this scope set satisfy one required scope? The whole implication table,
+ * in one pure function.
+ *
+ * Extracted from requireScope so it can be COMPARED rather than described: the
+ * cockpit has to decide what to render before it makes a request, so it carries
+ * a mirror of this rule in `apps/cockpit/src/lib/scopes.ts`, and
+ * `test/unit/cockpit-scopes.test.ts` runs the two against each other over the
+ * full cross product. Two copies of a rule are only tolerable when a test makes
+ * them agree.
+ *
+ * The rules:
+ *   - `*` implies everything.
+ *   - `admin` implies every other scope. It reaches `*` too, which is why the
+ *     check is written as "candidate is not admin" rather than "candidate is a
+ *     knowledge scope" — no route asks for `*`, so this has no effect on the
+ *     served surface, and narrowing it would be an authorization change, not a
+ *     tidy-up.
+ *   - `knowledge:approve` implies `knowledge:review`, never the reverse: review
+ *     is the inspect subset of approve.
+ */
+export function holdsScope(scopes: readonly string[], candidate: string): boolean {
+  return (
+    scopes.includes('*') ||
+    scopes.includes(candidate) ||
+    (candidate !== 'admin' && scopes.includes('admin')) ||
+    (candidate === 'knowledge:review' && scopes.includes('knowledge:approve'))
+  )
+}
+
 interface KeyRow {
   id: string
   name: string
@@ -292,18 +322,7 @@ export function createAuth(config: Config, db: Db): Auth {
 
     requireScope(principal, scope, spaceId) {
       const accepted = Array.isArray(scope) ? (scope as readonly Scope[]) : [scope as Scope]
-      const scopes = principal.scopes
-      // '*' implies everything. 'admin' implies all knowledge scopes but NOT
-      // '*' (§5.2 note) — the distinction only matters for future scopes, but
-      // encoding it now keeps the rule honest. 'knowledge:approve' implies
-      // 'knowledge:review' (review is the inspect subset of approve).
-      const has = accepted.some(
-        (candidate) =>
-          scopes.includes('*') ||
-          scopes.includes(candidate) ||
-          (candidate !== 'admin' && scopes.includes('admin')) ||
-          (candidate === 'knowledge:review' && scopes.includes('knowledge:approve')),
-      )
+      const has = accepted.some((candidate) => holdsScope(principal.scopes, candidate))
       if (!has) throw new ForbiddenError(`this key lacks the ${accepted.join(' or ')} scope`)
       if (spaceId && principal.spaceId && principal.spaceId !== spaceId) {
         throw new ForbiddenError('this key is scoped to a different space')

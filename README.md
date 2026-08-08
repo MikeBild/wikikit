@@ -21,13 +21,16 @@ knowledge base you never prune or verify is a write-only archive; WikiKit
 keeps the wiki small, cited, disputed-where-disputed, and therefore usable as
 trusted context for the next agent.
 
-It is deliberately headless: **no CLI, no web UI** — the interfaces are an
-HTTP/REST API ([OpenAPI 3.1](docs/openapi.json)) and an
-[MCP server](https://modelcontextprotocol.io) (Streamable HTTP at `/mcp`), so
-humans work through curl/clients and agents work through tools. Knowledge is
+Agents get no interface of their own beyond the API: there is **no CLI**, and
+the machine surfaces are an HTTP/REST API ([OpenAPI 3.1](docs/openapi.json))
+and an [MCP server](https://modelcontextprotocol.io) (Streamable HTTP at
+`/mcp`). Humans get exactly one: the **cockpit**, a web console the same binary
+serves at `/cockpit`, where a space reads as a wiki, a concept reads as a
+Markdown page, editing one submits a change, and approving that change is what
+turns it into knowledge — see [docs/COCKPIT.md](docs/COCKPIT.md). Knowledge is
 portable: export/import as an Obsidian-friendly Markdown tree or as an
 [OKF](docs/okf-v0.1.md) (Open Knowledge Format) bundle. Production is a single
-self-contained binary.
+self-contained binary, console included.
 
 ## Quickstart
 

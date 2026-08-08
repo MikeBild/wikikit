@@ -78,9 +78,26 @@ export function renderConsentPage(options: {
   )
 }
 
+/**
+ * Why the funnel says what it is for.
+ *
+ * The same three screens serve two arrivals: an MCP client asking to be
+ * authorized, and an operator opening this installation's own console. They
+ * need different sentences. "Choose how to authenticate this authorization
+ * request" is accurate for the first and baffling for the second — there is no
+ * authorization request when somebody clicks Sign in on the cockpit, and a
+ * sign-in page that describes a thing the reader is not doing teaches them to
+ * stop reading sign-in pages.
+ *
+ * The wording is the only difference. One funnel, one place that knows how to
+ * prove who somebody is.
+ */
+export type LoginPurpose = 'oauth' | 'cockpit'
+
 export function renderProviderChoice(options: {
   state: string
   providers: Array<{ id: string; protocol: 'api_key' | 'oidc'; label: string }>
+  purpose?: LoginPurpose
 }): string {
   const providers = options.providers
     .map((provider) => {
@@ -89,16 +106,29 @@ export function renderProviderChoice(options: {
       return `<a class="button approve" href="${href}">${label}</a>`
     })
     .join('')
+  const lead =
+    options.purpose === 'cockpit'
+      ? 'Choose how to sign in to the WikiKit cockpit.'
+      : 'Choose how to authenticate this authorization request.'
   return shell(
     'Sign in',
-    `<h1>Sign in to WikiKit</h1><p class="muted">Choose how to authenticate this authorization request.</p><div class="provider-stack">${providers}</div>`,
+    `<h1>Sign in to WikiKit</h1><p class="muted">${lead}</p><div class="provider-stack">${providers}</div>`,
   )
 }
 
-export function renderApiKeyLogin(options: { state: string; providerId: string; error?: string }): string {
+export function renderApiKeyLogin(options: {
+  state: string
+  providerId: string
+  error?: string
+  purpose?: LoginPurpose
+}): string {
+  const lead =
+    options.purpose === 'cockpit'
+      ? 'Sign in with a WikiKit API key. The cockpit shows you what that key is allowed to do.'
+      : 'Use a scoped WikiKit API key to authorize this MCP client.'
   return shell(
     'Sign in',
-    `<h1>Sign in to WikiKit</h1><p class="muted">Use a scoped WikiKit API key to authorize this MCP client.</p>${options.error ? `<p class="error" role="alert">${escapeHtml(options.error)}</p>` : ''}<form method="POST" action="/v1/identity/login/start"><input type="hidden" name="provider" value="${escapeHtml(options.providerId)}"><input type="hidden" name="login_state" value="${escapeHtml(options.state)}"><label class="field">API key<input type="password" name="api_key" autocomplete="current-password" required></label><div class="actions"><button class="approve" type="submit">Continue</button></div></form>`,
+    `<h1>Sign in to WikiKit</h1><p class="muted">${lead}</p>${options.error ? `<p class="error" role="alert">${escapeHtml(options.error)}</p>` : ''}<form method="POST" action="/v1/identity/login/start"><input type="hidden" name="provider" value="${escapeHtml(options.providerId)}"><input type="hidden" name="login_state" value="${escapeHtml(options.state)}"><label class="field">API key<input type="password" name="api_key" autocomplete="current-password" required></label><div class="actions"><button class="approve" type="submit">Continue</button></div></form>`,
   )
 }
 
@@ -115,6 +145,23 @@ export function renderErrorPage(options: { message: string; retryHref?: string }
         : ''
     }`,
   )
+}
+
+/**
+ * Stamp an explicit colour scheme onto a rendered auth page.
+ *
+ * The funnel is script-free by contract, so it cannot read a preference itself
+ * — and the media query alone is not enough: an operator who chose dark in a
+ * console running on a light desktop would be handed a white sign-in page in
+ * the middle of an otherwise dark session, which reads as a different product.
+ *
+ * The `.scheme-light` / `.scheme-dark` classes this sets already exist inside
+ * the pinned TOKENS block; this only puts one of them on the document element,
+ * OUTSIDE the mcp-auth sentinels, so the shared bytes stay byte-identical.
+ */
+export function withScheme(html: string, scheme: 'light' | 'dark' | null): string {
+  if (!scheme) return html
+  return html.replace('<html lang="en">', `<html lang="en" class="scheme-${scheme}">`)
 }
 
 export function authHtmlResponse(html: string, status = 200, headers: Record<string, string> = {}): Response {

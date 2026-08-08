@@ -13,6 +13,10 @@ const SH_FILES = [
   'examples/agent-hooks/wikikit-context.sh',
   'examples/agent-hooks/wikikit-capture.sh',
   'src/http/install/install.sh',
+  // Not served, but run against a live installation right after a release —
+  // which is the worst moment to discover a typo in it.
+  'scripts/deploy/smoke.sh',
+  'build-binary.sh',
 ]
 
 function hasCmd(cmd: string): boolean {

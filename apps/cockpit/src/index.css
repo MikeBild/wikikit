@@ -1,0 +1,234 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* shadcn's components read raw variables — `--background`, `--card`, `--sidebar`
+   and so on. This block gives them shadcn's NAMES with the contract's VALUES, so
+   a component pasted from the registry works unmodified and still looks like it
+   belongs here.
+
+   src/lib/tokens.ts states the same table as data, because an SVG stroke cannot
+   read a Tailwind class. A drift test compares the two. Editing one without the
+   other fails the build, which is the only reason two copies of anything are
+   tolerable.
+
+   Everything between the cockpit-ui sentinels is byte-identical with
+   contract/cockpit-ui.css and is not a local decision — see COCKPIT-UI.md. A
+   declaration this console needs and the contract does not belongs outside the
+   sentinels, with the `--wk-` prefix (CUI-TOKEN-3). */
+/* cockpit-ui:begin tokens-light */
+:root {
+  --background: #ffffff;
+  --foreground: #020817;
+  --surface: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #020817;
+  --popover: #ffffff;
+  --popover-foreground: #020817;
+  --primary: #0f172a;
+  --primary-foreground: #f8fafc;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #2563eb;
+  --accent-foreground: #ffffff;
+  --destructive: #dc2626;
+  --warning: #d97706;
+  --success: #059669;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
+  --chart-1: #2563eb;
+  --chart-2: #059669;
+  --chart-3: #d97706;
+  --chart-4: #7c3aed;
+  --chart-5: #dc2626;
+  --radius: 12px;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #020817;
+  --sidebar-primary: #0f172a;
+  --sidebar-primary-foreground: #f8fafc;
+  --sidebar-accent: #f1f5f9;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #2563eb;
+}
+/* cockpit-ui:end tokens-light */
+
+/* cockpit-ui:begin tokens-dark */
+.dark {
+  --background: #020817;
+  --foreground: #f8fafc;
+  --surface: #0f172a;
+  --card: #0f172a;
+  --card-foreground: #f8fafc;
+  --popover: #0f172a;
+  --popover-foreground: #f8fafc;
+  --primary: #f8fafc;
+  --primary-foreground: #0f172a;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #60a5fa;
+  --accent-foreground: #020817;
+  --destructive: #f87171;
+  --warning: #fbbf24;
+  --success: #34d399;
+  --border: #334155;
+  --input: #334155;
+  --ring: #60a5fa;
+  --chart-1: #60a5fa;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #c4b5fd;
+  --chart-5: #f87171;
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #f8fafc;
+  --sidebar-primary-foreground: #0f172a;
+  --sidebar-accent: #1e293b;
+  --sidebar-accent-foreground: #f8fafc;
+  --sidebar-border: #334155;
+  --sidebar-ring: #60a5fa;
+}
+/* cockpit-ui:end tokens-dark */
+
+/* Tailwind utilities over the values above. `--color-surface` has no shadcn
+   counterpart and is the contract's own, so it is mapped here alongside them. */
+@theme inline {
+  /* Console-owned type stack. `--font-sans` is contract BY VALUE (CUI-TYPE-1),
+     not by bytes: one checkout's formatter wraps this declaration onto two lines
+     and another's does not, and a contract a formatter can break is a contract
+     nobody keeps. `--font-mono` is this console's own — a knowledge base renders
+     slugs, content hashes, chunk ids and verbatim quotes that a proportional
+     face makes harder to compare. Deliberately outside the sentinels. */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  /* Registry components reference `font-heading`. This console does not set a
+     display face — a card title here is a label on a fact, not a headline — so
+     it resolves to the body stack and the components work unmodified. Declared
+     rather than patched out of each component, because the next component
+     pasted from the registry would need patching too. */
+  --font-heading: var(--font-sans);
+  /* cockpit-ui:begin theme-map */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  /* cockpit-ui:end theme-map */
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    /* The console is an app shell: panes scroll, the document does not
+       (CUI-LAYOUT-1). */
+    overflow: hidden;
+    scrollbar-gutter: stable;
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* The rendered-document surface. A wiki page is Markdown, and Tailwind's
+   preflight strips the element styling that Markdown depends on — this puts it
+   back for the one subtree that renders authored prose, and nowhere else, so a
+   heading inside a page reads as a heading while a CardTitle stays a label. */
+@layer components {
+  .wk-doc {
+    @apply text-foreground text-sm leading-relaxed;
+  }
+  .wk-doc > * + * {
+    margin-top: 0.75rem;
+  }
+  .wk-doc h1,
+  .wk-doc h2,
+  .wk-doc h3 {
+    @apply font-heading font-semibold tracking-tight;
+    margin-top: 1.5rem;
+  }
+  .wk-doc h1 {
+    @apply text-lg;
+  }
+  .wk-doc h2 {
+    @apply text-base;
+  }
+  .wk-doc h3 {
+    @apply text-sm;
+  }
+  .wk-doc ul,
+  .wk-doc ol {
+    @apply pl-5;
+    list-style: revert;
+  }
+  .wk-doc li + li {
+    margin-top: 0.25rem;
+  }
+  .wk-doc a {
+    @apply text-accent underline underline-offset-2;
+  }
+  .wk-doc code {
+    @apply bg-muted rounded-sm px-1 py-0.5 font-mono text-xs;
+  }
+  .wk-doc pre {
+    @apply bg-muted scrollbar-thin overflow-x-auto rounded-md p-3;
+  }
+  .wk-doc pre code {
+    @apply bg-transparent p-0;
+  }
+  .wk-doc blockquote {
+    @apply border-border text-muted-foreground border-l-2 pl-3 italic;
+  }
+  .wk-doc table {
+    @apply w-full text-left text-xs;
+  }
+  .wk-doc th,
+  .wk-doc td {
+    @apply border-border border-b px-2 py-1.5;
+  }
+}

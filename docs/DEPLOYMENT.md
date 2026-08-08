@@ -122,9 +122,29 @@ WantedBy=multi-user.target
 A typical deploy: download the release binary, verify `SHA256SUMS`, move it
 into place atomically (keep a `.prev` for rollback), restart the unit, then
 gate on `/ready` returning `ready` **and** the new version within 90 s —
-otherwise restore `.prev` and restart. Smoke-test `/health`, `/ready`,
-`/openapi.json`, `/llms.txt`, a 401-without-key, an authenticated read and an
-MCP initialize. For this release, also run a review canary against a
+otherwise restore `.prev` and restart. Then run the smoke test — it takes the
+installation from the environment and writes nothing:
+
+```
+WIKIKIT_DEPLOY_URL=https://<installation> EXPECT_VERSION=<tag> ./scripts/deploy/smoke.sh
+```
+
+It covers `/health`, `/ready` (status **and** version), `/openapi.json`,
+`/llms.txt`, the service descriptor, a 401-without-key, the `/mcp`
+`WWW-Authenticate` challenge, `/metrics` being refused from outside, and the
+cockpit: `/cockpit/` serving the shell `no-cache` under a hash-based CSP with
+its design-token digest, a deep client route falling back to it,
+`/v1/session` answering `{"session": null}` for an anonymous tab, and the
+sign-in chooser rendering with no credential field on step one.
+
+What curl cannot see — the sign-in round trip, the theme reaching the funnel,
+and the loop the product turns on (edit a page → submit a change → read its
+diff → approve it → see the page change) — is
+`scripts/deploy/verify-cockpit-prod.md`, a testid-driven Do/Expect/Fail-if
+checklist. Run it in a browser against a scratch space you own; §5 approves a
+change, and an approved change is knowledge.
+
+For this release, also run a review canary against a
 disposable pending proposal on each channel the client supports. Form mode
 (primary): inspect the full diff, cancel once and prove it remains pending,
 then accept once and prove `review_channel: "mcp_elicitation"`. URL fallback

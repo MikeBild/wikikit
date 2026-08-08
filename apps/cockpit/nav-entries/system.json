@@ -1,0 +1,17 @@
+{
+  "to": "/system",
+  "label": "System",
+  "icon": "Server",
+  "scope": "knowledge:read",
+  "group": "installation",
+  "api": [
+    "/ready",
+    "/.well-known/service-descriptor.json",
+    "/v1/spaces/{space}/lint",
+    "/v1/spaces/{space}/stats/http",
+    "/v1/spaces/{space}/stats/usage",
+    "/v1/spaces/{space}/stats/llm",
+    "/v1/spaces/{space}/stats/webhooks",
+    "/v1/stats/mcp"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "to": "/identities",
+  "label": "People",
+  "icon": "Users",
+  "scope": "admin",
+  "group": "installation",
+  "api": ["/v1/identities", "/v1/identities/{provider}/{subject}"]
+}

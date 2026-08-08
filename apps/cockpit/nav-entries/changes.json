@@ -1,0 +1,16 @@
+{
+  "to": "/changes",
+  "label": "Changes",
+  "icon": "FileDiff",
+  "scope": "knowledge:read",
+  "group": "wiki",
+  "api": [
+    "/v1/spaces/{space}/proposals",
+    "/v1/proposals/{id}",
+    "/v1/proposals/{id}/lint",
+    "/v1/proposals/{id}/approve",
+    "/v1/proposals/{id}/reject",
+    "/v1/proposals/{id}/request-changes",
+    "/v1/proposals/{id}/split"
+  ]
+}
