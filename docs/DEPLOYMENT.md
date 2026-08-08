@@ -137,12 +137,21 @@ its design-token digest, a deep client route falling back to it,
 `/v1/session` answering `{"session": null}` for an anonymous tab, and the
 sign-in chooser rendering with no credential field on step one.
 
-What curl cannot see — the sign-in round trip, the theme reaching the funnel,
-and the loop the product turns on (edit a page → submit a change → read its
-diff → approve it → see the page change) — is
-`scripts/deploy/verify-cockpit-prod.md`, a testid-driven Do/Expect/Fail-if
-checklist. Run it in a browser against a scratch space you own; §5 approves a
-change, and an approved change is knowledge.
+The loop the product turns on — edit a page → submit a change → read its diff
+→ approve it → see the page change — is a script, in a real browser:
+
+```
+WIKIKIT_DEPLOY_URL=https://<installation> WIKIKIT_API_KEY=wk_... \
+  VERIFY_SPACE=<a disposable wiki> bun run verify:cockpit-loop
+```
+
+It signs in through the funnel, so a mismatched `WIKIKIT_PUBLIC_URL` fails it.
+It also WRITES: approving publishes knowledge, so it refuses a space whose name
+does not mark it disposable unless `VERIFY_I_MEAN_IT=1`.
+
+`scripts/deploy/verify-cockpit-prod.md` remains for the judgements a script
+cannot make — whether the wording reads right, whether a confirmation is
+honest, whether the theme survives a sign-out and reaches the funnel.
 
 For this release, also run a review canary against a
 disposable pending proposal on each channel the client supports. Form mode

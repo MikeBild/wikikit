@@ -30,7 +30,8 @@
     "gen:cockpit": "bun scripts/gen-embedded-cockpit.ts",
     "gen:cockpit-types": "openapi-typescript docs/openapi.json -o apps/cockpit/src/api/schema.d.ts",
     "check:cockpit-drift": "bun run gen:cockpit-types && bun run build:cockpit && git diff --exit-code apps/cockpit/src/api/schema.d.ts assets/cockpit src/cockpit-embedded.ts",
-    "check:cockpit-browser": "bun scripts/check-cockpit-browser.ts"
+    "check:cockpit-browser": "bun scripts/check-cockpit-browser.ts",
+    "verify:cockpit-loop": "bun scripts/deploy/verify-cockpit-loop.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.19",
