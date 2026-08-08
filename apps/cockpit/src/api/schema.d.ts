@@ -2070,7 +2070,7 @@ export interface components {
             display_name?: string;
             /** @enum {string} */
             role?: "reader" | "contributor" | "reviewer";
-            scopes?: ("knowledge:read" | "knowledge:propose" | "knowledge:review" | "knowledge:approve")[];
+            scopes?: ("knowledge:read" | "knowledge:propose" | "knowledge:review" | "knowledge:approve" | "admin")[];
             /** @constant */
             source?: "seed";
             restore?: boolean;

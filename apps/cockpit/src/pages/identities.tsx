@@ -61,14 +61,33 @@ const BADGE_TONE = {
 /**
  * The ceiling a person may be given.
  *
- * Knowledge scopes only, and that is the server's rule rather than a
- * simplification: `zIdentityScope` refuses `admin` and `*`, because
- * administering the deployment is API-key territory — a browser session that
- * could mint keys and rewrite grants would make one stolen cookie the whole
- * deployment. Filtering `VALID_SCOPES` rather than retyping four strings means
- * a scope the alphabet loses stops being offered here on the same day.
+ * The knowledge scopes plus `admin`, and NOT `*` — the server's rule rather
+ * than a simplification (`zIdentityScope`). `admin` is an authority somebody
+ * can enumerate and audit; `*` is "everything, including whatever is added
+ * later", which belongs to a key minted on the host where the act itself is
+ * the record.
+ *
+ * Derived from `VALID_SCOPES` rather than retyped, so a scope the alphabet
+ * loses stops being offered here on the same day.
  */
-const CEILING_SCOPES = VALID_SCOPES.filter((scope) => scope.startsWith('knowledge:'))
+const CEILING_SCOPES = VALID_SCOPES.filter((scope) => scope !== '*')
+
+/**
+ * What each scope costs the person granting it, in the words of somebody about
+ * to tick a box.
+ *
+ * `admin` gets the longest sentence on purpose: it is the only one here that
+ * reaches back at the credentials themselves, and a checkbox that says nothing
+ * is a checkbox people tick.
+ */
+const SCOPE_NOTE: Readonly<Record<string, string>> = {
+  'knowledge:read': 'Read every page, source and change in every wiki they can see.',
+  'knowledge:propose': 'Add documents and submit changes. Nothing they write becomes knowledge on its own.',
+  'knowledge:review': 'Inspect a change in full and send it back with a note.',
+  'knowledge:approve': 'Publish knowledge. What they approve is what agents will answer from.',
+  admin:
+    'Everything above, plus API keys, identity grants and webhooks — including this page. Someone who takes over their account at the identity provider takes over the installation.',
+}
 
 /**
  * What each preset expands to, restated for the reader.
@@ -698,9 +717,11 @@ function GrantAccess({
                   </button>
                 ))}
                 <p className="text-muted-foreground text-xs">
-                  No preset can approve a change. Approving is what publishes knowledge, so
-                  <code className="mx-1 font-mono">knowledge:approve</code>
-                  is chosen scope by scope, on purpose.
+                  No preset can approve a change or administer this installation. Approving is what publishes knowledge
+                  and <code className="mx-1 font-mono">admin</code> reaches the credentials themselves, so
+                  <code className="mx-1 font-mono">knowledge:approve</code> and
+                  <code className="mx-1 font-mono">admin</code>
+                  are chosen scope by scope, on purpose.
                 </p>
               </div>
             ) : (
@@ -717,8 +738,15 @@ function GrantAccess({
                         onClick={() =>
                           setScopes(chosen ? scopes.filter((entry) => entry !== scope) : [...scopes, scope])
                         }
+                        // `admin` is the one that reaches back at the
+                        // credentials, so it is the one that must not look
+                        // like the others when chosen.
                         className={`rounded-4xl border px-2 py-0.5 font-mono text-[11px] ${
-                          chosen ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted-foreground'
+                          chosen
+                            ? scope === 'admin'
+                              ? 'border-warning bg-warning/15 text-warning'
+                              : 'border-accent bg-accent/15 text-accent'
+                            : 'border-border text-muted-foreground'
                         }`}
                       >
                         {scope}
@@ -726,9 +754,21 @@ function GrantAccess({
                     )
                   })}
                 </div>
+                {/* One line per CHOSEN scope, not a legend of all five: a
+                    reader who has picked two scopes is deciding about those
+                    two, and a wall of text about the other three is a wall
+                    they learn to skip. */}
+                <ul className="flex flex-col gap-1">
+                  {scopes.map((scope) => (
+                    <li key={scope} className="text-muted-foreground text-xs" data-testid={`grant-scope-note-${scope}`}>
+                      <code className="font-mono">{scope}</code> — {SCOPE_NOTE[scope] ?? 'No description.'}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-muted-foreground text-xs">
-                  A person can never be granted <code className="font-mono">admin</code> here. Administering the
-                  deployment is what API keys are for, so one stolen browser session cannot rewrite who may sign in.
+                  <code className="font-mono">*</code> can never be granted to a person — it means “everything,
+                  including whatever is added later”, which is a grant nobody can audit. That stays a key somebody
+                  minted on the host.
                 </p>
               </div>
             )}

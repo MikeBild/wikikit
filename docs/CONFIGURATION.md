@@ -54,7 +54,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_OAUTH_CODE_TTL_MS`           | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`   | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`  | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
-| `WIKIKIT_OAUTH_ALLOWED_SCOPES`        | Interactive identity permission ceiling: comma-separated read/propose/approve                                  | `knowledge:read,knowledge:propose`                                 |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`        | Interactive identity permission ceiling: comma-separated knowledge scopes, or `admin`; never `*`               | `knowledge:read,knowledge:propose`                                 |
 | `WIKIKIT_OAUTH_ENABLE_SIGNUP`         | Auto-admit unknown OIDC identities at the SSO callback with the minimal `knowledge:read` ceiling               | `false`                                                            |
 | `WIKIKIT_OAUTH_PROVIDERS`             | WikiKit-local JSON list of named `api_key` and direct `oidc` adapters                                          | API-key record                                                     |
 | `LOG_LEVEL`                           | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
@@ -85,8 +85,31 @@ client must still ask for a scope and the consent page displays it. Scope
 merely exposes the MCP review tool: WikiKit still collects the actual decision
 from a human through native form elicitation. A client that cannot show the form gets a pending
 `human_review_required` hand-off with a `review_url`; the human decides on
-that embedded review page (or over REST) as themselves. `admin` is never issued
-to an interactive OAuth identity.
+that embedded review page (or over REST) as themselves.
+
+`admin` may be named here, and `*` may not. Three rules hold that apart:
+
+- **No default ever carries `admin`.** The fallback is
+  `knowledge:read,knowledge:propose`, and a provider that declares no ceiling
+  of its own inherits exactly that. Administrative SSO only ever exists because
+  somebody wrote it down.
+- **`*` is refused outright.** `admin` is an authority you can enumerate, and
+  what it reaches today it reaches tomorrow; `*` is "everything, including
+  whatever is added later" — a grant whose contents are written nowhere and
+  grow with the product. That belongs to a key minted on the host with a shell,
+  where the act itself is the record.
+- **A remote MCP client can never hold `admin`,** however wide the identity
+  behind the consent is: `OAUTH_SCOPES` does not contain it, so a client cannot
+  request it and a token cannot carry it.
+
+Naming `admin` is a trade to make deliberately: an account takeover at the
+identity provider then reaches credential and identity management, with no
+second factor anywhere in WikiKit's own chain. That is defensible when the
+provider enforces MFA and the allowlist is short — the shape a self-hosted
+installation usually has — and indefensible otherwise. WikiKit cannot tell
+which one it is in, so it takes the operator's word. Without it, an operator
+signing in through SSO meets a cockpit whose Installation block is absent on
+the installation they own.
 
 `WIKIKIT_OAUTH_ENABLE_SIGNUP` (default `false`) is the positively named signup
 switch. When `true`, an unknown OIDC identity that authenticates at the SSO

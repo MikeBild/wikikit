@@ -155,7 +155,9 @@ export interface Config {
   /** Provider-neutral browser login definitions exposed by the MCP OAuth flow. */
   readonly oauthProviders?: OAuthProviderConfig[]
   /** Maximum permissions that an interactive identity can receive. */
-  readonly oauthAllowedScopes?: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
+  readonly oauthAllowedScopes?: Array<
+    'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
+  >
   /**
    * Positively named signup switch (WIKIKIT_OAUTH_ENABLE_SIGNUP, default
    * false): when true, an unknown OIDC identity that authenticates at the
@@ -204,22 +206,82 @@ export interface OidcProviderConfig {
   readonly scopes: string
   readonly allowedEmails: string[]
   readonly allowedSubjects: string[]
-  readonly allowedScopes: Array<'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve'>
+  readonly allowedScopes: Array<
+    'knowledge:read' | 'knowledge:propose' | 'knowledge:review' | 'knowledge:approve' | 'admin'
+  >
 }
 
 export type OAuthProviderConfig = ApiKeyOAuthProviderConfig | OidcProviderConfig
 
-const IDENTITY_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'] as const
+/**
+ * What an SSO identity may be granted.
+ *
+ * `admin` is in this list and `*` is not, and the difference is the whole
+ * decision.
+ *
+ * It was not always here. Identities were capped at the knowledge scopes on the
+ * reasoning that an identity provider should not be a path to administration —
+ * which cost nothing while WikiKit had no console, because administration was
+ * curl with a key either way. The cockpit changed that: an operator who signs
+ * in through SSO meets an interface whose Installation half is simply absent,
+ * on the installation they own. A product whose own interface is mostly
+ * forbidden to the person who signed into it is not secure, it is broken.
+ *
+ * So `admin` is reachable — but only through an EXPLICIT declaration, never
+ * through a default (see below). A deployment that declares it is making a
+ * trade it should say out loud: an account takeover at the identity provider
+ * then reaches credential management, with no second factor anywhere in
+ * WikiKit's own chain. That is defensible when the provider enforces MFA and
+ * the allowlist is short — the shape a self-hosted installation usually has —
+ * and indefensible otherwise. WikiKit cannot tell which one it is in, so it
+ * takes the operator's word.
+ *
+ * `*` stays refused, and the distinction from `admin` is not squeamishness:
+ * `admin` is an authority somebody can enumerate, and what it reaches today it
+ * reaches tomorrow. `*` is "everything, including whatever is added later" — a
+ * grant whose contents are not written anywhere and grow with the product.
+ * That belongs to a key somebody minted on the host with a shell, where the act
+ * itself is the record.
+ *
+ * Note what does NOT change: `OAUTH_SCOPES` in src/oauth/server.ts has no
+ * `admin`, so a remote MCP client can never request or hold it however wide the
+ * identity behind the consent is.
+ */
+const IDENTITY_SCOPES = [
+  'knowledge:read',
+  'knowledge:propose',
+  'knowledge:review',
+  'knowledge:approve',
+  'admin',
+] as const
 type IdentityScope = (typeof IDENTITY_SCOPES)[number]
 
+/**
+ * `declared` separates "the operator wrote this" from "nothing was written, so
+ * here is the fallback" — which is what keeps `admin` opt-in. Without it, a
+ * future edit that starts feeding a wider default through here would grant
+ * administrative SSO to every deployment on upgrade, silently.
+ */
 function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[]): IdentityScope[] {
   const values = raw
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
-  const scopes = values.length ? values : fallback
-  if (!scopes.length || scopes.some((scope) => !(IDENTITY_SCOPES as readonly string[]).includes(scope))) {
+  const declared = values.length > 0
+  const scopes = declared ? values : fallback
+  if (!scopes.length) {
     throw new Error(`${name} must be a comma-separated subset of ${IDENTITY_SCOPES.join(', ')}`)
+  }
+  for (const scope of scopes) {
+    if (scope === '*') {
+      throw new Error(`${name} may not contain '*' — an SSO identity cannot hold unrestricted authority`)
+    }
+    if (!(IDENTITY_SCOPES as readonly string[]).includes(scope)) {
+      throw new Error(`${name} must be a comma-separated subset of ${IDENTITY_SCOPES.join(', ')}`)
+    }
+    if (scope === 'admin' && !declared) {
+      throw new Error(`${name} may not default to 'admin' — administrative SSO has to be written down`)
+    }
   }
   return [...new Set(scopes)] as IdentityScope[]
 }

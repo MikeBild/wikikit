@@ -1496,8 +1496,15 @@ provider configuration), managed over the admin REST (`/v1/identities`,
 scope `admin`) and effective immediately — the auth path re-reads the row
 per request/token issue, no restart. Named
 roles (`reader`/`contributor`/`reviewer`) are request-time shortcuts expanded
-server-side into scope sets and are never stored; `knowledge:approve` has
-deliberately no shortcut and must be granted as an explicit scopes array.
+server-side into scope sets and are never stored; `knowledge:approve` and
+`admin` have deliberately no shortcut and must each be granted as an explicit
+scopes array, so neither is handed out by picking a word that sounded senior.
+An identity ceiling MAY contain `admin` and MUST NOT contain `*`: `admin` is an
+authority that can be enumerated and audited, `*` is unbounded and grows with
+the product, so it stays a key somebody minted on the host. No DEFAULT ever
+carries `admin` — the global fallback is `knowledge:read,knowledge:propose`,
+and a provider that declares no ceiling inherits exactly that, so
+administrative SSO exists only where it was written down.
 `revoked_at` always wins: a revoked row denies login AND invalidates live
 tokens, no login path resurrects it, and only an explicit admin-REST
 `restore:true` re-admits. The ENV allow-lists
@@ -1518,7 +1525,11 @@ identity, never an API key or an ID token. Interactive OAuth identities can
 receive only `knowledge:read`, `knowledge:propose`, `knowledge:review`,
 `knowledge:approve` and `offline_access`: every requested knowledge scope must
 be within the global or per-provider allowed-scope ceiling, and
-`knowledge:approve` is never granted by default. `admin` is never issued through an interactive OAuth identity.
+`knowledge:approve` is never granted by default. `admin` is never issued as an
+OAuth TOKEN scope regardless of the identity's ceiling — `OAUTH_SCOPES` does
+not contain it, so a client cannot request it and consent cannot offer it. An
+`admin` ceiling reaches the browser operator session (the cockpit) and an
+SSO-minted API key, and stops there.
 Clients retain their issued scope set; adding an MCP tool or scope requires a
 fresh connector scan/reconnect rather than silently elevating an old grant.
 The displayed and issued grant is always client request ∩ server support ∩

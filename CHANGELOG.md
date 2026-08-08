@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.23.0 - 2026-08-08
+
+### Changed
+
+- **An SSO identity may now hold `admin`, and only ever by being written down.**
+  Identities were capped at the knowledge scopes on the reasoning that an
+  identity provider should not be a path to administration. That cost nothing
+  while WikiKit had no console — administration was curl with a key either way.
+  0.22.0 changed it: an operator signing in through SSO met a cockpit whose
+  entire Installation block was absent, on the installation they own. A product
+  whose own interface is mostly forbidden to the person who signed into it is
+  not secure, it is broken.
+
+  Three rules hold the trade in place, and each is the point of the other two:
+
+  - **No default ever carries `admin`.** The global fallback stays
+    `knowledge:read,knowledge:propose`, and a provider that declares no ceiling
+    inherits exactly that. The parser refuses `admin` arriving from a fallback
+    rather than from something an operator typed, so a future edit that widened
+    a default cannot grant administrative SSO to every deployment on upgrade.
+  - **`*` is refused outright**, and the distinction from `admin` is not
+    squeamishness: `admin` is an authority you can enumerate, and what it
+    reaches today it reaches tomorrow. `*` is "everything, including whatever is
+    added later" — a grant whose contents are written nowhere and grow with the
+    product. That belongs to a key somebody minted on the host with a shell,
+    where the act itself is the record.
+  - **A remote MCP client still cannot hold `admin`.** `OAUTH_SCOPES` does not
+    contain it, so a client cannot request it and consent cannot offer it. An
+    `admin` ceiling reaches the browser operator session and an SSO-minted API
+    key, and stops there.
+
+  Naming `admin` is a deliberate trade: an account takeover at the identity
+  provider then reaches credential and identity management, with no second
+  factor anywhere in WikiKit's own chain. Defensible when the provider enforces
+  MFA and the allowlist is short — the shape a self-hosted installation usually
+  has — and indefensible otherwise. WikiKit cannot tell which one it is in, so
+  it takes the operator's word rather than deciding for them.
+
+  Nothing changes for an existing deployment until it says so: no stored
+  ceiling gains a scope, and `PUT /v1/identities/{provider}/{subject}` now
+  accepts `admin` in its explicit `scopes` array — never through a role
+  shortcut, which `knowledge:approve` has never had either.
+
 ## 0.22.0 - 2026-08-08
 
 ### Added

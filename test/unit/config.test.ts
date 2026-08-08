@@ -2,6 +2,7 @@
 // Env manipulation is snapshot/restore per test — loadConfig() mutates
 // process.env by design (downstream libs read it), so isolation matters.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { loadConfig } from '../../src/config.ts'
 
 // Deleted (and restored) per test. Isolation needs BOTH this list and
@@ -211,6 +212,83 @@ describe('validation', () => {
   test('rejects the removed provider type discriminator', () => {
     process.env.WIKIKIT_OAUTH_PROVIDERS = '[{"type":"api_key","id":"api-key","label":"WikiKit API key"}]'
     expect(() => loadConfig()).toThrow(/protocol/)
+  })
+})
+
+/**
+ * What an SSO identity may be granted. Three rules, and each one is the whole
+ * point of the other two.
+ */
+describe('the identity scope ceiling', () => {
+  function oidc(overrides: Record<string, unknown> = {}): string {
+    return JSON.stringify([
+      {
+        protocol: 'oidc',
+        id: 'workforce-oidc',
+        issuer_url: 'https://identity.example.test',
+        client_id: 'wikikit',
+        allowed_emails: ['mike@example.com'],
+        ...overrides,
+      },
+    ])
+  }
+
+  test('admin is grantable, because the console has an Installation half', () => {
+    // Identities were capped at the knowledge scopes, which cost nothing while
+    // WikiKit had no console. With one, an operator signing in through SSO met
+    // an interface whose administrative half was simply absent on the
+    // installation they own.
+    process.env.WIKIKIT_OAUTH_PROVIDERS = oidc({ allowed_scopes: ['knowledge:read', 'admin'] })
+    expect(loadConfig().oauthProviders?.[0]).toMatchObject({ allowedScopes: ['knowledge:read', 'admin'] })
+  })
+
+  test('admin is grantable globally too, when an operator writes it down', () => {
+    process.env.WIKIKIT_OAUTH_ALLOWED_SCOPES = 'knowledge:read,admin'
+    expect(loadConfig().oauthAllowedScopes).toEqual(['knowledge:read', 'admin'])
+  })
+
+  test('no default ever carries admin — administrative SSO has to be written down', () => {
+    // The rule that keeps it opt-in. Without it, a future edit that widened a
+    // default would hand administrative SSO to every deployment on upgrade,
+    // silently, and nothing would say so.
+    delete process.env.WIKIKIT_OAUTH_ALLOWED_SCOPES
+    expect(loadConfig().oauthAllowedScopes).toEqual(['knowledge:read', 'knowledge:propose'])
+
+    // And a provider that declares nothing inherits that default, not more.
+    process.env.WIKIKIT_OAUTH_PROVIDERS = oidc()
+    expect(loadConfig().oauthProviders?.[0]).toMatchObject({
+      allowedScopes: ['knowledge:read', 'knowledge:propose'],
+    })
+  })
+
+  test("'*' is refused, and the message says why", () => {
+    // `admin` is an authority somebody can enumerate; `*` is "everything,
+    // including whatever is added later" — a grant whose contents are not
+    // written anywhere and grow with the product.
+    process.env.WIKIKIT_OAUTH_ALLOWED_SCOPES = 'knowledge:read,*'
+    expect(() => loadConfig()).toThrow(/may not contain '\*'/)
+
+    delete process.env.WIKIKIT_OAUTH_ALLOWED_SCOPES
+    process.env.WIKIKIT_OAUTH_PROVIDERS = oidc({ allowed_scopes: ['*'] })
+    expect(() => loadConfig()).toThrow(/unrestricted authority/)
+  })
+
+  test('an unknown scope is still refused', () => {
+    process.env.WIKIKIT_OAUTH_ALLOWED_SCOPES = 'knowledge:invent'
+    expect(() => loadConfig()).toThrow(/comma-separated subset/)
+  })
+
+  test('a remote MCP client can never hold admin, however wide the identity is', () => {
+    // The safety property that does NOT depend on any of the above:
+    // OAUTH_SCOPES has no `admin`, so consent cannot offer it and a token
+    // cannot carry it. Asserted here because this is the file where somebody
+    // widening the identity ceiling will be reading.
+    process.env.WIKIKIT_OAUTH_PROVIDERS = oidc({ allowed_scopes: ['admin'] })
+    expect(loadConfig().oauthProviders?.[0]).toMatchObject({ allowedScopes: ['admin'] })
+    const server = readFileSync(new URL('../../src/oauth/server.ts', import.meta.url), 'utf8')
+    const alphabet = server.match(/const OAUTH_SCOPES = \[([\s\S]*?)\] as const/)?.[1] ?? ''
+    expect(alphabet).not.toContain("'admin'")
+    expect(alphabet).toContain("'knowledge:approve'")
   })
 })
 

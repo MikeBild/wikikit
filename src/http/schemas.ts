@@ -795,10 +795,15 @@ export const zIdentityParams = z.object({
   subject: z.string().min(1).max(500),
 })
 
-// Knowledge scopes only: 'admin'/'*' stay API-key territory, and there is
-// deliberately NO role shortcut that includes knowledge:approve — the human
-// review gate must be granted as an explicitly spelled-out scopes array.
-const zIdentityScope = z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'])
+// `admin` is grantable, `*` is not — see IDENTITY_SCOPES in src/config.ts for
+// the reasoning. In short: `admin` is an authority somebody can enumerate and
+// audit, `*` is "everything, including whatever is added later".
+//
+// There is deliberately NO role shortcut that includes `knowledge:approve` or
+// `admin`. The human review gate and the keys-and-identities surface must each
+// be granted as an explicitly spelled-out scopes array, so nobody hands one out
+// by picking a word that sounded senior.
+const zIdentityScope = z.enum(['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve', 'admin'])
 
 // role XOR scopes is enforced in the handler (422 unprocessable, not 400):
 // the shape is fine, the meaning of sending both is not.
