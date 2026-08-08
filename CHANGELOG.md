@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.30.1 - 2026-08-08
+
+Documentation only; nothing in the binary changed.
+
+### Fixed
+
+- **The deployment guide implied a drain you cannot watch.** It described what
+  a draining instance refuses — REST and the OAuth machine plane with
+  `503 {"code":"draining"}`, `/mcp` with a JSON-RPC error frame — and told an
+  operator to read the 503 series off `/metrics` during a deploy. Both are
+  true and neither is observable the way the page suggested.
+
+  Closing the listener is part of draining, so a client opening a _new_
+  connection during the window is refused by the kernel and gets a transport
+  error rather than a 503. The refusals reach a client that already holds a
+  connection, and the window itself lasts only as long as the workers take to
+  stop. Measured on an idle production instance at roughly 40 ms sampling
+  against loopback, a restart produced no observable 503 at all: the process
+  went from serving to not listening between two consecutive samples.
+
+  That is the design working. What it costs is a false expectation: an
+  operator who restarts a quiet installation, watches from outside, and sees
+  no 503 has not found a broken drain gate — there was nothing in flight, so
+  nothing was refused. The page now says so, says the refusal shapes earn
+  their keep exactly when the instance is busy, and points at the journal
+  (`draining` with its signal, one `mcp session evicted … "reason":"shutdown"`
+  per live session) as the place a drain is actually confirmed.
+
 ## 0.30.0 - 2026-08-08
 
 0.29.0 turned the set of revision markers that make a page a reference target

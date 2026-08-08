@@ -126,12 +126,27 @@ WantedBy=multi-user.target
   registration, token mint and revocation) with `503 {"code":"draining"}`, and
   `/mcp` with a 503 carrying a JSON-RPC error frame, which is what an MCP
   client can read as "retry elsewhere".
+- **Who actually sees those refusals.** They reach a client that already holds
+  a connection. Closing the listener is part of draining, so a client that
+  opens a _new_ connection during the window is refused by the kernel and gets
+  a transport error, not a 503 — and how long the window stays open at all is
+  however long the workers take to stop. Measured on an idle production
+  instance at ~40 ms sampling, a restart produced no observable 503 on a fresh
+  connection: the process went from serving to not listening between two
+  samples. That is the design working, not a fault. It does mean the refusal
+  shapes are worth something exactly when the instance is busy — which is when
+  they matter — and that you cannot demonstrate them by restarting a quiet
+  installation and watching from outside.
 - Reading `/metrics` during a deploy: refusals are `status="503"` on the
   refusing route's own label (`/mcp`, `/v1/oauth/token`, or a REST template),
   alongside `route="/ready" status="503"`. The `(unmatched)` bucket is
   deliberately unaffected — a path that matches nothing 404s draining or not,
   because nothing was refused — so drain volume is the 503 series, never a
-  delta in 404s.
+  delta in 404s. On an idle instance expect that series to be empty: nothing
+  was in flight, so nothing was refused, and an absent 503 series is not
+  evidence the drain gate failed to run. The journal is where a drain is
+  confirmed: the `draining` line naming its signal, and one session-evicted
+  line carrying `"reason":"shutdown"` for every live MCP session.
 
 A typical deploy: download the release binary, verify `SHA256SUMS`, move it
 into place atomically (keep a `.prev` for rollback), restart the unit, then
