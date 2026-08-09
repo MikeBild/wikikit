@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import type { Db } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import {
   ConflictError,
   ForbiddenError,
@@ -78,7 +79,16 @@ function stubDb(tables: Record<string, Record<string, unknown>[]>): Db {
 
 function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
   return {
-    config: { llmConfigured: true, publicUrl: 'https://wikikit.test' } as Config,
+    // The markers are named in every one of these `as Config` casts: the field
+    // is required and the reads no longer default, so a cast that omits it hands
+    // a tool `undefined` markers, which fails inside the SQL builder instead of
+    // at the boundary. The cast is the way past the compiler, so it is the one
+    // place left that has to remember.
+    config: {
+      llmConfigured: true,
+      publicUrl: 'https://wikikit.test',
+      scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    } as Config,
     db: stubDb({ wk_spaces: [{ id: 'space-1', slug: 'main' }] }),
     ingest: {
       enqueue: async () => ({ ingest_id: '11111111-1111-4111-8111-111111111111' }),
@@ -237,7 +247,13 @@ describe('execute — transport duties', () => {
 
   test('wikikit_guide returns the embedded, code-versioned system scope without a database lookup', async () => {
     const result = (await byName.wikikit_guide!.execute(
-      deps({ config: { root: import.meta.dir, version: '1.2.3-test' } as Config }),
+      deps({
+        config: {
+          root: import.meta.dir,
+          version: '1.2.3-test',
+          scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+        } as Config,
+      }),
       principal(),
       {},
     )) as { scope: string; resource_uri: string; version: string; markdown: string }
@@ -283,7 +299,7 @@ describe('execute — transport duties', () => {
 
   test('wikikit_ingest without ANTHROPIC_API_KEY → llm_not_configured, nothing queued', async () => {
     let enqueued = 0
-    const d = deps({ config: { llmConfigured: false } as Config })
+    const d = deps({ config: { llmConfigured: false, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS } as Config })
     d.ingest.enqueue = async () => {
       enqueued += 1
       return { ingest_id: 'x' }

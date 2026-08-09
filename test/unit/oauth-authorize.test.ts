@@ -7,6 +7,7 @@
 // lives in test/integration/oauth.test.ts.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
@@ -111,6 +112,8 @@ function testConfig(overrides: Partial<Config> = {}): Config {
     logLevel: 'error',
     version: '1.2.3-test',
     llmConfigured: false,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
     ...overrides,
   }
 }

@@ -11,6 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Db } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { search } from '../../src/query/search.ts'
 
 const fixturesDir = join(dirname(dirname(fileURLToPath(import.meta.url))), 'fixtures', 'retrieval')
@@ -137,7 +138,7 @@ function recallAtK(slugs: string[], relevant: string[], k: number): number {
 export async function runEval(db: Db, spaceId: string, golden: Golden): Promise<EvalResult> {
   const queries: QueryResult[] = []
   for (const entry of golden.queries) {
-    const hits = await search(db, spaceId, { q: entry.q, limit: 50 })
+    const hits = await search(db, spaceId, { q: entry.q, limit: 50 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const slugs: string[] = []
     for (const hit of hits) {
       if (hit.slug && !slugs.includes(hit.slug)) slugs.push(hit.slug)

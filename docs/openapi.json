@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.31.0",
+    "version": "0.32.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -4064,6 +4064,15 @@
                   },
                   "required": ["claims", "uncited_claims", "sources"],
                   "additionalProperties": false
+                },
+                "not_measured": {
+                  "type": "object",
+                  "properties": {
+                    "reason": { "type": "string", "enum": ["reference_target"] },
+                    "withheld_claims": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["reason"],
+                  "additionalProperties": false
                 }
               },
               "required": ["slug", "title", "summary", "rev", "updated_at"],
@@ -4253,6 +4262,15 @@
                     "sources": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
                   },
                   "required": ["claims", "uncited_claims", "sources"],
+                  "additionalProperties": false
+                },
+                "not_measured": {
+                  "type": "object",
+                  "properties": {
+                    "reason": { "type": "string", "enum": ["reference_target"] },
+                    "withheld_claims": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["reason"],
                   "additionalProperties": false
                 },
                 "space": { "type": "string" }

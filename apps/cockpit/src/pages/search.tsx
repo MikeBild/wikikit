@@ -20,8 +20,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
 import type { FilterSpec } from '@/lib/url-filters'
-import { rendersAsDash, type EvidenceCounts } from '@/pages/page.logic'
-import { RESULT_LIMIT, hitEvidence, resultCeilingNote, searchMeasuresEvidence } from '@/pages/search.logic'
+import { rendersAsDash, type EvidenceCounts, type NotMeasured } from '@/pages/page.logic'
+import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
 
 /**
  * Search, in two tiers — and the tier is the whole point.
@@ -64,6 +64,7 @@ import { RESULT_LIMIT, hitEvidence, resultCeilingNote, searchMeasuresEvidence } 
  */
 type SearchHit = Awaited<ReturnType<typeof wk.search.run>>['hits'][number] & {
   evidence?: EvidenceCounts | null
+  not_measured?: NotMeasured | null
 }
 
 /** `zSearchQuery`: `q` is 1–500 chars. `RESULT_LIMIT` and its ceiling note live in `search.logic.ts`. */
@@ -281,13 +282,6 @@ function Results({
   // no evidence line anywhere, and a heading promising one would send the reader
   // hunting for something that is legitimately absent.
   const explainsEvidence = approved.some((hit) => hit.kind === 'concept')
-  // The one fact about this response that no single card can carry: whether the
-  // server measured evidence at all. Derived once here, over `hits` and not over
-  // `approved`, because it is a property of the answer rather than of a section
-  // — and handed down the tree, because a card that asked the question itself
-  // would have only itself to ask and would go on saying the vaguer of the two
-  // sentences forever (`searchMeasuresEvidence`).
-  const measured = searchMeasuresEvidence(hits)
 
   return (
     <div className="flex flex-col gap-6">
@@ -317,7 +311,7 @@ function Results({
           </div>
           <ul className="flex flex-col gap-3" data-testid="search-approved">
             {approved.map((hit, index) => (
-              <ApprovedHit key={hitKey(hit, index)} hit={hit} index={index} space={space} measured={measured} />
+              <ApprovedHit key={hitKey(hit, index)} hit={hit} index={index} space={space} />
             ))}
           </ul>
         </section>
@@ -357,18 +351,7 @@ function Results({
   )
 }
 
-function ApprovedHit({
-  hit,
-  index,
-  space,
-  measured,
-}: {
-  hit: SearchHit
-  index: number
-  space: string
-  /** Whether the RESPONSE this hit arrived in measured evidence anywhere. */
-  measured: boolean
-}) {
+function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; space: string }) {
   return (
     <li className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -400,7 +383,7 @@ function ApprovedHit({
           what a reader weighs once they have seen the match, and it holds the
           same last line on every card so a list of ten can be scanned down that
           one column rather than read. */}
-      <PageEvidenceLine hit={hit} index={index} measured={measured} />
+      <PageEvidenceLine hit={hit} index={index} />
     </li>
   )
 }
@@ -415,6 +398,7 @@ function ApprovedHit({
  *   Evidence: 12 claims · 4 sources  [2 uncited]   a page with holes in it
  *   Evidence: [No claims]                          a hand-written page, backed by nothing
  *   Evidence: —                                    a reference target, OR counts that never arrived
+ *   Evidence: —  2 claims not counted              a reference target that holds claims
  *
  * The word "Evidence:" is here and is not on the index, where the column header
  * carries it — a bare "12 claims · 4 sources" under a paragraph of excerpt would
@@ -425,12 +409,15 @@ function ApprovedHit({
  * token beside "how does the wiki know this" is exactly what CUI-AI-1 forbids.
  * The plain count is the whole statement.
  *
- * The em dash is ONE glyph over two different facts, and until now this card
- * printed one sentence under it — the wrong one, on every reference target in a
- * response whose other hits carried counts. That is a screen stating something
- * false about a page, which is precisely what the release that split the two
- * states apart exists to stop; the fix is not a new field but the response
- * itself, read by `searchMeasuresEvidence` and handed in as `measured`.
+ * The em dash is ONE glyph over three different facts, and the card no longer
+ * works out which by looking at its neighbours. It used to: a response-wide
+ * boolean, derived from whether any OTHER hit carried counts, was threaded down
+ * through two components to tell a reference target from an old build. The
+ * server states it on the hit now — the same `not_measured` object the index row
+ * carries — so the prop, the derivation and the drift between the two surfaces
+ * are gone. The third fact is the one that had no way of being said at all: a
+ * reference target that holds visible claims, whose count is printed beside the
+ * dash and nowhere given a badge, because the index is not the linter.
  *
  * And the sentence is now reachable by a reader who can SEE the dash as well,
  * on the same reasoning the pages index already settled: `sr-only` alone made
@@ -447,8 +434,8 @@ function ApprovedHit({
  * a list of cards would otherwise reach an `aria-hidden` glyph and hear a line
  * that reads "Evidence:" and stops.
  */
-function PageEvidenceLine({ hit, index, measured }: { hit: SearchHit; index: number; measured: boolean }) {
-  const evidence = hitEvidence(hit, measured)
+function PageEvidenceLine({ hit, index }: { hit: SearchHit; index: number }) {
+  const evidence = hitEvidence(hit)
   if (evidence === null) return null
 
   const testId = `search-hit-${index}-evidence`
@@ -479,6 +466,20 @@ function PageEvidenceLine({ hit, index, measured }: { hit: SearchHit; index: num
             <TooltipContent data-testid={`${testId}-reason`}>{evidence.reading}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        {/* The withheld count, on `reference_withheld` and no other level. Plain
+            muted text on the same line — no badge, no tone, no advice: what a
+            reader needs from this screen is that a real number exists and is not
+            being shown, and what to do about it belongs to the lint report,
+            which reports the same count with both readings of the cause.
+            aria-hidden because the sr-only sentence above already spells it. */}
+        {evidence.detail ? (
+          <>
+            {' '}
+            <span aria-hidden="true" data-testid={`${testId}-withheld`}>
+              {evidence.detail}
+            </span>
+          </>
+        ) : null}
       </p>
     )
 

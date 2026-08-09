@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { LINT_SEVERITY, lintSpace } from '../../src/domain/lint.ts'
 
 interface Call {
@@ -137,7 +138,7 @@ describe('lintSpace', () => {
 
   test('collects every rule, orders error → warn → info and counts correctly', async () => {
     const { db, calls } = fakeDb(routes)
-    const report = await lintSpace(db, 'space-1')
+    const report = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
 
     expect(report.findings.map((finding) => finding.rule)).toEqual([
       'contradictions',
@@ -168,7 +169,7 @@ describe('lintSpace', () => {
 
   test('finding shapes carry the contract fields', async () => {
     const { db } = fakeDb(routes)
-    const { findings } = await lintSpace(db, 'space-1')
+    const { findings } = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const byRule = new Map(findings.map((finding) => [finding.rule, finding]))
 
     expect(byRule.get('contradictions')).toMatchObject({
@@ -234,7 +235,10 @@ describe('lintSpace', () => {
 
   test('a clean space reports zero findings and zero counts', async () => {
     const { db } = fakeDb([])
-    expect(await lintSpace(db, 'space-1')).toEqual({ findings: [], counts: { error: 0, warn: 0, info: 0 } })
+    expect(await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).toEqual({
+      findings: [],
+      counts: { error: 0, warn: 0, info: 0 },
+    })
   })
 
   test('contradictions pairs ALL visible claims (0021: context + interval + normalized object)', async () => {
@@ -243,7 +247,7 @@ describe('lintSpace', () => {
     // still see the frame; the pairwise join covers verified+disputed on
     // BOTH sides and mirrors the apply-time flip-5 semantics exactly.
     const { db, calls } = fakeDb(routes)
-    await lintSpace(db, 'space-1')
+    await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const sql = calls.find((call) => call.sql.includes('a.id < b.id'))!.sql
     expect(sql).toContain("a.status IN ('verified', 'disputed')")
     expect(sql).toContain("b.status IN ('verified', 'disputed')")
@@ -256,7 +260,7 @@ describe('lintSpace', () => {
   test('a space with no functional predicates reports no frame contradictions', async () => {
     const noFunctions = routes.map((route, index) => (index === 0 ? { ...route, rows: [{ settings: {} }] } : route))
     const { db, calls } = fakeDb(noFunctions)
-    const report = await lintSpace(db, 'space-1')
+    const report = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(report.findings.some((finding) => finding.rule === 'contradictions')).toBe(false)
     expect(calls.some((call) => call.sql.includes('GROUP BY cl.subject, cl.predicate'))).toBe(false)
   })

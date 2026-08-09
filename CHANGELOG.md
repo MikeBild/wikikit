@@ -6,6 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.32.0 - 2026-08-09
+
+Three entries from 0.31.0's Known, and the first of them was made by 0.31.0
+itself — a release that deleted a state and left the screen still able to draw
+it.
+
+### Fixed
+
+- **The index was silent about its own silence.** A reference target's
+  measurement is withheld on purpose: the marker is the deployment's statement
+  that the row is not a knowledge page, and 0.28.0 stopped reporting three
+  zeros for it. What it left was a hole. The field was simply gone, so a client
+  had to work out WHY from the rest of the response — and WikiKit's own console
+  did exactly that, reading the whole list, deciding whether the build looked
+  like one that measures, and describing every bare row accordingly.
+
+  That inference worked and was still the wrong shape, because a client
+  reconstructing a reason from an absence eventually reconstructs the wrong one.
+  It already did: a row whose `claims` arrived and whose `uncited_claims` did
+  not looked exactly like furniture, and was confidently called a reference
+  target.
+
+  The row now says it. `not_measured: {reason}` stands where `evidence` would
+  have been, on the concept list and on search hits alike, carrying
+  `withheld_claims` when the page nevertheless holds visible claims — the count
+  the measurement would have reported.
+
+  Two answers were refused. **Measuring the page after all** would undo 0.28.0:
+  the marker decides and the counts do not, which is what keeps the rule
+  readable off a single row. And **turning the index into a defect report**
+  would grow a second linter beside the first: there is no severity here, no
+  advice and no verdict. `scaffolded-claims` owns the judgement that a marked
+  page holding claims is a contradiction somebody should resolve, and reports
+  the same count from the same aggregate. What a reader gains is smaller and
+  exactly what was missing — that a real number exists and is not being shown.
+
+  One absence learned to speak; the other had nothing to say. A page that
+  stopped being readable between the ranking and the count is still simply
+  missing, because there the row genuinely is not there.
+
+- **The System card explained a provenance the server had stopped sending.**
+  0.31.0 deleted the legacy fallback and its `fallback` origin; the console kept
+  the warning tone, the legend entry and the "Nobody configured this" sentence
+  that went with it, and its test kept pinning all three. Nothing was wrong on
+  screen — the branch was unreachable from the only server this console talks
+  to — but the next reader would have believed the state existed. The console's
+  origin set is now a value held against the schema, so the two cannot drift
+  again. The unknown-origin passthrough is untouched: an origin a NEWER server
+  invents still prints itself rather than borrowing a settled one, which is a
+  different job from carrying an older one.
+
+- **A forgotten marker set was caught by a hand-written list, not by the
+  compiler.** `scaffoldingKinds` was an optional trailing option, so a new call
+  site could omit it and still typecheck; the guarantee was a source scan over
+  four boundary modules that a fifth had to be added to by hand. A list of
+  places to remember is precisely what gets forgotten. It is required now, and a
+  call site that omits it fails `tsc` — which it promptly did, on a module the
+  scan had never covered.
+
+  The built-in marker had also been written twice, once in the loader and once
+  in the domain, each pinned by its own test: moving it would have reddened one
+  suite and shipped a build whose parser honoured one marker while its
+  attribution named another. The domain owns the constant now and the loader
+  reads it. Exactly one test still writes the string out in full, and says why
+  in the file: a single source guarantees the two MOVE TOGETHER, never that the
+  value is still right, and renaming it silently would leave every installation
+  whose pages carry the old marker without reference targets.
+
+### Known
+
+0.31.0 carried four bullets. Three close above. The fourth stands:
+
+- **A scaffolding-marked page that does hold claims is still not measured.**
+  Unchanged and unchanged on purpose — the marker decides, the counts do not.
+  What ends here is the silence around it: the index now names the withheld
+  count instead of leaving a reader to find it in the lint report. An operator
+  can still withhold a real measurement from their own index by declaring a
+  marker that pages with claims carry; they can no longer do it without the
+  index saying so.
+
 ## 0.31.0 - 2026-08-09
 
 0.30.0 could describe the shipped fallback but not delete it: one deployment's

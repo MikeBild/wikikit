@@ -426,6 +426,60 @@ const zEvidence = z.object({
   sources: z.number().int().nonnegative(),
 })
 
+/**
+ * Why `evidence` is not there — declared once and served, like `zEvidence`
+ * itself, by BOTH surfaces that report the measurement: the page index below and
+ * the concept hits of `/search`.
+ *
+ * It exists because absence alone is not an answer. A reference target's
+ * measurement is withheld on purpose (the marker is the deployment's statement
+ * that the row is not a knowledge page), but until 0.31.0 the row simply had a
+ * hole in it — the field was gone and nothing stood in its place, so a client
+ * could only INFER the reason from the rest of the response, and WikiKit's own
+ * console did exactly that. A guess about why a number is missing is not
+ * something a server should make its clients make when the server is the one
+ * that knows.
+ *
+ * THIS IS NOT THE MEASUREMENT UNDER ANOTHER NAME. It carries no
+ * `uncited_claims` and no `sources`, and it never will: "how well is this page
+ * backed" is not a question a reference target has an answer to, and answering
+ * it here would undo the release that stopped answering it at all.
+ *
+ * AND IT IS NOT A FINDING. No severity, no advice, no verdict. The index
+ * answers "how well is this page backed" and must not grow into a second
+ * linter — `scaffolded-claims` (zLintResponse below) owns the judgement that a
+ * marked page holding claims is a contradiction somebody should resolve, and
+ * reports the same count from the same aggregate. What this object adds is that
+ * the absence says what it is.
+ */
+const zNotMeasured = z.object({
+  /**
+   * A CATEGORY, never the marker literal — which `agent_meta.kind` made this row
+   * furniture is one installation's private tag, and handing it to every client
+   * is one step from "write the page with that kind and the complaints stop"
+   * (see `scaffolded-claims`). An operator who needs the set has
+   * `GET /v1/installation/knowledge-config`.
+   *
+   * One value today, declared as an enum rather than a free string so a client
+   * that renders a sentence per reason fails loudly when a second one appears
+   * instead of silently deciding what an unknown reason means.
+   */
+  reason: z.enum(['reference_target']),
+  /**
+   * How many visible claims the withheld measurement would have counted — the
+   * SAME aggregate `evidence.claims` comes from, so the index can never report a
+   * number the page read or the lint report disagrees with.
+   *
+   * OPTIONAL, and absent is the common case: on an ordinary reference target
+   * nothing is being withheld, so there is no number, and a `0` here would
+   * re-create exactly the meaningless zero that removing `evidence` from these
+   * rows got rid of. Present only where the page does hold visible claims, and
+   * there it says that a real count exists and is not being shown — a fact about
+   * the INDEX, not a measurement of the knowledge.
+   */
+  withheld_claims: z.number().int().positive().optional(),
+})
+
 export const zConceptListResponse = z.object({
   items: z.array(
     z.object({
@@ -449,6 +503,12 @@ export const zConceptListResponse = z.object({
       // the object is present all three numbers are measured and `claims: 0`
       // means the page cites nothing — the finding, not the absence of one.
       evidence: zEvidence.optional(),
+      // Optional in exactly the way `evidence` is, and the two are a PAIR: a row
+      // carries one or the other, never both and never neither. That is what
+      // makes the absence self-describing — a client never has to work out from
+      // its neighbours which kind of nothing it is holding, which is precisely
+      // what a client had to do while this field did not exist.
+      not_measured: zNotMeasured.optional(),
     }),
   ),
   next_after: z.string().nullable(),
@@ -532,6 +592,18 @@ export const zSearchResponse = z.object({
       // the field IS served it is still three measured integers, never null:
       // `claims: 0` means the page cites nothing, and absence never means zero.
       evidence: zEvidence.optional(),
+      // The same pair the index row carries, from the same read — a concept hit
+      // on a reference target says so here, and says how much is being withheld,
+      // in the identical object. Two surfaces answering one question about one
+      // page must not answer it in two shapes; that is why `zEvidence` is one
+      // declaration and why this is too.
+      //
+      // A concept hit whose page stopped being readable between the ranking and
+      // the count carries NEITHER field. That silence has no reason attached on
+      // purpose: there is no readable row left to describe, so the wiki has
+      // nothing to say about it, and a hit is not the place to explain that a
+      // page went away.
+      not_measured: zNotMeasured.optional(),
       // Provenance (0023): which space produced the hit. Always present —
       // equals the request space for local hits.
       space: z.string(),

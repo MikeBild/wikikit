@@ -32,7 +32,7 @@ import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import type { ClaimStatus } from '../../src/domain/claims.ts'
-import { conceptEvidenceBySlug, listConcepts } from '../../src/domain/concepts.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS, conceptReadingsBySlug, listConcepts } from '../../src/domain/concepts.ts'
 import { search, type SearchHit } from '../../src/query/search.ts'
 import { countingPool } from '../helpers/counting-pool.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
@@ -113,7 +113,7 @@ async function seedPage(slug: string, claims: SeedClaim[], kind?: string): Promi
 
 /** The list's answer for one slug — the number the hit has to match. */
 async function listEvidence(slug: string): Promise<SearchHit['evidence']> {
-  const page = await listConcepts(db, spaceId, { limit: 200 })
+  const page = await listConcepts(db, spaceId, { limit: 200 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
   return page.items.find((item) => item.slug === slug)?.evidence
 }
 
@@ -183,7 +183,12 @@ describe('search evidence (integration)', () => {
     // one surface beside "3 claims" on the other does not read as two code
     // paths, it reads as a wiki that does not know what it holds. Both numbers
     // come from EVIDENCE_LATERAL; this asserts that they arrive equal.
-    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const hits = await search(
+      db,
+      spaceId,
+      { q: QUERY, kind: 'concept' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(hits.length).toBeGreaterThanOrEqual(3)
     for (const hit of hits) {
       expect(hit.evidence, hit.slug ?? '').toEqual(await listEvidence(hit.slug!))
@@ -201,7 +206,12 @@ describe('search evidence (integration)', () => {
     // same evidence. And the hand-written page is the state this whole feature
     // exists to surface: three zeros, present, never an absent object a console
     // would render as "unknown".
-    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const hits = await search(
+      db,
+      spaceId,
+      { q: QUERY, kind: 'concept' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     const notes = conceptHit(hits, 'thermostat-notes')
     expect(notes.evidence).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
     expect(notes.evidence).toBeDefined()
@@ -220,7 +230,12 @@ describe('search evidence (integration)', () => {
     // search advertises evidence for a page whose reader sees none: getConcept
     // serves visible statuses only, so those claims are invisible on the page
     // itself. Two surfaces, one page, opposite answers.
-    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const hits = await search(
+      db,
+      spaceId,
+      { q: QUERY, kind: 'concept' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(conceptHit(hits, 'thermostat-staged').evidence).toEqual({
       claims: 0,
       uncited_claims: 0,
@@ -235,7 +250,12 @@ describe('search evidence (integration)', () => {
     // approved knowledge: an evidence summary there would dress an unreviewed
     // archived paragraph in the badge of a curated page, which is the worst
     // misreading this field admits.
-    const hits = await search(db, spaceId, { q: QUERY, mode: 'approved_then_sources', limit: 50 })
+    const hits = await search(
+      db,
+      spaceId,
+      { q: QUERY, mode: 'approved_then_sources', limit: 50 },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     const claims = hits.filter((hit) => hit.kind === 'claim')
     const chunks = hits.filter((hit) => hit.kind === 'source_chunk')
     expect(claims.length).toBeGreaterThan(0)
@@ -258,7 +278,12 @@ describe('search evidence (integration)', () => {
     // reported three zeros for the target would put it beside the hand-written
     // page as though the two were the same finding; one that suppressed the
     // object for every concept hit would lose the finding entirely.
-    const hits = await search(db, spaceId, { q: QUERY, kind: 'concept' })
+    const hits = await search(
+      db,
+      spaceId,
+      { q: QUERY, kind: 'concept' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     const reference = conceptHit(hits, 'thermostat-reference')
     expect(reference.evidence).toBeUndefined()
     expect('evidence' in reference).toBe(false)
@@ -271,15 +296,33 @@ describe('search evidence (integration)', () => {
     expect(await listEvidence('thermostat-reference')).toBeUndefined()
   })
 
-  it('the aggregate itself declines to answer for a reference target, and says so by omission', async () => {
-    // The mechanism under the test above, asked of conceptEvidenceBySlug
-    // directly — the same gate an unreadable page passes through below. Absence
-    // in the map is the ONLY way this function can say "not measured": it
-    // returns numbers or nothing, so a caller that finds the slug missing must
-    // leave `SearchHit.evidence` unset rather than invent a zero.
-    const measured = await conceptEvidenceBySlug(db, spaceId, ['thermostat-reference', 'thermostat-notes'])
-    expect(measured.has('thermostat-reference')).toBe(false)
-    expect(measured.get('thermostat-notes')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+  it('the aggregate answers for a reference target — with a reason, not with a hole', async () => {
+    // This assertion INVERTED, and the inversion is the change. Absence used to
+    // be the only way this function could say "not measured", so a reference
+    // target and a page that had stopped being readable came back identically:
+    // two different facts under one silence, and a caller could not tell them
+    // apart to describe either. The row now comes back present, carrying the
+    // reason the wiki already knew.
+    //
+    // What did NOT change is the other absence, pinned immediately below: an
+    // unreadable page is still missing from the map, because there the row
+    // genuinely is not there. One of the two absences learned to speak; the
+    // other had nothing to say.
+    const measured = await conceptReadingsBySlug(db, spaceId, ['thermostat-reference', 'thermostat-notes'], {
+      scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    })
+    const reference = measured.get('thermostat-reference')
+    expect(reference).toBeDefined()
+    expect(reference?.not_measured?.reason).toBe('reference_target')
+    // And never the measurement under another name: the reason object carries no
+    // `sources` and no `uncited_claims`, because "how well is this page backed"
+    // is not a question a reference target has an answer to.
+    expect(reference?.evidence).toBeUndefined()
+    expect(Object.keys(reference?.not_measured ?? {})).not.toContain('sources')
+    expect(Object.keys(reference?.not_measured ?? {})).not.toContain('uncited_claims')
+
+    // A measured page is untouched by any of it, zeros included.
+    expect(measured.get('thermostat-notes')).toEqual({ evidence: { claims: 0, uncited_claims: 0, sources: 0 } })
   })
 
   it('an unreadable page is ABSENT from the aggregate, not a measured zero', async () => {
@@ -290,7 +333,7 @@ describe('search evidence (integration)', () => {
     // being readable between the ranking and the count comes back absent, so
     // that `0` keeps meaning "measured, and it cites nothing".
     //
-    // This is asked of conceptEvidenceBySlug directly because it cannot be
+    // This is asked of conceptReadingsBySlug directly because it cannot be
     // asked through search(): an unreadable page has no search vector and can
     // never rank, so the only way to reach the gate is to name the slug. Both
     // halves are asserted in one call — without the readable-page JOIN the
@@ -302,9 +345,11 @@ describe('search evidence (integration)', () => {
       title: 'thermostat-unreadable',
     })
     expect(orphan!.id).toBeString()
-    const measured = await conceptEvidenceBySlug(db, spaceId, ['thermostat-unreadable', 'thermostat-notes'])
+    const measured = await conceptReadingsBySlug(db, spaceId, ['thermostat-unreadable', 'thermostat-notes'], {
+      scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    })
     expect(measured.has('thermostat-unreadable')).toBe(false)
-    expect(measured.get('thermostat-notes')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
+    expect(measured.get('thermostat-notes')).toEqual({ evidence: { claims: 0, uncited_claims: 0, sources: 0 } })
   })
 
   it('the cost is one extra statement per search, and it does not grow with the hits', async () => {
@@ -317,11 +362,21 @@ describe('search evidence (integration)', () => {
     const counted = createPostgres({ databaseUrl } as Config, { pool })
     try {
       statements.length = 0
-      const many = await search(counted.db, spaceId, { q: QUERY, kind: 'concept', limit: 50 })
+      const many = await search(
+        counted.db,
+        spaceId,
+        { q: QUERY, kind: 'concept', limit: 50 },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       const atMany = statements.length
 
       statements.length = 0
-      const one = await search(counted.db, spaceId, { q: QUERY, kind: 'concept', limit: 1 })
+      const one = await search(
+        counted.db,
+        spaceId,
+        { q: QUERY, kind: 'concept', limit: 1 },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       const atOne = statements.length
 
       expect(many.length).toBeGreaterThan(one.length)
@@ -333,11 +388,16 @@ describe('search evidence (integration)', () => {
       // all — the claim-filtered and the missed search stay exactly as cheap as
       // they were before this feature existed.
       statements.length = 0
-      await search(counted.db, spaceId, { q: QUERY, kind: 'claim' })
+      await search(counted.db, spaceId, { q: QUERY, kind: 'claim' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
       expect(statements.length).toBe(1)
 
       statements.length = 0
-      await search(counted.db, spaceId, { q: 'nothing-in-this-space-matches-this' })
+      await search(
+        counted.db,
+        spaceId,
+        { q: 'nothing-in-this-space-matches-this' },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       expect(statements.length).toBe(1)
     } finally {
       await pool.end()
@@ -353,7 +413,12 @@ describe('search evidence (integration)', () => {
     const counted = createPostgres({ databaseUrl } as Config, { pool })
     try {
       statements.length = 0
-      const hits = await search(counted.db, spaceId, { q: QUERY, limit: 50 })
+      const hits = await search(
+        counted.db,
+        spaceId,
+        { q: QUERY, limit: 50 },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       const distinctConcepts = new Set(hits.flatMap((hit) => (hit.kind === 'concept' ? [hit.slug] : []))).size
       const aggregates = statements.filter((sql) => sql.includes('CROSS JOIN LATERAL'))
       expect(aggregates.length).toBe(1)

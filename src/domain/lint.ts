@@ -28,7 +28,10 @@ import { EVIDENCE_LATERAL, notScaffolding, type ScaffoldingOptions } from './con
 // It takes the installation's markers as an argument because only part of that
 // set is WikiKit's own (concepts.ts explains which part and why), so the rules
 // below thread `options.scaffoldingKinds` down from lintSpace rather than
-// closing over a module constant.
+// closing over a module constant. The thread is unbroken by the type system:
+// `ScaffoldingOptions` requires the field, `lintSpace` requires the bag, and
+// each rule below takes `readonly string[]` rather than `| undefined`, so a
+// rule cannot be handed nothing and neither can lintSpace.
 //
 // What holds HERE: every page-level rule that reports a FAULT excludes them —
 // orphan-concepts, unsourced-concepts, empty-concepts — because a rule that
@@ -283,7 +286,7 @@ async function staleClaims(db: Db, spaceId: string): Promise<LintFinding[]> {
 // A readable concept no active relation touches (either direction) is
 // unreachable by graph navigation — usually a missed relation, occasionally a
 // genuinely standalone page (hence warn, not error).
-async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
+async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
@@ -350,11 +353,7 @@ async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[] 
 // the concept list renders. A second hand-written copy could drift over the
 // visible statuses or a forgotten DISTINCT and then tell an operator that a
 // page the index shows with `sources: 1` rests on nothing.
-async function unsourcedConcepts(
-  db: Db,
-  spaceId: string,
-  kinds: readonly string[] | undefined,
-): Promise<LintFinding[]> {
+async function unsourcedConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string; claims: number; sources: number }>(
     `WITH page AS (
        SELECT c.id, c.slug
@@ -554,7 +553,7 @@ async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
 // the linter stops complaining". The operator does not need it here either: they
 // have the slug, and the markers their own installation honours are one admin
 // request away.
-async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
+async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string; claims: number }>(
     // The inverse of every other page-level rule's test, written as the
     // negation of the SAME builder rather than as a second fragment listing the
@@ -612,7 +611,7 @@ async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[
 
 // Readable concept with zero visible claims: prose without a single
 // verifiable statement — fine for a stub, worth knowing about.
-async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
+async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
@@ -981,7 +980,7 @@ export async function lintProposal(
  * of output is always the worst problem; counts let CI gate with a single
  * jq expression (plan §13.F).
  */
-export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOptions = {}): Promise<LintReport> {
+export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOptions): Promise<LintReport> {
   const kinds = options.scaffoldingKinds
   // Sequential on purpose: lint runs on demand over one pool — eight parallel
   // queries would hog connections for a diagnostics endpoint.

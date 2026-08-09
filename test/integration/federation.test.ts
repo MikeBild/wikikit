@@ -11,7 +11,7 @@ import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts
 import { runMigrations } from '../../src/db/migrate.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createProposal } from '../../src/domain/proposals.ts'
-import { getConcept } from '../../src/domain/concepts.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS, getConcept } from '../../src/domain/concepts.ts'
 import { lintSpace } from '../../src/domain/lint.ts'
 import { searchAcrossImports } from '../../src/query/search.ts'
 
@@ -124,7 +124,12 @@ describe('cross-space federation (integration)', () => {
     const [platform] = await db.select<{ id: string; slug: string; settings: Record<string, unknown> }>('wk_spaces', {
       id: `eq.${platformId}`,
     })
-    const result = await searchAcrossImports(db, platform!, { q: 'Stilregeln' })
+    const result = await searchAcrossImports(
+      db,
+      platform!,
+      { q: 'Stilregeln' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(result.searched_spaces).toEqual(['platform', 'blog-de'])
     expect(result.hits.length).toBeGreaterThanOrEqual(1)
     expect(result.hits[0]!.space).toBe('blog-de')
@@ -133,7 +138,7 @@ describe('cross-space federation (integration)', () => {
 
   it('the lint rule flags dangling and undeclared [[space:slug]] links', async () => {
     await approveConcept(platformId, 'linked-notes', '# Notes\n\nSee [[blog-de:missing-page]] and [[nowhere:thing]].')
-    const report = await lintSpace(db, platformId)
+    const report = await lintSpace(db, platformId, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const findings = report.findings.filter((finding) => finding.rule === 'broken-cross-space-links')
     const messages = findings.map((finding) => finding.message).join('\n')
     expect(messages).toContain('blog-de:missing-page')

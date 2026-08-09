@@ -11,6 +11,7 @@ import { describe, expect, test } from 'bun:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createApp, type App } from '../../src/app.ts'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createLogger } from '../../src/logger.ts'
 import { createMetrics, type Metrics } from '../../src/metrics.ts'
@@ -76,6 +77,8 @@ function testConfig(): Config {
     logLevel: 'error',
     version: '1.2.3-test',
     llmConfigured: false,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
   }
 }
 

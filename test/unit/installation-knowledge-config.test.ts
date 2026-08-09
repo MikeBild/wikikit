@@ -156,7 +156,7 @@ describe('effective values and where each came from', () => {
     // the default is deleted, and `fallback` is gone from the schema with it —
     // so a shipped build honours WikiKit's own marker and nothing else.
     expect(body.scaffolding_kinds.items).toEqual([{ kind: BUILT_IN, origin: 'built_in' }])
-    expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds!])
+    expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds])
   })
 
   test('the retired third origin is no longer a value the schema will carry', async () => {
@@ -191,7 +191,7 @@ describe('effective values and where each came from', () => {
       { kind: 'acme-relation-import', origin: 'configured' },
       { kind: 'acme-legacy-stub', origin: 'configured' },
     ])
-    expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds!])
+    expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds])
   })
 
   test('configuring exactly the built-in still reports that the variable was written', async () => {
@@ -205,14 +205,16 @@ describe('effective values and where each came from', () => {
     expect(body.scaffolding_kinds.configured).toBe(true)
   })
 
-  test('a config carrying no markers reports what the reads then actually use', async () => {
-    // Config.scaffoldingKinds is optional and the domain reads default to the
-    // built-in set when it is absent. The report must agree with the behaviour
-    // it describes rather than claim the installation recognises nothing.
-    const { body } = await readReport({ version: '0.0.0-test' } as Config)
-    expect(body.scaffolding_kinds.items).toEqual([{ kind: BUILT_IN, origin: 'built_in' }])
-    expect(body.scaffolding_kinds.configured).toBe(false)
-  })
+  // THE TEST THAT USED TO CLOSE THIS BLOCK, and why nothing replaces it. It
+  // drove the handler with `{ version: '0.0.0-test' } as Config` — a config
+  // carrying no markers at all — and asserted the report answered with the
+  // built-in set anyway, because both the handler and the domain reads
+  // defaulted that way when the field was absent. `Config.scaffoldingKinds` is
+  // required now and the handler's `?? BUILT_IN_SCAFFOLDING_KINDS` is gone with
+  // it, so the state that test described is one only a cast can build: it was
+  // asserting that a default answered for an installation, which is precisely
+  // what this release removed. `loadConfig()` always produces the markers
+  // (WikiKit's own at minimum) and every test above reads them from it.
 })
 
 // ---------------------------------------------------------------------------

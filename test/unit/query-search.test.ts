@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { search, searchAcrossImports } from '../../src/query/search.ts'
 
 interface Call {
@@ -52,7 +53,7 @@ const CHUNK_ROW = {
 describe('search', () => {
   test('goes through the whitelisted wk_search RPC with the documented defaults', async () => {
     const { db, calls } = fakeDb()
-    await search(db, SPACE, { q: 'okf' })
+    await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(calls.length).toBe(1)
     // The pinned statement from the FUNCTIONS registry — search must never
     // hand-write FTS SQL of its own (visibility rules live in the function).
@@ -64,13 +65,13 @@ describe('search', () => {
 
   test('passes kind and limit through when given', async () => {
     const { db, calls } = fakeDb()
-    await search(db, SPACE, { q: 'okf', kind: 'claim', limit: 5 })
+    await search(db, SPACE, { q: 'okf', kind: 'claim', limit: 5 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(calls[0]!.values).toEqual([SPACE, 'okf', 'claim', 5])
   })
 
   test('approved_only (default) never touches wk_search_sources', async () => {
     const { db, calls } = fakeDb()
-    await search(db, SPACE, { q: 'okf' })
+    await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
   })
 
@@ -91,7 +92,7 @@ describe('search', () => {
         ],
       },
     ])
-    const hits = await search(db, SPACE, { q: 'okf' })
+    const hits = await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(hits).toEqual([
       {
         kind: 'concept',
@@ -129,7 +130,12 @@ describe('search', () => {
       { match: 'wk_search($1', rows: [CONCEPT_ROW] },
       { match: 'wk_search_sources($1', rows: [CHUNK_ROW] },
     ])
-    const hits = await search(db, SPACE, { q: 'okf', mode: 'approved_then_sources', limit: 7 })
+    const hits = await search(
+      db,
+      SPACE,
+      { q: 'okf', mode: 'approved_then_sources', limit: 7 },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     // Located by statement, not by call index: the evidence lookup for the
     // concept hit sits between the two tier queries, and pinning positions
     // would make every future statement look like a contract change.
@@ -154,7 +160,12 @@ describe('search', () => {
 
   test('a kind filter suppresses the source tier (kinds name the approved shapes)', async () => {
     const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [] }])
-    await search(db, SPACE, { q: 'okf', kind: 'concept', mode: 'approved_then_sources' })
+    await search(
+      db,
+      SPACE,
+      { q: 'okf', kind: 'concept', mode: 'approved_then_sources' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
   })
 
@@ -163,7 +174,12 @@ describe('search', () => {
       { match: 'wk_search($1', rows: [] },
       { match: 'wk_search_sources($1', rows: [{ ...CHUNK_ROW, title: null }] },
     ])
-    const [hit] = await search(db, SPACE, { q: 'okf', mode: 'approved_then_sources' })
+    const [hit] = await search(
+      db,
+      SPACE,
+      { q: 'okf', mode: 'approved_then_sources' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(hit!.title).toBe('## Rollout')
   })
 
@@ -174,24 +190,32 @@ describe('search', () => {
         rows: [{ kind: 'concept', concept_slug: 'a', claim_id: null, title: 'A', headline: 'h', rank: '0.25' }],
       },
     ])
-    const [hit] = await search(db, SPACE, { q: 'a' })
+    const [hit] = await search(db, SPACE, { q: 'a' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(hit!.rank).toBe(0.25)
     expect(typeof hit!.rank).toBe('number')
   })
 
   test('rejects invalid args before any SQL (zod at the boundary)', async () => {
     const { db, calls } = fakeDb()
-    await expect(search(db, SPACE, { q: '' })).rejects.toThrow()
-    await expect(search(db, SPACE, { q: 'x', limit: 0 })).rejects.toThrow()
-    await expect(search(db, SPACE, { q: 'x', limit: 51 })).rejects.toThrow()
-    await expect(search(db, SPACE, { q: 'x', kind: 'bogus' as never })).rejects.toThrow()
-    await expect(search(db, SPACE, { q: 'x', mode: 'everything' as never })).rejects.toThrow()
+    await expect(search(db, SPACE, { q: '' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).rejects.toThrow()
+    await expect(
+      search(db, SPACE, { q: 'x', limit: 0 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    await expect(
+      search(db, SPACE, { q: 'x', limit: 51 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    await expect(
+      search(db, SPACE, { q: 'x', kind: 'bogus' as never }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    await expect(
+      search(db, SPACE, { q: 'x', mode: 'everything' as never }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
     expect(calls.length).toBe(0)
   })
 
   test('returns an empty array for no hits (never null)', async () => {
     const { db } = fakeDb([])
-    expect(await search(db, SPACE, { q: 'nothing' })).toEqual([])
+    expect(await search(db, SPACE, { q: 'nothing' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).toEqual([])
   })
 })
 
@@ -217,12 +241,12 @@ describe('search — evidence on concept hits', () => {
       {
         match: EVIDENCE_SQL,
         rows: [
-          { slug: 'okf', claims: 7, uncited_claims: 2, sources: 3 },
-          { slug: 'okf-history', claims: 0, uncited_claims: 0, sources: 0 },
+          { slug: 'okf', measurable: true, claims: 7, uncited_claims: 2, sources: 3 },
+          { slug: 'okf-history', measurable: true, claims: 0, uncited_claims: 0, sources: 0 },
         ],
       },
     ])
-    const hits = await search(db, SPACE, { q: 'okf' })
+    const hits = await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     // Each hit gets ITS OWN row, not the first row's. A lookup keyed by
     // position instead of by slug passes every count assertion and quietly
     // reports the top hit's evidence for the whole page.
@@ -248,9 +272,9 @@ describe('search — evidence on concept hits', () => {
     // verdict on the matched one.
     const { db, calls } = fakeDb([
       { match: 'wk_search($1', rows: [CONCEPT_ROW, CLAIM_ROW] },
-      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', claims: 7, uncited_claims: 2, sources: 3 }] },
+      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', measurable: true, claims: 7, uncited_claims: 2, sources: 3 }] },
     ])
-    const hits = await search(db, SPACE, { q: 'okf' })
+    const hits = await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(hits[1]!.kind).toBe('claim')
     expect(hits[1]!.evidence).toBeUndefined()
     expect('evidence' in hits[1]!).toBe(false)
@@ -267,20 +291,25 @@ describe('search — evidence on concept hits', () => {
     const { db } = fakeDb([
       { match: 'wk_search($1', rows: [] },
       { match: 'wk_search_sources($1', rows: [CHUNK_ROW] },
-      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', claims: 7, uncited_claims: 2, sources: 3 }] },
+      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', measurable: true, claims: 7, uncited_claims: 2, sources: 3 }] },
     ])
-    const [hit] = await search(db, SPACE, { q: 'okf', mode: 'approved_then_sources' })
+    const [hit] = await search(
+      db,
+      SPACE,
+      { q: 'okf', mode: 'approved_then_sources' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(hit!.tier).toBe('source_evidence')
     expect(hit!.evidence).toBeUndefined()
   })
 
   test('no concept hits, no extra statement — a claim-filtered or empty search costs what it always did', async () => {
     const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [CLAIM_ROW] }])
-    await search(db, SPACE, { q: 'okf', kind: 'claim' })
+    await search(db, SPACE, { q: 'okf', kind: 'claim' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(evidenceCalls(calls).length).toBe(0)
 
     const empty = fakeDb([])
-    await search(empty.db, SPACE, { q: 'nothing' })
+    await search(empty.db, SPACE, { q: 'nothing' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(evidenceCalls(empty.calls).length).toBe(0)
   })
 
@@ -293,20 +322,21 @@ describe('search — evidence on concept hits', () => {
       { match: 'wk_search($1', rows: [CONCEPT_ROW] },
       { match: EVIDENCE_SQL, rows: [] },
     ])
-    const [hit] = await search(db, SPACE, { q: 'okf' })
+    const [hit] = await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(hit!.evidence).toBeUndefined()
   })
 
   test('the hybrid arm reports evidence too — an arm is a ranker, not a different kind of hit', async () => {
     const { db } = fakeDb([
       { match: 'wk_search_hybrid($1', rows: [{ ...CONCEPT_ROW, rank: 0.031, matched_via: 'both' }] },
-      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', claims: 1, uncited_claims: 0, sources: 1 }] },
+      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', measurable: true, claims: 1, uncited_claims: 0, sources: 1 }] },
     ])
     const [hit] = await search(
       db,
       SPACE,
       { q: 'okf' },
       {
+        scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
         llm: {
           embedConfigured: true,
           embed: async () => ({
@@ -335,12 +365,13 @@ describe('search — evidence on concept hits', () => {
     const { db, calls } = fakeDb([
       { match: 'wk_search($1', rows: [CONCEPT_ROW] },
       { match: 'wk_spaces', rows: [{ id: IMPORTED }] },
-      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', claims: 2, uncited_claims: 0, sources: 1 }] },
+      { match: EVIDENCE_SQL, rows: [{ slug: 'okf', measurable: true, claims: 2, uncited_claims: 0, sources: 1 }] },
     ])
     const { hits } = await searchAcrossImports(
       db,
       { id: SPACE, slug: 'home', settings: { imports: ['upstream'] } },
       { q: 'okf' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
     )
     expect(hits.map((hit) => hit.space)).toEqual(['home', 'upstream'])
     expect(evidenceCalls(calls).map((call) => call.values[0])).toEqual([SPACE, IMPORTED])
@@ -371,7 +402,7 @@ describe('search — hybrid dispatch', () => {
       db,
       SPACE,
       { q: 'okf', mode: 'approved_then_sources' },
-      { llm: embedOk, vector: { available: true } },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS, llm: embedOk, vector: { available: true } },
     )
     expect(calls[0]!.sql).toContain('FROM public.wk_search_hybrid($1, $2, $3, $4, $5)')
     expect(calls[0]!.values[2]).toBe('[0.25,0.5]')
@@ -388,19 +419,33 @@ describe('search — hybrid dispatch', () => {
         throw new Error('provider down')
       },
     }
-    const hits = await search(db, SPACE, { q: 'okf' }, { llm: failing, vector: { available: true } })
+    const hits = await search(
+      db,
+      SPACE,
+      { q: 'okf' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS, llm: failing, vector: { available: true } },
+    )
     expect(calls[0]!.sql).toContain('FROM public.wk_search($1, $2, $3, $4)')
     expect(hits[0]!.matched_via).toBeUndefined()
   })
 
   test('stays lexical without the pgvector probe or without an embed provider', async () => {
     const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [] }])
-    await search(db, SPACE, { q: 'okf' }, { llm: embedOk, vector: { available: false } })
     await search(
       db,
       SPACE,
       { q: 'okf' },
-      { llm: { embedConfigured: false, embed: embedOk.embed }, vector: { available: true } },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS, llm: embedOk, vector: { available: false } },
+    )
+    await search(
+      db,
+      SPACE,
+      { q: 'okf' },
+      {
+        scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+        llm: { embedConfigured: false, embed: embedOk.embed },
+        vector: { available: true },
+      },
     )
     expect(calls.every((call) => call.sql.includes('FROM public.wk_search($1'))).toBe(true)
   })

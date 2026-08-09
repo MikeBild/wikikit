@@ -268,17 +268,22 @@ differently in exactly two places: the concept list and `kind: "concept"` search
 hits report `evidence` as **absent** rather than as `{claims: 0,
 uncited_claims: 0, sources: 0}` (absent means "not measured"; a zero would read
 as the finding that a knowledge page rests on nothing — see `docs/CONTRACTS.md`
-§5.3), and `orphan-concepts` / `unsourced-concepts` / `empty-concepts` do not
+§5.3), saying why in a `not_measured` object in its place, and
+`orphan-concepts` / `unsourced-concepts` / `empty-concepts` do not
 report faults against it. Nothing is hidden: the page is listed, readable, and
 serves its body and relations as before.
 
 The marker decides this, and the counts do not — which keeps the rule readable
 off a single row, and means a marked page that DOES hold claims has a real
-measurement withheld from the index. That is not silent: the linter's
-`scaffolded-claims` rule (warn) reports exactly that page, with its visible-claim
+measurement withheld from the index. Neither surface is silent about it. The row
+itself says so: in place of `evidence` it carries `not_measured: {reason:
+"reference_target", withheld_claims: N}`, where `N` is the count the measurement
+would have reported — present only where there are claims to withhold, absent on
+the ordinary reference target, and carrying no verdict of any kind. And the
+linter's `scaffolded-claims` rule (warn) reports exactly that page, with the same
 count and both readings of the contradiction, so a marker declared here that
-lands on pages holding knowledge shows up in the report rather than only in a
-column that stopped being printed.
+lands on pages holding knowledge shows up in the report as well as in the index —
+the index states the fact, the report says somebody should act on it.
 
 `WIKIKIT_SCAFFOLDING_KINDS` is the comma-separated list of those markers, in the
 same shape as `WIKIKIT_OAUTH_ALLOWED_SCOPES`. Entries must be alphanumeric

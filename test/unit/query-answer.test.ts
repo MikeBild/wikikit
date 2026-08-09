@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { LlmNotConfiguredError } from '../../src/domain/errors.ts'
 import { answerQuestion } from '../../src/query/answer.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
@@ -87,25 +88,37 @@ describe('answerQuestion', () => {
   test('throws LlmNotConfiguredError before any SQL when no key is set', async () => {
     const { db, calls } = fakeDb(routes())
     const llm = { ...createFakeProvider(), configured: false }
-    await expect(answerQuestion(db, SPACE, llm, { question: 'Is OKF ready?' })).rejects.toBeInstanceOf(
-      LlmNotConfiguredError,
-    )
+    await expect(
+      answerQuestion(db, SPACE, llm, { question: 'Is OKF ready?' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toBeInstanceOf(LlmNotConfiguredError)
     expect(calls.length).toBe(0)
   })
 
   test('rejects invalid args before any SQL (zod at the boundary)', async () => {
     const { db, calls } = fakeDb(routes())
     const llm = createFakeProvider()
-    await expect(answerQuestion(db, SPACE, llm, { question: '' })).rejects.toThrow()
-    await expect(answerQuestion(db, SPACE, llm, { question: 'q', top_k: 0 })).rejects.toThrow()
-    await expect(answerQuestion(db, SPACE, llm, { question: 'q', top_k: 51 })).rejects.toThrow()
+    await expect(
+      answerQuestion(db, SPACE, llm, { question: '' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    await expect(
+      answerQuestion(db, SPACE, llm, { question: 'q', top_k: 0 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    await expect(
+      answerQuestion(db, SPACE, llm, { question: 'q', top_k: 51 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
     expect(calls.length).toBe(0)
   })
 
   test('empty retrieval still makes ONE audited call and reports not-in-knowledge-base', async () => {
     const { db, calls } = fakeDb(routes({ hits: [] }))
     const llm = createFakeProvider()
-    const result = await answerQuestion(db, SPACE, llm, { question: 'Unknown topic?' })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'Unknown topic?' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
 
     // The LLM is called even on empty evidence — agent_run_id is non-nullable
     // by contract, and the model owns the "not covered" phrasing.
@@ -125,7 +138,13 @@ describe('answerQuestion', () => {
     const citations: Rows = [{ claim_id: 'claim-1', source_id: 'src-1', quote: 'OKF is a draft spec.', locator: '' }]
     const { db, calls } = fakeDb(routes({ claims, citations }))
     const llm = createFakeProvider()
-    const result = await answerQuestion(db, SPACE, llm, { question: 'Is OKF production ready?', top_k: 3 })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'Is OKF production ready?', top_k: 3 },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
 
     // top_k drives the retrieval limit.
     const searchCall = calls.find((call) => call.sql.includes('wk_search'))!
@@ -164,7 +183,13 @@ describe('answerQuestion', () => {
     const claims: Rows = [{ ...claimBase, id: 'claim-3', object: 'retired', status: 'deprecated' }]
     const { db } = fakeDb(routes({ claims }))
     const llm = createFakeProvider()
-    await answerQuestion(db, SPACE, llm, { question: 'Is OKF ready?' })
+    await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'Is OKF ready?' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     const evidence = (llm.calls[0]!.input as { evidence: AnswerEvidence[] }).evidence
     expect(evidence.filter((entry) => entry.kind === 'claim')).toEqual([])
   })
@@ -176,7 +201,7 @@ describe('answerQuestion', () => {
     ]
     const { db, calls } = fakeDb(routes({ hits }))
     const llm = createFakeProvider()
-    await answerQuestion(db, SPACE, llm, { question: 'okf?' })
+    await answerQuestion(db, SPACE, llm, { question: 'okf?' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(calls.filter((call) => call.sql.includes('AS concept_id')).length).toBe(1)
   })
 
@@ -190,7 +215,13 @@ describe('answerQuestion', () => {
         cited_source_ids: [],
       }),
     })
-    const result = await answerQuestion(db, SPACE, llm, { question: 'okf?' })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'okf?' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     // 'ghost' was never evidence → hallucinated reference, dropped; 'okf'
     // de-duplicated.
     expect(result.citations).toEqual([{ slug: 'okf', title: 'Open Knowledge Format' }])
@@ -203,7 +234,13 @@ describe('answerQuestion', () => {
     // getConcept finds no current revision → NotFoundError → skipped.
     const { db } = fakeDb(routes({ hits, concept: [] }))
     const llm = createFakeProvider()
-    const result = await answerQuestion(db, SPACE, llm, { question: 'gone?' })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'gone?' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect((llm.calls[0]!.input as { evidence: unknown[] }).evidence).toEqual([])
     expect(result.not_in_knowledge_base).toBe(true)
   })
@@ -212,7 +249,7 @@ describe('answerQuestion', () => {
     const bigMarkdown = `# Big\n\n${'word '.repeat(30_000)}` // ~37k tokens > 4k cap
     const { db } = fakeDb(routes({ concept: [{ ...conceptRow, markdown: bigMarkdown }] }))
     const llm = createFakeProvider()
-    await answerQuestion(db, SPACE, llm, { question: 'okf?' })
+    await answerQuestion(db, SPACE, llm, { question: 'okf?' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const evidence = (llm.calls[0]!.input as { evidence: AnswerEvidence[] }).evidence
     expect(evidence[0]!.text.length).toBeLessThan(bigMarkdown.length)
     expect(evidence[0]!.text).toContain('truncated')
@@ -247,10 +284,16 @@ describe('answerQuestion — source-evidence tier (approved_then_sources)', () =
   test('chunk hits become labeled evidence and cited source ids survive the filter', async () => {
     const { db } = fakeDb(tierRoutes())
     const llm = createFakeProvider()
-    const result = await answerQuestion(db, SPACE, llm, {
-      question: 'When is the rollout?',
-      mode: 'approved_then_sources',
-    })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      {
+        question: 'When is the rollout?',
+        mode: 'approved_then_sources',
+      },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
 
     const evidence = (llm.calls[0]!.input as { evidence: AnswerEvidence[] }).evidence
     const chunkEvidence = evidence.filter((entry) => entry.kind === 'source_chunk')
@@ -269,7 +312,13 @@ describe('answerQuestion — source-evidence tier (approved_then_sources)', () =
   test('approved_only never queries the source tier and returns empty source_citations', async () => {
     const { db, calls } = fakeDb(tierRoutes())
     const llm = createFakeProvider()
-    const result = await answerQuestion(db, SPACE, llm, { question: 'When is the rollout?' })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      { question: 'When is the rollout?' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
     expect(result.source_citations).toEqual([])
   })
@@ -284,10 +333,16 @@ describe('answerQuestion — source-evidence tier (approved_then_sources)', () =
         cited_source_ids: ['ghost'],
       }),
     })
-    const result = await answerQuestion(db, SPACE, llm, {
-      question: 'rollout?',
-      mode: 'approved_then_sources',
-    })
+    const result = await answerQuestion(
+      db,
+      SPACE,
+      llm,
+      {
+        question: 'rollout?',
+        mode: 'approved_then_sources',
+      },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     expect(result.source_citations).toEqual([])
   })
 })

@@ -44,6 +44,117 @@ export interface ConceptEvidence {
   sources: number
 }
 
+/**
+ * Why a row carries no `evidence` — the absence, saying what it is.
+ *
+ * WHY this exists at all. Withholding the measurement from a reference target
+ * was right and stays (see the markers below), but until now the index simply
+ * had a hole in it: `evidence` was gone and nothing in its place, so a reader
+ * looking at the row could only INFER the reason from the absence, and the
+ * console did exactly that — it read the rest of the response and guessed. A
+ * guess about why a number is missing is not something a server should make its
+ * clients do when the server is the one that knows.
+ *
+ * WHY NOT put the numbers back under another name. That would undo 0.28.0: the
+ * marker is the deployment's statement that this row is not a knowledge page,
+ * and `evidence` is the answer to "how well is this page backed", which for
+ * furniture is not a question with an answer. So this object never carries
+ * `uncited_claims` or `sources` — it is not the measurement wearing a hat.
+ *
+ * `withheld_claims` is the one number here, and it is present ONLY when the
+ * page holds visible claims. It is not a measurement of how well the page is
+ * backed; it is the size of what the marker is keeping out of the index, which
+ * is a fact about the INDEX rather than about the knowledge. On the ordinary
+ * reference target — marked, claimless — nothing is being withheld, so there is
+ * no number, and inventing a `0` here would re-create precisely the meaningless
+ * zero 0.28.0 removed.
+ *
+ * WHAT THIS IS NOT: a finding. There is no severity, no advice and no verdict —
+ * the index answers "how well is this page backed" and must not grow into a
+ * second linter. `scaffolded-claims` (src/domain/lint.ts) owns the judgement
+ * that a marked page holding claims is a contradiction somebody should resolve,
+ * and it reports the same count from the same aggregate. This field only says
+ * that a real number exists and is not being shown here.
+ */
+export interface ConceptNotMeasured {
+  /**
+   * A CATEGORY, never the marker literal. Which `agent_meta.kind` made this row
+   * furniture is one installation's private tag, and 0.30.0 declined to hand
+   * those literals to every connected agent for a reason the linter states at
+   * `scaffolded-claims`: a string that exempts a page from the measurement and
+   * from three fault rules is one step from "write the page with that kind and
+   * the complaints stop". An operator who needs the set has
+   * `GET /v1/installation/knowledge-config`.
+   *
+   * One value today. It is a closed set rather than an open string so a client
+   * that renders a sentence per reason fails to compile when a second one
+   * appears, instead of silently deciding what an unknown reason means.
+   */
+  reason: 'reference_target'
+  /**
+   * Visible claims the withheld measurement would have counted — the SAME
+   * aggregate `evidence.claims` comes from, so the index can never report a
+   * different number than the page or the lint report does. ABSENT when there
+   * are none, because then nothing is being withheld.
+   */
+  withheld_claims?: number
+}
+
+/**
+ * The two answers a readable page can give about its evidence, as one object,
+ * so that no read can serve both and none can serve neither.
+ *
+ * Exactly one field is set. `evidence` is the measurement; `not_measured` is
+ * the reasoned absence. A caller spreads whichever arrived onto the wire row —
+ * see `evidenceReading`, which is where the choice is actually made.
+ */
+export interface ConceptReading {
+  evidence?: ConceptEvidence
+  not_measured?: ConceptNotMeasured
+}
+
+/** One row of EVIDENCE_LATERAL, beside the marker test that decides what to do with it. */
+interface EvidenceRow {
+  /** `notScaffolding` evaluated for this row's CURRENT revision. */
+  measurable: boolean
+  claims: number
+  uncited_claims: number
+  sources: number
+}
+
+/**
+ * The one decision: measured, or absent-with-a-reason.
+ *
+ * It lives in a function called by BOTH reads (the concept list and
+ * `conceptEvidenceBySlug`, which is search's half) because the failure this
+ * whole line of work exists to prevent is two surfaces disagreeing about one
+ * page. A reader who scans the index and then searches is comparing two reads
+ * of one fact, and "3 claims withheld" on one screen beside a bare dash on the
+ * other does not read as two code paths — it reads as a wiki that does not know
+ * what it holds. One statement per read is unavoidable (search's hits arrive
+ * out of a set-returning function that cannot be joined against); one RULE is
+ * not, so this is it.
+ *
+ * THE MARKER DECIDES, NOT THE COUNTS, and that is visible in the shape of this
+ * function: `measurable` alone chooses the branch. The counts are read after the
+ * branch is taken, never before it, so no number can move a page from one
+ * category to the other. That property is what keeps the rule readable off a
+ * single row and keeps a page from silently changing category the day a claim
+ * lands on it.
+ */
+export function evidenceReading(row: EvidenceRow): ConceptReading {
+  if (row.measurable)
+    return { evidence: { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources } }
+  return {
+    not_measured: {
+      reason: 'reference_target',
+      // `> 0` and not `>= 0`: the claimless reference target — the overwhelming
+      // majority of them — must come back with a reason and no number at all.
+      ...(row.claims > 0 ? { withheld_claims: row.claims } : {}),
+    },
+  }
+}
+
 export interface ConceptSummary {
   slug: string
   title: string
@@ -58,6 +169,13 @@ export interface ConceptSummary {
    * and a reader must not have to guess which one they are holding.
    */
   evidence?: ConceptEvidence
+  /**
+   * Present exactly where `evidence` is absent, and it says why — see
+   * ConceptNotMeasured. The pair is what makes the absence self-describing: a
+   * row carries one or the other, so a client never has to work out from its
+   * neighbours which kind of nothing it is holding.
+   */
+  not_measured?: ConceptNotMeasured
 }
 
 /**
@@ -162,19 +280,49 @@ export const BUILT_IN_SCAFFOLDING_KINDS: readonly string[] = ['structural-refere
  *
  * The SQL builders below are module-level string fragments, and configuration
  * is not available at module scope in this codebase — so the kinds ride in on
- * the call, the same way `SearchDeps` carries the optional retrieval wiring and
+ * the call, the same way `SearchDeps` carries the retrieval wiring and
  * `registerWebhookEndpoint` takes its `Config` explicitly. The composition
  * boundaries (src/http/routes.ts handlers and src/mcp/tools.ts executes, both
  * of which hold `deps.config`) are the only places that fill it in.
  *
- * Omitted means BUILT_IN_SCAFFOLDING_KINDS — the product's own marker and
- * nothing else. That is the honest answer for a caller with no installation in
- * scope (every unit test), and it is deliberately NOT the answer a request
- * gets: a live deployment's extra markers come from its configuration, whose
- * own default carries them (see WIKIKIT_SCAFFOLDING_KINDS in src/config.ts).
+ * THE FIELD IS REQUIRED, AND SO IS EVERY PARAMETER TYPED BY IT. There is no
+ * omitted case and no default anywhere beneath this line — not on the bag, not
+ * on the parameter, not in `notScaffolding` below. A caller that forgets does
+ * not compile.
+ *
+ * WHY it had to become a type and not stay a rule. Until 0.31.0 the field was
+ * optional and omission silently resolved to BUILT_IN_SCAFFOLDING_KINDS, which
+ * is right for a caller with no installation in scope and wrong for every
+ * request: on an installation that declared markers it turns pages whose
+ * evidence is deliberately ABSENT back into a measured `{claims: 0, …}` — "this
+ * page rests on nothing" printed about pages that hold nothing by design. A
+ * configuration correct in src/config.ts and forgotten at the call site is
+ * worse than no configuration, because it is wrong while looking configured.
+ * The guarantee used to be a source scan over a hand-listed set of boundary
+ * modules, and a hand-maintained list of places to remember is precisely what
+ * gets forgotten — the fifth boundary would have had to be added to it by the
+ * same person who forgot the argument.
+ *
+ * WHY a required FIELD on the existing bag rather than a new positional
+ * argument. The old argument against requiring it was that `{}` satisfies a
+ * required options bag exactly as well as omitting an optional one — true of
+ * the PARAMETER, false of the FIELD. Requiring the field makes `{}` a type
+ * error too, so the compiler enforces that the value was forwarded, not that
+ * somebody typed two characters. It also reaches `search` and `answerQuestion`,
+ * whose deps bags legitimately keep `llm` and `vector` optional: one bag can
+ * hold a required member beside optional ones, which a second positional
+ * argument on already-bagged signatures could not do without giving this one
+ * value two conventions.
+ *
+ * What the compiler still cannot say is that the value came from the
+ * installation rather than from a literal — `{ scaffoldingKinds: [] }` type
+ * checks. Neither could the scan it replaced (it matched the identifier, not
+ * its value); that half is behaviour, and the integration tests in
+ * test/integration/lint-rules.test.ts assert it by driving both surfaces with a
+ * configured set and with none.
  */
 export interface ScaffoldingOptions {
-  readonly scaffoldingKinds?: readonly string[]
+  readonly scaffoldingKinds: readonly string[]
 }
 
 /**
@@ -187,8 +335,12 @@ export interface ScaffoldingOptions {
  * src/config.ts happens to validate its input is a fragment that stops being
  * safe the first time somebody adds a second source of kinds. Boot-time
  * validation there is the error message; this is the guarantee.
+ *
+ * `kinds` carries no default on purpose. This is the innermost point the markers
+ * reach, so a default here would be a hole under every required parameter above
+ * it — the one place where forgetting could still resolve to something plausible.
  */
-export function notScaffolding(kinds: readonly string[] = BUILT_IN_SCAFFOLDING_KINDS): string {
+export function notScaffolding(kinds: readonly string[]): string {
   // No markers at all would make `NOT IN ()` a syntax error, and the honest
   // reading of "this installation recognises nothing as scaffolding" is that
   // every page is measurable.
@@ -288,18 +440,19 @@ interface ConceptRevisionRow {
  * slug keyset is immune to rows moving while a client pages (an approval
  * bumping updated_at would make a time-ordered keyset skip or repeat).
  *
- * Every row carries its `evidence` (see ConceptEvidence): in a product whose
- * premise is that each claim quotes an archived source, "how does the wiki
- * know this?" is the first question a reader has, and answering it per row is
- * what lets a caller decide which page to open. It is counted in THIS
- * statement — never a second read per row, which on a 200-row page would be
- * 200 round trips for three integers.
+ * Every row answers "how does the wiki know this?" — either with its `evidence`
+ * (see ConceptEvidence) or, for a reference target, with the `not_measured`
+ * that says why there is none. In a product whose premise is that each claim
+ * quotes an archived source that is the first question a reader has, and
+ * answering it per row is what lets a caller decide which page to open. Both
+ * halves come out of THIS statement — never a second read per row, which on a
+ * 200-row page would be 200 round trips for three integers.
  */
 export async function listConcepts(
   db: Db,
   spaceId: string,
-  args: { limit?: number; after?: string } = {},
-  options: ScaffoldingOptions = {},
+  args: { limit?: number; after?: string },
+  options: ScaffoldingOptions,
 ): Promise<{ items: ConceptSummary[]; next_after: string | null; epoch: number }> {
   const limit = clampLimit(args.limit, 50, 200)
   const [space] = await db.select<{ epoch: string | number }>('wk_spaces', { id: `eq.${spaceId}`, limit: 1 })
@@ -319,11 +472,14 @@ export async function listConcepts(
     summary: string
     rev: number
     updated_at: Date
-    // NULL together, and only for a reference target: the join below withholds
-    // the whole aggregate rather than any single column of it.
-    claims: number | null
-    uncited_claims: number | null
-    sources: number | null
+    /** `notScaffolding` for this row's current revision — the ONLY thing that picks the branch. */
+    measurable: boolean
+    // Always three numbers, on every row. See the CROSS JOIN below for why the
+    // aggregate now runs for a reference target too, and `evidenceReading` for
+    // what survives the branch when it does.
+    claims: number
+    uncited_claims: number
+    sources: number
   }>(
     // The keyset page is computed FIRST, in its own CTE, and the evidence
     // lateral hangs off that. Written the obvious way — lateral on the main
@@ -349,13 +505,36 @@ export async function listConcepts(
     // keeping the statuses out of `values` also keeps the `$${values.length}`
     // cursor arithmetic above readable.
     //
-    // LEFT JOIN LATERAL … ON p.measurable, not CROSS JOIN: the row stays in the
-    // index either way — a reference target is a page, it has a title and a
-    // reader can open it — but for one it is the MEASUREMENT that is withheld,
-    // and the three columns arrive NULL. The predicate is a column of the `page`
-    // CTE (NOT_SCAFFOLDING, which reads the current revision's marker, hence the
-    // `r` alias it requires) rather than a filter on the outer query, because a
-    // filter would drop the page out of somebody's index.
+    // CROSS JOIN LATERAL, and `measurable` travels beside the counts as its own
+    // column rather than gating the join. Until 0.31.0 this was
+    // `LEFT JOIN LATERAL … ON p.measurable`, so a reference target's three
+    // columns arrived NULL and absence was the whole of what the row could say.
+    // That is exactly what the row now has to say MORE than: `not_measured`
+    // carries the size of what the marker keeps out of the index
+    // (ConceptNotMeasured.withheld_claims), and a number that was never counted
+    // cannot be reported.
+    //
+    // THAT IS NOT THE MARKER BECOMING CONDITIONAL ON THE COUNTS. The branch is
+    // taken on `measurable` alone, in `evidenceReading`, and on the withheld
+    // branch only `claims` survives it — `uncited_claims` and `sources` are read
+    // and dropped, because "how well is this page backed" is not a question a
+    // reference target has an answer to. Counting is not reporting.
+    //
+    // The cost of counting rows the answer is then withheld for: the lateral
+    // runs once per row on the page instead of once per MEASURABLE row. It is
+    // the same index scan on wk_claims_concept_idx as every other row, and the
+    // reference target it now runs for is the cheapest possible case of it —
+    // such a page holds no claims at all in the overwhelming majority, so the
+    // scan finds nothing and returns three zeros. It is still ONE statement, and
+    // the lint rule already computes precisely this count from precisely this
+    // aggregate (`scaffolded-claims`, src/domain/lint.ts): the alternative was
+    // for the index and the lint report to reach the same number by two routes.
+    //
+    // The row stays in the index either way — a reference target is a page, it
+    // has a title and a reader can open it — and the marker test is a column of
+    // the `page` CTE (notScaffolding, which reads the current revision's marker,
+    // hence the `r` alias it requires) rather than a filter on the outer query,
+    // because a filter would drop the page out of somebody's index.
     `WITH page AS (
        SELECT c.id, c.slug, r.title, r.summary, r.rev, c.updated_at,
               ${notScaffolding(options.scaffoldingKinds)} AS measurable
@@ -365,47 +544,36 @@ export async function listConcepts(
         ORDER BY c.slug ASC
         LIMIT $${values.length}
      )
-     SELECT p.slug, p.title, p.summary, p.rev, p.updated_at,
+     SELECT p.slug, p.title, p.summary, p.rev, p.updated_at, p.measurable,
             ev.claims, ev.uncited_claims, ev.sources
        FROM page p
-       LEFT JOIN LATERAL (${EVIDENCE_LATERAL}) ev ON p.measurable
+       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev
       ORDER BY p.slug ASC`,
     values,
   )
   const page = rows.slice(0, limit)
-  const items = page.map((row) => {
-    // Zero is MEASURED, never absent — WHERE THE AGGREGATE RAN. It is an
-    // un-grouped aggregate, so it returns exactly one row even for a concept
-    // with no claims at all; a NULL here can therefore only come from the join
-    // predicate declining to measure, never from an empty count. That matters
-    // because "this page cites nothing" is the single most important fact this
-    // list surfaces — a page written by hand through the console has zero claims
-    // and looked exactly like a fully cited one until it said so — and the
-    // console renders an absent object as an em dash, "not measured". A page
-    // that makes no claims must never be dressed as one nobody asked about, and
-    // a page the question does not apply to must never be dressed as one that
-    // answered it with zeros.
+  const items = page.map((row) => ({
+    slug: row.slug,
+    title: row.title,
+    summary: row.summary,
+    rev: row.rev,
+    updated_at: isoString(row.updated_at),
+    // Zero is MEASURED, never absent. The aggregate is un-grouped, so it returns
+    // exactly one row even for a concept with no claims at all — "this page
+    // cites nothing" is the single most important fact this list surfaces, and a
+    // page written by hand through the console looked exactly like a fully cited
+    // one until it said so. Which of the two answers the row carries is
+    // `evidenceReading`'s decision and only its decision, taken off `measurable`
+    // — so the index and search cannot disagree about one page, and no count can
+    // move a page from one category to the other.
     //
-    // All three are tested rather than one, though the join makes them NULL
-    // together: a partially-NULL row would be a shape nothing here understands,
-    // and inventing a zero for the missing column is exactly the lie above.
-    const measured =
-      row.claims === null || row.uncited_claims === null || row.sources === null
-        ? undefined
-        : { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources }
-    return {
-      slug: row.slug,
-      title: row.title,
-      summary: row.summary,
-      rev: row.rev,
-      updated_at: isoString(row.updated_at),
-      // Spread rather than `evidence: measured`, so the key is genuinely absent
-      // in-process and not merely undefined: `'evidence' in row` is the check a
-      // caller writes, and JSON.stringify drops both — an in-process caller
-      // must not be able to see a distinction the wire cannot carry.
-      ...(measured ? { evidence: measured } : {}),
-    }
-  })
+    // Spread rather than two assignments, so the key that does not apply is
+    // genuinely ABSENT in-process and not merely undefined: `'evidence' in row`
+    // is the check a caller writes, and JSON.stringify drops both — an
+    // in-process caller must not be able to see a distinction the wire cannot
+    // carry.
+    ...evidenceReading(row),
+  }))
   const last = page.at(-1)
   return {
     items,
@@ -415,7 +583,7 @@ export async function listConcepts(
 }
 
 /**
- * The same evidence, for a set of pages named by slug, in ONE statement.
+ * The same reading, for a set of pages named by slug, in ONE statement.
  *
  * This exists for /search, whose hits arrive already ranked out of the
  * whitelisted wk_search / wk_search_hybrid functions (db.call pins the exact
@@ -432,25 +600,25 @@ export async function listConcepts(
  * of which also returns claim rows the aggregate has nothing to say about) for
  * one saved round trip on a page of at most 50 hits.
  *
- * A slug missing from the returned map means NOT MEASURED, never zero, and
- * there are now TWO reasons a slug can be missing — both of them "the question
- * does not apply to this page", never "the answer is nothing":
- *   - it is not readable (no current revision), so a page that stopped being
- *     readable between the ranking and this call is absent rather than reported
- *     as a page that cites nothing;
- *   - its current revision is scaffolding (notScaffolding above), so it is a
- *     reference target rather than knowledge, and the same silence the concept
- *     list keeps for it is kept for a search hit that points at it.
- * Zero is a measurement and must keep meaning one. The caller reads absence off
- * the map exactly as before — search leaves `SearchHit.evidence` unset, which
- * is the field's own contract for a page it could not measure.
+ * WHAT A MISSING SLUG MEANS, and it is now one thing rather than two. A slug
+ * comes back missing only when the page is NOT READABLE — no current revision —
+ * which is the honest silence for a page that stopped being readable between the
+ * ranking and this call: there is no row to describe, so there is nothing to
+ * say, not even why. The reference target used to be missing for the same
+ * reason, and that was the defect: a hit and an index row for the same slug both
+ * fell silent, and the silence carried no reason on either surface. It is now a
+ * present slug carrying `not_measured`, exactly as the index row carries it, and
+ * the two are the same object because they come out of the same function.
+ *
+ * Zero is a measurement and must keep meaning one; absence still never means
+ * zero. What changed is that ONE of the two absences learned to speak.
  */
-export async function conceptEvidenceBySlug(
+export async function conceptReadingsBySlug(
   db: Db,
   spaceId: string,
   slugs: string[],
-  options: ScaffoldingOptions = {},
-): Promise<Map<string, ConceptEvidence>> {
+  options: ScaffoldingOptions,
+): Promise<Map<string, ConceptReading>> {
   // Deduplicated because a search page can hold several claim-derived rows for
   // one concept, and skipped entirely when empty — a search with no concept
   // hits (a kind='claim' filter, or no matches at all) must cost nothing.
@@ -458,29 +626,33 @@ export async function conceptEvidenceBySlug(
   if (unique.length === 0) return new Map()
   const { rows } = await db.query<{
     slug: string
+    measurable: boolean
     claims: number
     uncited_claims: number
     sources: number
   }>(
-    // Here the scaffolding test is a FILTER and not a join predicate, unlike the
-    // list: this function's whole output is the measurement, so "not measured"
-    // is expressed by the slug not coming back — the same way an unreadable page
-    // already expresses it, through the JOIN one line above.
+    // The scaffolding test is a COLUMN, not a filter, and that is the whole of
+    // what makes this function's answer the same answer the list gives. It used
+    // to be a second `AND notScaffolding(…)` in the CTE's WHERE, so a reference
+    // target simply did not come back and search could not tell it from a page
+    // that had stopped being readable. Two absences under one silence is the
+    // shape the index had and this one still has to lose: the row exists, the
+    // wiki knows exactly why it is not measured, and only the query was throwing
+    // that away. Readability stays a JOIN, because there the row genuinely is
+    // not there.
     `WITH page AS (
-       SELECT c.id, c.slug
+       SELECT c.id, c.slug,
+              ${notScaffolding(options.scaffoldingKinds)} AS measurable
          FROM wk_concepts c
          JOIN wk_concept_revisions r ON r.id = c.current_revision_id
         WHERE c.space_id = $1 AND c.slug = ANY($2::text[])
-          AND ${notScaffolding(options.scaffoldingKinds)}
      )
-     SELECT p.slug, ev.claims, ev.uncited_claims, ev.sources
+     SELECT p.slug, p.measurable, ev.claims, ev.uncited_claims, ev.sources
        FROM page p
        CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev`,
     [spaceId, unique],
   )
-  return new Map(
-    rows.map((row) => [row.slug, { claims: row.claims, uncited_claims: row.uncited_claims, sources: row.sources }]),
-  )
+  return new Map(rows.map((row) => [row.slug, evidenceReading(row)]))
 }
 
 /**

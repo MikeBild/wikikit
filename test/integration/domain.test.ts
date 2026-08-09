@@ -5,7 +5,13 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
-import { getConcept, getConceptHistory, getConceptIndex, listConcepts } from '../../src/domain/concepts.ts'
+import {
+  BUILT_IN_SCAFFOLDING_KINDS,
+  getConcept,
+  getConceptHistory,
+  getConceptIndex,
+  listConcepts,
+} from '../../src/domain/concepts.ts'
 import { getDecision, listDecisions } from '../../src/domain/decisions.ts'
 import { ConflictError, NotFoundError, ValidationError } from '../../src/domain/errors.ts'
 import { lintSpace } from '../../src/domain/lint.ts'
@@ -126,7 +132,7 @@ describe('domain modules (integration)', () => {
     expect(created.status).toBe('pending')
 
     // Staged = invisible: no readable concepts, reads 404, index empty.
-    expect((await listConcepts(db, space.id, {})).items).toEqual([])
+    expect((await listConcepts(db, space.id, {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).items).toEqual([])
     await expect(getConcept(db, space.id, { slug: 'okf' })).rejects.toBeInstanceOf(NotFoundError)
     expect(await getConceptIndex(db, space.id)).toEqual([])
 
@@ -171,7 +177,7 @@ describe('domain modules (integration)', () => {
     // (identity row only) and shows up in lint as a broken relation.
     await expect(getConcept(db, space.id, { slug: 'graph-store' })).rejects.toBeInstanceOf(NotFoundError)
 
-    const listed = await listConcepts(db, space.id, {})
+    const listed = await listConcepts(db, space.id, {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(listed.items.map((item) => item.slug)).toEqual(['okf'])
     expect(listed.epoch).toBe(1)
     // The evidence lateral against real Postgres: the approved proposal
@@ -284,7 +290,7 @@ describe('domain modules (integration)', () => {
     })
 
     // Lint: the dispute is an error finding on the frame.
-    const report = await lintSpace(db, space.id)
+    const report = await lintSpace(db, space.id, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const contradiction = report.findings.find((finding) => finding.rule === 'contradictions')!
     expect(contradiction.severity).toBe('error')
     expect(contradiction.message).toContain('okf has_status')
@@ -751,13 +757,18 @@ describe('domain modules (integration)', () => {
     // claim with no citation, beta is a published page with no claims at all,
     // and gamma's claims sit in a PENDING proposal — unreviewed content must
     // never make a page look evidenced, and gamma is not even readable.
-    const evidence = new Map((await listConcepts(db, space.id, {})).items.map((item) => [item.slug, item.evidence]))
+    const evidence = new Map(
+      (await listConcepts(db, space.id, {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).items.map((item) => [
+        item.slug,
+        item.evidence,
+      ]),
+    )
     expect([...evidence.keys()]).toEqual(['alpha', 'beta'])
     expect(evidence.get('alpha')).toEqual({ claims: 1, uncited_claims: 1, sources: 0 })
     // The measured zero: a page that cites nothing reports 0/0/0, never null.
     expect(evidence.get('beta')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
 
-    const report = await lintSpace(db, space.id)
+    const report = await lintSpace(db, space.id, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const rules = report.findings.map((finding) => finding.rule)
     expect(rules).toContain('missing-citations') // alpha's claim has no citation
     expect(rules).toContain('orphan-concepts') // alpha and beta have no relations

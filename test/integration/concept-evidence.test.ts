@@ -39,7 +39,7 @@ import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import type { ClaimStatus } from '../../src/domain/claims.ts'
-import { getConcept, listConcepts, type ConceptSummary } from '../../src/domain/concepts.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS, getConcept, listConcepts, type ConceptSummary } from '../../src/domain/concepts.ts'
 import { countingPool } from '../helpers/counting-pool.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 
@@ -180,7 +180,7 @@ async function seedPage(space: string, slug: string, claims: SeedClaim[], option
 }
 
 async function rowFor(space: string, slug: string): Promise<ConceptSummary> {
-  const page = await listConcepts(db, space, { limit: 200 })
+  const page = await listConcepts(db, space, { limit: 200 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
   const row = page.items.find((item) => item.slug === slug)
   if (!row) throw new Error(`${slug} is not in the list — the fixture never became readable`)
   return row
@@ -451,11 +451,21 @@ describe('concept list evidence (integration)', () => {
     const counted = createPostgres({ databaseUrl } as Config, { pool })
     try {
       statements.length = 0
-      const small = await listConcepts(counted.db, tinySpace, { limit: 200 })
+      const small = await listConcepts(
+        counted.db,
+        tinySpace,
+        { limit: 200 },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       const atOne = statements.length
 
       statements.length = 0
-      const large = await listConcepts(counted.db, bigSpace, { limit: 200 })
+      const large = await listConcepts(
+        counted.db,
+        bigSpace,
+        { limit: 200 },
+        { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+      )
       const at200 = statements.length
 
       expect(small.items.length).toBe(1)

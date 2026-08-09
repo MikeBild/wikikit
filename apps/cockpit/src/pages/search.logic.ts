@@ -8,7 +8,7 @@
  * module that touches `window` or `localStorage` stops typechecking the moment
  * a test loads it, which is the pressure that keeps these rules provable.
  */
-import { listMeasuresEvidence, pageEvidence, type EvidenceCounts, type PageEvidence } from '@/pages/page.logic'
+import { pageEvidence, type EvidenceCounts, type NotMeasured, type PageEvidence } from '@/pages/page.logic'
 
 /**
  * How many hits this console asks for PER TIER.
@@ -68,16 +68,25 @@ export interface EvidenceBearingHit {
   tier: 'approved' | 'source_evidence'
   kind: 'concept' | 'claim' | 'source_chunk'
   evidence?: EvidenceCounts | null
+  /**
+   * The other half of the pair, and it must be here for the same reason it is on
+   * the index row: the two surfaces are two reads of one page, and a hit that
+   * fell silent about a withheld count while the index row named it would be the
+   * console showing a reader two different wikis. Read exactly as the index
+   * reads it — `pageEvidence` owns what it means, this module only decides
+   * whether the hit in front of it is a page at all.
+   */
+  not_measured?: NotMeasured | null
 }
 
 /**
  * Which hits are PAGES — the only hits an evidence summary belongs on.
  *
- * Two callers now depend on this being one answer rather than two: the reading
- * of a single hit, and the reading of the whole response that tells one absence
- * from the other. If they ever disagreed, a response could be judged "measures
- * evidence" on the strength of a hit whose evidence the console then refuses to
- * read, which is a discriminator vouching for something it does not believe.
+ * One caller, since the server started saying why a measurement is absent and
+ * the response-wide discriminator that was the second caller went away. The gate
+ * stays a named predicate rather than an inline condition because what it
+ * encodes is a judgement about kinds of hit, and the two paragraphs below are
+ * the judgement.
  *
  *  - **A `source_evidence` hit is never a page, whatever the response
  *    contains.** It is a line a document happened to hold — nobody approved it,
@@ -100,70 +109,27 @@ function isPageHit(hit: EvidenceBearingHit): boolean {
 }
 
 /**
- * Did THIS RESPONSE measure evidence at all?
- *
- * The pages index answers the same question with `listMeasuresEvidence`, and for
- * the same reason: a concept hit can arrive without counts for two reasons that
- * look identical in the hit and call for opposite sentences. One is a fact about
- * the PAGE — the server declines to measure a reference target, a row an import
- * created so reviewed relations had somewhere to land, whose own body says the
- * knowledge lives on the pages it points at. The other is a fact about the
- * RESPONSE — a build that predates the counts, reached by a tab that outlived a
- * rolling upgrade, which reports them on nothing.
- *
- * The discriminator is the rest of the response, and it needs no new field: a
- * response in which SOME concept hit carries counts came from a build that
- * measures, so a bare concept hit beside it is one the server declined to
- * measure. A response where not one concept hit carries them is the old build,
- * and no hit in it may be called a reference target.
- *
- * Only page hits are consulted, because only page hits are ever measured. A
- * claim hit and a source-evidence hit carry nothing BY DESIGN (`isPageHit`), so
- * counting them could only ever drag the answer toward "this build does not
- * measure" — a search filtered to `kind=claim` would otherwise look like an old
- * server. And the day a server started attaching counts to a claim hit, letting
- * that vouch for the build would be this module trusting a number it refuses to
- * render two lines further down.
- *
- * The one case this cannot separate is a response whose every page hit is a
- * reference target: nothing measures, so every one of them falls back to the
- * vaguer reading. That is the deliberate direction to be wrong in — "this search
- * came back without evidence counts" is still TRUE of such a response, merely
- * less specific, whereas the reference-target sentence asserted about an old
- * build would be false about every page on the screen.
- *
- * Read over the WHOLE response and never over the section a card sits in: the
- * two tiers are one answer split into two lists for the reader, and a page hit
- * must not change what it says about itself because of where it was drawn.
- */
-export function searchMeasuresEvidence(hits: readonly EvidenceBearingHit[]): boolean {
-  return listMeasuresEvidence(hits.filter(isPageHit))
-}
-
-/**
  * How the archive backs the page behind one hit — or `null` where that question
  * has no answer, which is two thirds of the hits this page draws.
  *
- * The numbers themselves are NOT read here. `pageEvidence` in `page.logic` owns
- * what `claims`, `uncited_claims` and `sources` mean, which shape they render
- * as, and which of them is allowed a token; 0.25.0 settled all of that one
- * surface earlier and a second, subtly different reading of the same three
- * integers on a second screen would be worse than showing nothing. This
- * function decides two things only: whether the hit in front of it is a page
- * (`isPageHit`), and which of the two absences a bare page hit is.
+ * The numbers themselves are NOT read here, and neither is the reason there are
+ * none. `pageEvidence` in `page.logic` owns what `claims`, `uncited_claims` and
+ * `sources` mean, what `not_measured` means, which shape each renders as and
+ * which of them is allowed a token; a second, subtly different reading of the
+ * same objects on a second screen would be worse than showing nothing. This
+ * function decides ONE thing: whether the hit in front of it is a page
+ * (`isPageHit`).
  *
- * `responseMeasured` is that second decision, and it is a parameter rather than
- * a default because a hit cannot answer it alone — see `searchMeasuresEvidence`,
- * which is what a caller holding the whole response calls to get it. It defaults
- * to `false`, the reading that claims the least: a caller that has not
- * established the response measures anything gets "the counts did not arrive",
- * which is true of every absence. Until this release there was no parameter at
- * all and every dash on this screen said that sentence — including the ones on
- * reference targets in a response whose other hits carried counts, where it was
- * flatly false, on the surface belonging to the release whose whole thesis was
- * that a screen must not say something untrue about a page.
+ * It used to decide a second thing, and losing it is the change. A hit could
+ * arrive bare for two reasons that looked identical in the hit, so this module
+ * carried a `responseMeasured` flag that a caller derived by asking whether any
+ * OTHER hit in the response had counts — a client deducing a property of a page
+ * from the cards beside it. The server says it now, on the hit, in the same
+ * object the index row carries, so the flag, the discriminator behind it and the
+ * prop that threaded it down the tree are all gone. One argument, one owner, and
+ * the two surfaces cannot drift because neither of them decides anything.
  */
-export function hitEvidence(hit: EvidenceBearingHit, responseMeasured = false): PageEvidence | null {
+export function hitEvidence(hit: EvidenceBearingHit): PageEvidence | null {
   if (!isPageHit(hit)) return null
-  return pageEvidence(hit.evidence, responseMeasured)
+  return pageEvidence(hit.evidence, hit.not_measured)
 }

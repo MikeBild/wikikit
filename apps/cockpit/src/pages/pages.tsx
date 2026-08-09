@@ -23,10 +23,10 @@ import {
   CHANGE_WINDOW_LABEL,
   changedWithin,
   evidenceRank,
-  listMeasuresEvidence,
   pageEvidence,
   rendersAsDash,
   type EvidenceCounts,
+  type NotMeasured,
 } from '@/pages/page.logic'
 
 /**
@@ -110,24 +110,30 @@ interface PageRow {
    *
    * Both render as an em dash, with a sort that refuses to rank a blank as
    * though it were zero — but they are told apart and they say different
-   * sentences, which is what `measured` on `IndexRow` is for.
+   * sentences, and `not_measured` below is how the row itself says which.
    */
   evidence?: EvidenceCounts | null
-}
-
-/**
- * A row, plus the one fact about the RESPONSE that no row can carry on its own.
- *
- * `measured` says whether the list this row arrived in reported evidence for
- * ANY page (`listMeasuresEvidence`), which is what separates the two reasons a
- * row can be missing its counts — see `PageRow.evidence`. It has to sit on the
- * row rather than be closed over by the cell, because `COLUMNS` is module scope
- * and a cell built per render would re-sort the whole list on every keystroke
- * elsewhere on the page. Derived once per response beside the filter, so the
- * two hundred rows carry a boolean rather than each asking the question again.
- */
-interface IndexRow extends PageRow {
-  measured: boolean
+  /**
+   * Why the measurement is not there, said by the SERVER.
+   *
+   * This row used to carry a boolean the console derived from its neighbours:
+   * "did any other row in this response have counts?", and if so, this bare row
+   * was called a reference target. It was usually right, it was a client
+   * deducing a property of a page from the rows next to it, and it was blind by
+   * construction to the state that mattered — a reference target that holds
+   * visible claims, whose real count is being kept out of this list and about
+   * which the list said nothing at all. A reader could learn that only from the
+   * lint report.
+   *
+   * Now the absence describes itself: `reason` says what the row is, and
+   * `withheld_claims` — present only where there are any — says how much the
+   * index is not showing. It is not a finding and carries no verdict; the linter
+   * owns that. Optional and nullable for the same rolling-upgrade reason
+   * `evidence` is: a tab whose next request lands on the instance still running
+   * the older build gets neither field, and every such row honestly falls back
+   * to "the counts did not arrive".
+   */
+  not_measured?: NotMeasured | null
 }
 
 /**
@@ -135,7 +141,7 @@ interface IndexRow extends PageRow {
  * rebuilt per render re-sorts the whole list on every keystroke elsewhere on the
  * page.
  */
-const COLUMNS: readonly DataColumn<IndexRow>[] = [
+const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'page',
     label: 'Page',
@@ -229,15 +235,19 @@ export function PagesPage() {
   // store ticks once a second for the whole console, so every surface agrees on
   // what "now" is.
   const now = useNow()
-  const rows = useMemo<readonly IndexRow[]>(() => {
-    // Asked of the WHOLE response, not of the rows that survive the filter: a
-    // window that happened to keep only reference targets would otherwise leave
-    // the list with nothing measured in it and flip every one of those rows to
-    // the vaguer sentence. A filter narrows what is shown; it does not change
-    // what a page is.
-    const measured = listMeasuresEvidence(items)
-    return items.filter((row) => changedWithin(row.updated_at, changed, now)).map((row) => ({ ...row, measured }))
-  }, [items, changed, now])
+  // The filter, and nothing else. It used to also stamp every row with a
+  // response-wide boolean saying whether ANY row had been measured, which is how
+  // the cell used to guess why a bare row was bare — a derived fact that had to
+  // be read over the whole response rather than over the rows the filter kept,
+  // because otherwise a "changed in the last 7 days" window that happened to
+  // keep only reference targets flipped all of them to a vaguer sentence. The
+  // server states the reason on the row now, so there is no response-wide fact
+  // left to carry and no way for a filter to change what a page says about
+  // itself.
+  const rows = useMemo<readonly PageRow[]>(
+    () => items.filter((row) => changedWithin(row.updated_at, changed, now)),
+    [items, changed, now],
+  )
 
   return (
     <Page
@@ -344,6 +354,22 @@ export function PagesPage() {
  *
  *   —                          nothing was measured, which is not a zero
  *
+ *   —                          a reference target that nevertheless holds
+ *   2 claims not counted       claims: the measurement is still withheld, and
+ *                              now the row says how much is being withheld
+ *
+ * That last shape is the one this release adds, and everything about it is
+ * chosen to keep it INFORMATION rather than an alarm. It is muted text on the
+ * same line the sources count uses, not a badge; it wears no tone, because tone
+ * in this console means "an exception you should act on"; it says "not counted"
+ * rather than anything about whether the page is right or wrong; and it sorts
+ * with the other blanks, because a row with no measurement has nothing to rank.
+ * The linter owns the judgement — `scaffolded-claims` reports the same count
+ * from the same aggregate, with both readings of what to do about it — and an
+ * index that started diagnosing data problems would be a second linter drifting
+ * from the first. What the index owes the reader is the fact that a real number
+ * exists and is not on this screen, which is exactly what it now says.
+ *
  * The em dash is the one that has to be gettable by a reader who cannot see it,
  * so the visible glyph is hidden from the accessibility tree and the sentence
  * behind it is not: a screen reader that announced "dash" would learn exactly as
@@ -355,7 +381,8 @@ export function PagesPage() {
  * which correctly reports nothing wrong, and that round trip is the whole defect
  * this column had. So the dash is a Tooltip trigger carrying the sentence
  * `pageEvidence` decided on: a reference target says it holds relations rather
- * than knowledge, an unanswered list says the counts never arrived.
+ * than knowledge, one that also holds claims says how many are not counted here,
+ * and an unanswered list says the counts never arrived.
  *
  * A Tooltip and not a `title=`, on the same rule `RelativeTime` and
  * `DisabledReason` already follow (CUI-WORDS-2): a native title is one sentence
@@ -371,8 +398,8 @@ export function PagesPage() {
  * reading this table row by row would otherwise reach an `aria-hidden` glyph and
  * hear an empty cell.
  */
-function EvidenceCell({ row }: { row: IndexRow }) {
-  const evidence = pageEvidence(row.evidence, row.measured)
+function EvidenceCell({ row }: { row: PageRow }) {
+  const evidence = pageEvidence(row.evidence, row.not_measured)
   const testId = `pages-row-${row.slug}-evidence`
 
   if (rendersAsDash(evidence.level))
@@ -385,12 +412,26 @@ function EvidenceCell({ row }: { row: IndexRow }) {
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
-              className="rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="flex flex-col items-start gap-0.5 rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
               data-testid={testId}
               data-evidence={evidence.level}
             >
               <span aria-hidden="true">—</span>
+              {/* The whole state, for a screen reader, on every dash. Rendered
+                  before the withheld line rather than instead of it: the
+                  sentence is the reason, the line beside the dash is the number,
+                  and a reader who can see the dash gets the number without
+                  opening anything. */}
               <span className="sr-only">{evidence.reading}</span>
+              {/* Present on exactly one level (`reference_withheld`), and hidden
+                  from the accessibility tree because the sr-only sentence above
+                  already contains the same count in words — announcing "2 claims
+                  not counted" twice teaches nothing the second time. */}
+              {evidence.detail ? (
+                <span className="text-xs" aria-hidden="true" data-testid={`${testId}-withheld`}>
+                  {evidence.detail}
+                </span>
+              ) : null}
             </span>
           </TooltipTrigger>
           <TooltipContent data-testid={`${testId}-reason`}>{evidence.reading}</TooltipContent>

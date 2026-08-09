@@ -16,7 +16,6 @@ import {
   evidenceOf,
   evidenceRank,
   evidenceSummary,
-  listMeasuresEvidence,
   pageEvidence,
   proposalTitle,
   rendersAsDash,
@@ -341,21 +340,15 @@ describe('a page the wiki does not measure', () => {
   // withheld measurement and the measured zero must never produce the same
   // output. If they ever collapse, the console is back to the row that sent that
   // operator to the linter — and this time with the linter's agreement.
-  const list = [
-    { evidence: { claims: 4, uncited_claims: 1, sources: 2 } }, // a knowledge page
-    { evidence: { claims: 0, uncited_claims: 0, sources: 0 } }, // written by hand, measured
-    {}, // a reference target: the server declined to measure it
-  ]
-
-  const measuring = listMeasuresEvidence(list)
-  const referenceTarget = pageEvidence(undefined, measuring)
-  const handWritten = pageEvidence({ claims: 0, uncited_claims: 0, sources: 0 }, measuring)
+  // One response, three rows. The reference target is no longer the row with a
+  // hole in it — it carries `not_measured`, so the reason travels with the row
+  // instead of being reconstructed from its neighbours.
+  const referenceTarget = pageEvidence(undefined, { reason: 'reference_target' })
+  const handWritten = pageEvidence({ claims: 0, uncited_claims: 0, sources: 0 })
 
   test('a withheld measurement is a dash and a measured zero is not — the two never collapse', () => {
     // The entire point, in one read. Same response, same absent-looking cell to
     // a careless renderer, two different facts about two different pages.
-    expect(measuring).toBe(true)
-
     expect(rendersAsDash(referenceTarget.level)).toBe(true)
     expect(referenceTarget.level).toBe('reference')
     expect(referenceTarget.count).toBeNull()
@@ -378,7 +371,7 @@ describe('a page the wiki does not measure', () => {
     // console saying the archive holds nothing behind them — it is printed, and
     // printed as a digit. The reference target prints neither a digit nor a
     // badge, because there is nothing about it to print.
-    const nothingBehindIt = pageEvidence({ claims: 4, uncited_claims: 4, sources: 0 }, measuring)
+    const nothingBehindIt = pageEvidence({ claims: 4, uncited_claims: 4, sources: 0 })
     expect(nothingBehindIt.detail).toBe('0 sources')
     expect(nothingBehindIt.count).toBe('4 claims')
 
@@ -404,7 +397,7 @@ describe('a page the wiki does not measure', () => {
     // Both draw the dash, and a reader who is shown a dash is owed the reason
     // for it. "The counts did not arrive" tells an operator to wait; "this page
     // is a reference target" tells them there is nothing to wait for.
-    const noCountsAtAll = pageEvidence(undefined, false)
+    const noCountsAtAll = pageEvidence(undefined)
     expect(noCountsAtAll.level).toBe('unmeasured')
     expect(rendersAsDash(noCountsAtAll.level)).toBe(true)
     expect(noCountsAtAll.reading).not.toBe(referenceTarget.reading)
@@ -414,65 +407,110 @@ describe('a page the wiki does not measure', () => {
     expect(noCountsAtAll.reading).not.toMatch(/reference target/i)
   })
 
-  test('a list that measured nothing never calls a page a reference target', () => {
+  test('a row carrying no reason at all says only what is certain', () => {
     // A tab loaded from the replaced instance, its next request answered by a
-    // build that predates the counts: every row comes back bare. Describing all
-    // of them as reference targets would be the console inventing a property of
-    // every page in the wiki. The response is what is unmeasured, and that is
-    // what it says.
-    expect(listMeasuresEvidence([])).toBe(false)
-    expect(listMeasuresEvidence([{}, {}, { evidence: null }])).toBe(false)
-    expect(pageEvidence(undefined, listMeasuresEvidence([{}, {}])).level).toBe('unmeasured')
+    // build that predates both fields: the row comes back bare. Describing it as
+    // a reference target would be the console inventing a property of a page out
+    // of an absence — which is exactly what it used to do, by reading the rest of
+    // the response and deducing. The reason now travels with the row or not at
+    // all.
+    expect(pageEvidence(undefined).level).toBe('unmeasured')
+    expect(pageEvidence(undefined, null).level).toBe('unmeasured')
   })
 
-  test('one measured row is enough to prove the build measures', () => {
-    // Which is what makes the discriminator cheap and honest: a response that
-    // measured ANY page came from a build that measures, so the bare rows beside
-    // it are pages the server declined to measure.
-    expect(listMeasuresEvidence([{}, { evidence: { claims: 0, uncited_claims: 0, sources: 0 } }, {}])).toBe(true)
+  test('one row says the same thing whatever its neighbours did', () => {
+    // What replaced the list-level discriminator, and the reason it is gone: a
+    // row's reading is a function of the row. No response, no section and no
+    // sibling can change it, so the two surfaces cannot drift and a filtered
+    // list cannot re-describe a page.
+    const row = { reason: 'reference_target' } as const
+    expect(pageEvidence(undefined, row).level).toBe(pageEvidence(undefined, row).level)
+    expect(pageEvidence(undefined, row).reading).toBe(pageEvidence(undefined, row).reading)
   })
 
-  test('a row the server contradicts itself about does not vouch for the list', () => {
-    // `pageEvidence` reads a negative or fractional count as unmeasured, so a
-    // row like this prints a dash of its own. Letting it prove the build
-    // measures would make a whole list of nonsense rows describe every blank
-    // beside them as a reference target.
-    expect(listMeasuresEvidence([{ evidence: { claims: -1, uncited_claims: 0, sources: 0 } }])).toBe(false)
-    expect(listMeasuresEvidence([{ evidence: { claims: 3 } }])).toBe(false)
+  test('a reason this console has never heard of is still a refusal', () => {
+    // A newer server naming a reason this build predates. Calling it a reference
+    // target would be the old inference wearing the new field's clothes.
+    const future = pageEvidence(undefined, { reason: 'some-future-reason' })
+    expect(future.level).toBe('unmeasured')
+    expect(future.reading).not.toMatch(/reference target/i)
   })
 
-  test('a half-answered row is still unknown, however well the rest of the list did', () => {
-    // The subtle one: `claims` arrived, `uncited_claims` did not, in a response
-    // that measured everything else. That is not a reference target and it is
-    // not a clean bill of health — it is a row nobody can read, and the console
-    // says so rather than defaulting the missing half to zero.
-    expect(pageEvidence({ claims: 3 }, true).level).toBe('reference')
-    expect(rendersAsDash(pageEvidence({ claims: 3 }, true).level)).toBe(true)
+  test('a half-answered row is unknown, and no longer guessed to be a reference target', () => {
+    // The subtle one: `claims` arrived, `uncited_claims` did not. That is not a
+    // reference target and it is not a clean bill of health — it is a row nobody
+    // can read, and the console says so rather than defaulting the missing half
+    // to zero.
+    //
+    // This assertion INVERTED with the field that made it possible. While the
+    // console had to infer the reason for a missing measurement, a half-answered
+    // row in a measuring response looked exactly like furniture and was read as
+    // `reference` — the inference reaching a confident, wrong conclusion from an
+    // absence. Now only `not_measured` produces `reference`, so a row that
+    // merely arrived incomplete says the one thing that is certain.
+    expect(pageEvidence({ claims: 3 }).level).toBe('unmeasured')
+    expect(rendersAsDash(pageEvidence({ claims: 3 }).level)).toBe(true)
   })
 
   test('exactly the wordless levels draw the dash', () => {
     // The predicate is what every surface asks instead of `=== 'unmeasured'`,
     // and a level that acquired a number while still answering true here would
     // print an empty cell for a page that has something to say.
-    const levels: readonly EvidenceLevel[] = ['unmeasured', 'reference', 'none', 'partial', 'backed']
-    expect(levels.filter(rendersAsDash)).toEqual(['unmeasured', 'reference'])
+    //
+    // `reference_withheld` is wordless too: its number is the size of what the
+    // marker keeps out, never a measurement of the page, so the evidence cell
+    // stays a dash and the count rides in the detail line beside it.
+    const levels: readonly EvidenceLevel[] = [
+      'unmeasured',
+      'reference',
+      'reference_withheld',
+      'none',
+      'partial',
+      'backed',
+    ]
+    expect(levels.filter(rendersAsDash)).toEqual(['unmeasured', 'reference', 'reference_withheld'])
   })
 
   test('the row the SERVER sends is the row the console reads', () => {
     // Typed as the server's own summary, so the two halves of this change cannot
-    // drift apart: `listConcepts` builds `ConceptSummary` and simply leaves
-    // `evidence` off a reference target. If that field ever stopped being
-    // optional there, this fixture would not compile — and the console would be
-    // rendering a dash for a state the server no longer produces.
+    // drift apart: `listConcepts` builds `ConceptSummary`, leaves `evidence` off
+    // a reference target and puts `not_measured` there instead. If either field
+    // stopped being optional there, this fixture would not compile.
+    //
+    // The reason is READ from the row, never inferred from the hole where
+    // `evidence` would have been. That is the whole change: the server knows why
+    // it is not measuring, so it says it.
     const fromServer: ConceptSummary = {
       slug: 'cadences',
       title: 'Cadences',
       summary: 'This reference page preserves the target of reviewed relations.',
       rev: 1,
       updated_at: '2026-01-01T00:00:00.000Z',
+      not_measured: { reason: 'reference_target' },
     }
     expect('evidence' in fromServer).toBe(false)
-    expect(pageEvidence(fromServer.evidence, true).level).toBe('reference')
+    expect(pageEvidence(fromServer.evidence, fromServer.not_measured).level).toBe('reference')
+  })
+
+  test('a reference target holding claims says so, and still does not measure the page', () => {
+    // The gap this release closes. The marker keeps a real count out of the
+    // index; until now the index was silent about that, and a reader had to be
+    // looking at the lint report to learn a number existed at all.
+    const withheld = pageEvidence(undefined, { reason: 'reference_target', withheld_claims: 7 })
+    expect(withheld.level).toBe('reference_withheld')
+    expect(withheld.detail).toBe('7 claims not counted')
+    // Still no measurement and still no verdict: no count in the evidence cell,
+    // no badge, no tone. `scaffolded-claims` owns the judgement.
+    expect(withheld.count).toBeNull()
+    expect(withheld.flag).toBeNull()
+    expect(withheld.tone).toBe('unknown')
+  })
+
+  test('nothing withheld reads as an ordinary reference target, zero included', () => {
+    // A `0` here is nothing being kept out, and printing "0 claims not counted"
+    // would re-create precisely the meaningless zero this line of work removed.
+    expect(pageEvidence(undefined, { reason: 'reference_target' }).level).toBe('reference')
+    expect(pageEvidence(undefined, { reason: 'reference_target', withheld_claims: 0 }).level).toBe('reference')
   })
 })
 

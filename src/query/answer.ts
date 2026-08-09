@@ -72,8 +72,11 @@ export async function answerQuestion(
   args: AnswerArgs,
   // scaffoldingKinds is forwarded to search unchanged: the retrieval half of an
   // answer must see the same pages, and be silent about the same reference
-  // targets, as a bare /search on the same installation.
-  deps: { vector?: { available: boolean }; scaffoldingKinds?: readonly string[] } = {},
+  // targets, as a bare /search on the same installation. Required — with no
+  // default on the bag and none on the field — because forwarding a value this
+  // function cannot supply is exactly what a caller forgets; `vector` stays
+  // optional beside it because a lexical-only installation genuinely has none.
+  deps: { vector?: { available: boolean }; scaffoldingKinds: readonly string[] },
 ): Promise<QueryAnswer> {
   const input = zAnswerArgs.parse(args)
   if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)

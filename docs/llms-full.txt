@@ -96,7 +96,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | DELETE | `/v1/spaces/{space}/source-streams/{external_source_id}` | knowledge:propose | Tombstone a source stream (idempotent soft delete — the upstream document is gone) |
 | GET    | `/v1/spaces/{space}/decisions`                | knowledge:read    | List decisions (active/superseded), newest first — the decision log |
 | GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read    | Read one decision: context, decision, rationale, rejected alternatives |
-| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts with an `evidence` summary per page, absent on a reference target (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
+| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts with an `evidence` summary per page, replaced by `not_measured` on a reference target (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read    | Read a concept: markdown + claims + citations + relations |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list |
@@ -221,7 +221,19 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   points at. There is nothing there to evidence, and three zeros would read as
   the finding that a knowledge page rests on nothing. Absence therefore never
   means zero: where the three numbers are served they are measured, and where
-  they are missing the question did not apply. A reference target is recognised
+  they are missing the question did not apply.
+  The absence says so itself rather than leaving a hole: in place of `evidence`
+  such a row carries `not_measured: {reason: "reference_target"}`, and — only
+  where the page nevertheless holds visible claims — a `withheld_claims` count,
+  which is the number `evidence.claims` would have carried, from the same
+  aggregate. It is absent, never `0`, when there is nothing to withhold. It is
+  not the measurement renamed (there is no `uncited_claims` and no `sources`
+  here, and never will be) and it is not a finding (no severity, no advice — the
+  `scaffolded-claims` lint rule owns that judgement). A readable row carries
+  `evidence` or `not_measured`, never both and never neither, so a client never
+  has to deduce which kind of nothing it is holding from the rows around it. A
+  concept hit carrying neither is a page that stopped being readable between the
+  ranking and the count. A reference target is recognised
   by the `kind` its current revision carries: WikiKit's own
   `structural-reference` always, plus whatever markers the installation declares
   in `WIKIKIT_SCAFFOLDING_KINDS` (§11) — a fact about one deployment's import
@@ -723,8 +735,11 @@ REQUIRES a scaffolding marker rather than excluding it: a readable page marked
 as a reference target that nevertheless states visible claims. The marker
 decides whether a page is a reference target and the counts are never consulted,
 so such a page has its `evidence` withheld from the concept list and from
-`kind: "concept"` search hits while its claims stay fully readable on the page —
-this rule is what says so, because no other surface does. Warn, not error: the
+`kind: "concept"` search hits while its claims stay fully readable on the page.
+Those two surfaces now say that a count is being withheld — `not_measured.
+withheld_claims`, the same number from the same aggregate — and this rule is
+what says it is a contradiction somebody should resolve, because no other
+surface passes judgement on it. Warn, not error: the
 claims are real and nothing in the knowledge is broken; what is broken is the
 index's account of the page. The finding names the slug, the visible-claim
 count, and both readings of the contradiction (the marker is wrong for this

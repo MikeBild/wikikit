@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { describeFailure } from '../../../apps/cockpit/src/lib/failure.ts'
 import {
   declarationSentence,
+  MARKER_ORIGINS,
   originLegend,
   originStanding,
   scaffoldingMarkers,
@@ -25,6 +26,7 @@ import {
   type KnowledgeConfig,
   type ScaffoldingMarker,
 } from '../../../apps/cockpit/src/pages/system.logic.ts'
+import { zKnowledgeConfigResponse } from '../../../src/http/schemas.ts'
 
 const BUILT_IN = 'structural-reference'
 
@@ -34,27 +36,33 @@ function config(configured: boolean, items: ScaffoldingMarker[]): KnowledgeConfi
 }
 
 describe('provenance is the point, not the list', () => {
-  test('the three origins render as three different words', () => {
-    const words = new Set(
-      (['built_in', 'configured', 'fallback'] as const).map((origin) => originStanding(origin).label),
-    )
-    expect(words.size).toBe(3)
+  test('the console knows exactly the origins the server can send', () => {
+    // The pin that did not exist while the console carried a third `fallback`
+    // origin for a release after the server stopped being able to send it. The
+    // server's enum is the authority in both directions: an origin the console
+    // has never heard of renders unlabelled (see below), and an origin the
+    // console still explains that the server dropped is a state a reader will
+    // reason about and never see.
+    const served = zKnowledgeConfigResponse.shape.scaffolding_kinds.shape.items.element.shape.origin.options
+    expect([...MARKER_ORIGINS].sort()).toEqual([...served].sort())
   })
 
-  test('the three origins render as three different tones', () => {
-    const tones = new Set(
-      (['built_in', 'configured', 'fallback'] as const).map((origin) => originStanding(origin).tone),
-    )
-    expect(tones.size).toBe(3)
+  test('the two origins render as two different words', () => {
+    const words = new Set(MARKER_ORIGINS.map((origin) => originStanding(origin).label))
+    expect(words.size).toBe(MARKER_ORIGINS.length)
+  })
+
+  test('the two origins render as two different tones', () => {
+    const tones = new Set(MARKER_ORIGINS.map((origin) => originStanding(origin).tone))
+    expect(tones.size).toBe(MARKER_ORIGINS.length)
   })
 
   test('each origin says what an operator can do about it', () => {
-    // A badge with no sentence behind it is a colour with a caption. The
-    // shipped default is the one that has to earn its warning: it must say
-    // that nobody here chose it.
+    // A badge with no sentence behind it is a colour with a caption. Each has
+    // to name the different next move: one cannot be taken away, the other was
+    // written down here and can be.
     expect(originStanding('built_in').meaning).toContain('Configuration cannot remove it')
     expect(originStanding('configured').meaning).toContain('configuration')
-    expect(originStanding('fallback').meaning).toContain('Nobody configured this')
   })
 
   test('a marker keeps its own provenance through the rows', () => {
@@ -90,20 +98,20 @@ describe('provenance is the point, not the list', () => {
     expect(standing.tone).toBe('unknown')
     // Never silently rendered as the reassuring one.
     expect(standing.label).not.toBe(originStanding('built_in').label)
+    // Nor wearing a tone a known origin wears: the badge is the fast read, and
+    // an unrecognised provenance that borrowed a settled colour would say the
+    // console had placed it when it had not.
+    expect(MARKER_ORIGINS.map((origin) => originStanding(origin).tone)).not.toContain(standing.tone)
   })
 })
 
 describe('the legend explains each provenance once', () => {
   test('only the origins actually present appear', () => {
-    const legend = originLegend(
-      config(false, [
-        { kind: BUILT_IN, origin: 'built_in' },
-        { kind: 'a-shipped-default', origin: 'fallback' },
-      ]),
-    )
-    expect(legend.map((entry) => entry.origin)).toEqual(['built_in', 'fallback'])
-    // The operator never set anything, so "set on this installation" must not
-    // be explained at them.
+    // An installation that wrote nothing down reports the built-in marker and
+    // nothing else, so "set on this installation" must not be explained at an
+    // operator who set nothing.
+    const legend = originLegend(config(false, [{ kind: BUILT_IN, origin: 'built_in' }]))
+    expect(legend.map((entry) => entry.origin)).toEqual(['built_in'])
     expect(legend.map((entry) => entry.origin)).not.toContain('configured')
   })
 

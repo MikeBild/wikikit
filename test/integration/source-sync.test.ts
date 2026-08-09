@@ -10,6 +10,7 @@ import { runMigrations } from '../../src/db/migrate.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createIngestPipeline, type IngestPipeline } from '../../src/ingest/pipeline.ts'
 import { recordStreamVersion, tombstoneStream } from '../../src/domain/source-streams.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { lintSpace } from '../../src/domain/lint.ts'
 import { ConflictError } from '../../src/domain/errors.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
@@ -156,7 +157,7 @@ describe('source-sync contract (integration)', () => {
     )
     expect(events.length).toBe(1)
 
-    const report = await lintSpace(db, spaceId)
+    const report = await lintSpace(db, spaceId, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const findings = report.findings.filter((finding) => finding.rule === 'tombstoned-sources')
     expect(findings.length).toBeGreaterThanOrEqual(1)
     expect(findings[0]!.details).toMatchObject({ external_source_id: EXTERNAL_ID })

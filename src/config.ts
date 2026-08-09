@@ -16,6 +16,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { BUILT_IN_SCAFFOLDING_KINDS } from './domain/concepts.ts'
 import { VERSION } from './version.ts'
 
 const moduleRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -196,8 +197,18 @@ export interface Config {
    * Revision kinds (`agent_meta->>'kind'`) whose pages are structural
    * scaffolding rather than knowledge — see WIKIKIT_SCAFFOLDING_KINDS below.
    * Always contains WikiKit's own `structural-reference`.
+   *
+   * REQUIRED, unlike most of the optional fields above, and it is the first
+   * link in the chain that makes forgetting these markers a type error rather
+   * than a convention (ScaffoldingOptions in src/domain/concepts.ts is the
+   * second). The reads take `readonly string[]`, so a boundary that forwards
+   * `deps.config.scaffoldingKinds` only compiles while this field cannot be
+   * undefined — the moment it becomes optional again, every forward is a type
+   * error and the compiler says so at the boundary rather than a default
+   * quietly answering for the installation. The parse always produces a value
+   * (WikiKit's own marker at minimum), so requiring it costs nothing true.
    */
-  readonly scaffoldingKinds?: readonly string[]
+  readonly scaffoldingKinds: readonly string[]
   /**
    * True when the operator WROTE WIKIKIT_SCAFFOLDING_KINDS, false when nothing
    * was written and the built-in marker stands alone. `scaffoldingKinds` alone
@@ -208,8 +219,13 @@ export interface Config {
    * to answer "did I set that, or did it come with the product" — the first
    * question an operator asks about an unexpected value — and only the parse
    * knows.
+   *
+   * Required for the same reason as the list beside it: the two come out of one
+   * parse, and an optional boolean read as `=== true` is a default wearing a
+   * comparison — an absent value would report "you configured nothing" about an
+   * installation nobody asked.
    */
-  readonly scaffoldingKindsDeclared?: boolean
+  readonly scaffoldingKindsDeclared: boolean
 }
 
 const LLM_PROVIDERS = ['anthropic', 'openai', 'google'] as const
@@ -390,7 +406,18 @@ export const OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS = 24 * 60 * 60 * 1000
  * the linter's fault rules start reporting them. The repair is one line of
  * configuration, which is exactly what this variable is for.
  */
-const BUILT_IN_SCAFFOLDING_KIND = 'structural-reference'
+// Imported rather than retyped. The domain owns what a scaffolding marker IS —
+// it is the layer that reads the column and decides the row is furniture — and
+// this file owns only how an operator adds to that set. A second literal here
+// would be a second answer to "what does this build ship with": the parser would
+// honour one marker and `BUILT_IN_SCAFFOLDING_KINDS` would attribute another,
+// each pinned by its own test, so moving it would redden one suite and ship a
+// build disagreeing with itself. That is the exact shape of the duplicated
+// session ceiling 0.31.0 removed, and it is not worth repeating for the sake of
+// keeping this module import-free.
+//
+// The direction is safe: src/domain/concepts.ts imports nothing from here, by
+// design — it receives the markers as an argument rather than reading config.
 
 /**
  * Same shape as parseIdentityScopes above — split on commas, trim, drop empties,
@@ -421,7 +448,7 @@ function parseScaffoldingKinds(raw: string, name: string): { kinds: readonly str
       throw new Error(`${name} entries must be alphanumeric revision-kind markers ('.', '_' and '-' allowed): ${kind}`)
     }
   }
-  return { kinds: [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...values])], declared: values.length > 0 }
+  return { kinds: [...new Set([...BUILT_IN_SCAFFOLDING_KINDS, ...values])], declared: values.length > 0 }
 }
 
 function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthProviderConfig[] {

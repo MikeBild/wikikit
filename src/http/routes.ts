@@ -1840,9 +1840,14 @@ export const HANDLERS: Record<string, Handler> = {
    * build somebody read rather than the process somebody is running — the very
    * confusion the route removes.
    *
-   * WHY the fallback when scaffoldingKinds is absent: it mirrors what the reads
-   * do (src/domain/concepts.ts defaults the same way), so the report cannot
-   * disagree with the behaviour it describes.
+   * WHY there is no fallback here any more. This used to read
+   * `scaffoldingKinds ?? BUILT_IN_SCAFFOLDING_KINDS`, mirroring a default the
+   * reads carried, so the report could not disagree with the behaviour it
+   * described. Both are gone: `Config.scaffoldingKinds` is required and so is
+   * every read that acts on it, so there is no absent case left to mirror — and
+   * a report that still defaulted would be inventing the one answer an operator
+   * comes here to check. BUILT_IN_SCAFFOLDING_KINDS survives below for
+   * ATTRIBUTION only, which is a different question from what to report.
    *
    * WHY there is no matching MCP tool, and should not be one. The reader here
    * is an operator explaining a count on their own installation, which the
@@ -1860,8 +1865,8 @@ export const HANDLERS: Record<string, Handler> = {
    * in src/http/schemas.ts. Read it before adding a field.
    */
   async knowledgeConfigHandler(deps) {
-    const kinds = deps.config.scaffoldingKinds ?? BUILT_IN_SCAFFOLDING_KINDS
-    const configured = deps.config.scaffoldingKindsDeclared === true
+    const kinds = deps.config.scaffoldingKinds
+    const configured = deps.config.scaffoldingKindsDeclared
     return {
       status: 200,
       body: {

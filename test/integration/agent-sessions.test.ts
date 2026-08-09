@@ -7,6 +7,7 @@
 // Gated behind RUN_INTEGRATION=1; scripts/start-local.ts provisions the container.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import { createLogger } from '../../src/logger.ts'
@@ -68,6 +69,8 @@ function integrationConfig(databaseUrl: string): Config {
     version: '0.0.0-itest',
     // FakeProvider is always configured; capture must not 503 here.
     llmConfigured: true,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
   }
 }
 

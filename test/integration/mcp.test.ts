@@ -13,6 +13,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from '@modelcontextprotocol/sdk/types.js'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import { UnauthorizedError } from '../../src/domain/errors.ts'
@@ -152,6 +153,12 @@ describe('MCP server (integration)', () => {
       usageTelemetryEnabled: true,
       usageHmacSecret: 'itest-mcp-usage-secret',
       usageRetentionDays: 90,
+      // Explicit, not defaulted. `as Config` is a promise to the compiler that
+      // this object is a whole config, and the compiler believes it — so a
+      // required field left out here is a hole the type system cannot see. The
+      // built-in set is imported rather than typed out: a literal here would be
+      // one more copy of the marker to drift.
+      scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
     } as Config
     ingest = createIngestPipeline(config, db, createFakeProvider(), logger)
     const usage = createUsageTelemetry(config, db, logger)

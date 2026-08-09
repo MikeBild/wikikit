@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { loadConfig } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 
 // Deleted (and restored) per test. Isolation needs BOTH this list and
 // WIKIKIT_SKIP_DOTENV below: deleting a name here clears what Bun auto-loaded
@@ -295,7 +296,24 @@ describe('the identity scope ceiling', () => {
 })
 
 describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
-  const builtIn = 'structural-reference'
+  // Read from the product, so every case below describes whatever this build
+  // actually ships rather than a literal that can drift from it.
+  const builtIn = BUILT_IN_SCAFFOLDING_KINDS[0]!
+
+  test('the built-in marker is the string it has always been', () => {
+    // THE ONE PLACE the value is written twice, deliberately. Everything else
+    // reads `BUILT_IN_SCAFFOLDING_KINDS`, which is what stops the parser and the
+    // attribution from disagreeing — but a single source is only a guarantee
+    // that they MOVE TOGETHER, never that they are still right. Renaming the
+    // constant would rename it everywhere consistently and silently, and the
+    // installations whose pages carry the old marker would stop having reference
+    // targets: their evidence would come back as three zeros and the linter's
+    // fault rules would start reporting them.
+    //
+    // So this test is the second copy, and it is the whole of the pin. Changing
+    // the marker is allowed; doing it without noticing is not.
+    expect(BUILT_IN_SCAFFOLDING_KINDS).toEqual(['structural-reference'])
+  })
 
   test('unset is the built-in marker and nothing else', () => {
     // This assertion is the inverse of the one it replaces. Two releases
@@ -313,7 +331,7 @@ describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
 
   test('configured markers are added to the built-in one, and nothing else comes along', () => {
     process.env.WIKIKIT_SCAFFOLDING_KINDS = 'acme-relation-import'
-    const kinds = loadConfig().scaffoldingKinds!
+    const kinds = loadConfig().scaffoldingKinds
     expect(kinds).toEqual([builtIn, 'acme-relation-import'])
     expect(loadConfig().scaffoldingKindsDeclared).toBe(true)
   })

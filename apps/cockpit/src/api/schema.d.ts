@@ -1626,6 +1626,11 @@ export interface components {
                     uncited_claims: number;
                     sources: number;
                 };
+                not_measured?: {
+                    /** @enum {string} */
+                    reason: "reference_target";
+                    withheld_claims?: number;
+                };
             }[];
             next_after: string | null;
             epoch: number;
@@ -1700,6 +1705,11 @@ export interface components {
                     claims: number;
                     uncited_claims: number;
                     sources: number;
+                };
+                not_measured?: {
+                    /** @enum {string} */
+                    reason: "reference_target";
+                    withheld_claims?: number;
                 };
                 space: string;
             }[];

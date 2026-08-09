@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import { createLogger } from '../../src/logger.ts'
@@ -56,6 +57,8 @@ function integrationConfig(databaseUrl: string): Config {
     logLevel: 'error',
     version: '0.0.0-itest',
     llmConfigured: false,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
   }
 }
 

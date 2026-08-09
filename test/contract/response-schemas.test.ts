@@ -22,6 +22,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp, type App } from '../../src/app.ts'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createZip } from '../../src/export/zip.ts'
 import { ROUTES } from '../../src/http/routes.ts'
@@ -602,6 +603,8 @@ function testConfig(): Config {
     logLevel: 'error',
     version: '0.0.0-contract-test',
     llmConfigured: false,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
     // The identity-grant routes only accept providers this deployment
     // actually authenticates against.
     oauthProviders: [

@@ -11,6 +11,7 @@
 //      Everything else is an open redirect with a friendly name.
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { hashApiKey } from '../../src/http/auth.ts'
@@ -142,6 +143,8 @@ function testConfig(): Config {
     logLevel: 'error',
     version: '1.2.3-test',
     llmConfigured: false,
+    scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+    scaffoldingKindsDeclared: false,
     oauthProviders: [
       { protocol: 'api_key', id: 'api-key', label: 'WikiKit API key' },
       // The identity session below is re-checked against this provider on

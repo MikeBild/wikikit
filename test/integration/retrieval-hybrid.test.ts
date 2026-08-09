@@ -12,6 +12,7 @@ import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createEmbedder, probeVectorSupport } from '../../src/ingest/embedder.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { persistSourceChunks } from '../../src/domain/sources.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { search } from '../../src/query/search.ts'
 
 const integration = process.env.RUN_INTEGRATION === '1'
@@ -152,7 +153,7 @@ describe('hybrid retrieval (integration, pgvector)', () => {
 
   it('hybrid search fuses both arms, labels matched_via, and never surfaces proposed content', async () => {
     if (!vectorAvailable) return
-    const deps = { llm, vector: { available: true } }
+    const deps = { llm, vector: { available: true }, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }
     const hits = await search(db, spaceId, { q: 'delivery rollback', mode: 'approved_then_sources' }, deps)
     expect(hits.length).toBeGreaterThanOrEqual(1)
     expect(hits[0]!.slug).toBe('delivery-pipeline')
@@ -172,7 +173,7 @@ describe('hybrid retrieval (integration, pgvector)', () => {
     // query has no special similarity — instead prove the arm works by
     // querying with a term absent from every document; lexical arm returns
     // nothing, vector arm still ranks SOMETHING (nearest neighbors exist).
-    const deps = { llm, vector: { available: true } }
+    const deps = { llm, vector: { available: true }, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }
     const hits = await search(db, spaceId, { q: 'zzz-no-lexical-match-zzz' }, deps)
     expect(hits.length).toBeGreaterThanOrEqual(1)
     expect(hits.every((hit) => hit.matched_via === 'vector')).toBe(true)

@@ -1,14 +1,22 @@
 // concepts domain — read-model assembly and the visibility-by-construction
 // rule (reads join over current_revision_id, never over a status filter).
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { Config } from '../../src/config.ts'
-import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
+import { createPostgres, type Db, type PoolLike } from '../../src/db/postgres.ts'
 import { VISIBLE_CLAIM_STATUSES } from '../../src/domain/claims.ts'
-import { getConcept, getConceptHistory, getConceptIndex, listConcepts } from '../../src/domain/concepts.ts'
+import {
+  BUILT_IN_SCAFFOLDING_KINDS,
+  getConcept,
+  getConceptHistory,
+  getConceptIndex,
+  listConcepts,
+} from '../../src/domain/concepts.ts'
 import { NotFoundError } from '../../src/domain/errors.ts'
+import { lintSpace } from '../../src/domain/lint.ts'
 import { encodeCursor } from '../../src/domain/sources.ts'
+import { answerQuestion } from '../../src/query/answer.ts'
+import { search, searchAcrossImports } from '../../src/query/search.ts'
+import { createFakeProvider } from '../helpers/fake-provider.ts'
 
 interface Call {
   sql: string
@@ -35,7 +43,9 @@ const summaryRow = (slug: string) => ({
   rev: 1,
   updated_at: new Date('2026-07-01T10:00:00Z'),
   // The evidence lateral rides in the SAME statement — its counts are columns
-  // of this row, not a second query.
+  // of this row, not a second query, and `measurable` is the marker test
+  // evaluated beside them: a knowledge page, so the counts are what it reports.
+  measurable: true,
   claims: 2,
   uncited_claims: 1,
   sources: 1,
@@ -44,7 +54,9 @@ const summaryRow = (slug: string) => ({
 describe('listConcepts', () => {
   test('unknown space is a 404 before any concept query', async () => {
     const { db } = fakeDb([{ match: /wk_spaces/, rows: [] }])
-    await expect(listConcepts(db, 'nope', {})).rejects.toBeInstanceOf(NotFoundError)
+    await expect(listConcepts(db, 'nope', {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
   })
 
   test('joins over current_revision_id, returns numeric epoch and keyset cursor', async () => {
@@ -55,7 +67,7 @@ describe('listConcepts', () => {
         rows: [summaryRow('a'), summaryRow('b'), summaryRow('c')],
       },
     ])
-    const page = await listConcepts(db, 'space-1', { limit: 2 })
+    const page = await listConcepts(db, 'space-1', { limit: 2 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(page.epoch).toBe(7)
     expect(page.items.map((item) => item.slug)).toEqual(['a', 'b'])
     expect(page.next_after).toBe(encodeCursor('b'))
@@ -69,7 +81,7 @@ describe('listConcepts', () => {
       { match: /wk_spaces/, rows: [{ epoch: 1 }] },
       { match: /current_revision_id/, rows: [summaryRow('a')] },
     ])
-    const page = await listConcepts(db, 'space-1', {})
+    const page = await listConcepts(db, 'space-1', {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(page.items[0]!.evidence).toEqual({ claims: 2, uncited_claims: 1, sources: 1 })
     // One statement for the page AND its evidence: N+1 here would be one query
     // per row on a list clamped to 200.
@@ -96,7 +108,7 @@ describe('listConcepts', () => {
       { match: /wk_spaces/, rows: [{ epoch: 1 }] },
       { match: /current_revision_id/, rows: [summaryRow('a')] },
     ])
-    await listConcepts(db, 'space-1', {})
+    await listConcepts(db, 'space-1', {}, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const listCall = calls.find((call) => call.sql.includes('current_revision_id'))!
     for (const column of ['claims', 'uncited_claims', 'sources']) {
       expect(listCall.sql, column).toMatch(new RegExp(`::int AS ${column}\\b`))
@@ -115,7 +127,7 @@ describe('listConcepts', () => {
       { match: /wk_spaces/, rows: [{ epoch: 1 }] },
       { match: /current_revision_id/, rows: [summaryRow('a')] },
     ])
-    await listConcepts(db, 'space-1', { limit: 50 })
+    await listConcepts(db, 'space-1', { limit: 50 }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const listCall = calls.find((call) => call.sql.includes('current_revision_id'))!
     const limit = listCall.sql.indexOf('LIMIT')
     const lateral = listCall.sql.indexOf('LATERAL')
@@ -131,7 +143,12 @@ describe('listConcepts', () => {
       { match: /wk_spaces/, rows: [{ epoch: 0 }] },
       { match: /current_revision_id/, rows: [] },
     ])
-    await listConcepts(db, 'space-1', { limit: 10, after: encodeCursor('m') })
+    await listConcepts(
+      db,
+      'space-1',
+      { limit: 10, after: encodeCursor('m') },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
     const listCall = calls.find((call) => call.sql.includes('current_revision_id'))!
     expect(listCall.sql).toContain('c.slug > $2')
     expect(listCall.values).toEqual(['space-1', 'm', 11])
@@ -255,101 +272,58 @@ describe('getConceptIndex', () => {
 })
 
 /**
- * The hole `ScaffoldingOptions` leaves open, closed structurally.
+ * The hole `ScaffoldingOptions` used to leave open, closed by the compiler and
+ * kept closed here.
  *
- * The installation's scaffolding markers ride in as an OPTIONAL trailing
- * option, and omitting it is not a type error — it silently resolves to
- * BUILT_IN_SCAFFOLDING_KINDS, WikiKit's own marker and nothing else. That
- * default is right for a unit test with no installation in scope and wrong for
- * every request: on a deployment carrying the shipped fallback it turns pages
- * whose evidence is deliberately ABSENT back into a measured `{claims: 0, …}`,
- * the sentence "this page rests on nothing" printed about pages that hold
- * nothing by design. A configuration that is correct in src/config.ts and
- * forgotten at the call site is worse than no configuration, because it is
- * wrong while looking configured.
+ * WHAT USED TO BE HERE. A source scan: four hand-listed boundary modules
+ * (routes.ts, tools.ts, answer.ts, search.ts) read as text, every call to one of
+ * six reads carved out by balanced parentheses, and an assertion that the
+ * argument text mentioned `scaffoldingKinds` or a bag carrying it. It existed
+ * because the markers rode in as an OPTIONAL trailing option: omitting one was
+ * not a type error, it resolved silently to WikiKit's own marker — right for a
+ * caller with no installation in scope, wrong for every request.
  *
- * Making the parameter required would close it in the type system and cost
- * about thirty test call sites — but it would not actually buy the guarantee.
- * `{}` satisfies a required options bag exactly as well as omitting an optional
- * one, so the compiler would be enforcing that somebody typed two characters,
- * not that they forwarded the configuration; and it cannot reach `search` and
- * `answerQuestion` at all, whose deps bags are legitimately optional for `llm`
- * and `vector`. So the rule is stated here instead, where it can be about the
- * thing that matters: a call from a module that HOLDS the configuration must
- * pass it.
+ * WHY IT IS DELETED RATHER THAN KEPT BESIDE THIS. The option is required now
+ * (`ScaffoldingOptions` here, `SearchDeps` in src/query/search.ts, the `deps`
+ * bag of `answerQuestion`), so a call that forgets is a type error — in EVERY
+ * module, not in the four somebody remembered to list. That is the scan's whole
+ * assertion, made by the compiler over a strictly wider domain, and the list was
+ * the scan's own weakness: a fifth boundary had to be added by hand, by the same
+ * person who had just forgotten the argument.
  *
- * Scanned as source rather than exercised as behaviour because the failure
- * being guarded is a call site that does not exist yet — a handler somebody
- * adds next release, which no behavioural test would cover precisely because
- * they forgot it. The same reason drift.test.ts reads src/config.ts as text.
+ * It covered nothing the types do not. The one thing types cannot check —
+ * whether the value came from `deps.config` or from a literal — the scan could
+ * not check either: it matched the IDENTIFIER, so `{ scaffoldingKinds: [] }`
+ * satisfied it exactly as it typechecks today. That half is behaviour, and
+ * test/integration/lint-rules.test.ts asserts it by driving both surfaces with a
+ * configured marker set and with the built-in one.
+ *
+ * WHAT REPLACES IT is the block below, which is the compiler made to say so out
+ * loud. Each `@ts-expect-error` is itself checked by `tsc --noEmit`: if the
+ * error it names ever stops happening, typecheck fails with "Unused
+ * '@ts-expect-error' directive". So these lines do not assert that omission
+ * fails today — the whole build asserts that. They fail the build on the day
+ * somebody makes the field optional again, which is the one regression the type
+ * system cannot defend against on its own, and the reason a guarantee this cheap
+ * to delete still needs a witness.
  */
-describe('every composition boundary forwards the installation scaffolding markers', () => {
-  // The modules that hold `deps.config` (or a deps bag filled from it) and call
-  // a read which acts on the markers. A new entry here is a deliberate act; a
-  // new CALL inside one of these files is caught below without any edit.
-  const BOUNDARIES = ['src/http/routes.ts', 'src/mcp/tools.ts', 'src/query/answer.ts', 'src/query/search.ts']
-  // Every read that takes the markers, directly or through a deps bag.
-  const READS = [
-    'listConcepts',
-    'conceptEvidenceBySlug',
-    'lintSpace',
-    'search',
-    'searchAcrossImports',
-    'answerQuestion',
-  ]
-  // Types that carry the markers as a field, so a parameter annotated with one
-  // of them is forwarding rather than dropping. Add a type here only after
-  // giving it a `scaffoldingKinds` field.
-  const CARRYING_TYPES = ['SearchDeps', 'ScaffoldingOptions']
-
-  /**
-   * Argument text of each CALL to `name`, by balanced parentheses. The
-   * declaration of the same name is skipped — `src/query/search.ts` both
-   * defines `search` and calls `conceptEvidenceBySlug`, and a parameter list is
-   * not a call site.
-   */
-  function callArguments(source: string, name: string): string[] {
-    const found: string[] = []
-    const call = new RegExp(String.raw`(?<![\w.])(?<!function )${name}\s*\(`, 'g')
-    for (const match of source.matchAll(call)) {
-      let depth = 1
-      let index = match.index + match[0].length
-      const start = index
-      while (index < source.length && depth > 0) {
-        if (source[index] === '(') depth += 1
-        else if (source[index] === ')') depth -= 1
-        index += 1
-      }
-      found.push(source.slice(start, index - 1))
-    }
-    return found
-  }
-
-  for (const file of BOUNDARIES) {
-    test(`${file} passes scaffoldingKinds to every read that takes it`, () => {
-      const source = readFileSync(join(import.meta.dir, '../..', file), 'utf8')
-      for (const name of READS) {
-        for (const args of callArguments(source, name)) {
-          // A call may name the markers inline, or hand over a bag that carries
-          // them — resolved one level, because that IS how these modules do it
-          // (`const searchDeps = { …, scaffoldingKinds }` in both transports,
-          // and `searchAcrossImports` forwarding its own `deps: SearchDeps`
-          // straight through). A rule that refused either would only teach the
-          // next author to route around the rule.
-          const carriers = [...args.matchAll(/[A-Za-z_$][\w$]*/g)].map((match) => match[0])
-          const forwarded =
-            args.includes('scaffoldingKinds') ||
-            carriers.some(
-              (id) =>
-                new RegExp(String.raw`const\s+${id}\s*=\s*\{[^}]*scaffoldingKinds`).test(source) ||
-                new RegExp(String.raw`\b${id}\s*:\s*(${CARRYING_TYPES.join('|')})\b`).test(source),
-            )
-          expect(
-            forwarded,
-            `${file}: ${name}(${args.replace(/\s+/g, ' ').trim()}) does not forward scaffoldingKinds`,
-          ).toBe(true)
-        }
-      }
-    })
-  }
-})
+// Never called, and never should be: the assertions are the COMPILER'S, and
+// every call below is written to be rejected. `_` is the house mark for
+// deliberately unused (eslint varsIgnorePattern).
+async function _callSitesThatForgetTheMarkers(db: Db) {
+  const llm = createFakeProvider()
+  // @ts-expect-error the installation's markers are a required 4th argument
+  await listConcepts(db, 'space-1', {})
+  // @ts-expect-error and an EMPTY bag is not a forwarded configuration either
+  await listConcepts(db, 'space-1', {}, {})
+  // @ts-expect-error lintSpace requires the bag its fault rules thread down
+  await lintSpace(db, 'space-1')
+  // @ts-expect-error which has to carry the field, not merely be an object
+  await lintSpace(db, 'space-1', {})
+  // @ts-expect-error SearchDeps leaves llm and vector optional; not this
+  await search(db, 'space-1', { q: 'okf' }, { vector: { available: false } })
+  // @ts-expect-error the federated wrapper hands the same bag on, so it asks too
+  await searchAcrossImports(db, { id: 'space-1', slug: 'home', settings: {} }, { q: 'okf' })
+  // @ts-expect-error and so does the answer path, whose retrieval half is search
+  await answerQuestion(db, 'space-1', llm, { question: 'okf?' })
+}

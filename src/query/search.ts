@@ -12,8 +12,9 @@
 // /search and the wikikit_search MCP tool, and attaches the per-page evidence
 // summary to concept hits — the same aggregate the concept list reports, so a
 // reader who searches and a reader who browses are told the same thing about
-// the same page (see SearchHit.evidence for what the other two kinds carry
-// and why it is nothing).
+// the same page — or, where there is no measurement to give, the reason there
+// is none (see SearchHit.evidence and SearchHit.not_measured for what the other
+// two kinds carry and why it is nothing).
 //
 // Tiers (mode):
 //   approved_only         — current revisions + visible claims. The default;
@@ -30,7 +31,7 @@
 //                           starve the evidence tier).
 import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
-import { conceptEvidenceBySlug, type ConceptEvidence } from '../domain/concepts.ts'
+import { conceptReadingsBySlug, type ConceptEvidence, type ConceptNotMeasured } from '../domain/concepts.ts'
 import { readImports } from '../domain/space-refs.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 
@@ -58,11 +59,17 @@ export interface SearchDeps {
    * The installation's scaffolding markers, forwarded to the evidence
    * aggregate below. It rides in this bag rather than in SearchArgs because it
    * is not something a caller of /search asks for — it is deployment
-   * configuration, and SearchArgs is the validated wire input. Absent means
-   * WikiKit's own marker only (see ScaffoldingOptions in domain/concepts.ts);
-   * the transports fill it from `deps.config`.
+   * configuration, and SearchArgs is the validated wire input; the transports
+   * fill it from `deps.config`.
+   *
+   * REQUIRED while `llm` and `vector` beside it stay optional, which is the
+   * whole reason the guarantee lives in this bag rather than in a second
+   * positional argument: those two are genuinely absent on a lexical-only
+   * installation, this one never is. See ScaffoldingOptions in
+   * domain/concepts.ts for the full argument — this field is the same
+   * guarantee reaching the one read that takes its markers through a deps bag.
    */
-  scaffoldingKinds?: readonly string[]
+  scaffoldingKinds: readonly string[]
 }
 
 export interface SearchHit {
@@ -93,11 +100,12 @@ export interface SearchHit {
    *
    * Present on every kind='concept' hit the aggregate can answer for. Two
    * absences, neither of them a measured zero and neither to be dressed as one:
-   * a page that stopped being readable between the ranking and the count, and a
-   * reference target — a page whose current revision is scaffolding, which
-   * holds no knowledge to be evidenced (see notScaffolding in
-   * src/domain/concepts.ts, where both are one filter on one aggregate, so a
-   * hit and the index row for the same slug can never disagree about which).
+   * a page that stopped being readable between the ranking and the count, which
+   * carries nothing at all because there is no row left to describe; and a
+   * reference target — a page whose current revision is scaffolding, which holds
+   * no knowledge to be evidenced — which carries `not_measured` below instead.
+   * Both come out of one call on one aggregate (`conceptReadingsBySlug`), so a
+   * hit and the index row for the same slug cannot disagree about which.
    *
    * DELIBERATELY ABSENT on the other two kinds:
    *
@@ -117,6 +125,28 @@ export interface SearchHit {
    *     A chunk also has no concept to count over — its slug is null.
    */
   evidence?: ConceptEvidence
+  /**
+   * Why a CONCEPT hit carries no `evidence` — the same object, from the same
+   * function, that the concept list row for this slug carries (see
+   * ConceptNotMeasured in src/domain/concepts.ts).
+   *
+   * It is here and not only on the index because the two surfaces disagreeing
+   * about one page is the failure this whole line of work exists to prevent: a
+   * reader who searches and then browses is comparing two reads of one fact, and
+   * "2 claims withheld" on one screen beside a bare silence on the other reads
+   * as a wiki that does not know what it holds. A field added to the index and
+   * forgotten here would be a contract that tells the truth on exactly one
+   * surface, which is the hardest kind of lie to notice.
+   *
+   * ABSENT — alongside `evidence` — on the three hits that have no page to
+   * describe: kind='claim', kind='source_chunk' (both for the reasons above),
+   * and a concept hit whose page stopped being readable between the ranking and
+   * the count. That last one is silence with no reason attached ON PURPOSE:
+   * there is no readable row, so the wiki has nothing to say about it, and
+   * inventing a reason for a page that is gone would be the console's old
+   * inference moved one layer down.
+   */
+  not_measured?: ConceptNotMeasured
 }
 
 interface SearchRow {
@@ -170,7 +200,7 @@ function asMatchedVia(value: string | undefined): 'lexical' | 'vector' | 'both' 
  * (zero-config principle — search/read/lint stay first-class on keyless
  * deployments).
  */
-export async function search(db: Db, spaceId: string, args: SearchArgs, deps: SearchDeps = {}): Promise<SearchHit[]> {
+export async function search(db: Db, spaceId: string, args: SearchArgs, deps: SearchDeps): Promise<SearchHit[]> {
   const input = zSearchArgs.parse(args)
   const embedding = await queryEmbedding(deps, input.q)
 
@@ -214,13 +244,18 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
   // because each space must be counted in its own space_id.
   const conceptSlugs = hits.flatMap((hit) => (hit.kind === 'concept' && hit.slug ? [hit.slug] : []))
   if (conceptSlugs.length > 0) {
-    const evidence = await conceptEvidenceBySlug(db, spaceId, conceptSlugs, {
+    const readings = await conceptReadingsBySlug(db, spaceId, conceptSlugs, {
       scaffoldingKinds: deps.scaffoldingKinds,
     })
     for (const hit of hits) {
       if (hit.kind !== 'concept' || !hit.slug) continue
-      const measured = evidence.get(hit.slug)
-      if (measured) hit.evidence = measured
+      // Whichever half the reading holds, assigned by name and never merged:
+      // the reading carries exactly one of the two, and Object.assign-ing it
+      // wholesale would put a key with an `undefined` value on the hit, which
+      // `'evidence' in hit` sees and JSON.stringify does not.
+      const reading = readings.get(hit.slug)
+      if (reading?.evidence) hit.evidence = reading.evidence
+      if (reading?.not_measured) hit.not_measured = reading.not_measured
     }
   }
 
@@ -265,7 +300,7 @@ export async function searchAcrossImports(
   db: Db,
   space: { id: string; slug: string; settings: Record<string, unknown> },
   args: SearchArgs,
-  deps: SearchDeps = {},
+  deps: SearchDeps,
 ): Promise<{ hits: FederatedHit[]; searched_spaces: string[] }> {
   const searched: string[] = [space.slug]
   const hits: FederatedHit[] = (await search(db, space.id, args, deps)).map((hit) => ({ ...hit, space: space.slug }))

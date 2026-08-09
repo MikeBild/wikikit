@@ -39,7 +39,7 @@ import { loadConfig, type Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
-import { listConcepts } from '../../src/domain/concepts.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS, listConcepts, type ScaffoldingOptions } from '../../src/domain/concepts.ts'
 import { lintProposal, lintSpace } from '../../src/domain/lint.ts'
 import { createProposal } from '../../src/domain/proposals.ts'
 import { createSource } from '../../src/domain/sources.ts'
@@ -132,8 +132,24 @@ async function approvePage(page: {
   }
 }
 
-const slugsFor = async (spaceId: string, rule: string): Promise<string[]> =>
-  (await lintSpace(db, spaceId)).findings.filter((finding) => finding.rule === rule).map((f) => f.concept_slug!)
+/**
+ * WikiKit's own marker and nothing else — the case this file used to write as
+ * an OMITTED argument. There is no omitted case any more (ScaffoldingOptions
+ * requires the field), so the tests that mean "this installation declared
+ * nothing" now say so, and say it with the exported constant rather than a
+ * retyped literal: a second copy of the marker string in a test file is a
+ * second place for it to drift away from the product's.
+ */
+const BUILT_IN_ONLY: ScaffoldingOptions = { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }
+
+// `options` is a PARAMETER and not a default inside this helper, for the reason
+// the domain makes it one: a helper that answers for its callers is exactly the
+// hole being closed, and half the tests below turn on which markers were in
+// scope.
+const slugsFor = async (spaceId: string, rule: string, options: ScaffoldingOptions): Promise<string[]> =>
+  (await lintSpace(db, spaceId, options)).findings
+    .filter((finding) => finding.rule === rule)
+    .map((f) => f.concept_slug!)
 
 /**
  * The scaffolding markers a build resolves to — read out of loadConfig()
@@ -155,7 +171,7 @@ function shippedScaffoldingKinds(declared?: string): readonly string[] {
   try {
     if (declared === undefined) delete process.env.WIKIKIT_SCAFFOLDING_KINDS
     else process.env.WIKIKIT_SCAFFOLDING_KINDS = declared
-    return loadConfig().scaffoldingKinds!
+    return loadConfig().scaffoldingKinds
   } finally {
     for (const name of Object.keys(process.env)) if (!(name in saved)) delete process.env[name]
     Object.assign(process.env, saved)
@@ -292,7 +308,9 @@ describe('lint rules (integration)', () => {
     // concept list's evidence summary.
     await db.update('wk_claims', { space_id: `eq.${spaceId}`, subject: 'eq.retired' }, { status: 'deprecated' })
 
-    const findings = (await lintSpace(db, spaceId)).findings.filter((f) => f.rule === 'unsourced-concepts')
+    const findings = (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings.filter(
+      (f) => f.rule === 'unsourced-concepts',
+    )
     expect(findings.map((finding) => finding.concept_slug)).toEqual(['blank', 'unquoted'])
     expect(findings.map((finding) => finding.severity)).toEqual(['warn', 'warn'])
     expect(findings.map((finding) => finding.message)).toEqual([
@@ -305,7 +323,7 @@ describe('lint rules (integration)', () => {
     // concept list are reading ONE aggregate. A page the index says draws on
     // an archived document, and a report that says nothing stands behind it,
     // is a pair a user cannot act on.
-    const listed = (await listConcepts(db, spaceId, {})).items
+    const listed = (await listConcepts(db, spaceId, {}, BUILT_IN_ONLY)).items
     const reported = new Set(findings.map((finding) => finding.concept_slug))
     expect(listed.map((item) => item.slug)).toEqual(['blank', 'retired', 'sourced', 'unquoted'])
     for (const item of listed) {
@@ -325,7 +343,7 @@ describe('lint rules (integration)', () => {
     await stageAndApprove(spaceId, 'stub', [])
 
     const byRule = new Map(
-      (await lintSpace(db, spaceId)).findings
+      (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings
         .filter((finding) => finding.concept_slug === 'stub')
         .map((finding) => [finding.rule, finding.severity]),
     )
@@ -360,7 +378,7 @@ describe('lint rules (integration)', () => {
     await approvePage({ spaceId, slug: 'whitespace-stub', markdown: '   \n\t ' })
     await approvePage({ spaceId, slug: 'zero-body', markdown: '' })
 
-    const findings = (await lintSpace(db, spaceId)).findings.filter((f) => f.rule === 'stub-concepts')
+    const findings = (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings.filter((f) => f.rule === 'stub-concepts')
     expect(findings.map((finding) => finding.concept_slug)).toEqual(['whitespace-stub', 'zero-body'])
     expect(findings.map((finding) => finding.severity)).toEqual(['warn', 'warn'])
     expect(findings.map((finding) => finding.message)).toEqual([
@@ -385,7 +403,7 @@ describe('lint rules (integration)', () => {
     await approvePage({ spaceId, slug: 'referrer', relations: [{ to_slug: 'pointed-at', kind: 'related' }] })
     await approvePage({ spaceId, slug: 'untouched', markdown: ' ' })
 
-    expect(await slugsFor(spaceId, 'stub-concepts')).toEqual(['untouched'])
+    expect(await slugsFor(spaceId, 'stub-concepts', BUILT_IN_ONLY)).toEqual(['untouched'])
   })
 
   it('stub-concepts: reports a scaffolding-marked page that orphan-concepts still skips', async () => {
@@ -396,7 +414,7 @@ describe('lint rules (integration)', () => {
     const spaceId = await seedSpace('scaffolding-space', {})
     await approvePage({ spaceId, slug: 'left-behind', markdown: '', kind: 'structural-reference' })
 
-    const { findings } = await lintSpace(db, spaceId)
+    const { findings } = await lintSpace(db, spaceId, BUILT_IN_ONLY)
     const byRule = (rule: string) => findings.filter((f) => f.rule === rule).map((f) => f.concept_slug)
     expect(byRule('stub-concepts')).toEqual(['left-behind'])
     // Suppressing furniture from the rules that describe a FAULT stays
@@ -449,11 +467,15 @@ describe('lint rules (integration)', () => {
     // nothing, so the same page is measured and reported like any other. This
     // is the assertion that fails if a future edit makes an arbitrary kind
     // count as scaffolding on its own.
-    const unconfigured = new Map((await listConcepts(db, spaceId, {})).items.map((i) => [i.slug, i.evidence]))
+    const unconfigured = new Map(
+      (await listConcepts(db, spaceId, {}, BUILT_IN_ONLY)).items.map((i) => [i.slug, i.evidence]),
+    )
     expect(unconfigured.get('acme-target')).toEqual({ claims: 0, uncited_claims: 0, sources: 0 })
     expect(unconfigured.get('built-in-target')).toBeUndefined()
     expect(
-      (await lintSpace(db, spaceId)).findings.filter((f) => f.rule === 'orphan-concepts').map((f) => f.concept_slug),
+      (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings
+        .filter((f) => f.rule === 'orphan-concepts')
+        .map((f) => f.concept_slug),
     ).toEqual(['acme-target', 'plain', 'unknown-kind'])
   })
 
@@ -612,7 +634,7 @@ describe('lint rules (integration)', () => {
     // configuration in scope the operator's marker means nothing, so that page
     // is an ordinary one — measured, and not a contradiction. WikiKit's own
     // marker still is one, because it is never configurable away.
-    const unconfigured = (await lintSpace(db, spaceId)).findings
+    const unconfigured = (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings
       .filter((f) => f.rule === 'scaffolded-claims')
       .map((f) => f.concept_slug)
     expect(unconfigured).toEqual(['built-in-target-with-claims'])
@@ -641,12 +663,12 @@ describe('lint rules (integration)', () => {
         },
       ],
     })
-    expect(await slugsFor(spaceId, 'scaffolded-claims')).toEqual([])
+    expect(await slugsFor(spaceId, 'scaffolded-claims', BUILT_IN_ONLY)).toEqual([])
 
     // Approval makes the identical claim visible, and now the page's evidence
     // is being withheld — same row, same claim, different answer.
     await db.call('wk_apply_proposal', [proposal_id, 'lint-rules-test'])
-    expect(await slugsFor(spaceId, 'scaffolded-claims')).toEqual(['target'])
+    expect(await slugsFor(spaceId, 'scaffolded-claims', BUILT_IN_ONLY)).toEqual(['target'])
   })
 
   it('scaffolded-claims: warn in the counts census, beside the per-claim error the marker never suppressed', async () => {
@@ -663,7 +685,7 @@ describe('lint rules (integration)', () => {
       claims: [{ subject: 'okf', predicate: 'is', object: 'asserted' }],
     })
 
-    const report = await lintSpace(db, spaceId)
+    const report = await lintSpace(db, spaceId, BUILT_IN_ONLY)
     const byRule = new Map(report.findings.map((f) => [f.rule, f.severity]))
     expect(byRule.get('scaffolded-claims')).toBe('warn')
     expect(byRule.get('missing-citations')).toBe('error')
@@ -681,7 +703,7 @@ describe('lint rules (integration)', () => {
     const spaceId = await seedSpace('stub-census-space', {})
     await approvePage({ spaceId, slug: 'blank', markdown: '' })
 
-    const report = await lintSpace(db, spaceId)
+    const report = await lintSpace(db, spaceId, BUILT_IN_ONLY)
     const byRule = new Map(
       report.findings.filter((finding) => finding.concept_slug === 'blank').map((f) => [f.rule, f.severity]),
     )

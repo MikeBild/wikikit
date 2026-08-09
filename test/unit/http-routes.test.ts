@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
+import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { ForbiddenError } from '../../src/domain/errors.ts'
 import type { Principal } from '../../src/http/auth.ts'
 import { HANDLERS, ROUTES, type HandlerInput, type HttpDeps } from '../../src/http/routes.ts'
@@ -202,7 +203,13 @@ function handlerDeps(db: unknown): HttpDeps {
   return {
     db,
     auth: { requireScope: () => {} },
-    config: {},
+    // The markers are named even though this bag is CAST into HttpDeps and the
+    // compiler is therefore not watching: `Config.scaffoldingKinds` is required
+    // and the reads no longer default, so a `{}` here is a handler running with
+    // `undefined` markers — which fails inside the SQL builder rather than at
+    // the boundary. A cast is the one way past the type, so it is the one place
+    // that has to remember by hand.
+    config: { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
     logger: { info() {}, warn() {}, error() {}, debug() {} },
   } as unknown as HttpDeps
 }

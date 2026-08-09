@@ -273,8 +273,24 @@ export function shortDigest(sha256: string | null | undefined): string {
 export const SCAFFOLDING_EFFECT =
   'A page whose revision carries one of these markers is treated as a reference target: the index does not measure its evidence, and the linter’s fault rules skip it.'
 
-/** The three provenances `/v1/installation/knowledge-config` reports. */
-export type MarkerOrigin = 'built_in' | 'configured' | 'fallback'
+/**
+ * The provenances `/v1/installation/knowledge-config` reports — two of them.
+ *
+ * Spelled as a tuple rather than as a bare union so the set is a value a test
+ * can hold against `zScaffoldingKindOrigin` in src/http/schemas.ts, which is
+ * what the server can actually send. Nothing else holds the two together, and
+ * the console has already been wrong about this once: a third `fallback`
+ * provenance survived here for a whole release after the server stopped being
+ * able to send it, because a console state nobody can reach still type-checks
+ * and still renders.
+ *
+ * Exhaustive, and deliberately not widened to `string`. `originStanding` takes
+ * whatever the server sent and this list decides which of those the console
+ * recognises; a widened type would let a provenance a newer server invents pass
+ * as a known one and render as an unlabelled blank.
+ */
+export const MARKER_ORIGINS = ['built_in', 'configured'] as const
+export type MarkerOrigin = (typeof MARKER_ORIGINS)[number]
 
 /**
  * The response, named structurally rather than imported from `api/schema.d.ts`.
@@ -312,17 +328,14 @@ export interface OriginStanding {
  * all rather than a bare list.
  *
  * The first question on reading an unexpected marker is "did I set that, or did
- * it come with the product", and "came with the product" splits in two: WikiKit
+ * it come with the product". Two provenances, two different next moves: WikiKit
  * writes `built_in` itself and honours it whatever the configuration says,
- * while `fallback` is a default WikiKit still ships that nobody on this
- * installation chose. Three provenances, three different next moves.
+ * while a `configured` marker is here because somebody on this installation
+ * wrote it down, and can be taken away the same way.
  *
- * `fallback` wears the warning tone and the other two do not. Not because a
- * default is broken — it is the state most installations are in — but because
- * it is the only one of the three where the value deciding which pages get
- * measured was chosen by neither the operator nor the product's own rules. That
- * is the fact the version this card was written for shipped as a known defect,
- * and it is worth an operator's eye.
+ * There is no third, "nobody here chose this" state. It was reachable only
+ * while WikiKit shipped a marker set as a default; the default is gone, so
+ * everything not built in is now necessarily something the operator declared.
  */
 const ORIGIN_STANDING: Record<MarkerOrigin, Omit<OriginStanding, 'origin'>> = {
   built_in: {
@@ -335,18 +348,12 @@ const ORIGIN_STANDING: Record<MarkerOrigin, Omit<OriginStanding, 'origin'>> = {
     tone: 'accent',
     meaning: 'Somebody named this marker in this installation’s own configuration.',
   },
-  fallback: {
-    label: 'Shipped default',
-    tone: 'warning',
-    meaning:
-      'Nobody configured this. It is a default WikiKit still ships, and it is honoured until the variable is set — so pages nobody here decided about are being left unmeasured.',
-  },
 }
 
 /**
  * A provenance this bundle has never heard of prints ITSELF, exactly as an
- * unknown lint severity does: a newer server that grows a fourth origin must
- * not have it silently rendered as one of the three, and least of all as the
+ * unknown lint severity does: a newer server that grows a third origin must not
+ * have it silently rendered as one of the two, and least of all as the
  * reassuring one.
  */
 export function originStanding(origin: string): OriginStanding {
