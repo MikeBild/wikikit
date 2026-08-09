@@ -243,6 +243,7 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
   // Federated searches pay it once per space that produced a concept hit,
   // because each space must be counted in its own space_id.
   const conceptSlugs = hits.flatMap((hit) => (hit.kind === 'concept' && hit.slug ? [hit.slug] : []))
+  const readableConceptSlugs = new Set<string>()
   if (conceptSlugs.length > 0) {
     const readings = await conceptReadingsBySlug(db, spaceId, conceptSlugs, {
       scaffoldingKinds: deps.scaffoldingKinds,
@@ -254,6 +255,7 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
       // wholesale would put a key with an `undefined` value on the hit, which
       // `'evidence' in hit` sees and JSON.stringify does not.
       const reading = readings.get(hit.slug)
+      if (reading) readableConceptSlugs.add(hit.slug)
       if (reading?.evidence) hit.evidence = reading.evidence
       if (reading?.not_measured) hit.not_measured = reading.not_measured
     }
@@ -264,10 +266,16 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
   // tombstoned. The readable-page query is the canonical visibility test.
   const claimSlugs = hits.flatMap((hit) => (hit.kind === 'claim' && hit.slug ? [hit.slug] : []))
   if (claimSlugs.length > 0) {
-    const readable = await conceptReadingsBySlug(db, spaceId, claimSlugs, { scaffoldingKinds: deps.scaffoldingKinds })
+    const unreadChecked = claimSlugs.filter((slug) => !readableConceptSlugs.has(slug))
+    if (unreadChecked.length > 0) {
+      const readable = await conceptReadingsBySlug(db, spaceId, unreadChecked, {
+        scaffoldingKinds: deps.scaffoldingKinds,
+      })
+      for (const slug of readable.keys()) readableConceptSlugs.add(slug)
+    }
     for (let index = hits.length - 1; index >= 0; index--) {
       const hit = hits[index]!
-      if (hit.kind === 'claim' && hit.slug && !readable.has(hit.slug)) hits.splice(index, 1)
+      if (hit.kind === 'claim' && hit.slug && !readableConceptSlugs.has(hit.slug)) hits.splice(index, 1)
     }
   }
 

@@ -384,12 +384,12 @@ describe('search evidence (integration)', () => {
       expect(atMany).toBe(atOne)
       expect(atMany).toBe(2)
 
-      // A search that produces no concept hit does not pay for the aggregate at
-      // all — the claim-filtered and the missed search stay exactly as cheap as
-      // they were before this feature existed.
+      // A claim-only search verifies that its carrying page is still readable,
+      // so it pays one batched visibility aggregate after ranking. A miss does
+      // not need that check.
       statements.length = 0
       await search(counted.db, spaceId, { q: QUERY, kind: 'claim' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
-      expect(statements.length).toBe(1)
+      expect(statements.length).toBe(2)
 
       statements.length = 0
       await search(
