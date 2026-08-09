@@ -555,6 +555,19 @@ export const zConceptHistoryResponse = z.object({
   ),
 })
 
+export const zDeletedConceptListResponse = z.object({
+  items: z.array(
+    z.object({ slug: z.string(), title: z.string(), deleted_at: z.string(), deleted_revision_id: z.uuid() }),
+  ),
+})
+
+export const zConceptLifecycleResponse = z.object({
+  proposal_id: z.uuid(),
+  status: z.literal('pending'),
+  action: z.enum(['delete', 'restore']),
+  slug: z.string(),
+})
+
 // ---------------------------------------------------------------------------
 // Search & query
 // ---------------------------------------------------------------------------
@@ -686,6 +699,11 @@ export const zProposalDetailResponse = z.object({
   agent_meta: z.record(z.string(), z.unknown()),
   changes_requested: z.boolean(),
   parent_proposal_id: z.uuid().nullable(),
+  concept_lifecycle: z
+    .array(
+      z.object({ slug: z.string(), action: z.enum(['delete', 'restore']), revision_id: z.uuid(), stale: z.boolean() }),
+    )
+    .optional(),
   sources: z.array(
     z.object({
       id: z.uuid(),
@@ -1343,6 +1361,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zConceptListResponse,
   zConceptResponse,
   zConceptHistoryResponse,
+  zDeletedConceptListResponse,
+  zConceptLifecycleResponse,
   zSearchResponse,
   zQueryRequest,
   zQueryResponse,

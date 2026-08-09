@@ -36,7 +36,7 @@ describe('MCP manifest contract', () => {
     })
   }
 
-  test('the full palette is exactly the nineteen §7.1 tools, including built-in guidance, charter and gated review', () => {
+  test('the full palette includes review-gated concept lifecycle tools', () => {
     const names = buildToolManifest(['*']).map((entry) => entry.name)
     expect(names).toEqual([
       'wikikit_guide',
@@ -53,6 +53,9 @@ describe('MCP manifest contract', () => {
       'wikikit_charter_history',
       'wikikit_charter_set',
       'wikikit_charter_delete',
+      'wikikit_deleted_concepts',
+      'wikikit_concept_delete',
+      'wikikit_concept_restore',
       'wikikit_ingest',
       'wikikit_ingest_status',
       'wikikit_propose',

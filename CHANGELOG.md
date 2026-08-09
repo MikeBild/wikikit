@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.32.1 - 2026-08-09
+
+### Added
+
+- **Pages can now be deleted without deleting knowledge.** `DELETE` and restore
+  proposals are review-gated across REST, MCP and the Cockpit. Approval hides
+  the page while preserving its revision and claim history, removes local
+  active relations through the ordinary proposal path, and emits dedicated
+  lifecycle webhooks. Restore brings back the last visible revision without
+  reviving removed relations; deleted slugs remain reserved until restored.
+
 ## 0.32.0 - 2026-08-09
 
 Three entries from 0.31.0's Known, and the first of them was made by 0.31.0

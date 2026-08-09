@@ -324,7 +324,8 @@ export interface paths {
         get: operations["getConcept"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Stage deletion of a concept page for human review; history and evidence are retained */
+        delete: operations["deleteConcept"];
         options?: never;
         head?: never;
         patch?: never;
@@ -341,6 +342,40 @@ export interface paths {
         get: operations["getConceptHistory"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/deleted-concepts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List deleted concept tombstones for audit and restoration */
+        get: operations["listDeletedConcepts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/concepts/{slug}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stage restoration of a deleted concept’s last visible revision for human review */
+        post: operations["restoreConcept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1686,6 +1721,24 @@ export interface components {
                 created_at: string;
             }[];
         };
+        zDeletedConceptListResponse: {
+            items: {
+                slug: string;
+                title: string;
+                deleted_at: string;
+                /** Format: uuid */
+                deleted_revision_id: string;
+            }[];
+        };
+        zConceptLifecycleResponse: {
+            /** Format: uuid */
+            proposal_id: string;
+            /** @constant */
+            status: "pending";
+            /** @enum {string} */
+            action: "delete" | "restore";
+            slug: string;
+        };
         zSearchResponse: {
             hits: {
                 /** @enum {string} */
@@ -1853,6 +1906,14 @@ export interface components {
             };
             changes_requested: boolean;
             parent_proposal_id: string | null;
+            concept_lifecycle?: {
+                slug: string;
+                /** @enum {string} */
+                action: "delete" | "restore";
+                /** Format: uuid */
+                revision_id: string;
+                stale: boolean;
+            }[];
             sources: {
                 /** Format: uuid */
                 id: string;
@@ -2028,7 +2089,7 @@ export interface components {
         zCreateWebhookRequest: {
             /** Format: uri */
             url: string;
-            events?: ("wikikit.proposal.created" | "wikikit.proposal.approved" | "wikikit.proposal.rejected" | "wikikit.concept.updated" | "wikikit.ingest.failed" | "wikikit.source.tombstoned" | "wikikit.proposal.split" | "wikikit.proposal.changes_requested")[];
+            events?: ("wikikit.proposal.created" | "wikikit.proposal.approved" | "wikikit.proposal.rejected" | "wikikit.concept.updated" | "wikikit.concept.deleted" | "wikikit.concept.restored" | "wikikit.ingest.failed" | "wikikit.source.tombstoned" | "wikikit.proposal.split" | "wikikit.proposal.changes_requested")[];
         };
         zWebhookResponse: {
             /** Format: uuid */
@@ -4403,6 +4464,74 @@ export interface operations {
             };
         };
     };
+    deleteConcept: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deletion staged for review */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zConceptLifecycleResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
     getConceptHistory: {
         parameters: {
             query?: never;
@@ -4422,6 +4551,145 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["zConceptHistoryResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listDeletedConcepts: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after?: string;
+                before?: string;
+            };
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted concepts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zDeletedConceptListResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    restoreConcept: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restoration staged for review */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zConceptLifecycleResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */

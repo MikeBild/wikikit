@@ -244,7 +244,7 @@ tool change or a scope change, rescan or reconnect. Existing OAuth tokens
 retain their original, narrower scopes.
 
 The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
-`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_ingest`,
+`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
 `wikikit_review_proposal`. The two review tools are visible only with
 `knowledge:review` (implied by `knowledge:approve`); the final decision is

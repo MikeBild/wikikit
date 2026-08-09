@@ -45,6 +45,8 @@ export const WEBHOOK_EVENT_TYPES = [
   'wikikit.proposal.approved',
   'wikikit.proposal.rejected',
   'wikikit.concept.updated',
+  'wikikit.concept.deleted',
+  'wikikit.concept.restored',
   'wikikit.ingest.failed',
   'wikikit.source.tombstoned',
   'wikikit.proposal.split',
@@ -86,6 +88,13 @@ export const zConceptUpdatedData = z.object({
   proposal_id: z.uuid(),
 })
 
+export const zConceptLifecycleData = z.object({
+  space: z.string(),
+  slug: z.string(),
+  revision_id: z.uuid(),
+  proposal_id: z.uuid(),
+})
+
 export const zIngestFailedData = z.object({
   ingest_id: z.uuid(),
   space: z.string(),
@@ -123,6 +132,8 @@ export const zWebhookPayloads = {
   'wikikit.proposal.approved': zProposalApprovedData,
   'wikikit.proposal.rejected': zProposalRejectedData,
   'wikikit.concept.updated': zConceptUpdatedData,
+  'wikikit.concept.deleted': zConceptLifecycleData,
+  'wikikit.concept.restored': zConceptLifecycleData,
   'wikikit.ingest.failed': zIngestFailedData,
   'wikikit.source.tombstoned': zSourceTombstonedData,
   'wikikit.proposal.split': zProposalSplitData,
@@ -135,6 +146,8 @@ export const zWebhookEnvelope = z.discriminatedUnion('type', [
   z.object({ type: z.literal('wikikit.proposal.approved'), timestamp: z.iso.datetime(), data: zProposalApprovedData }),
   z.object({ type: z.literal('wikikit.proposal.rejected'), timestamp: z.iso.datetime(), data: zProposalRejectedData }),
   z.object({ type: z.literal('wikikit.concept.updated'), timestamp: z.iso.datetime(), data: zConceptUpdatedData }),
+  z.object({ type: z.literal('wikikit.concept.deleted'), timestamp: z.iso.datetime(), data: zConceptLifecycleData }),
+  z.object({ type: z.literal('wikikit.concept.restored'), timestamp: z.iso.datetime(), data: zConceptLifecycleData }),
   z.object({ type: z.literal('wikikit.ingest.failed'), timestamp: z.iso.datetime(), data: zIngestFailedData }),
   z.object({
     type: z.literal('wikikit.source.tombstoned'),

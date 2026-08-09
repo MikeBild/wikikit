@@ -79,6 +79,18 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     rev: 3,
     proposal_id: PROPOSAL_ID,
   },
+  'wikikit.concept.deleted': {
+    space: 'demo',
+    slug: 'open-knowledge-format',
+    revision_id: SOURCE_ID,
+    proposal_id: PROPOSAL_ID,
+  },
+  'wikikit.concept.restored': {
+    space: 'demo',
+    slug: 'open-knowledge-format',
+    revision_id: SOURCE_ID,
+    proposal_id: PROPOSAL_ID,
+  },
   'wikikit.ingest.failed': {
     ingest_id: INGEST_ID,
     space: 'demo',

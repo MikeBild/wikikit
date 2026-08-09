@@ -1059,6 +1059,54 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      },
+      "delete": {
+        "summary": "Stage deletion of a concept page for human review; history and evidence are retained",
+        "operationId": "deleteConcept",
+        "responses": {
+          "202": {
+            "description": "Deletion staged for review",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zConceptLifecycleResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/spaces/{space}/concepts/{slug}/history": {
@@ -1107,6 +1155,108 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/deleted-concepts": {
+      "get": {
+        "summary": "List deleted concept tombstones for audit and restoration",
+        "operationId": "listDeletedConcepts",
+        "responses": {
+          "200": {
+            "description": "Deleted concepts",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zDeletedConceptListResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } },
+          { "name": "before", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/concepts/{slug}/restore": {
+      "post": {
+        "summary": "Stage restoration of a deleted concept’s last visible revision for human review",
+        "operationId": "restoreConcept",
+        "responses": {
+          "202": {
+            "description": "Restoration staged for review",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zConceptLifecycleResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,126}$" }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/spaces/{space}/search": {
@@ -4208,6 +4358,46 @@
         "required": ["slug", "revisions"],
         "additionalProperties": false
       },
+      "zDeletedConceptListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": { "type": "string" },
+                "title": { "type": "string" },
+                "deleted_at": { "type": "string" },
+                "deleted_revision_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": ["slug", "title", "deleted_at", "deleted_revision_id"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "zConceptLifecycleResponse": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "status": { "type": "string", "const": "pending" },
+          "action": { "type": "string", "enum": ["delete", "restore"] },
+          "slug": { "type": "string" }
+        },
+        "required": ["proposal_id", "status", "action", "slug"],
+        "additionalProperties": false
+      },
       "zSearchResponse": {
         "type": "object",
         "properties": {
@@ -4634,6 +4824,24 @@
               },
               { "type": "null" }
             ]
+          },
+          "concept_lifecycle": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": { "type": "string" },
+                "action": { "type": "string", "enum": ["delete", "restore"] },
+                "revision_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "stale": { "type": "boolean" }
+              },
+              "required": ["slug", "action", "revision_id", "stale"],
+              "additionalProperties": false
+            }
           },
           "sources": {
             "type": "array",
@@ -5069,6 +5277,8 @@
                 "wikikit.proposal.approved",
                 "wikikit.proposal.rejected",
                 "wikikit.concept.updated",
+                "wikikit.concept.deleted",
+                "wikikit.concept.restored",
                 "wikikit.ingest.failed",
                 "wikikit.source.tombstoned",
                 "wikikit.proposal.split",

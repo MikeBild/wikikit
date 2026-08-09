@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from '@tanstack/react-router'
-import { PencilLine } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { PencilLine, Trash2 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DataState } from '@/components/data-state'
+import { Confirm } from '@/components/confirm'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +18,7 @@ import { useUrlFilters } from '@/hooks/use-url-filters'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { cn } from '@/lib/utils'
+import { toast } from '@/lib/toast'
 import { claimSentence, evidenceOf, evidenceSummary, statusBadge } from '@/pages/page.logic'
 
 /**
@@ -69,6 +71,8 @@ export function PageDetailPage() {
   const space = useSpace()
   const can = useCan()
   const canPropose = can('knowledge:propose')
+  const client = useQueryClient()
+  const navigate = useNavigate()
 
   // `strict: false` because no route declares a params schema; the slug is a
   // string or the route did not match at all.
@@ -94,6 +98,18 @@ export function PageDetailPage() {
   })
 
   const title = concept.data?.title ?? slug
+  const remove = useMutation({
+    mutationFn: () => wk.concepts.remove(space, slug),
+    onSuccess: (result) => {
+      void client.invalidateQueries({ queryKey: keys.space(space) })
+      toast({
+        tone: 'success',
+        title: 'Deletion submitted for review',
+        detail: 'The page stays visible until a reviewer approves the change.',
+      })
+      void navigate({ to: '/changes/$id', params: { id: result.proposal_id }, search: KEEP_SEARCH })
+    },
+  })
 
   return (
     <Page
@@ -101,12 +117,28 @@ export function PageDetailPage() {
       description="What this wiki knows on this subject, with the quote behind every claim it makes."
       actions={
         canPropose ? (
-          <Button asChild variant="accent">
-            <Link to="/pages/$slug/edit" params={{ slug }} search={KEEP_SEARCH} data-testid="page-edit">
-              <PencilLine data-icon="inline-start" />
-              Edit
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button asChild variant="accent">
+              <Link to="/pages/$slug/edit" params={{ slug }} search={KEEP_SEARCH} data-testid="page-edit">
+                <PencilLine data-icon="inline-start" />
+                Edit
+              </Link>
+            </Button>
+            <Confirm
+              title="Delete this page"
+              description="This submits a deletion for review. History and evidence remain retained."
+              confirmLabel="Submit deletion"
+              destructive
+              onConfirm={() => remove.mutateAsync()}
+            >
+              {(open) => (
+                <Button variant="destructive" data-testid="page-delete" onClick={open}>
+                  <Trash2 data-icon="inline-start" />
+                  Delete
+                </Button>
+              )}
+            </Confirm>
+          </div>
         ) : (
           <DisabledReason reason="Needs knowledge:propose — editing a page means submitting a change for review.">
             <Button variant="accent" disabled data-testid="page-edit">

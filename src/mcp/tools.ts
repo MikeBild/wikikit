@@ -24,6 +24,7 @@ import type { Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { recordConceptRead } from '../domain/coverage.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
+import { listDeletedConcepts, stageConceptLifecycle } from '../domain/concept-lifecycle.ts'
 import { deleteCharter, getCharter, getCharterHistory, toCharterResponse, writeCharter } from '../domain/charter.ts'
 import {
   ConflictError,
@@ -192,6 +193,11 @@ export const zContextToolInput = z.object({
 })
 
 export const zReadToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
+export const zConceptLifecycleToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
+export const zDeletedConceptsToolInput = z.object({
+  space: zSpaceSlug,
+  limit: z.number().int().min(1).max(200).optional(),
+})
 
 export const zSourcesToolInput = z
   .object({
@@ -644,6 +650,43 @@ export const TOOLS: McpToolDef[] = [
       await deleteCharter(deps.db, space.id)
       const detail = await getCharter(deps.db, space.id)
       return toCharterResponse(detail)
+    },
+  },
+  {
+    name: 'wikikit_deleted_concepts',
+    description: 'List deleted concept pages retained for audit and explicit review-gated restoration.',
+    scope: 'knowledge:read',
+    inputSchema: zDeletedConceptsToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zDeletedConceptsToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      return listDeletedConcepts(deps.db, space.id, { limit: args.limit })
+    },
+  },
+  {
+    name: 'wikikit_concept_delete',
+    description:
+      'Stage deletion of a concept page. It remains visible until a human approves the proposal; history and sources are retained.',
+    scope: 'knowledge:propose',
+    inputSchema: zConceptLifecycleToolInput,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    async execute(deps, principal, input) {
+      const args = zConceptLifecycleToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      return stageConceptLifecycle(deps.db, space.id, { slug: args.slug, action: 'delete', actor: principal.name })
+    },
+  },
+  {
+    name: 'wikikit_concept_restore',
+    description: 'Stage restoration of a deleted concept page’s last visible revision for human review.',
+    scope: 'knowledge:propose',
+    inputSchema: zConceptLifecycleToolInput,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    async execute(deps, principal, input) {
+      const args = zConceptLifecycleToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      return stageConceptLifecycle(deps.db, space.id, { slug: args.slug, action: 'restore', actor: principal.name })
     },
   },
   {

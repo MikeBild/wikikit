@@ -259,6 +259,18 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
     }
   }
 
+  // Claims are archived independently of revisions. Keep that audit storage,
+  // but do not let a claim index surface knowledge after its page has been
+  // tombstoned. The readable-page query is the canonical visibility test.
+  const claimSlugs = hits.flatMap((hit) => (hit.kind === 'claim' && hit.slug ? [hit.slug] : []))
+  if (claimSlugs.length > 0) {
+    const readable = await conceptReadingsBySlug(db, spaceId, claimSlugs, { scaffoldingKinds: deps.scaffoldingKinds })
+    for (let index = hits.length - 1; index >= 0; index--) {
+      const hit = hits[index]!
+      if (hit.kind === 'claim' && hit.slug && !readable.has(hit.slug)) hits.splice(index, 1)
+    }
+  }
+
   // Source-evidence tier: only when the caller opts in, and only for
   // unfiltered searches — a kind filter names the approved shapes explicitly.
   if (input.mode === 'approved_then_sources' && !input.kind) {

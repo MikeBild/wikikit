@@ -206,6 +206,7 @@ async function missingCitations(db: Db, spaceId: string): Promise<LintFinding[]>
        FROM wk_claims cl
        JOIN wk_concepts c ON c.id = cl.concept_id
       WHERE cl.space_id = $1
+        AND c.current_revision_id IS NOT NULL
         AND cl.status IN ('verified', 'disputed')
         AND NOT EXISTS (SELECT 1 FROM wk_citations ci WHERE ci.claim_id = cl.id)
       ORDER BY c.slug, cl.created_at`,
@@ -266,6 +267,7 @@ async function staleClaims(db: Db, spaceId: string): Promise<LintFinding[]> {
        FROM wk_claims cl
        JOIN wk_concepts c ON c.id = cl.concept_id
       WHERE cl.space_id = $1
+        AND c.current_revision_id IS NOT NULL
         AND cl.status IN ('verified', 'disputed')
         AND cl.valid_until IS NOT NULL
         AND cl.valid_until < now()

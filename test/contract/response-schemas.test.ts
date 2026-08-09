@@ -142,6 +142,12 @@ function stubDb(): Db {
   const db: Db = {
     async query<R>(text: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number }> {
       const rows = ((): unknown[] => {
+        if (text.includes('SELECT id, title, current_revision_id, deleted_revision_id')) {
+          return [{ id: CONCEPT_ID, title: 'WikiKit', current_revision_id: REV_ID, deleted_revision_id: REV_ID }]
+        }
+        if (text.includes('deleted_at IS NOT NULL')) {
+          return [{ slug: 'wikikit', title: 'WikiKit', deleted_at: NOW, deleted_revision_id: REV_ID }]
+        }
         // charter overview (getConceptIndex + counts) -----------------------
         // getConceptIndex selects exactly slug/title/summary (no r.rev, unlike
         // listConcepts) — the trailing newline after `summary` disambiguates.
@@ -757,6 +763,24 @@ const CASES: RouteCase[] = [
     method: 'get',
     url: '/v1/spaces/demo/concepts/wikikit/history',
     status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/deleted-concepts',
+    method: 'get',
+    url: '/v1/spaces/demo/deleted-concepts',
+    status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/concepts/{slug}',
+    method: 'delete',
+    url: '/v1/spaces/demo/concepts/wikikit',
+    status: 202,
+  },
+  {
+    template: '/v1/spaces/{space}/concepts/{slug}/restore',
+    method: 'post',
+    url: '/v1/spaces/demo/concepts/wikikit/restore',
+    status: 202,
   },
   { template: '/v1/spaces/{space}/search', method: 'get', url: '/v1/spaces/demo/search?q=wikikit', status: 200 },
   {

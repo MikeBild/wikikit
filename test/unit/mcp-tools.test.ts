@@ -42,10 +42,17 @@ const READ_TOOLS = [
   'wikikit_lint',
   'wikikit_charter',
   'wikikit_charter_history',
+  'wikikit_deleted_concepts',
 ]
 // Charter mutations are admin-scoped (human-owned configuration, not knowledge).
 const ADMIN_TOOLS = ['wikikit_charter_set', 'wikikit_charter_delete']
-const PROPOSE_TOOLS = ['wikikit_ingest', 'wikikit_ingest_status', 'wikikit_propose']
+const PROPOSE_TOOLS = [
+  'wikikit_concept_delete',
+  'wikikit_concept_restore',
+  'wikikit_ingest',
+  'wikikit_ingest_status',
+  'wikikit_propose',
+]
 const REVIEW_TOOLS = ['wikikit_proposals', 'wikikit_review_proposal']
 
 function principal(overrides: Partial<Principal> = {}): Principal {
@@ -101,7 +108,7 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
 }
 
 describe('tool palette shape (binding contract §7.1)', () => {
-  test('exactly the nineteen contracted tools — review is explicitly scoped, charter is admin', () => {
+  test('the contracted tool palette includes review-gated concept lifecycle actions', () => {
     expect(TOOLS.map((tool) => tool.name).sort()).toEqual(
       [...READ_TOOLS, ...ADMIN_TOOLS, ...PROPOSE_TOOLS, ...REVIEW_TOOLS].sort(),
     )
@@ -162,12 +169,12 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(15)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(18)
     expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     // admin implies knowledge scopes (§5.2) AND is the direct scope of the charter mutations.
-    expect(visibleTools(['admin'])).toHaveLength(19)
-    expect(visibleTools(['*'])).toHaveLength(19)
+    expect(visibleTools(['admin'])).toHaveLength(22)
+    expect(visibleTools(['*'])).toHaveLength(22)
     expect(visibleTools([])).toHaveLength(0)
   })
 

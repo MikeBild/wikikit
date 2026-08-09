@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { FilePlus2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DisabledReason } from '@/components/disabled-reason'
+import { Confirm } from '@/components/confirm'
 import { EmptyState } from '@/components/empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +19,7 @@ import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
+import { toast } from '@/lib/toast'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
 import {
   CHANGE_WINDOW_LABEL,
@@ -214,6 +216,7 @@ export function PagesPage() {
   const space = useSpace()
   const can = useCan()
   const canPropose = can('knowledge:propose')
+  const client = useQueryClient()
 
   const { view, setView } = useTableView(LIST_ID, COLUMNS)
   const { filters, setFilters, clear, filtered } = useUrlFilters(LIST_ID, FILTERS)
@@ -222,6 +225,18 @@ export function PagesPage() {
   const query = useQuery({
     queryKey: keys.concepts(space, LIST_QUERY),
     queryFn: () => wk.concepts.list(space, LIST_QUERY),
+  })
+  const deleted = useQuery({ queryKey: keys.deletedConcepts(space), queryFn: () => wk.concepts.deleted(space) })
+  const restore = useMutation({
+    mutationFn: (slug: string) => wk.concepts.restore(space, slug),
+    onSuccess: (result) => {
+      void client.invalidateQueries({ queryKey: keys.space(space) })
+      toast({
+        tone: 'success',
+        title: 'Restoration submitted for review',
+        detail: `Review proposal ${result.proposal_id} is now pending.`,
+      })
+    },
   })
 
   // `?? []` builds a fresh array on every render, which would make the memo
@@ -334,6 +349,46 @@ export function PagesPage() {
           )
         }
       />
+      {deleted.data?.items.length ? (
+        <section className="mt-8 flex flex-col gap-3" data-testid="deleted-pages">
+          <h2 className="text-sm font-semibold">Deleted pages</h2>
+          <p className="text-muted-foreground text-sm">
+            Retained for audit. Restoring makes only the last visible revision current; relationships stay removed.
+          </p>
+          {deleted.data.items.map((item) => (
+            <div
+              key={item.slug}
+              className="border-border flex items-center justify-between rounded-lg border p-3"
+              data-testid={`deleted-page-${item.slug}`}
+            >
+              <div>
+                <div className="font-medium">{item.title}</div>
+                <div className="text-muted-foreground font-mono text-xs">{item.slug}</div>
+              </div>
+              {canPropose ? (
+                <Confirm
+                  title="Restore this page"
+                  description="This submits restoration of the last visible revision for review."
+                  confirmLabel="Submit restoration"
+                  onConfirm={() => restore.mutateAsync(item.slug)}
+                >
+                  {(open) => (
+                    <Button variant="outline" onClick={open} data-testid={`deleted-page-restore-${item.slug}`}>
+                      Restore
+                    </Button>
+                  )}
+                </Confirm>
+              ) : (
+                <DisabledReason reason="Needs knowledge:propose — restoration is a review-gated change.">
+                  <Button variant="outline" disabled>
+                    Restore
+                  </Button>
+                </DisabledReason>
+              )}
+            </div>
+          ))}
+        </section>
+      ) : null}
     </Page>
   )
 }

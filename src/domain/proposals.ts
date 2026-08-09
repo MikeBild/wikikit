@@ -123,6 +123,7 @@ export interface ProposalDetail {
    * approve AND reject, so terminal proposals keep their full diff.
    */
   relations_removed: { from_slug: string; to_slug: string; kind: string }[]
+  concept_lifecycle?: { slug: string; action: 'delete' | 'restore'; revision_id: string; stale: boolean }[]
 }
 
 /** Public REST/MCP shape; space_id is only an authorization handle. */
@@ -358,7 +359,17 @@ async function lockOrCreateConcept(
     'SELECT id, current_revision_id FROM wk_concepts WHERE space_id = $1 AND slug = $2 FOR UPDATE',
     [spaceId, slug],
   )
-  if (locked.rows[0]) return locked.rows[0]
+  if (locked.rows[0]) {
+    if (locked.rows[0].current_revision_id === null) {
+      const deleted = await tx.query<{ deleted_at: Date | string | null }>(
+        'SELECT deleted_at FROM wk_concepts WHERE id = $1',
+        [locked.rows[0].id],
+      )
+      if (deleted.rows[0]?.deleted_at)
+        throw new ConflictError('concept_deleted', `concept ${slug} is deleted; restore it before proposing changes`)
+    }
+    return locked.rows[0]
+  }
   const inserted = await tx.query<ConceptRow>(
     `INSERT INTO wk_concepts (space_id, slug, title)
      VALUES ($1, $2, $3)
@@ -372,6 +383,14 @@ async function lockOrCreateConcept(
     [spaceId, slug],
   )
   if (!retried.rows[0]) throw new Error(`concept ${slug} vanished during staging`)
+  if (retried.rows[0].current_revision_id === null) {
+    const deleted = await tx.query<{ deleted_at: Date | string | null }>(
+      'SELECT deleted_at FROM wk_concepts WHERE id = $1',
+      [retried.rows[0].id],
+    )
+    if (deleted.rows[0]?.deleted_at)
+      throw new ConflictError('concept_deleted', `concept ${slug} is deleted; restore it before proposing changes`)
+  }
   return retried.rows[0]
 }
 
@@ -980,6 +999,15 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     [args.id],
   )
 
+  const lifecycle = await db.query<{ slug: string; action: 'delete' | 'restore'; revision_id: string; stale: boolean }>(
+    `SELECT c.slug, l.action, l.revision_id,
+            CASE WHEN l.action = 'delete' THEN c.current_revision_id IS DISTINCT FROM l.revision_id
+                 ELSE c.deleted_revision_id IS DISTINCT FROM l.revision_id OR c.current_revision_id IS NOT NULL END AS stale
+       FROM wk_concept_lifecycle_changes l JOIN wk_concepts c ON c.id = l.concept_id
+      WHERE l.proposal_id = $1 ORDER BY c.slug`,
+    [args.id],
+  )
+
   // Decisions are real staged rows just like revisions, claims and relations.
   // Load them for every proposal status: approval activates them, rejection
   // deliberately keeps them proposed for the audit trail, and both states
@@ -1087,6 +1115,7 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
       to_slug: edge.to_slug,
       kind: edge.kind,
     })),
+    concept_lifecycle: lifecycle.rows.map((entry) => ({ ...entry, stale: pending && entry.stale })),
   }
 }
 
@@ -1210,6 +1239,19 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
     for (const edge of detail.relations_removed) {
       lines.push(`- [[${edge.from_slug}]] ${edge.kind} → [[${edge.to_slug}]] — ${removalEffect}`)
     }
+  }
+
+  for (const change of detail.concept_lifecycle ?? []) {
+    lines.push('')
+    lines.push(
+      `## Page ${change.action === 'delete' ? 'deletion' : 'restoration'} \`${change.slug}\`${change.stale ? ' ⚠ STALE' : ''}`,
+    )
+    lines.push('')
+    lines.push(
+      change.action === 'delete'
+        ? 'The current page and its local relations will disappear on approval; history remains.'
+        : 'The last deleted revision will become current on approval; relations remain removed.',
+    )
   }
 
   for (const decision of detail.decisions) {

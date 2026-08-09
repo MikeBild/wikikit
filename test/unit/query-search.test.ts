@@ -91,6 +91,10 @@ describe('search', () => {
           },
         ],
       },
+      {
+        match: 'CROSS JOIN LATERAL',
+        rows: [{ slug: 'okf', measurable: true, claims: 0, uncited_claims: 0, sources: 0 }],
+      },
     ])
     const hits = await search(db, SPACE, { q: 'okf' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     expect(hits).toEqual([
@@ -106,6 +110,7 @@ describe('search', () => {
         chunk_id: null,
         url: null,
         heading: null,
+        evidence: { claims: 0, uncited_claims: 0, sources: 0 },
       },
       {
         kind: 'claim',
@@ -303,10 +308,10 @@ describe('search — evidence on concept hits', () => {
     expect(hit!.evidence).toBeUndefined()
   })
 
-  test('no concept hits, no extra statement — a claim-filtered or empty search costs what it always did', async () => {
+  test('claim hits verify that their pages are readable; an empty search adds no statement', async () => {
     const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [CLAIM_ROW] }])
     await search(db, SPACE, { q: 'okf', kind: 'claim' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
-    expect(evidenceCalls(calls).length).toBe(0)
+    expect(evidenceCalls(calls).length).toBe(1)
 
     const empty = fakeDb([])
     await search(empty.db, SPACE, { q: 'nothing' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })

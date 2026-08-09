@@ -73,7 +73,14 @@ export class UnprocessableError extends DomainError {
 
 /** 409 — code narrows to the canonical conflicts. */
 export type ConflictCode =
-  'already_ingested' | 'proposal_not_pending' | 'stale_base' | 'sync_version_conflict' | 'identity_revoked'
+  | 'already_ingested'
+  | 'proposal_not_pending'
+  | 'stale_base'
+  | 'sync_version_conflict'
+  | 'identity_revoked'
+  | 'concept_deleted'
+  | 'concept_not_readable'
+  | 'concept_not_deleted'
 
 export class ConflictError extends DomainError {
   constructor(

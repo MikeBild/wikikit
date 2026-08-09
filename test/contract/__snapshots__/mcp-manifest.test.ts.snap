@@ -498,11 +498,125 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
     },
     "name": "wikikit_charter_history",
   },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List deleted concept pages retained for audit and explicit review-gated restoration.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_deleted_concepts",
+  },
 ]
 `;
 
 exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
 [
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage deletion of a concept page. It remains visible until a human approves the proposal; history and sources are retained.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_delete",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage restoration of a deleted concept page’s last visible revision for human review.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_restore",
+  },
   {
     "annotations": {
       "destructiveHint": true,
@@ -1481,6 +1595,120 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       },
     },
     "name": "wikikit_charter_history",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List deleted concept pages retained for audit and explicit review-gated restoration.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_deleted_concepts",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage deletion of a concept page. It remains visible until a human approves the proposal; history and sources are retained.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_delete",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage restoration of a deleted concept page’s last visible revision for human review.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_restore",
   },
   {
     "annotations": {
@@ -2627,6 +2855,120 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
   },
   {
     "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List deleted concept pages retained for audit and explicit review-gated restoration.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_deleted_concepts",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage deletion of a concept page. It remains visible until a human approves the proposal; history and sources are retained.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_delete",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage restoration of a deleted concept page’s last visible revision for human review.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_restore",
+  },
+  {
+    "annotations": {
       "destructiveHint": true,
       "idempotentHint": true,
       "openWorldHint": true,
@@ -3762,6 +4104,120 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
     },
     "name": "wikikit_charter_delete",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List deleted concept pages retained for audit and explicit review-gated restoration.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_deleted_concepts",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage deletion of a concept page. It remains visible until a human approves the proposal; history and sources are retained.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_delete",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "Stage restoration of a deleted concept page’s last visible revision for human review.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "slug",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_concept_restore",
   },
   {
     "annotations": {

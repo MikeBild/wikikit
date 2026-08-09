@@ -27,6 +27,7 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_source_streams',
   'wk_embeddings',
   'wk_concepts',
+  'wk_concept_lifecycle_changes',
   'wk_concept_revisions',
   'wk_charter_revisions',
   'wk_claims',
@@ -71,6 +72,8 @@ export type WebhookEventType =
   | 'wikikit.proposal.approved'
   | 'wikikit.proposal.rejected'
   | 'wikikit.concept.updated'
+  | 'wikikit.concept.deleted'
+  | 'wikikit.concept.restored'
   | 'wikikit.ingest.failed'
   | 'wikikit.source.tombstoned'
   | 'wikikit.proposal.split'
@@ -81,6 +84,8 @@ const EVENT_TYPES: ReadonlySet<string> = new Set([
   'wikikit.proposal.approved',
   'wikikit.proposal.rejected',
   'wikikit.concept.updated',
+  'wikikit.concept.deleted',
+  'wikikit.concept.restored',
   'wikikit.ingest.failed',
   'wikikit.source.tombstoned',
   'wikikit.proposal.split',

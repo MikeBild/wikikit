@@ -85,8 +85,10 @@ export const NAV: readonly NavEntry[] = [
     // what its PAGE reaches, not what its noun belongs to.
     api: [
       '/v1/spaces/{space}/concepts',
+      '/v1/spaces/{space}/deleted-concepts',
       '/v1/spaces/{space}/concepts/{slug}',
       '/v1/spaces/{space}/concepts/{slug}/history',
+      '/v1/spaces/{space}/concepts/{slug}/restore',
       '/v1/spaces/{space}/proposals',
     ],
   },

@@ -27,6 +27,7 @@ import {
   listConcepts,
   toConceptResponse,
 } from '../domain/concepts.ts'
+import { listDeletedConcepts, stageConceptLifecycle } from '../domain/concept-lifecycle.ts'
 import {
   deleteCharter,
   getCharter,
@@ -366,6 +367,37 @@ export const ROUTES: RouteDef[] = [
     handler: 'getConceptHistoryHandler',
     request: { params: 'zConceptParams' },
     responses: { 200: { schema: 'zConceptHistoryResponse', type: 'application/json', desc: 'Revisions' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/deleted-concepts',
+    scope: 'knowledge:read',
+    summary: 'List deleted concept tombstones for audit and restoration',
+    handler: 'listDeletedConceptsHandler',
+    request: { params: 'zSpaceParams', query: 'zListQuery' },
+    responses: { 200: { schema: 'zDeletedConceptListResponse', type: 'application/json', desc: 'Deleted concepts' } },
+  },
+  {
+    method: 'delete',
+    path: '/v1/spaces/{space}/concepts/{slug}',
+    scope: 'knowledge:propose',
+    summary: 'Stage deletion of a concept page for human review; history and evidence are retained',
+    handler: 'deleteConceptHandler',
+    request: { params: 'zConceptParams' },
+    responses: {
+      202: { schema: 'zConceptLifecycleResponse', type: 'application/json', desc: 'Deletion staged for review' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/spaces/{space}/concepts/{slug}/restore',
+    scope: 'knowledge:propose',
+    summary: 'Stage restoration of a deleted concept’s last visible revision for human review',
+    handler: 'restoreConceptHandler',
+    request: { params: 'zConceptParams' },
+    responses: {
+      202: { schema: 'zConceptLifecycleResponse', type: 'application/json', desc: 'Restoration staged for review' },
+    },
   },
   {
     method: 'get',
@@ -1365,6 +1397,36 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const revisions = await getConceptHistory(deps.db, space.id, { slug: input.params.slug! })
     return { status: 200, body: { slug: input.params.slug!, revisions } }
+  },
+
+  async listDeletedConceptsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { limit?: number }
+    return { status: 200, body: await listDeletedConcepts(deps.db, space.id, query) }
+  },
+
+  async deleteConceptHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    return {
+      status: 202,
+      body: await stageConceptLifecycle(deps.db, space.id, {
+        slug: input.params.slug!,
+        action: 'delete',
+        actor: input.principal!.name,
+      }),
+    }
+  },
+
+  async restoreConceptHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    return {
+      status: 202,
+      body: await stageConceptLifecycle(deps.db, space.id, {
+        slug: input.params.slug!,
+        action: 'restore',
+        actor: input.principal!.name,
+      }),
+    }
   },
 
   async searchHandler(deps, input) {
