@@ -150,6 +150,13 @@ export interface Config {
   readonly oauthAccessTokenTtlMs?: number
   /** OAuth refresh-token lifetime; optional on injected test configs. */
   readonly oauthRefreshTokenTtlMs?: number
+  /**
+   * Absolute deadline stamped on a browser operator session at login: the
+   * moment it ends however continuously somebody has been using it. Optional on
+   * injected test configs, where the mint falls back to the same 24 hours this
+   * loader defaults to.
+   */
+  readonly oauthOperatorSessionAbsoluteTtlMs?: number
   /** Allow RFC 7591 dynamic client registration for remote MCP clients. */
   readonly oauthDynamicRegistrationEnabled?: boolean
   /** Provider-neutral browser login definitions exposed by the MCP OAuth flow. */
@@ -192,11 +199,10 @@ export interface Config {
    */
   readonly scaffoldingKinds?: readonly string[]
   /**
-   * True when the operator WROTE WIKIKIT_SCAFFOLDING_KINDS, false when the
-   * shipped fallback is in force. `scaffoldingKinds` alone cannot say which:
-   * the two produce lists of the same shape, and an installation that
-   * configured exactly the built-in marker is indistinguishable from one that
-   * configured nothing at all.
+   * True when the operator WROTE WIKIKIT_SCAFFOLDING_KINDS, false when nothing
+   * was written and the built-in marker stands alone. `scaffoldingKinds` alone
+   * cannot say which: an installation that configured exactly the built-in
+   * marker produces the identical list to one that configured nothing at all.
    *
    * It exists because the report at GET /v1/installation/knowledge-config has
    * to answer "did I set that, or did it come with the product" — the first
@@ -306,6 +312,46 @@ function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[
 }
 
 /**
+ * The idle window of a browser operator session: how long a session survives
+ * with nobody using it. Eight hours, and NOT configurable — the console renews
+ * on a cadence deliberately chosen to sit well inside it (apps/cockpit's
+ * session gate), so moving this number is a code change that has to move that
+ * one in the same commit.
+ *
+ * It is declared in this file, and spent in src/oauth/server.ts, because the
+ * bound on WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS below is stated in
+ * terms of it. A validation that retyped `8 * 60 * 60 * 1000` would keep
+ * passing after somebody shortened the window and would then be refusing
+ * ceilings that are perfectly reachable — the one failure a bound like that
+ * exists to prevent.
+ *
+ * The renewing UPDATE states the same window a second time, as the SQL literal
+ * `interval '8 hours'`, and deliberately keeps it a literal: the console's
+ * cadence test reads that statement's source text to learn the deadline it is
+ * racing, and a template expression there would leave it with nothing to read.
+ * The two copies are held together by an assertion in test/unit/config.test.ts
+ * rather than by a shared expression.
+ */
+export const OPERATOR_SESSION_IDLE_MS = 8 * 60 * 60 * 1000
+
+/**
+ * The absolute ceiling a session gets when nobody configured one — the shipped
+ * 24 hours, unchanged since it was a constant in src/oauth/server.ts.
+ *
+ * It is a named export for the same reason the idle window above is, and the
+ * reason is worth stating because the two cases differ. `oauthOperatorSessionAbsoluteTtlMs`
+ * is optional on the Config interface (every unit test injects a Config by
+ * hand), so the mint has to say what an absent field means — and if it said it
+ * by retyping `24 * 60 * 60 * 1000`, this file's default and that one would be
+ * two independent numbers held together only by two tests that pin them
+ * separately. Somebody moving the shipped default would see the config test go
+ * red, fix the number here, and ship a build whose loader says one thing and
+ * whose mint says another for every caller that omits the field. One constant,
+ * spent in both places, is the only version of this that cannot drift.
+ */
+export const OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS = 24 * 60 * 60 * 1000
+
+/**
  * The revision kinds an installation stamps on pages that are STRUCTURE rather
  * than knowledge — the rows an import creates so a reviewed relation has
  * somewhere to land. WikiKit declines to measure such a page's evidence and its
@@ -320,31 +366,36 @@ function parseIdentityScopes(raw: string, name: string, fallback: IdentityScope[
  * those, so they belong here, in the environment, where the installation that
  * knows them declares them.
  *
- * WHY the legacy default exists anyway, and why it is not a purity failure.
- * This list was a hardcoded pair inside the domain for two releases, and one
- * installation's data has depended on it since: 49 pages across 5 wikis report
- * their evidence as ABSENT — the honest answer for a page that holds no
- * knowledge — precisely because the second marker is recognised. Shipping an
- * empty deployment-specific default would, on upgrade, silently turn those 49
- * absences back into `{claims: 0, uncited_claims: 0, sources: 0}`: a measured
- * zero, which is the sentence "this page rests on nothing", said about pages
- * that rest on nothing BY DESIGN. That is a worse product than the wart, and a
- * default that breaks a running deployment is not a win for cleanliness.
+ * WHY there is no second default any more, and why the absence is the point.
+ * For two releases this constant had a sibling: one deployment's historical
+ * import marker, applied whenever the variable was unset. It was not a purity
+ * failure at the time — 49 pages across 5 wikis on that installation reported
+ * their evidence as ABSENT (the honest answer for a page that holds no
+ * knowledge) only because that marker was recognised, and shipping an empty
+ * default would have turned those absences into `{claims: 0, uncited_claims:
+ * 0, sources: 0}` on upgrade: a measured zero, which is the sentence "this page
+ * rests on nothing", said about pages that rest on nothing BY DESIGN.
  *
- * So the default carries it, and the variable REPLACES it rather than adding to
- * it. Replacement is the point: the honest long-term state is that an
- * installation declares its own markers and this fallback becomes dead weight
- * that can be deleted without asking anybody. If setting the variable merely
- * appended, the historical tag would be permanent — unremovable by
- * configuration, which is exactly the property that made it a defect.
+ * That installation now declares the marker itself — verified against the
+ * running instance, whose GET /v1/installation/knowledge-config reports it with
+ * origin `configured` rather than `fallback`. The fallback therefore protects
+ * nobody, and it was the last place in this repository where the product named
+ * a particular deployment. A knowledge base that claims to know nothing about
+ * where it runs cannot ship one installation's import history as a constant a
+ * day longer than it has to.
+ *
+ * The consequence for anyone else still relying on it is real and worth saying
+ * plainly: with WIKIKIT_SCAFFOLDING_KINDS unset, pages carrying that marker
+ * stop being reference targets — their evidence comes back as three zeros and
+ * the linter's fault rules start reporting them. The repair is one line of
+ * configuration, which is exactly what this variable is for.
  */
 const BUILT_IN_SCAFFOLDING_KIND = 'structural-reference'
-const LEGACY_SCAFFOLDING_KINDS = ['subkit-domain-migration-relation-repair']
 
 /**
  * Same shape as parseIdentityScopes above — split on commas, trim, drop empties,
- * and treat "nothing was written" (unset OR empty OR all-whitespace) as the
- * fallback rather than as an empty list.
+ * and read "nothing was written" (unset OR empty OR all-whitespace) as no
+ * declaration rather than as an empty list.
  *
  * Validated because these strings are interpolated into SQL literals, not bound
  * as parameters (the fragment they build is a module-level string, and the kinds
@@ -353,29 +404,24 @@ const LEGACY_SCAFFOLDING_KINDS = ['subkit-domain-migration-relation-repair']
  * typo into a refused boot with the operator's own value in the message instead
  * of a query that behaves oddly at runtime.
  *
- * `declared` is carried out the same way parseIdentityScopes carries it — "the
- * operator wrote this" and "nothing was written, so here is the fallback" are
- * different facts, and the merged list has already forgotten which happened.
- * The reads do not care; the operator asking why 49 pages are measured the way
- * they are cares about nothing else.
+ * `declared` is carried out the same way parseIdentityScopes carries it, and it
+ * survives the deletion of the fallback because the merged list still cannot
+ * answer the question: an installation that declared exactly the built-in
+ * marker produces the identical array to one that declared nothing. The reads
+ * do not care; the operator asking why a page is measured the way it is cares
+ * about nothing else, and only the parse knows.
  */
-function parseScaffoldingKinds(
-  raw: string,
-  name: string,
-  fallback: readonly string[],
-): { kinds: readonly string[]; declared: boolean } {
+function parseScaffoldingKinds(raw: string, name: string): { kinds: readonly string[]; declared: boolean } {
   const values = raw
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
-  const declared = values.length > 0
-  const kinds = declared ? values : fallback
-  for (const kind of kinds) {
+  for (const kind of values) {
     if (!/^[a-z0-9][a-z0-9._-]{0,126}$/i.test(kind)) {
       throw new Error(`${name} entries must be alphanumeric revision-kind markers ('.', '_' and '-' allowed): ${kind}`)
     }
   }
-  return { kinds: [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...kinds])], declared }
+  return { kinds: [...new Set([BUILT_IN_SCAFFOLDING_KIND, ...values])], declared: values.length > 0 }
 }
 
 function parseOAuthProviders(raw: string, globalScopes: IdentityScope[]): OAuthProviderConfig[] {
@@ -524,11 +570,49 @@ export function loadConfig(): Config {
     'knowledge:propose',
   ])
   const oauthProviders = parseOAuthProviders(str('WIKIKIT_OAUTH_PROVIDERS'), oauthAllowedScopes)
-  const scaffolding = parseScaffoldingKinds(
-    str('WIKIKIT_SCAFFOLDING_KINDS'),
-    'WIKIKIT_SCAFFOLDING_KINDS',
-    LEGACY_SCAFFOLDING_KINDS,
+  const scaffolding = parseScaffoldingKinds(str('WIKIKIT_SCAFFOLDING_KINDS'), 'WIKIKIT_SCAFFOLDING_KINDS')
+
+  // The absolute deadline of a browser operator session: the moment it ends
+  // however continuously somebody has been using it.
+  //
+  // WHY it is configuration at all. 0.26.0 made the idle window slide on every
+  // authenticated read, and shipped the consequence under Known: a tab left
+  // VISIBLE on an unattended machine renews itself right up to this number
+  // instead of dying on the eight-hour idle window. The alternative considered
+  // then — inferring whether a human is in the room from input events — was
+  // rejected, and that rejection stands: presence detection is brittle and
+  // invasive, and every wrong guess either signs out a reviewer mid-edit or
+  // blesses an empty desk. What is left is a risk judgement, and it is not
+  // WikiKit's to make. A laptop in a locked office and a shared terminal on an
+  // open-plan floor do not want the same number, and the product knows which
+  // one it is running on exactly never. The default is unchanged at 24 hours,
+  // so no deployment's behaviour moves unless somebody asks for it.
+  //
+  // WHY the floor is the idle window rather than a round number. A ceiling
+  // below it describes a session that expires before it can ever go idle: the
+  // idle limit becomes unreachable, every deadline the operator was told to
+  // expect is silently replaced by this one, and nothing in the running system
+  // says so. That is a configuration mistake, and refusing it — naming both
+  // numbers, so the message is the explanation — beats honouring it and leaving
+  // somebody to work out months later why sessions die early. Exactly equal is
+  // allowed and coherent: it means a fixed-length session that renewal can
+  // never extend.
+  //
+  // WHY there is a roof at all. An absolute cap that can be set to a year is
+  // not a cap, it is decoration — the point of the second deadline is that it
+  // is reached. Thirty days is the rotating refresh token's default lifetime
+  // above, and a browser cookie has no business outliving the longest-lived
+  // credential WikiKit mints without being asked.
+  const oauthOperatorSessionAbsoluteTtlMs = integer(
+    'WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS',
+    OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS,
+    { max: 30 * 24 * 60 * 60 * 1000 },
   )
+  if (oauthOperatorSessionAbsoluteTtlMs < OPERATOR_SESSION_IDLE_MS) {
+    throw new Error(
+      `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS is ${oauthOperatorSessionAbsoluteTtlMs} ms, below the ${OPERATOR_SESSION_IDLE_MS} ms idle window — a session would expire before it could ever go idle`,
+    )
+  }
 
   const config: Config = Object.freeze({
     root: moduleRoot,
@@ -584,6 +668,7 @@ export function loadConfig(): Config {
       min: 60 * 60 * 1000,
       max: 90 * 24 * 60 * 60 * 1000,
     }),
+    oauthOperatorSessionAbsoluteTtlMs,
     oauthDynamicRegistrationEnabled: bool('WIKIKIT_OAUTH_DCR_ENABLED', true),
     oauthProviders,
     oauthAllowedScopes,

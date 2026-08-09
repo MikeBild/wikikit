@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.30.1",
+    "version": "0.31.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2070,7 +2070,7 @@
     },
     "/v1/identities/{provider}/{subject}": {
       "put": {
-        "summary": "Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address.",
+        "summary": "Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address — but only until the next SSO login, which mirrors the provider’s asserted address back into the row. Erasure that lasts means clearing the address and then revoking the grant (a revoked row denies login, so nothing rewrites it), or removing the person at the identity provider.",
         "operationId": "upsertIdentity",
         "responses": {
           "200": {
@@ -2180,7 +2180,7 @@
     },
     "/v1/installation/knowledge-config": {
       "get": {
-        "summary": "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one",
+        "summary": "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured) — never secrets or anything derived from one",
         "operationId": "knowledgeConfig",
         "responses": {
           "200": {
@@ -4978,6 +4978,7 @@
                     "orphan-concepts",
                     "unsourced-concepts",
                     "stub-concepts",
+                    "scaffolded-claims",
                     "empty-concepts",
                     "unreviewed-proposals",
                     "dangling-sources",
@@ -5305,7 +5306,7 @@
                   "type": "object",
                   "properties": {
                     "kind": { "type": "string" },
-                    "origin": { "type": "string", "enum": ["built_in", "configured", "fallback"] }
+                    "origin": { "type": "string", "enum": ["built_in", "configured"] }
                   },
                   "required": ["kind", "origin"],
                   "additionalProperties": false

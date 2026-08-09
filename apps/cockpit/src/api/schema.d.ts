@@ -647,7 +647,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address. */
+        /** Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address — but only until the next SSO login, which mirrors the provider’s asserted address back into the row. Erasure that lasts means clearing the address and then revoking the grant (a revoked row denies login, so nothing rewrites it), or removing the person at the identity provider. */
         put: operations["upsertIdentity"];
         post?: never;
         /** Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens and its SSO-minted API keys (idempotent; only an explicit restore over PUT re-admits) */
@@ -664,7 +664,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one */
+        /** Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured) — never secrets or anything derived from one */
         get: operations["knowledgeConfig"];
         put?: never;
         post?: never;
@@ -1987,7 +1987,7 @@ export interface components {
         zLintResponse: {
             findings: {
                 /** @enum {string} */
-                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "stub-concepts" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
                 message: string;
@@ -2130,7 +2130,7 @@ export interface components {
                 items: {
                     kind: string;
                     /** @enum {string} */
-                    origin: "built_in" | "configured" | "fallback";
+                    origin: "built_in" | "configured";
                 }[];
             };
         };

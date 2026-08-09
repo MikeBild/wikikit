@@ -6,6 +6,261 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.31.0 - 2026-08-09
+
+0.30.0 could describe the shipped fallback but not delete it: one deployment's
+private import marker, still a default, because removing it would have turned
+absent evidence into a measured zero on pages nobody had been told about. The
+route it added is what makes the removal safe — an installation can now read the
+markers it honours off the process itself, before it upgrades rather than after.
+So the fallback goes. **If any of your pages rely on a scaffolding marker that
+this build recognised without being told, name it in `WIKIKIT_SCAFFOLDING_KINDS`
+before you upgrade** — one line in the environment, and `GET /v1/installation/knowledge-config`
+on the instance you are about to replace tells you the value (anything it
+attributes `fallback` is exactly what you must declare). Skip that and nothing
+breaks or disappears, but those pages stop being reference targets: their
+evidence turns from absent into three zeros and the linter starts filing
+findings against them. The rest of this entry is the long form of that
+paragraph.
+
+Two more things come off the same **Known** list. A page that carries a
+scaffolding marker and holds claims anyway has been recorded as unreported since
+0.28.0 and reachable from the outside since 0.29.0; the linter now reports it.
+And a promise from 0.26.0 turned out to have a shelf life: an operator can clear
+an identity's stored email, and the next sign-in writes it straight back. No
+code changed for that one — what changed is that three surfaces now say so.
+
+### Removed
+
+- **BREAKING — the shipped scaffolding-marker fallback is deleted. Set
+  `WIKIKIT_SCAFFOLDING_KINDS` before you upgrade if you were relying on it.**
+  WikiKit's built-in set is now exactly `structural-reference` and nothing else;
+  every other marker is one the installation declared. The one-line fix is to
+  set `WIKIKIT_SCAFFOLDING_KINDS` to that marker in the environment — on the old
+  build, so the report below can confirm it took — and then upgrade.
+
+  What happens if you do not: the pages carrying that marker stop being
+  reference targets. Their `evidence` comes back as three zeros (`claims`,
+  `uncited_claims`, `sources`) in the concept list and on `kind: "concept"`
+  search hits instead of being absent, and `orphan-concepts`,
+  `unsourced-concepts` and `empty-concepts` begin filing findings against them.
+  Nothing is deleted, moved or hidden — the pages read exactly as they did, with
+  the same body, claims and relations — but the counts change and the lint
+  report grows. On the installation that motivated the fallback that is 49 pages
+  across five wikis, each of which would go from "not measured" to the assertion
+  that a knowledge page rests on nothing.
+
+  `GET /v1/installation/knowledge-config` (admin) on the instance you are about
+  to upgrade is how you find out whether this is you: a marker attributed
+  `fallback` there is precisely the value you need to declare. That is what
+  0.30.0 built the route for, and it is the reason this deletion is a documented
+  upgrade step rather than a surprise.
+
+  Two smaller consequences follow. `origin: "fallback"` is gone from the
+  `wikikit.knowledge-config.v1` response — with no shipped default it is
+  unreachable, and a schema that keeps an enum value nothing can produce teaches
+  a client to handle a case that no longer exists — so the response, the OpenAPI
+  snapshot and the generated console types now carry two origins, `built_in` and
+  `configured`. And the literal itself is out of the repository: it lived in
+  exactly two tracked files and both are edited here, which is what 0.29.0 and
+  0.30.0 each said would happen in one commit on the day the fallback went.
+
+### Corrections to the record
+
+- **0.26.0 said an identity's stored email could be cleared. It can be cleared
+  until that person next signs in.** The entry was about a mechanism, and the
+  mechanism works: `PUT /v1/identities/{provider}/{subject}` reads `email` in
+  three states — absent keeps the stored address, `null` clears it, a string
+  sets it — and `null` really does write `NULL` to the column. What it does not
+  do is what an operator deleting a stale address is actually trying to do,
+  because nothing keeps it deleted.
+
+  Every SSO-callback path for a row that already exists mirrors the provider's
+  asserted address back unconditionally: the allowlist upsert through
+  `ON CONFLICT ... SET email = excluded.email`, the already-registered path
+  through `UPDATE ... SET email = $3`. Neither consults the stored value, and
+  there is no branch anywhere that preserves a deliberately cleared `NULL`. So
+  the clear survives exactly as long as the identity stays away.
+
+  **The mirroring is right and is unchanged here.** The column states what the
+  provider currently asserts about that identity, not what an operator once
+  typed into a dialog, which is the only reading under which the address is
+  worth anything for allow-list matching or for telling two grants apart. A
+  clear that stuck would be a row quietly disagreeing with the identity provider
+  forever, with nothing on any screen to say which of the two you were looking
+  at. The defect was never the write; it was that we described a temporary
+  effect as a permanent one.
+
+  Erasure that lasts comes from the identity no longer signing in. Clear the
+  address and **then** revoke the grant — a revoked row denies login, so no
+  callback reaches the write, and both writes additionally carry
+  `revoked_at IS NULL` in their `WHERE` so a concurrent revoke stops the rewrite
+  too. The order is not stylistic: `PUT` against a revoked grant is a `409`
+  naming `identity_revoked` unless you pass `restore: true`, and `restore: true`
+  un-revokes the row, which reopens the very rewrite you were closing. The other
+  route is to remove the person at the identity provider. Revoking alone erases
+  nothing — the revoke handler stamps `revoked_at` and kills tokens and keys, and
+  never touches `email`.
+
+  This is a correction of a claim and not a new capability: no behaviour
+  changed and no migration ran. The grant dialog in the console, the route
+  summary that feeds `docs/openapi.json`, and `docs/CONTRACTS.md` §7.0 now each
+  state the limit and both escapes, in place of a note that said the provider
+  "may" write the address back.
+
+### Added
+
+- **`scaffolded-claims` (warn) — the linter reports a reference-target page that
+  holds knowledge.** A readable page carrying a scaffolding marker that
+  nevertheless states visible claims is the one row in a space about which the
+  marker and the content disagree, and until now nothing anywhere said so. Such
+  a page has its `evidence` withheld from the concept list and from
+  `kind: "concept"` search hits, `orphan-concepts` / `unsourced-concepts` /
+  `empty-concepts` all skip it, and its claims are perfectly visible on the page
+  read — so the index says "not measured" about a page whose claims are real
+  knowledge, and every surface an operator would check to find out why agrees
+  that nothing is wrong.
+
+  The finding names the slug, the visible-claim count (the same
+  `EVIDENCE_LATERAL` aggregate the index would have rendered, so the number
+  cannot disagree with the measurement being withheld) and both readings of the
+  contradiction — the marker is wrong for this page, or those claims belong on
+  the page it points at — because the linter cannot know which, and guessing
+  would send half the operators who read it to edit the wrong thing. It does not
+  name the marker: lint is served to agents through `wikikit_lint`, and 0.30.0
+  declined to hand every connected model the strings that make a page exempt
+  from the evidence measurement and from three fault rules.
+
+  **Why the obvious alternative was refused.** The tempting fix is not a rule at
+  all: make the marker conditional on the counts, so that a marked page holding
+  claims simply stops being treated as a reference target and gets measured and
+  linted like anything else. That trades a loud, rare problem for a quiet,
+  common one. Today the marker decides alone, so the answer is readable off a
+  single row and is the deployment's own statement about that row rather than an
+  inference WikiKit drew from whatever happened to be attached to it. Make it
+  conditional and a page changes category whenever a proposal lands or a claim
+  is deprecated: `evidence` appears and disappears from the index, three lint
+  rules start and stop reporting it, and nothing in the row explains why. The
+  contradiction would stop being reported because it would stop existing —
+  resolved silently, on whichever side the counts happened to fall that day.
+
+  Pages carrying WikiKit's own `structural-reference` are reported too, not
+  exempted. A claim on a page an operator's import marked is a plausible local
+  convention with a probably-wrong marker; a claim on a page WikiKit created as
+  furniture, whose body is the product's own sentence saying the knowledge lives
+  on the pages it points at, means something the product asserts about its own
+  data has stopped being true. That is the more alarming case, not the safer
+  one, and a rule that trusts an invariant goes silent exactly when the
+  invariant breaks.
+
+  Warn, not error: the knowledge is fine — the claims are real and the page read
+  shows them — and what is wrong is the index's account of the page. One of the
+  two readings is a page an operator may legitimately be part-way through
+  re-categorising, and failing CI on every installation over a state the
+  operator's own declaration produces is not a call a lint rule may make on
+  their behalf. Not info either: something is expected of the reader, and until
+  it is done a measurement the wiki has already computed is being kept out of
+  the index.
+
+- **`WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` — the absolute ceiling on a
+  signed-in browser session is now an operator's to set.** 0.26.0 recorded, under
+  **Known**, that a console tab left visible on an unattended machine renews its
+  own idle window until the absolute cap, and closed with the advice that
+  operators needing a shorter bound "should shorten the absolute cap, which is
+  the control that actually means what it says". It was not a control. It was a
+  constant in `src/oauth/server.ts`. It is a control now.
+
+  **The default does not move.** Twenty-four hours, exactly as before, so no
+  deployment's sessions change length on upgrade. This release is about who gets
+  to choose the number, not about a better number: the choice is a risk
+  judgement about a room, and a laptop in a locked office and a shared terminal
+  on an open-plan floor do not want the same answer. WikiKit knows which one it
+  is running in exactly never.
+
+  **The rejected alternative stays rejected.** 0.26.0 considered inferring
+  whether a human is present from input events and refused it, and nothing here
+  revisits that: presence detection is brittle and invasive, and every wrong
+  guess either signs a reviewer out mid-edit or blesses an empty desk. A session
+  that ends on a guess ends in the middle of somebody's review. What is left
+  once you decline to guess is a number, and the honest thing is to let the
+  person who can see the room set it.
+
+  **A ceiling below the idle window is refused at boot, not honoured.** The floor
+  is the eight-hour idle window itself — stated against `OPERATOR_SESSION_IDLE_MS`
+  rather than as a round number, so shortening the window can never leave the
+  bound rejecting ceilings that are perfectly reachable. Below it the session
+  expires before it could ever go idle: the idle limit becomes unreachable,
+  every deadline the operator was told to expect is silently replaced by this
+  one, and nothing in the running system says so. That is a configuration
+  mistake, and a boot that refuses it while naming both numbers is a better
+  outcome than one that accepts it and leaves somebody working out months later
+  why sessions die early. Exactly equal is allowed and coherent — a fixed-length
+  session that renewal cannot extend. The roof is thirty days, the default
+  rotating refresh-token lifetime, because a cap settable to a year is
+  decoration and a browser cookie has no business outliving the longest-lived
+  credential WikiKit mints unasked.
+
+  The ceiling is stamped into the session row at mint, so changing the variable
+  governs sessions created afterwards and never lengthens one somebody is
+  already holding. That is also why the renewal invariant needed no code change:
+  `least(absolute_expires_at, …)` has always clamped against the column, never
+  against a constant.
+
+### Known
+
+0.30.0 carried four bullets and 0.30.1 carried none. One of the four closes
+outright, one closes in the half that was ever closable, two survive unchanged,
+and the deletion above opens one of its own.
+
+- **The fallback still names one deployment's private migration tag.** Closed.
+  Deleted above, along with the `fallback` origin it produced. The built-in set
+  is one marker the product writes and reads back itself; anything else is a
+  declaration by the installation that made it. This is the bullet 0.29.0 opened
+  and 0.30.0 said would end in a single commit, and it did.
+
+- **A scaffolding-marked page that does hold claims is absent too.** Survives,
+  narrowed to what is actually left. The behaviour is unchanged and stays
+  unchanged on purpose: the marker decides, the counts do not, so such a page's
+  `evidence` is still withheld from the concept list and from search hits while
+  its claims stay fully readable on the page. An operator can still withhold a
+  real measurement from their own index by declaring a marker that pages with
+  claims carry. What closes is the silence — `scaffolded-claims` now reports
+  exactly that page, with the count that is being withheld — so the remaining
+  gap is one surface wide rather than total: the index still says nothing about
+  such a row, and the reader has to be looking at the lint report to learn why.
+
+- **A call site that forgets the configuration is caught by a test, not by the
+  compiler.** Unchanged, and untouched by this release: `scaffolded-claims` lives
+  inside `lintSpace`, which already receives the markers, so no new composition
+  boundary appeared. `scaffoldingKinds` is still an optional trailing option that
+  a new caller can omit and still compile, and the guarantee is still the source
+  scan in `test/unit/domain-concepts.test.ts` over four boundary modules that a
+  fifth must be added to by hand. Deleting the fallback makes the failure mode
+  slightly less bad — a caller that forgets now falls back to the built-in
+  marker, which is also what an undeclared installation legitimately uses — and
+  no less likely.
+
+- **The System card still renders an origin the server can no longer send.**
+  New, and a direct consequence of the deletion above. `zKnowledgeConfigResponse`
+  now has two origins; `apps/cockpit/src/pages/system.logic.ts` still knows
+  three, with the warning tone, the legend entry and the "Nobody configured
+  this" sentence that went with `fallback`, and `test/unit/cockpit-pages/system.test.ts`
+  still pins all three. Nothing is wrong on screen — the branch is simply
+  unreachable from this build's own server, which is the only server the
+  embedded console ever talks to. It was left standing rather than removed in a
+  release whose console change was otherwise a single paragraph of copy, and it
+  costs a card that carries one dead case until it goes. The unknown-origin
+  passthrough 0.30.0 added stays either way: it is what makes a NEWER server's
+  origin print itself, which is a different job from carrying an older one.
+
+- **A console branch is argued for rather than rendered.** Unchanged, and this
+  release meets it from the other side. The grant dialog's rewritten note is
+  static JSX under an existing guard: no derived text, nothing moved into
+  `identities.logic.ts`, so there is nothing for `test/unit/cockpit-pages/` to
+  pin and no test was invented for a string. That is the same limit the search
+  card and the knowledge-config card recorded — the suite proves `.logic.ts` and
+  has no renderer — and it will keep recurring until it can render.
+
 ## 0.30.1 - 2026-08-08
 
 Documentation only; nothing in the binary changed.

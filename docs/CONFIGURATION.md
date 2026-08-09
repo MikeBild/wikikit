@@ -13,53 +13,54 @@ WikiKit is configured entirely via environment variables (12-factor, prefix
 Invalid values fail fast at startup — a mistyped limit refuses the boot
 instead of producing a half-configured server.
 
-| Variable                              | Purpose                                                                                                        | Default                                                            |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `HOST`                                | Bind address (`127.0.0.1` behind a proxy)                                                                      | `127.0.0.1`                                                        |
-| `PORT`                                | HTTP listen port                                                                                               | `4060`                                                             |
-| `WIKIKIT_PUBLIC_URL`                  | Canonical public base URL — OAuth issuer/resource and MCP origin allowlist; HTTPS required in production       | `http://127.0.0.1:4060`                                            |
-| `DATABASE_URL`                        | PostgreSQL connection string (tables prefixed `wk_`). **Required in production**                               | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` |
-| `WIKIKIT_KEY_PEPPER`                  | HMAC-SHA256 pepper for hashing `wk_` API keys at rest. **Required in production**                              | dev: `wikikit-local-key-pepper`                                    |
-| `WIKIKIT_BOOTSTRAP_API_KEY`           | Pin the bootstrap admin key (`wk_...`)                                                                         | (empty; dev generates one and prints it once at boot)              |
-| `DEPLOYMENT_ENVIRONMENT`              | Stable deployment identity attached to structured logs                                                         | `production` in production, otherwise `development`                |
-| `WIKIKIT_LLM_PROVIDER`                | LLM provider the AI SDK routes to: `anthropic` \| `openai` \| `google`                                         | `anthropic`                                                        |
-| `ANTHROPIC_API_KEY`                   | Key for `anthropic` provider. Enables LLM features (ingest, query); no default anywhere                        | (unset → ingest/query answer `503 llm_not_configured`)             |
-| `OPENAI_API_KEY`                      | Key for `openai` provider (used when `WIKIKIT_LLM_PROVIDER=openai`)                                            | (unset)                                                            |
-| `GOOGLE_GENERATIVE_AI_API_KEY`        | Key for `google` provider (used when `WIKIKIT_LLM_PROVIDER=google`)                                            | (unset)                                                            |
-| `ANTHROPIC_BASE_URL`                  | Anthropic API base override (test stubs, proxies); honored when provider is `anthropic`                        | (empty)                                                            |
-| `WIKIKIT_MODEL_SYNTHESIS`             | Model for concept synthesis (one call per affected concept)                                                    | `claude-sonnet-5`                                                  |
-| `WIKIKIT_MODEL_CLASSIFY`              | Cheap/filter model: source classification (one call per ingest) **and** session distillation (one per capture) | `claude-haiku-4-5`                                                 |
-| `WIKIKIT_MODEL_ANSWER`                | Model for grounded Q&A (`POST .../query`)                                                                      | `claude-sonnet-5`                                                  |
-| `WIKIKIT_EMBEDDING_PROVIDER`          | Optional hybrid-retrieval embedding provider: `none` \| `openai` \| `google`; needs pgvector + provider key    | `none` (retrieval stays lexical)                                   |
-| `WIKIKIT_MODEL_EMBEDDING`             | Embedding model — must produce 1536-dim vectors (the `wk_embeddings` pin)                                      | `text-embedding-3-small` (google: `gemini-embedding-001`)          |
-| `WIKIKIT_MAX_BODY_BYTES`              | Max request body size → `413` (1 KiB – 250 MiB)                                                                | `10485760` (10 MiB)                                                |
-| `WIKIKIT_MAX_INGEST_TOKENS`           | Chunking threshold for large sources (1 000 – 1 000 000)                                                       | `100000`                                                           |
-| `WIKIKIT_INGEST_CONCURRENCY`          | Parallel ingest pipeline workers (1–16)                                                                        | `2`                                                                |
-| `WIKIKIT_INGEST_LEASE_MS`             | Worker lease duration; an expired running job is reaped as `worker_lost` (10 s–24 h)                           | `900000` (15 min)                                                  |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`         | Lease renewal cadence; must be less than half the lease duration (1 s–1 h)                                     | `30000`                                                            |
-| `WIKIKIT_WEBHOOK_POLL_MS`             | Outbox poll interval (ms)                                                                                      | `5000` (`.env.defaults`: `1000`)                                   |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`          | Per-delivery HTTP timeout (ms)                                                                                 | `10000`                                                            |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`        | Delivery attempts (exponential backoff + jitter) before a delivery is `dead`                                   | `10`                                                               |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`   | Consecutive endpoint failures before the circuit breaker pauses it for 15 min                                  | `5`                                                                |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`       | Allow webhook deliveries to private/loopback targets — SSRF guard; keep `false` in production                  | `true` outside production, `false` in production                   |
-| `WIKIKIT_TRUST_PROXY`                 | Trust `X-Forwarded-*` headers (only behind a trusted reverse proxy)                                            | `false`                                                            |
-| `WIKIKIT_MCP_SESSION_TTL_MS`          | Idle TTL for MCP sessions (sessions are leases, swept when idle)                                               | `1800000` (30 min)                                                 |
-| `WIKIKIT_MCP_MAX_SESSIONS`            | MCP session hard cap; oldest-idle sessions are evicted at the cap                                              | `200`                                                              |
-| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`  | Maximum native MCP review-form wait; timeout fails closed before mutation (10 s–30 min)                        | `300000` (5 min)                                                   |
-| `WIKIKIT_USAGE_TELEMETRY_ENABLED`     | Enable the privacy-bounded product usage ledger                                                                | `false`                                                            |
-| `WIKIKIT_USAGE_HMAC_SECRET`           | Independent secret for product-local actor/session HMACs; required when telemetry is enabled                   | (unset)                                                            |
-| `WIKIKIT_USAGE_RETENTION_DAYS`        | Raw usage event retention (31–365 days)                                                                        | `90`                                                               |
-| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | Opt-in: store stemmed lexemes (never the question text) of unanswered queries for coverage-gap topics          | `false`                                                            |
-| `WIKIKIT_SCAFFOLDING_KINDS`           | Extra revision kinds marking a page as structure, not knowledge (evidence absent, no lint faults)              | legacy import marker (`structural-reference` always recognised)    |
-| `WIKIKIT_OAUTH_DCR_ENABLED`           | Enable RFC 7591 dynamic registration for ChatGPT and other remote MCP clients                                  | `true`                                                             |
-| `WIKIKIT_OAUTH_CODE_TTL_MS`           | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
-| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`   | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
-| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`  | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
-| `WIKIKIT_OAUTH_ALLOWED_SCOPES`        | Interactive identity permission ceiling: comma-separated knowledge scopes, or `admin`; never `*`               | `knowledge:read,knowledge:propose`                                 |
-| `WIKIKIT_OAUTH_ENABLE_SIGNUP`         | Auto-admit unknown OIDC identities at the SSO callback with the minimal `knowledge:read` ceiling               | `false`                                                            |
-| `WIKIKIT_OAUTH_PROVIDERS`             | WikiKit-local JSON list of named `api_key` and direct `oidc` adapters                                          | API-key record                                                     |
-| `LOG_LEVEL`                           | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
-| `NODE_ENV`                            | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
+| Variable                                         | Purpose                                                                                                        | Default                                                            |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `HOST`                                           | Bind address (`127.0.0.1` behind a proxy)                                                                      | `127.0.0.1`                                                        |
+| `PORT`                                           | HTTP listen port                                                                                               | `4060`                                                             |
+| `WIKIKIT_PUBLIC_URL`                             | Canonical public base URL — OAuth issuer/resource and MCP origin allowlist; HTTPS required in production       | `http://127.0.0.1:4060`                                            |
+| `DATABASE_URL`                                   | PostgreSQL connection string (tables prefixed `wk_`). **Required in production**                               | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` |
+| `WIKIKIT_KEY_PEPPER`                             | HMAC-SHA256 pepper for hashing `wk_` API keys at rest. **Required in production**                              | dev: `wikikit-local-key-pepper`                                    |
+| `WIKIKIT_BOOTSTRAP_API_KEY`                      | Pin the bootstrap admin key (`wk_...`)                                                                         | (empty; dev generates one and prints it once at boot)              |
+| `DEPLOYMENT_ENVIRONMENT`                         | Stable deployment identity attached to structured logs                                                         | `production` in production, otherwise `development`                |
+| `WIKIKIT_LLM_PROVIDER`                           | LLM provider the AI SDK routes to: `anthropic` \| `openai` \| `google`                                         | `anthropic`                                                        |
+| `ANTHROPIC_API_KEY`                              | Key for `anthropic` provider. Enables LLM features (ingest, query); no default anywhere                        | (unset → ingest/query answer `503 llm_not_configured`)             |
+| `OPENAI_API_KEY`                                 | Key for `openai` provider (used when `WIKIKIT_LLM_PROVIDER=openai`)                                            | (unset)                                                            |
+| `GOOGLE_GENERATIVE_AI_API_KEY`                   | Key for `google` provider (used when `WIKIKIT_LLM_PROVIDER=google`)                                            | (unset)                                                            |
+| `ANTHROPIC_BASE_URL`                             | Anthropic API base override (test stubs, proxies); honored when provider is `anthropic`                        | (empty)                                                            |
+| `WIKIKIT_MODEL_SYNTHESIS`                        | Model for concept synthesis (one call per affected concept)                                                    | `claude-sonnet-5`                                                  |
+| `WIKIKIT_MODEL_CLASSIFY`                         | Cheap/filter model: source classification (one call per ingest) **and** session distillation (one per capture) | `claude-haiku-4-5`                                                 |
+| `WIKIKIT_MODEL_ANSWER`                           | Model for grounded Q&A (`POST .../query`)                                                                      | `claude-sonnet-5`                                                  |
+| `WIKIKIT_EMBEDDING_PROVIDER`                     | Optional hybrid-retrieval embedding provider: `none` \| `openai` \| `google`; needs pgvector + provider key    | `none` (retrieval stays lexical)                                   |
+| `WIKIKIT_MODEL_EMBEDDING`                        | Embedding model — must produce 1536-dim vectors (the `wk_embeddings` pin)                                      | `text-embedding-3-small` (google: `gemini-embedding-001`)          |
+| `WIKIKIT_MAX_BODY_BYTES`                         | Max request body size → `413` (1 KiB – 250 MiB)                                                                | `10485760` (10 MiB)                                                |
+| `WIKIKIT_MAX_INGEST_TOKENS`                      | Chunking threshold for large sources (1 000 – 1 000 000)                                                       | `100000`                                                           |
+| `WIKIKIT_INGEST_CONCURRENCY`                     | Parallel ingest pipeline workers (1–16)                                                                        | `2`                                                                |
+| `WIKIKIT_INGEST_LEASE_MS`                        | Worker lease duration; an expired running job is reaped as `worker_lost` (10 s–24 h)                           | `900000` (15 min)                                                  |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`                    | Lease renewal cadence; must be less than half the lease duration (1 s–1 h)                                     | `30000`                                                            |
+| `WIKIKIT_WEBHOOK_POLL_MS`                        | Outbox poll interval (ms)                                                                                      | `5000` (`.env.defaults`: `1000`)                                   |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | Per-delivery HTTP timeout (ms)                                                                                 | `10000`                                                            |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | Delivery attempts (exponential backoff + jitter) before a delivery is `dead`                                   | `10`                                                               |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`              | Consecutive endpoint failures before the circuit breaker pauses it for 15 min                                  | `5`                                                                |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`                  | Allow webhook deliveries to private/loopback targets — SSRF guard; keep `false` in production                  | `true` outside production, `false` in production                   |
+| `WIKIKIT_TRUST_PROXY`                            | Trust `X-Forwarded-*` headers (only behind a trusted reverse proxy)                                            | `false`                                                            |
+| `WIKIKIT_MCP_SESSION_TTL_MS`                     | Idle TTL for MCP sessions (sessions are leases, swept when idle)                                               | `1800000` (30 min)                                                 |
+| `WIKIKIT_MCP_MAX_SESSIONS`                       | MCP session hard cap; oldest-idle sessions are evicted at the cap                                              | `200`                                                              |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`             | Maximum native MCP review-form wait; timeout fails closed before mutation (10 s–30 min)                        | `300000` (5 min)                                                   |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED`                | Enable the privacy-bounded product usage ledger                                                                | `false`                                                            |
+| `WIKIKIT_USAGE_HMAC_SECRET`                      | Independent secret for product-local actor/session HMACs; required when telemetry is enabled                   | (unset)                                                            |
+| `WIKIKIT_USAGE_RETENTION_DAYS`                   | Raw usage event retention (31–365 days)                                                                        | `90`                                                               |
+| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED`            | Opt-in: store stemmed lexemes (never the question text) of unanswered queries for coverage-gap topics          | `false`                                                            |
+| `WIKIKIT_SCAFFOLDING_KINDS`                      | Extra revision kinds marking a page as structure, not knowledge (evidence absent, no lint faults)              | (unset — only the built-in `structural-reference`)                 |
+| `WIKIKIT_OAUTH_DCR_ENABLED`                      | Enable RFC 7591 dynamic registration for ChatGPT and other remote MCP clients                                  | `true`                                                             |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`                      | OAuth authorization-code lifetime (1–15 min)                                                                   | `600000` (10 min)                                                  |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`              | OAuth access-token lifetime (5 min–24 h)                                                                       | `3600000` (1 h)                                                    |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`             | OAuth rotating refresh-token lifetime (1 h–90 d)                                                               | `2592000000` (30 d)                                                |
+| `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` | Absolute ceiling on a browser operator session — renewal can never pass it (8 h–30 d)                          | `86400000` (24 h)                                                  |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`                   | Interactive identity permission ceiling: comma-separated knowledge scopes, or `admin`; never `*`               | `knowledge:read,knowledge:propose`                                 |
+| `WIKIKIT_OAUTH_ENABLE_SIGNUP`                    | Auto-admit unknown OIDC identities at the SSO callback with the minimal `knowledge:read` ceiling               | `false`                                                            |
+| `WIKIKIT_OAUTH_PROVIDERS`                        | WikiKit-local JSON list of named `api_key` and direct `oidc` adapters                                          | API-key record                                                     |
+| `LOG_LEVEL`                                      | `debug` \| `info` \| `warn` \| `error`                                                                         | `info`                                                             |
+| `NODE_ENV`                                       | `production` activates the guards below and disables `.env.defaults`                                           | (unset)                                                            |
 
 ## Remote MCP identity providers
 
@@ -191,6 +192,41 @@ issued key is bound to its identity grant: revoking the identity
 (`DELETE /v1/identities/{provider}/{subject}`) revokes the key, and every
 request cuts the key's scopes against the grant's current ceiling.
 
+## How long a signed-in browser stays signed in
+
+Every login method — API key or SSO — creates the same revocable operator
+session, and it has two deadlines. The **idle window** is eight hours and is not
+configurable: every authenticated read slides it, so a session in use never
+expires under the person using it, and one nobody touches for eight hours is
+gone. The **absolute ceiling** is the moment the session ends regardless, and it
+is yours to set:
+
+```bash
+WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS=86400000   # 24 h, the default
+```
+
+It is configuration because it is a risk judgement about a room, and WikiKit
+cannot see the room. A laptop in a locked office and a shared terminal on an
+open-plan floor want different numbers. It matters more than it looks: a console
+tab left **visible** on an unattended machine keeps renewing its own idle window,
+so this ceiling — not the eight hours — is what actually ends that session.
+WikiKit deliberately does not try to detect whether a human is present; guessing
+from mouse and keyboard activity is both unreliable and intrusive, and a wrong
+guess either signs out a reviewer mid-edit or treats an empty desk as occupied.
+
+Bounds are 8 h–30 d. The floor is the idle window itself: a ceiling below it
+would describe a session that expires before it could ever go idle, which
+silently deletes the idle limit, so WikiKit refuses to boot and names both
+numbers rather than honouring it. The roof is thirty days, the default rotating
+refresh-token lifetime — a browser cookie should not outlive the longest-lived
+credential WikiKit mints without being asked, and a ceiling that can be set to a
+year is not a ceiling.
+
+A session keeps the ceiling it was born with: changing the variable governs
+sessions created after the restart and never extends one somebody is already
+holding. Renewal can never pass it — the last renewal before the deadline hands
+the browser only the remainder.
+
 ## Privacy-safe usage telemetry
 
 Usage telemetry is deliberately opt-in. Set
@@ -236,6 +272,14 @@ as the finding that a knowledge page rests on nothing — see `docs/CONTRACTS.md
 report faults against it. Nothing is hidden: the page is listed, readable, and
 serves its body and relations as before.
 
+The marker decides this, and the counts do not — which keeps the rule readable
+off a single row, and means a marked page that DOES hold claims has a real
+measurement withheld from the index. That is not silent: the linter's
+`scaffolded-claims` rule (warn) reports exactly that page, with its visible-claim
+count and both readings of the contradiction, so a marker declared here that
+lands on pages holding knowledge shows up in the report rather than only in a
+column that stopped being printed.
+
 `WIKIKIT_SCAFFOLDING_KINDS` is the comma-separated list of those markers, in the
 same shape as `WIKIKIT_OAUTH_ALLOWED_SCOPES`. Entries must be alphanumeric
 markers (`.`, `_` and `-` allowed); a malformed one fails the boot with the
@@ -245,31 +289,31 @@ oddly.
 - **WikiKit's own `structural-reference` is always recognised** and is prepended
   whatever you set. The product writes that revision and the product reads it
   back, so it is not a deployment fact and not configurable away.
-- **Unset, empty, or whitespace-only all mean "nothing was written"** and fall
-  back to the default — the same reading the other comma-separated lists here
-  use, so a variable an operator cleared does not silently become an empty list.
-- **What you set REPLACES the default**, it does not add to it. That is
-  deliberate: an installation that declares its own markers must be able to stop
-  carrying somebody else's, and a value that could only ever be appended to
-  would be unremovable by configuration.
+- **Unset, empty, or whitespace-only all mean "nothing was written"** — the same
+  reading the other comma-separated lists here use, so a variable an operator
+  cleared does not silently become an empty list. With nothing written, the
+  built-in marker is the whole set.
+- **There is no deployment-specific default.** Every marker beyond
+  `structural-reference` is one this installation declared.
 
-The default is the one place this file cannot be fully self-describing. It is a
-single legacy import marker, kept because one installation's data has depended
-on it since before this variable existed: 49 pages across 5 wikis report their
-evidence as absent only because that marker is recognised, and an upgrade that
-shipped an empty default would silently turn those absences back into a
-measured zero — the sentence "this page rests on nothing", said about pages that
-hold nothing by design. A default that breaks a running deployment is not a win
-for cleanliness. It is nonetheless a fact about somebody's import history living
-in a product that otherwise knows nothing about where it runs, which is why it
-is a default you can replace and not a constant. The day every installation
-declares its own markers it can be deleted without asking anybody.
+> **Breaking change in this release.** WikiKit used to ship a second, historical
+> import marker as a default, so that one installation's pages kept their
+> reference-target treatment across an upgrade without configuring anything.
+> That installation now declares the marker itself, and the default has been
+> deleted — the product no longer carries any deployment's import history. If
+> your pages relied on it, **set `WIKIKIT_SCAFFOLDING_KINDS` to your marker
+> before upgrading.** Left unset, those pages stop being reference targets:
+> their `evidence` comes back as three zeros instead of absent, and
+> `orphan-concepts` / `unsourced-concepts` / `empty-concepts` begin reporting
+> them. Nothing is deleted or hidden — the pages read exactly as before — but
+> the counts and the lint report change. If you are not sure whether you relied
+> on it, ask the installation before you upgrade: the report below attributes
+> every marker it honours.
 
-**This page will not print that value, and you do not need it to.** A marker
-that is a fact about one deployment cannot be written into a document every
-deployment reads, and the guard that keeps production references out of `docs/`
-is right to keep it out. Ask the only thing that actually knows — the process
-you are running:
+**This page does not print any installation's markers, and you do not need it
+to.** A marker that is a fact about one deployment cannot be written into a
+document every deployment reads. Ask the only thing that actually knows — the
+process you are running:
 
 ```bash
 curl -sH "Authorization: Bearer $WIKIKIT_ADMIN_KEY" \
@@ -279,8 +323,9 @@ curl -sH "Authorization: Bearer $WIKIKIT_ADMIN_KEY" \
 `GET /v1/installation/knowledge-config` (scope `admin`) answers with the markers
 that installation is honouring right now, in the order the reads apply them,
 each one attributed: `built_in` is WikiKit's own and cannot be configured away,
-`configured` is a value you wrote, `fallback` is the default described above,
-chosen by neither you nor the product. The group also carries
+`configured` is a value you wrote. There is no third origin — with the shipped
+default gone, anything that is not built in is something you declared. The group
+also carries
 `configured: true|false` for the variable itself — which the list alone cannot
 tell you, since setting `WIKIKIT_SCAFFOLDING_KINDS=structural-reference`
 produces exactly the items of an installation that set nothing — and the

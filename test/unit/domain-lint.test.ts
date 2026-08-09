@@ -34,6 +34,7 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'orphan-concepts': 'warn',
       'unsourced-concepts': 'warn',
       'stub-concepts': 'warn',
+      'scaffolded-claims': 'warn',
       'empty-concepts': 'info',
       'unreviewed-proposals': 'info',
       'dangling-sources': 'info',
@@ -117,6 +118,13 @@ describe('lintSpace', () => {
       rows: [{ id: 'src-1', title: null, kind: 'url' }],
     },
     {
+      // scaffolded-claims asks the SAME lateral as unsourced-concepts and is
+      // told apart by its own predicate: the contradiction is claims > 0 on a
+      // marked page, not sources = 0 on an unmarked one.
+      match: /ev\.claims > 0/,
+      rows: [{ slug: 'marked-but-claiming', claims: 2 }],
+    },
+    {
       // The two shapes an unsourced page comes in: no claims at all, and
       // claims that quote nothing. Both are one finding with the same fix.
       match: /ev\.sources = 0/,
@@ -141,16 +149,17 @@ describe('lintSpace', () => {
       'unsourced-concepts',
       'tombstoned-sources',
       'stub-concepts',
+      'scaffolded-claims',
       'empty-concepts',
       'unreviewed-proposals',
       'dangling-sources',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 6, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 7, info: 3 })
 
     // Every rule query is space-scoped with the SAME parameter. (The
     // cross-space-link scan found no [[space:slug]] links, so it issued only
     // its revision scan — no follow-up queries.)
-    expect(calls.length).toBe(13)
+    expect(calls.length).toBe(14)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -179,6 +188,17 @@ describe('lintSpace', () => {
       message:
         'concept "blank" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
       concept_slug: 'blank',
+    })
+    // Both readings of the contradiction are in the line, because the linter
+    // cannot know which one holds, and the count is the measurement the index
+    // is not printing for this page.
+    expect(byRule.get('scaffolded-claims')).toEqual({
+      rule: 'scaffolded-claims',
+      severity: 'warn',
+      message:
+        'concept "marked-but-claiming" is marked as a reference target but holds 2 visible claims: either the marker is wrong for this page, or those claims belong on the page it points at — until one of the two is fixed its evidence is withheld from the index',
+      concept_slug: 'marked-but-claiming',
+      details: { claims: 2 },
     })
     expect(byRule.get('unreviewed-proposals')!.details).toMatchObject({ proposal_id: 'prop-1' })
     expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })

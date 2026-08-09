@@ -747,6 +747,7 @@ export const zLintResponse = z.object({
         'orphan-concepts',
         'unsourced-concepts',
         'stub-concepts',
+        'scaffolded-claims',
         'empty-concepts',
         'unreviewed-proposals',
         'dangling-sources',
@@ -991,13 +992,18 @@ export const zIdentityRevokedResponse = z.object({
  * survives contact with a future contributor, and a test asserts the response
  * keys against one.
  */
+/**
+ * Two origins, not three. A `fallback` value existed while WikiKit shipped one
+ * deployment's historical import marker as a default; that default is gone, so
+ * the value became unreachable and was removed rather than left as a promise
+ * the product can no longer keep. Everything not built in is now, necessarily,
+ * something the operator wrote.
+ */
 const zScaffoldingKindOrigin = z.enum([
   /** WikiKit's own marker — the product writes that revision and reads it back. */
   'built_in',
   /** The operator wrote WIKIKIT_SCAFFOLDING_KINDS and this is one of their values. */
   'configured',
-  /** Nothing was written; this is the deployment-specific default WikiKit still ships. */
-  'fallback',
 ])
 
 export const zKnowledgeConfigResponse = z.strictObject({

@@ -911,6 +911,7 @@ export interface LintFinding {
     | 'orphan-concepts'
     | 'unsourced-concepts'
     | 'stub-concepts'
+    | 'scaffolded-claims'
     | 'empty-concepts'
     | 'unreviewed-proposals'
     | 'dangling-sources'
@@ -930,8 +931,8 @@ export interface LintReport {
 
 Severity mapping is fixed: `contradictions`/`missing-citations`/`broken-relations`
 = error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/`stub-concepts`/
-`tombstoned-sources`/`broken-cross-space-links` = warn; the rest
-= info. `unsourced-concepts` flags a readable page across whose visible claims
+`scaffolded-claims`/`tombstoned-sources`/`broken-cross-space-links` = warn; the
+rest = info. `unsourced-concepts` flags a readable page across whose visible claims
 there is not one citation — nothing archived stands behind it. Warn, never an
 error: a hand-written page is legitimate, and the finding names the fix (ingest
 a source and let synthesis quote it) rather than only the fault. It overlaps
@@ -943,7 +944,20 @@ the page, never a revision marker, so it reports the same pages on every
 installation — and unlike the page-level rules around it, it deliberately
 neither excludes nor requires structural-scaffolding revisions, because a
 scaffolding page nothing points through any more IS just a blank page. The fix
-it names is delete-or-write, not ingest-a-source. `tombstoned-sources` flags
+it names is delete-or-write, not ingest-a-source. `scaffolded-claims` is the one
+page-level rule that REQUIRES a scaffolding marker instead of excluding it: it
+flags a readable page that carries one AND states visible claims. The marker
+decides whether a page is a reference target and the counts are not consulted
+(§5.3), which is what makes the rule readable off a single row — so when the two
+disagree, the disagreement itself is the finding. Warn: the claims are real and
+the page read still shows them, but the page's `evidence` is withheld from the
+list and from search hits and the three rules above are silent about it, so
+without this finding nothing reports the state at all. The message carries both
+readings — the marker is wrong for the page, or the claims belong on the page it
+points at — because the linter cannot know which; it never names the marker
+itself. Pages carrying WikiKit's built-in `structural-reference` are reported
+too, not exempted: a claim on a page the product created as structure is the
+more alarming of the two cases, not the less. `tombstoned-sources` flags
 visible claims citing sources whose stream the connector tombstoned (upstream
 document deleted) — surfacing only, never an automatic status flip: whether the
 claim gets deprecated is a human decision made through a normal proposal.
@@ -1288,7 +1302,11 @@ Invariants a client may rely on:
   must not render it as one** — the same rule the search hit's optional
   `evidence` has always carried. The linter excludes those pages from
   `orphan-concepts`, `unsourced-concepts` and `empty-concepts` for the same
-  reason, so the two surfaces stay silent about the same pages.
+  reason, so the two surfaces stay silent about the same pages. The one thing
+  the linter does say about such a page is `scaffolded-claims` (§4), and only
+  when it holds visible claims: the marker decides and the counts do not, so a
+  marked page that does hold claims has its measurement withheld from this
+  field, and that — not the withholding rule — is what gets reported.
 
   Which markers count is a fact about ONE installation, so it is read from that
   installation's environment and never from this repository: the built-in
@@ -1626,7 +1644,23 @@ and a provider that declares no ceiling inherits exactly that, so
 administrative SSO exists only where it was written down.
 `revoked_at` always wins: a revoked row denies login AND invalidates live
 tokens, no login path resurrects it, and only an explicit admin-REST
-`restore:true` re-admits. The ENV allow-lists
+`restore:true` re-admits.
+The stored `email` is operator-editable over `PUT /v1/identities/{provider}/{subject}`
+(omitted keeps it, `null` clears it, a string sets it), but that clearing does
+NOT survive the identity's next login. Every SSO-callback path for an existing
+row mirrors the provider's asserted address back unconditionally — the
+allowlist upsert via `ON CONFLICT ... SET email = excluded.email`, the
+already-registered path via `UPDATE ... SET email = $3` — and there is no
+branch that preserves a deliberately cleared NULL. That mirroring is the
+intended behaviour: the row states what the provider currently asserts, not
+what an operator once typed. Erasure that lasts therefore comes from the
+identity no longer logging in: clear the address and THEN revoke the grant (a
+revoked row denies login, so no callback rewrites it — and the order matters,
+since `PUT` on a revoked grant is 409 without `restore:true`, which would
+un-revoke it), or remove the person at the identity provider. An operator
+clearing an address for data minimisation must do one of those two; the `PUT`
+alone means "until they next sign in".
+The ENV allow-lists
 (`allowed_subjects`/`allowed_emails`) are a bootstrap-only path: an
 allowlisted login mirrors the provider's `allowed_scopes` into the row
 (`grant_source='bootstrap'`) but never overwrites operator-managed rows
@@ -1657,14 +1691,18 @@ enforcement side has always applied: `knowledge:approve` implies
 `knowledge:review`, so an approve-ceiling identity is offered the review
 checkbox it is entitled to. `knowledge:read` is mandatory and a request that
 explicitly omits it is denied rather than expanded. Every login method creates
-the same revocable operator session with a sliding eight-hour idle limit and a
-24-hour absolute cap. Both halves of the session slide: every authenticated
-read renews the row's idle deadline, and `GET /v1/session` re-emits the
-operator cookie with that renewed deadline, so the browser's copy cannot expire
-under a session the server still considers live. Neither half can extend the
-cap — the renewal is `least(absolute_expires_at, now() + 8 hours)` and the
-cookie's `Max-Age` is derived from its result, so the last renewal before the
-cap hands the browser only the remainder. Authorize render and decision
+the same revocable operator session with a sliding eight-hour idle limit and an
+absolute cap stamped at mint from
+`WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` (default 24 h; floor is the
+eight-hour idle window, so a shorter ceiling is refused at boot). The cap is a
+per-row column, not a constant, so changing the variable governs sessions minted
+afterwards and never lengthens a live one. Both halves of the session slide:
+every authenticated read renews the row's idle deadline, and `GET /v1/session`
+re-emits the operator cookie with that renewed deadline, so the browser's copy
+cannot expire under a session the server still considers live. Neither half can
+extend the cap — the renewal is `least(absolute_expires_at, now() + 8 hours)`
+and the cookie's `Max-Age` is derived from its result, so the last renewal
+before the cap hands the browser only the remainder. Authorize render and decision
 revalidate expiry, revocation and current identity policy. The common `W` card
 exposes explicit logout/account switching without combining WikiKit identities
 with another product.
@@ -1838,53 +1876,54 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                              | Default                                                            | Notes                                                       |
-| ------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `HOST`                                | `127.0.0.1`                                                        |                                                             |
-| `PORT`                                | `4060`                                                             |                                                             |
-| `WIKIKIT_PUBLIC_URL`                  | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production     |
-| `DATABASE_URL`                        | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                  |
-| `WIKIKIT_KEY_PEPPER`                  | dev: `wikikit-local-key-pepper`                                    | **required in production**                                  |
-| `WIKIKIT_BOOTSTRAP_API_KEY`           | `` (dev: generated + printed once at boot)                         |                                                             |
-| `DEPLOYMENT_ENVIRONMENT`              | `development`                                                      | `production` in the production service                      |
-| `WIKIKIT_LLM_PROVIDER`                | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails   |
-| `ANTHROPIC_API_KEY`                   | `` — no default anywhere                                           | read when provider is `anthropic`                           |
-| `OPENAI_API_KEY`                      | `` — no default anywhere                                           | read when provider is `openai`                              |
-| `GOOGLE_GENERATIVE_AI_API_KEY`        | `` — no default anywhere                                           | read when provider is `google`                              |
-| `ANTHROPIC_BASE_URL`                  | ``                                                                 | honored when provider is `anthropic`; test stub target      |
-| `WIKIKIT_MODEL_SYNTHESIS`             | `claude-sonnet-5`                                                  |                                                             |
-| `WIKIKIT_MODEL_CLASSIFY`              | `claude-haiku-4-5`                                                 |                                                             |
-| `WIKIKIT_MODEL_ANSWER`                | `claude-sonnet-5`                                                  |                                                             |
-| `WIKIKIT_EMBEDDING_PROVIDER`          | `none`                                                             | `none` \| `openai` \| `google`; hybrid ranker opt-in        |
-| `WIKIKIT_MODEL_EMBEDDING`             | `text-embedding-3-small`                                           | must be 1536-dim (google default: `gemini-embedding-001`)   |
-| `WIKIKIT_MAX_BODY_BYTES`              | `10485760`                                                         | 1 KiB – 250 MiB                                             |
-| `WIKIKIT_MAX_INGEST_TOKENS`           | `100000`                                                           | chunking threshold                                          |
-| `WIKIKIT_INGEST_CONCURRENCY`          | `2`                                                                | 1–16                                                        |
-| `WIKIKIT_INGEST_LEASE_MS`             | `900000`                                                           | 10 s–24 h                                                   |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`         | `30000`                                                            | 1 s–1 h; less than half the lease                           |
-| `WIKIKIT_WEBHOOK_POLL_MS`             | `5000` (dev default file: `1000`)                                  |                                                             |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`          | `10000`                                                            |                                                             |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`        | `10`                                                               |                                                             |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`   | `5`                                                                |                                                             |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`       | `!production`                                                      | SSRF guard                                                  |
-| `WIKIKIT_TRUST_PROXY`                 | `false`                                                            |                                                             |
-| `WIKIKIT_MCP_SESSION_TTL_MS`          | `1800000` (30 min)                                                 |                                                             |
-| `WIKIKIT_MCP_MAX_SESSIONS`            | `200`                                                              |                                                             |
-| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`  | `300000` (5 min)                                                   | 10 s–30 min; no mutation after timeout                      |
-| `WIKIKIT_USAGE_TELEMETRY_ENABLED`     | `false`                                                            | opt-in privacy-bounded usage ledger                         |
-| `WIKIKIT_USAGE_HMAC_SECRET`           | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
-| `WIKIKIT_USAGE_RETENTION_DAYS`        | `90`                                                               | 31–365 days                                                 |
-| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | `false`                                                            | opt-in gap-topic lexemes; never stores question text        |
-| `WIKIKIT_SCAFFOLDING_KINDS`           | legacy import marker                                               | extra structure markers; `structural-reference` is built in |
-| `WIKIKIT_OAUTH_DCR_ENABLED`           | `true`                                                             | RFC 7591 remote-client registration                         |
-| `WIKIKIT_OAUTH_CODE_TTL_MS`           | `600000` (10 min)                                                  | 1–15 min                                                    |
-| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`   | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
-| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`  | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
-| `WIKIKIT_OAUTH_ALLOWED_SCOPES`        | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
-| `WIKIKIT_OAUTH_ENABLE_SIGNUP`         | `false`                                                            | auto-admit unknown OIDC identities at `knowledge:read`      |
-| `WIKIKIT_OAUTH_PROVIDERS`             | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS     |
-| `LOG_LEVEL`                           | `info`                                                             | debug/info/warn/error                                       |
-| `NODE_ENV`                            | —                                                                  | `production` activates guards + disables `.env.defaults`    |
+| Variable                                         | Default                                                            | Notes                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `HOST`                                           | `127.0.0.1`                                                        |                                                             |
+| `PORT`                                           | `4060`                                                             |                                                             |
+| `WIKIKIT_PUBLIC_URL`                             | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production     |
+| `DATABASE_URL`                                   | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                  |
+| `WIKIKIT_KEY_PEPPER`                             | dev: `wikikit-local-key-pepper`                                    | **required in production**                                  |
+| `WIKIKIT_BOOTSTRAP_API_KEY`                      | `` (dev: generated + printed once at boot)                         |                                                             |
+| `DEPLOYMENT_ENVIRONMENT`                         | `development`                                                      | `production` in the production service                      |
+| `WIKIKIT_LLM_PROVIDER`                           | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails   |
+| `ANTHROPIC_API_KEY`                              | `` — no default anywhere                                           | read when provider is `anthropic`                           |
+| `OPENAI_API_KEY`                                 | `` — no default anywhere                                           | read when provider is `openai`                              |
+| `GOOGLE_GENERATIVE_AI_API_KEY`                   | `` — no default anywhere                                           | read when provider is `google`                              |
+| `ANTHROPIC_BASE_URL`                             | ``                                                                 | honored when provider is `anthropic`; test stub target      |
+| `WIKIKIT_MODEL_SYNTHESIS`                        | `claude-sonnet-5`                                                  |                                                             |
+| `WIKIKIT_MODEL_CLASSIFY`                         | `claude-haiku-4-5`                                                 |                                                             |
+| `WIKIKIT_MODEL_ANSWER`                           | `claude-sonnet-5`                                                  |                                                             |
+| `WIKIKIT_EMBEDDING_PROVIDER`                     | `none`                                                             | `none` \| `openai` \| `google`; hybrid ranker opt-in        |
+| `WIKIKIT_MODEL_EMBEDDING`                        | `text-embedding-3-small`                                           | must be 1536-dim (google default: `gemini-embedding-001`)   |
+| `WIKIKIT_MAX_BODY_BYTES`                         | `10485760`                                                         | 1 KiB – 250 MiB                                             |
+| `WIKIKIT_MAX_INGEST_TOKENS`                      | `100000`                                                           | chunking threshold                                          |
+| `WIKIKIT_INGEST_CONCURRENCY`                     | `2`                                                                | 1–16                                                        |
+| `WIKIKIT_INGEST_LEASE_MS`                        | `900000`                                                           | 10 s–24 h                                                   |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`                    | `30000`                                                            | 1 s–1 h; less than half the lease                           |
+| `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                             |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | `10000`                                                            |                                                             |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | `10`                                                               |                                                             |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`              | `5`                                                                |                                                             |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`                  | `!production`                                                      | SSRF guard                                                  |
+| `WIKIKIT_TRUST_PROXY`                            | `false`                                                            |                                                             |
+| `WIKIKIT_MCP_SESSION_TTL_MS`                     | `1800000` (30 min)                                                 |                                                             |
+| `WIKIKIT_MCP_MAX_SESSIONS`                       | `200`                                                              |                                                             |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`             | `300000` (5 min)                                                   | 10 s–30 min; no mutation after timeout                      |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED`                | `false`                                                            | opt-in privacy-bounded usage ledger                         |
+| `WIKIKIT_USAGE_HMAC_SECRET`                      | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
+| `WIKIKIT_USAGE_RETENTION_DAYS`                   | `90`                                                               | 31–365 days                                                 |
+| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED`            | `false`                                                            | opt-in gap-topic lexemes; never stores question text        |
+| `WIKIKIT_SCAFFOLDING_KINDS`                      | (unset)                                                            | extra structure markers; `structural-reference` is built in |
+| `WIKIKIT_OAUTH_DCR_ENABLED`                      | `true`                                                             | RFC 7591 remote-client registration                         |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`                      | `600000` (10 min)                                                  | 1–15 min                                                    |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`              | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`             | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
+| `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` | `86400000` (24 h)                                                  | 8 h–30 d; floor is the 8 h idle window; stamped at mint     |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`                   | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
+| `WIKIKIT_OAUTH_ENABLE_SIGNUP`                    | `false`                                                            | auto-admit unknown OIDC identities at `knowledge:read`      |
+| `WIKIKIT_OAUTH_PROVIDERS`                        | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS     |
+| `LOG_LEVEL`                                      | `info`                                                             | debug/info/warn/error                                       |
+| `NODE_ENV`                                       | —                                                                  | `production` activates guards + disables `.env.defaults`    |
 
 Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
 query answer 503 `llm_not_configured`, naming **that** provider's key, while

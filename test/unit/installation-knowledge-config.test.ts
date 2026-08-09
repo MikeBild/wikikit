@@ -6,17 +6,14 @@
 // could not learn from their running installation which markers it honours: the
 // value is a fact about one database, so the shared documentation cannot print
 // it. These tests hold the two properties that make the answer usable —
-// PROVENANCE (built-in vs configured vs shipped fallback) and a CLOSED set of
-// reported fields.
+// PROVENANCE (built-in vs configured) and a CLOSED set of reported fields.
 //
-// NOTE ON WHAT THIS FILE DOES NOT CONTAIN. The deployment-specific default
-// marker is never written here, exactly as in config.test.ts. It is one
-// installation's private import tag living in a single source file, and a test
-// that pinned the literal would be a second place to update and another place
-// it leaks from. Every assertion below is about SHAPE — how many markers, which
-// one is WikiKit's, how each is attributed — plus the requirement that the
-// values BE whatever loadConfig() holds. All of them stay true on the day that
-// tag is finally deleted.
+// NOTE ON WHAT THIS FILE DOES NOT CONTAIN. No installation's marker is ever
+// written here, exactly as in config.test.ts. Every assertion below is about
+// SHAPE — how many markers, which one is WikiKit's, how each is attributed —
+// plus the requirement that the values BE whatever loadConfig() holds. That
+// discipline is why this file needed so little editing on the day the shipped
+// deployment-specific default was finally deleted.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { loadConfig } from '../../src/config.ts'
@@ -138,7 +135,7 @@ describe('the route is administrative', () => {
 // Provenance
 
 describe('effective values and where each came from', () => {
-  test('nothing configured: the built-in AND the shipped fallback, each attributed', async () => {
+  test("nothing configured: WikiKit's own marker, alone and attributed", async () => {
     const config = loadConfig()
     const { status, body } = await readReport(config)
 
@@ -147,21 +144,40 @@ describe('effective values and where each came from', () => {
     expect(body.scaffolding_kinds.env).toBe('WIKIKIT_SCAFFOLDING_KINDS')
     // Nothing was written, and the report says so — the operator's "did I set
     // that?" answered without them comparing the list against a default they
-    // cannot see.
+    // cannot see. It stays worth reporting now that the list can no longer
+    // imply it: an installation that declared exactly the built-in marker
+    // produces these identical items.
     expect(body.scaffolding_kinds.configured).toBe(false)
 
-    const items = body.scaffolding_kinds.items
-    expect(items).toHaveLength(2)
-    expect(items[0]).toEqual({ kind: BUILT_IN, origin: 'built_in' })
-    // The second is the deployment-specific default. Asserted by ATTRIBUTION
-    // and by identity with the running config — never by literal.
-    expect(items[1]!.origin).toBe('fallback')
-    expect(items[1]!.kind).not.toBe(BUILT_IN)
-    expect(items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds!])
+    // Until this release the answer here was two items, the second attributed
+    // `fallback`: WikiKit shipped one deployment's historical import marker as
+    // a default so an upgrade would not silently un-recognise that
+    // installation's pages. That installation declares the marker itself now,
+    // the default is deleted, and `fallback` is gone from the schema with it —
+    // so a shipped build honours WikiKit's own marker and nothing else.
+    expect(body.scaffolding_kinds.items).toEqual([{ kind: BUILT_IN, origin: 'built_in' }])
+    expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds!])
+  })
 
-    // A flat list of strings would satisfy "reports the effective values" and
-    // answer none of the questions an operator actually has.
-    expect([...new Set(items.map((item) => item.origin))].sort()).toEqual(['built_in', 'fallback'])
+  test('the retired third origin is no longer a value the schema will carry', async () => {
+    // `origin` lost a value this release: `fallback` described the
+    // deployment-specific marker WikiKit shipped as a default, and with that
+    // default deleted it can never be produced. Asserted against the schema
+    // because that is the promise clients read — a handler still emitting it
+    // would now fail response validation on the one route an operator reaches
+    // for when something looks wrong.
+    process.env.WIKIKIT_SCAFFOLDING_KINDS = 'acme-relation-import'
+    const schema = SCHEMAS.zKnowledgeConfigResponse!
+    const { body } = await readReport(loadConfig())
+    expect(schema.safeParse(body).success).toBe(true)
+    const retired = {
+      ...body,
+      scaffolding_kinds: {
+        ...body.scaffolding_kinds,
+        items: body.scaffolding_kinds.items.map((item) => ({ ...item, origin: 'fallback' })),
+      },
+    }
+    expect(schema.safeParse(retired).success).toBe(false)
   })
 
   test('configured: the operator values are attributed to the operator, the built-in stays built-in', async () => {
@@ -175,9 +191,6 @@ describe('effective values and where each came from', () => {
       { kind: 'acme-relation-import', origin: 'configured' },
       { kind: 'acme-legacy-stub', origin: 'configured' },
     ])
-    // Configuration REPLACES the deployment-specific portion (src/config.ts),
-    // so nothing may still be attributed to the fallback.
-    expect(body.scaffolding_kinds.items.map((item) => item.origin)).not.toContain('fallback')
     expect(body.scaffolding_kinds.items.map((item) => item.kind)).toEqual([...config.scaffoldingKinds!])
   })
 

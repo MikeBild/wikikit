@@ -119,9 +119,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/api-keys`                                | admin             | Mint a scoped API key (plaintext shown once) |
 | DELETE | `/v1/api-keys/{id}`                           | admin             | Revoke a DB-backed API key idempotently |
 | GET    | `/v1/identities`                              | admin             | List SSO identity grants (scope ceiling, source, revocation) — never tokens or hashes |
-| PUT    | `/v1/identities/{provider}/{subject}`         | admin             | Create/update an SSO identity grant (role XOR scopes; only `restore:true` clears a revocation; an omitted field is kept, `email: null` clears the stored address) |
+| PUT    | `/v1/identities/{provider}/{subject}`         | admin             | Create/update an SSO identity grant (role XOR scopes; only `restore:true` clears a revocation; an omitted field is kept, `email: null` clears the stored address — but only until that identity's next SSO login mirrors the provider's asserted address back) |
 | DELETE | `/v1/identities/{provider}/{subject}`         | admin             | Revoke an SSO identity grant: denies future logins AND kills its live OAuth tokens (idempotent) |
-| GET    | `/v1/installation/knowledge-config`           | admin             | This installation's effective knowledge-shaping configuration, each value attributed as built-in, configured or shipped fallback — never secrets |
+| GET    | `/v1/installation/knowledge-config`           | admin             | This installation's effective knowledge-shaping configuration, each value attributed as built-in or configured — never secrets |
 | GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
 | GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
 | GET    | `/v1/spaces/{space}/stats/usage`             | knowledge:read    | Cross-transport search/read/query/ingest/proposal behavior |
@@ -231,8 +231,9 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   honours is reportable by that installation:
   `GET /v1/installation/knowledge-config` (admin) returns them in the order the
   reads apply them, each attributed `built_in` (WikiKit's own, not configurable
-  away), `configured` (the operator wrote it) or `fallback` (nobody wrote
-  anything).
+  away) or `configured` (the operator wrote it). WikiKit ships no
+  deployment-specific default, so anything not built in was declared by that
+  installation.
   Nothing else is needed to interpret an absence — the meaning is fixed by the
   contract — but it answers WHY a particular row has none.
 - **Async ingest:** `POST .../ingest` answers `202` with
@@ -459,7 +460,14 @@ direct OIDC adapters concurrently; product names are configuration values.
 WikiKit owns each OIDC client, callback, secret and policy; no cross-product
 authentication runtime is involved. Each OIDC adapter requires the immutable
 `sub` claim and applies an explicit exact-subject or provider-verified-email
-allow-list. Email is optional and unverified email is ignored. The interactive permission ceiling
+allow-list. Email is optional and unverified email is ignored. The stored
+address is a mirror, not an operator field: every SSO callback for an existing
+row writes back whatever the provider asserts, so `PUT ... {"email": null}`
+clears it only until that identity signs in again. Erasure that lasts comes
+from the identity no longer signing in — clear the address and THEN revoke the
+grant (a revoked row denies login, and the order matters because `PUT` on a
+revoked grant is 409 without `restore:true`, which would un-revoke it) — or
+from removing the person at the identity provider. The interactive permission ceiling
 defaults to `knowledge:read,knowledge:propose`; add `knowledge:review` for
 review-starting agents and `knowledge:approve` only
 for trusted human reviewers, and the client must request it explicitly. OAuth
@@ -685,6 +693,7 @@ history does not travel.
 | `orphan-concepts` | warn |
 | `unsourced-concepts` | warn |
 | `stub-concepts` | warn |
+| `scaffolded-claims` | warn |
 | `tombstoned-sources` | warn |
 | `broken-cross-space-links` | warn |
 | `empty-concepts` | info |
@@ -708,6 +717,21 @@ requires structural-scaffolding revisions: a scaffolding page nothing points
 through any more is just a blank page. The fix it names is delete-or-write, not
 ingest-a-source, which is why this is its own rule and not a relaxation of
 `unsourced-concepts`.
+
+`scaffolded-claims` is the contradiction rule, and the only page-level rule that
+REQUIRES a scaffolding marker rather than excluding it: a readable page marked
+as a reference target that nevertheless states visible claims. The marker
+decides whether a page is a reference target and the counts are never consulted,
+so such a page has its `evidence` withheld from the concept list and from
+`kind: "concept"` search hits while its claims stay fully readable on the page —
+this rule is what says so, because no other surface does. Warn, not error: the
+claims are real and nothing in the knowledge is broken; what is broken is the
+index's account of the page. The finding names the slug, the visible-claim
+count, and both readings of the contradiction (the marker is wrong for this
+page, or the claims belong on the page it points at) because the linter cannot
+know which; it never names the marker itself. Pages carrying WikiKit's own
+`structural-reference` are reported too — a claim on a page the product created
+as structure is the more alarming case, not the exempt one.
 
 ---
 
@@ -755,11 +779,12 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_USAGE_HMAC_SECRET` | independent product-local HMAC secret; required when enabled | (unset) |
 | `WIKIKIT_USAGE_RETENTION_DAYS` | raw usage retention (31–365 days) | `90` |
 | `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED` | opt-in: store stemmed lexemes (never text) of unanswered queries | `false` |
-| `WIKIKIT_SCAFFOLDING_KINDS` | extra revision kinds marking a page as structure, not knowledge (evidence reported absent, not zero); `structural-reference` is always built in | legacy import marker |
+| `WIKIKIT_SCAFFOLDING_KINDS` | extra revision kinds marking a page as structure, not knowledge (evidence reported absent, not zero); `structural-reference` is always built in | (unset) |
 | `WIKIKIT_OAUTH_DCR_ENABLED` | RFC 7591 dynamic registration for remote MCP clients | `true` |
 | `WIKIKIT_OAUTH_CODE_TTL_MS` | authorization-code TTL | `600000` (10 min) |
 | `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS` | access-token TTL | `3600000` (1 h) |
 | `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS` | rotating refresh-token TTL | `2592000000` (30 d) |
+| `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` | absolute ceiling on a browser operator session, stamped at mint; renewal never passes it (8 h–30 d, floor is the 8 h idle window) | `86400000` (24 h) |
 | `WIKIKIT_OAUTH_ALLOWED_SCOPES` | interactive identity permission ceiling | `knowledge:read,knowledge:propose` |
 | `WIKIKIT_OAUTH_ENABLE_SIGNUP` | auto-admit unknown OIDC identities at the SSO callback with the minimal `knowledge:read` ceiling | `false` |
 | `WIKIKIT_OAUTH_PROVIDERS` | WikiKit-local browser-provider configuration; JSON records use `protocol: api_key` or `oidc` | API-key record |

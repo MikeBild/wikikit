@@ -706,8 +706,9 @@ function GrantAccess({
               so promising that it clears anything would be a lie. */}
           {prefilled ? (
             <p className="text-muted-foreground text-xs" data-testid="grant-clearing-note">
-              Emptying either box removes what is stored. The identity provider may write the email back at their next
-              sign-in — it asserts one or it does not, and WikiKit records what it asserts.
+              Emptying either box removes what is stored. The email does not stay empty: every sign-in writes back
+              whatever the provider asserts. To keep it gone, clear it and then revoke the grant — a revoked identity
+              cannot sign in, so nothing rewrites it — or remove the person at the provider.
             </p>
           ) : null}
 

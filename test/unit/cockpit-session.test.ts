@@ -61,8 +61,10 @@ function stubDb(
 ) {
   const inserts: { table: string; body: Record<string, unknown> }[] = []
   const updates: { table: string; body: Record<string, unknown> }[] = []
+  const queries: string[] = []
   const db: Db = {
     async query(sql: string) {
+      queries.push(sql)
       if (sql.includes('UPDATE wk_oauth_operator_sessions')) {
         const expires = options.renewedExpiresAt ?? new Date(Date.now() + EIGHT_HOURS_MS).toISOString()
         return { rows: [{ expires_at: expires }] as never[], rowCount: 1 }
@@ -103,7 +105,7 @@ function stubDb(
     },
     async remove() {},
   }
-  return { db, inserts, updates }
+  return { db, inserts, updates, queries }
 }
 
 function testConfig(): Config {
@@ -260,17 +262,34 @@ describe('the operator cookie slides with the session it stands for', () => {
     expect(maxAgeOf(setCookie)).toBeLessThanOrEqual(EIGHT_HOURS_MS / 1000)
   })
 
-  test('never hands the browser more life than the 24-hour absolute cap left', async () => {
+  test('never hands the browser more life than the absolute cap left, whatever that cap is', async () => {
     // 45 minutes short of the cap: `least(absolute_expires_at, now() + 8h)`
     // has clamped the row, and the cookie must inherit the clamp rather than a
     // fresh eight hours — otherwise the renewal quietly becomes the extension
     // the absolute cap exists to forbid.
-    const { db } = stubDb({ session: OPERATOR, renewedExpiresAt: new Date(Date.now() + 45 * 60 * 1000).toISOString() })
-    const base = await boot(db)
+    //
+    // Driven against a CONFIGURED ceiling rather than the shipped 24 hours
+    // (WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS is the operator's
+    // judgement now), because the invariant must not be a property of the
+    // default. It is not, and the next assertion says why: the renewal clamps
+    // against the COLUMN, so whatever ceiling the mint stamped on this row is
+    // the ceiling the slide respects.
+    const { db, queries } = stubDb({
+      session: OPERATOR,
+      renewedExpiresAt: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
+    })
+    const base = await boot(db, { oauthOperatorSessionAbsoluteTtlMs: 3 * 24 * 60 * 60 * 1000 })
     const res = await fetch(`${base}/v1/session`, { headers: { cookie } })
     const maxAge = maxAgeOf(res.headers.get('set-cookie'))
     expect(maxAge).toBeGreaterThan(45 * 60 - 10)
     expect(maxAge).toBeLessThanOrEqual(45 * 60)
+
+    // The clamp is the row's own column and never a constant — which is the
+    // whole reason a configurable ceiling needed no change here. A renewal that
+    // compared against a hardcoded 24 hours would sail past a shorter ceiling
+    // and stop short of a longer one, and this stub could not tell.
+    const renewal = queries.find((sql) => sql.includes('UPDATE wk_oauth_operator_sessions'))
+    expect(renewal).toContain('least(absolute_expires_at,')
   })
 
   test('sets no cookie for a tab that is not signed in', async () => {

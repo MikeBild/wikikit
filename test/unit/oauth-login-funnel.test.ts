@@ -462,6 +462,73 @@ describe('the consent offer honors the approve→review implication', () => {
   })
 })
 
+/**
+ * The two deadlines a session is born with.
+ *
+ * The absolute one is the operator's to choose
+ * (WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS) because it is a judgement
+ * about a room WikiKit cannot see: a tab left visible on an unattended machine
+ * renews its idle window indefinitely, so this column — not the eight hours —
+ * is what ends that session. It is stamped INTO THE ROW at mint rather than
+ * consulted on every read, which is what makes a change to the variable govern
+ * sessions created afterwards and never lengthen one somebody is already
+ * holding.
+ */
+describe('the deadlines stamped on a new operator session', () => {
+  const IDLE_MS = 8 * 60 * 60 * 1000
+
+  afterEach(() => {
+    finishIdentity = null
+  })
+
+  async function mintedSession(overrides: Partial<Config> = {}): Promise<Record<string, unknown>> {
+    // An allowlisted identity, so the callback reaches the consent page and the
+    // session row is minted.
+    finishIdentity = { subject: 'any-subject', email: 'mike@example.com' }
+    const { db, inserts } = stubDb({
+      live: liveStateRow({ provider_id: 'workforce', oidc_nonce: 'n1', oidc_code_verifier: 'v1' }),
+      identity: null,
+    })
+    const base = await boot(db, overrides)
+    const res = await fetch(`${base}/v1/identity/login/callback?state=${LOGIN_STATE}&code=xyz`)
+    expect(res.status).toBe(200)
+    const session = inserts.find((entry) => entry.table === 'wk_oauth_operator_sessions')
+    expect(session).toBeDefined()
+    return session!.body
+  }
+
+  const msFromNow = (value: unknown): number => new Date(String(value)).getTime() - Date.now()
+
+  test('an unconfigured installation gets the 8-hour idle window and the 24-hour ceiling', async () => {
+    const body = await mintedSession()
+    expect(msFromNow(body.expires_at)).toBeGreaterThan(IDLE_MS - 10_000)
+    expect(msFromNow(body.expires_at)).toBeLessThanOrEqual(IDLE_MS)
+    expect(msFromNow(body.absolute_expires_at)).toBeGreaterThan(24 * 60 * 60 * 1000 - 10_000)
+    expect(msFromNow(body.absolute_expires_at)).toBeLessThanOrEqual(24 * 60 * 60 * 1000)
+  })
+
+  test('a configured ceiling is what lands in the row', async () => {
+    // Three days: nothing in the code may treat 24 hours as a floor, a
+    // fallback-when-larger, or anything other than the default it is.
+    const ceiling = 3 * 24 * 60 * 60 * 1000
+    const body = await mintedSession({ oauthOperatorSessionAbsoluteTtlMs: ceiling })
+    expect(msFromNow(body.absolute_expires_at)).toBeGreaterThan(ceiling - 10_000)
+    expect(msFromNow(body.absolute_expires_at)).toBeLessThanOrEqual(ceiling)
+    // And the idle window is untouched by it — the ceiling is the second
+    // deadline, not a redefinition of the first.
+    expect(msFromNow(body.expires_at)).toBeLessThanOrEqual(IDLE_MS)
+  })
+
+  test('a ceiling equal to the idle window mints a session renewal cannot extend', async () => {
+    // The floor the config loader allows. Both deadlines land together, so the
+    // first renewal already has nothing left to give — which is the coherent
+    // reading of "a fixed-length session", not a degenerate one.
+    const body = await mintedSession({ oauthOperatorSessionAbsoluteTtlMs: IDLE_MS })
+    expect(msFromNow(body.absolute_expires_at)).toBeLessThanOrEqual(IDLE_MS)
+    expect(msFromNow(body.absolute_expires_at)).toBeGreaterThan(IDLE_MS - 10_000)
+  })
+})
+
 describe('every SSO click mints a fresh login state', () => {
   test('the pending row is never rewritten; a new state row carries nonce and verifier', async () => {
     const { db, inserts, updates } = stubDb({ live: liveStateRow() })

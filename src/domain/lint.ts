@@ -3,7 +3,8 @@
 //
 // The severity mapping is FIXED by contract (do not tune it per space):
 //   error: contradictions, missing-citations, broken-relations
-//   warn:  stale-claims, orphan-concepts, unsourced-concepts, stub-concepts
+//   warn:  stale-claims, orphan-concepts, unsourced-concepts, stub-concepts,
+//          scaffolded-claims
 //   info:  empty-concepts, unreviewed-proposals, dangling-sources
 //
 // Every rule is one space-scoped query over the READER-VISIBLE state (current
@@ -39,6 +40,15 @@ import { EVIDENCE_LATERAL, notScaffolding, type ScaffoldingOptions } from './con
 // reasoning is at the rule; what matters here is that a new page-level rule
 // reaching for notScaffolding is making a claim about faults, not inheriting a
 // default.
+//
+// And one rule now REQUIRES the marker instead of excluding it:
+// `scaffolded-claims` reports the page that carries a marker AND holds visible
+// claims. That is not a third policy, it is the same one read the other way —
+// the marker says this row is furniture, the claims say it is knowledge, and
+// exactly one of those can be true. The three rules above are silent about such
+// a page by design and the read model withholds its measurement, so without
+// this rule the contradiction is the one state in the file that nothing at all
+// reports. Its full argument is at the rule.
 
 export type LintRule =
   | 'contradictions'
@@ -48,6 +58,7 @@ export type LintRule =
   | 'orphan-concepts'
   | 'unsourced-concepts'
   | 'stub-concepts'
+  | 'scaffolded-claims'
   | 'empty-concepts'
   | 'unreviewed-proposals'
   | 'dangling-sources'
@@ -79,6 +90,7 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
   'orphan-concepts': 'warn',
   'unsourced-concepts': 'warn',
   'stub-concepts': 'warn',
+  'scaffolded-claims': 'warn',
   'empty-concepts': 'info',
   'unreviewed-proposals': 'info',
   'dangling-sources': 'info',
@@ -459,6 +471,142 @@ async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
     // somebody left behind.
     message: `concept "${row.slug}" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content`,
     concept_slug: row.slug,
+  }))
+}
+
+// A readable page that carries a scaffolding marker AND states visible claims:
+// the one row in the space about which the marker and the content disagree.
+//
+// WHY the rule exists, and why it is a rule rather than a fix somewhere else.
+// The marker decides whether a page is a reference target, and it decides ALONE
+// — the counts are not consulted (concepts.ts, and 0.29.0 wrote the consequence
+// down under Known). That is deliberate and stays: the rule is then readable off
+// a single row, and the marker is the deployment's own statement about that row,
+// not an inference WikiKit drew from what happened to be attached to it. Making
+// the marker conditional on the counts would trade this loud, rare problem for a
+// quiet, common one — a page that silently changes category when a claim lands
+// or is deprecated, with nothing in the row to explain why.
+//
+// What that costs is real and was, until this rule, entirely unannounced. Such a
+// page's `evidence` is withheld from the concept list and from search hits, the
+// three fault rules above skip it, and the claims themselves are perfectly
+// visible on the page read — so the index says "not measured" about a page whose
+// claims are genuine knowledge, and every surface an operator would check to
+// find out why agrees that nothing is wrong. Since 0.29.0 an operator can even
+// create the state from outside: declare a marker that pages with claims carry
+// and a real measurement leaves the index, with no report anywhere. Loud is the
+// answer. Not forbidden — the state is not illegal, it is contradictory, and the
+// only thing wrong with it is that nobody was told.
+//
+// WHY `scaffolded-claims` and not `scaffolded-concepts` in the register of its
+// `-concepts` neighbours. Those adjectives each name the fault that selects the
+// page (orphan, unsourced, stub, empty), and "scaffolded" names no fault at all
+// — every reference target is scaffolded, and reporting reference targets is
+// precisely what this rule must not do. The claims are what make the row
+// reportable, so they are the noun; and a reader who meets `scaffolded-claims`
+// in a CI log has the whole contradiction in two words, with a term
+// (`WIKIKIT_SCAFFOLDING_KINDS`) they can grep for.
+//
+// WHY warn, in the same three-way its two nearest neighbours argue:
+//   * NOT error. The error rules describe knowledge that is simply wrong — a
+//     claim nobody can check, a link into the void, a frame asserting two
+//     things. Here the knowledge is fine: the claims are real, cited or not on
+//     their own merits, and the page read shows them exactly as it should. What
+//     is wrong is the INDEX's account of the page, and one of the two readings
+//     below (a marker that no longer fits) is a page an operator may legitimately
+//     be part-way through re-categorising. Failing CI on that — on every
+//     installation, on upgrade, over a state the operator's own declaration
+//     produces — is not a call a lint rule may make on their behalf, and a rule
+//     that shouts at a legitimate transient is a rule that gets turned off.
+//   * NOT info. info is "noticed, nothing expected of you" — a dangling source,
+//     a pending proposal. Something IS expected here, and until it is done a
+//     measurement the wiki has already computed is being kept from the index.
+//     An info line would also be the rarest entry in a section already full of
+//     one line per uncited source and per pending proposal, which is where a
+//     rare and important finding goes to die.
+// So: warn — somebody should look, nothing is broken.
+//
+// WHY it reports WikiKit's OWN `structural-reference` pages as well as an
+// operator's configured markers — the same threaded list, whole, no split.
+// The tempting split is to report only operator markers, on the reasoning that
+// WikiKit writes its own reference targets itself and would never put claims on
+// one. That reasoning is backwards. A claim on a page an operator's import
+// marked is a plausible local convention — somebody stamped a kind on rows that
+// turned out to hold knowledge, and the marker is probably the wrong one. A
+// claim on a page WikiKit CREATED as furniture, whose body is the product's own
+// sentence saying the knowledge lives on the pages it points at, means something
+// the product asserts about its own data has stopped being true. That is the
+// more alarming of the two and the one an operator can least discover by
+// reading their configuration. A rule that trusts an invariant goes silent
+// exactly when the invariant breaks.
+// It is also one list here for the same reason it is one list everywhere else:
+// splitting built-in from configured inside a rule would put a second answer to
+// "which markers" in the linter, when the whole point of threading
+// `scaffoldingKinds` is that there is one. Provenance is a question for
+// GET /v1/installation/knowledge-config, which exists to answer it.
+//
+// WHAT THE FINDING DOES NOT SAY: the marker. Neither the message nor `details`
+// names the `kind` that made the page a reference target, though the query has
+// it in hand. Lint is served to agents (the `wikikit_lint` MCP tool), and the
+// marker literals are exactly what 0.30.0 declined to hand every connected model
+// — a string that makes a page exempt from the evidence measurement and from
+// three fault rules is one short step from "write the page with that kind and
+// the linter stops complaining". The operator does not need it here either: they
+// have the slug, and the markers their own installation honours are one admin
+// request away.
+async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[] | undefined): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ slug: string; claims: number }>(
+    // The inverse of every other page-level rule's test, written as the
+    // negation of the SAME builder rather than as a second fragment listing the
+    // kinds positively: two fragments would be two chances to disagree about
+    // which rows are furniture, and this rule must select exactly the rows the
+    // other three skip. The negation is total because notScaffolding coalesces
+    // the marker to '' before comparing — no row falls out of both sides on a
+    // NULL agent_meta, which a bare `NOT IN` over a nullable expression would
+    // do silently.
+    //
+    // An installation that recognises no markers at all gets `NOT (true)` =
+    // false and therefore no findings, which is the honest reading: with nothing
+    // declared as structure there are no reference targets, so there is no
+    // contradiction to report.
+    //
+    // The count is EVIDENCE_LATERAL — the same aggregate the concept list would
+    // have rendered on this row had the marker not withheld it. That is not
+    // reuse for its own sake: the number in the message IS the measurement being
+    // withheld, and a second hand-written count could tell an operator that four
+    // claims are being kept from an index that would have shown six.
+    `WITH page AS (
+       SELECT c.id, c.slug
+         FROM wk_concepts c
+         JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+        WHERE c.space_id = $1
+          AND NOT (${notScaffolding(kinds)})
+     )
+     SELECT p.slug, ev.claims
+       FROM page p
+       CROSS JOIN LATERAL (${EVIDENCE_LATERAL}) ev
+      WHERE ev.claims > 0
+      ORDER BY p.slug`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'scaffolded-claims' as const,
+    severity: LINT_SEVERITY['scaffolded-claims'],
+    // BOTH readings, in the finding, because the linter cannot tell which one
+    // holds and guessing would send half of the operators who read it to edit
+    // the wrong thing. Either the marker is wrong for this page (it holds
+    // knowledge, so it is not a reference target) or the claims are on the wrong
+    // page (they belong where the page points). The count is in the line for the
+    // same reason `unsourced-concepts` puts it there — "1 claim" and "23 claims"
+    // are the same fault and very different amounts of knowledge to move — and
+    // the consequence is spelled out last because it is the part nothing else
+    // reports: this page's evidence is missing from the index and no other
+    // surface says so.
+    message: `concept "${row.slug}" is marked as a reference target but holds ${row.claims} visible claim${
+      row.claims === 1 ? '' : 's'
+    }: either the marker is wrong for this page, or those claims belong on the page it points at — until one of the two is fixed its evidence is withheld from the index`,
+    concept_slug: row.slug,
+    details: { claims: row.claims },
   }))
 }
 
@@ -847,6 +995,7 @@ export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOpt
     ...(await tombstonedSources(db, spaceId)),
     ...(await brokenCrossSpaceLinks(db, spaceId)),
     ...(await stubConcepts(db, spaceId)),
+    ...(await scaffoldedClaims(db, spaceId, kinds)),
     ...(await emptyConcepts(db, spaceId, kinds)),
     ...(await unreviewedProposals(db, spaceId)),
     ...(await danglingSources(db, spaceId)),

@@ -576,7 +576,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/identities/{provider}/{subject}',
     scope: 'admin',
     summary:
-      'Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address.',
+      'Create or update an SSO identity grant (role XOR scopes; the stored scope ceiling is the single AuthZ truth, effective immediately). Only restore:true clears a revocation; an omitted field is kept, and email:null clears the stored address — but only until the next SSO login, which mirrors the provider’s asserted address back into the row. Erasure that lasts means clearing the address and then revoking the grant (a revoked row denies login, so nothing rewrites it), or removing the person at the identity provider.',
     handler: 'upsertIdentityHandler',
     request: { params: 'zIdentityParams', body: 'zUpsertIdentityRequest' },
     responses: {
@@ -611,7 +611,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/installation/knowledge-config',
     scope: 'admin',
     summary:
-      "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured vs shipped fallback) — never secrets or anything derived from one",
+      "Report this installation's effective knowledge-shaping configuration and the provenance of every value (built-in vs configured) — never secrets or anything derived from one",
     handler: 'knowledgeConfigHandler',
     responses: {
       200: {
@@ -1827,17 +1827,18 @@ export const HANDLERS: Record<string, Handler> = {
    * measured is an operability defect regardless of how well it is documented.
    *
    * WHY provenance and not a flat list. The first question on reading an
-   * unexpected value is "did I set that, or did it come with the product" — and
-   * "came with the product" splits in two here: `structural-reference` is
-   * WikiKit's own marker and cannot be configured away, while the remaining
-   * default is a deployment-specific tag WikiKit still ships and an operator
-   * can replace. Those three call for three different actions, and a flat array
-   * of strings answers none of them.
+   * unexpected value is "did I set that, or did it come with the product", and
+   * the two answers call for different actions: `structural-reference` is
+   * WikiKit's own marker and cannot be configured away, while everything beside
+   * it is a value this installation wrote and can change. A flat array of
+   * strings answers neither. There used to be a third origin, `fallback`, for
+   * the deployment-specific marker WikiKit shipped as a default; that default
+   * is gone, so anything not built in is now necessarily configured.
    *
-   * WHY the marker is never named in this file. It reports whatever the running
-   * config holds. The literal lives in exactly one place in src/, and a report
-   * that hardcoded it would be describing the build somebody read rather than
-   * the process somebody is running — the very confusion the route removes.
+   * WHY no marker is ever named in this file. It reports whatever the running
+   * config holds. A report that hardcoded a marker would be describing the
+   * build somebody read rather than the process somebody is running — the very
+   * confusion the route removes.
    *
    * WHY the fallback when scaffoldingKinds is absent: it mirrors what the reads
    * do (src/domain/concepts.ts defaults the same way), so the report cannot
@@ -1871,7 +1872,7 @@ export const HANDLERS: Record<string, Handler> = {
           configured,
           items: kinds.map((kind) => ({
             kind,
-            origin: BUILT_IN_SCAFFOLDING_KINDS.includes(kind) ? 'built_in' : configured ? 'configured' : 'fallback',
+            origin: BUILT_IN_SCAFFOLDING_KINDS.includes(kind) ? 'built_in' : 'configured',
           })),
         },
       },

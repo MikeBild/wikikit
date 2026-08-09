@@ -44,6 +44,7 @@ const MANAGED = [
   'WIKIKIT_USAGE_RETENTION_DAYS',
   'WIKIKIT_OAUTH_PROVIDERS',
   'WIKIKIT_OAUTH_ALLOWED_SCOPES',
+  'WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS',
   'WIKIKIT_SCAFFOLDING_KINDS',
   'LOG_LEVEL',
 ]
@@ -294,36 +295,27 @@ describe('the identity scope ceiling', () => {
 })
 
 describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
-  // The literal value of the legacy default is deliberately never written in
-  // this file. It is one installation's private import tag; the assertions
-  // below are about SHAPE — how many markers there are, which one is WikiKit's,
-  // and whether configuration replaces or accumulates — and every one of them
-  // stays true when that tag is finally deleted.
   const builtIn = 'structural-reference'
 
-  test('unset keeps both defaults, so an upgrade cannot silently un-recognise a live page', () => {
-    // A running installation has 49 pages whose evidence reports as ABSENT only
-    // because the second, deployment-specific marker is recognised. Shipping an
-    // empty default would turn those absences into measured zeros — the
-    // sentence "this page rests on nothing", said about pages that hold no
-    // knowledge by design. The default carries the legacy marker for exactly
-    // that reason, and this is the test that notices if someone drops it.
-    const kinds = loadConfig().scaffoldingKinds!
-    expect(kinds).toHaveLength(2)
-    expect(kinds[0]).toBe(builtIn)
-    expect(kinds[1]).not.toBe(builtIn)
+  test('unset is the built-in marker and nothing else', () => {
+    // This assertion is the inverse of the one it replaces. Two releases
+    // shipped a second, deployment-specific marker in the default, and the test
+    // here demanded it: one installation's 49 pages reported their evidence as
+    // ABSENT only because that marker was recognised, and an empty default
+    // would have turned those absences into measured zeros on upgrade. That
+    // installation now declares the marker itself, so the default is gone and
+    // the product names no deployment. What has to hold from here is that the
+    // shipped set is exactly WikiKit's own marker — anything else in it would
+    // be a fact about somebody's database creeping back into the product.
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn])
+    expect(loadConfig().scaffoldingKindsDeclared).toBe(false)
   })
 
-  test('configuration REPLACES the deployment-specific portion; the built-in survives', () => {
-    // Replacement, not addition, is the whole point: an installation that
-    // declares its own markers must be able to stop carrying somebody else's,
-    // otherwise the historical tag is permanent and unremovable by
-    // configuration — which is the property that made it a defect.
-    const legacy = loadConfig().scaffoldingKinds![1]!
+  test('configured markers are added to the built-in one, and nothing else comes along', () => {
     process.env.WIKIKIT_SCAFFOLDING_KINDS = 'acme-relation-import'
     const kinds = loadConfig().scaffoldingKinds!
     expect(kinds).toEqual([builtIn, 'acme-relation-import'])
-    expect(kinds).not.toContain(legacy)
+    expect(loadConfig().scaffoldingKindsDeclared).toBe(true)
   })
 
   test("'structural-reference' is WikiKit's own and is never configurable away", () => {
@@ -341,13 +333,16 @@ describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
     // Same rule WIKIKIT_OAUTH_ALLOWED_SCOPES follows: an operator who leaves the
     // line in the template with no value has not declared an empty set, they
     // have declared nothing. `.env.defaults` ships exactly that empty line.
-    const fallback = loadConfig().scaffoldingKinds
-
+    // With no fallback left the two readings produce the same list, so
+    // `declared` is what still separates them — and it is what the installation
+    // report answers "did I set that?" from.
     process.env.WIKIKIT_SCAFFOLDING_KINDS = ''
-    expect(loadConfig().scaffoldingKinds).toEqual(fallback)
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn])
+    expect(loadConfig().scaffoldingKindsDeclared).toBe(false)
 
     process.env.WIKIKIT_SCAFFOLDING_KINDS = '   ,  ,'
-    expect(loadConfig().scaffoldingKinds).toEqual(fallback)
+    expect(loadConfig().scaffoldingKinds).toEqual([builtIn])
+    expect(loadConfig().scaffoldingKindsDeclared).toBe(false)
 
     // Surrounding whitespace on a real entry is trimmed, not treated as part of
     // the marker — the value is compared against a database column.
@@ -361,6 +356,97 @@ describe('WIKIKIT_SCAFFOLDING_KINDS', () => {
     // naming the operator's own value, instead of a query that behaves oddly.
     process.env.WIKIKIT_SCAFFOLDING_KINDS = "acme','anything"
     expect(() => loadConfig()).toThrow(/WIKIKIT_SCAFFOLDING_KINDS/)
+  })
+})
+
+/**
+ * How long a browser operator session may live at the very most.
+ *
+ * The reason this is configuration and not a constant: 0.26.0 made the idle
+ * window slide on every authenticated read, so a console tab left VISIBLE on an
+ * unattended machine renews itself right up to this ceiling. Detecting whether
+ * a human is actually there was considered and rejected — presence inferred
+ * from input events is brittle and invasive — which leaves a risk judgement
+ * about a room that only the operator can make.
+ */
+describe('the operator session ceiling', () => {
+  const IDLE_MS = 8 * 60 * 60 * 1000
+
+  test('defaults to 24 hours, so no deployment moves on upgrade', () => {
+    // The whole point of shipping this as configuration was that nobody's
+    // sessions change length until somebody asks. A different default here is a
+    // silent behaviour change on every installation at once.
+    //
+    // Asserted in PRODUCTION mode, which is the only mode that skips
+    // .env.defaults. That file restates this number for dev, so the obvious
+    // version of this test — delete the variable, call loadConfig() — reads the
+    // template straight back in and passes however the code's own default is
+    // changed. The guarantee is about a real deployment that configured
+    // nothing, and production is where that deployment lives.
+    process.env.NODE_ENV = 'production'
+    process.env.WIKIKIT_KEY_PEPPER = 'prod-pepper'
+    process.env.DATABASE_URL = 'postgresql://prod/wikikit'
+    process.env.WIKIKIT_PUBLIC_URL = 'https://wikikit.example.com'
+    process.env.WIKIKIT_OAUTH_PROVIDERS = '[{"protocol":"api_key","id":"api-key","label":"WikiKit API key"}]'
+    expect(loadConfig().oauthOperatorSessionAbsoluteTtlMs).toBe(24 * 60 * 60 * 1000)
+  })
+
+  test('and the shipped templates state the same number, so dev cannot drift from it', () => {
+    // .env.defaults is what a dev boot actually loads and .env.example is what
+    // an operator copies. Either one carrying a different number would mean two
+    // answers to "how long is a session", with the code's answer reachable only
+    // in production.
+    for (const file of ['.env.defaults', '.env.example']) {
+      const template = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')
+      expect(template, file).toContain(`WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS=${24 * 60 * 60 * 1000}`)
+    }
+  })
+
+  test('a set value is honoured', () => {
+    process.env.WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS = String(12 * 60 * 60 * 1000)
+    expect(loadConfig().oauthOperatorSessionAbsoluteTtlMs).toBe(12 * 60 * 60 * 1000)
+  })
+
+  test('refuses a ceiling below the idle window, naming both numbers', () => {
+    // Below the idle window the session expires before it can ever go idle: the
+    // eight-hour limit becomes unreachable and every deadline the operator was
+    // told to expect is silently replaced by this one. Refusing at boot with
+    // both numbers in the message is the difference between a configuration
+    // mistake and a mystery.
+    process.env.WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS = String(60 * 60 * 1000)
+    expect(() => loadConfig()).toThrow(/WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS/)
+    expect(() => loadConfig()).toThrow(new RegExp(`${60 * 60 * 1000} ms`))
+    expect(() => loadConfig()).toThrow(new RegExp(`${IDLE_MS} ms idle window`))
+  })
+
+  test('exactly the idle window is allowed — a session that never renews is coherent', () => {
+    process.env.WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS = String(IDLE_MS)
+    expect(loadConfig().oauthOperatorSessionAbsoluteTtlMs).toBe(IDLE_MS)
+  })
+
+  test('refuses a ceiling past thirty days, and refuses a value that is not a number', () => {
+    // An absolute cap that can be set to a year is not a cap. Thirty days is
+    // the default rotating refresh-token lifetime: a browser cookie has no
+    // business outliving the longest-lived credential WikiKit mints.
+    process.env.WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS = String(31 * 24 * 60 * 60 * 1000)
+    expect(() => loadConfig()).toThrow(/WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS must be an integer/)
+    // Same treatment every other duration in this file gets for garbage: the
+    // boot fails rather than the first request.
+    process.env.WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS = 'a day or so'
+    expect(() => loadConfig()).toThrow(/WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS must be an integer/)
+  })
+
+  test('the idle window this bound is stated against is the one the renewal actually uses', () => {
+    // OPERATOR_SESSION_IDLE_MS lives in src/config.ts because the bound above
+    // is stated in terms of it; the renewing UPDATE states the same window a
+    // second time as a SQL literal, because the console's cadence test reads
+    // that statement's source text. Two copies of a number need an assertion
+    // holding them together, or the bound quietly starts refusing ceilings that
+    // are perfectly reachable.
+    const server = readFileSync(new URL('../../src/oauth/server.ts', import.meta.url), 'utf8')
+    const hours = /least\(absolute_expires_at, now\(\) \+ interval '(\d+) hours'\)/.exec(server)?.[1]
+    expect(hours, 'the renewing UPDATE no longer states its idle window as an hours interval').toBeDefined()
+    expect(Number(hours) * 60 * 60 * 1000).toBe(IDLE_MS)
   })
 })
 

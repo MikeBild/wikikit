@@ -83,9 +83,9 @@ export interface SessionRefreshOptions {
  * `lib/live.ts` turns ON for ingest polling, so leaving it off here is a
  * decision and not an oversight. An idle window exists so that a session
  * nobody is attending dies on schedule; a minimized tab that renewed itself
- * every ten minutes would convert the eight-hour idle limit into the 24-hour
- * absolute cap for every operator who never closes a tab, which is a security
- * property traded away for nobody's convenience. Hidden means not renewing;
+ * every ten minutes would convert the eight-hour idle limit into the absolute
+ * session ceiling for every operator who never closes a tab, which is a
+ * security property traded away for nobody's convenience. Hidden means not renewing;
  * coming back is what renews, through the focus half above.
  *
  * WHAT THIS STILL DOES NOT COVER, stated rather than papered over:
@@ -93,8 +93,11 @@ export interface SessionRefreshOptions {
  * 1. A tab left VISIBLE on an unattended, unlocked machine renews for as long
  *    as it is visible. TanStack reads `visibilityState`, not whether a human is
  *    there, so "visible" is the best available proxy for attendance and it is
- *    not a good one. The 24-hour absolute cap is the only real bound on this
- *    case, and it still holds: the cookie's `Max-Age` comes from what
+ *    not a good one. The absolute ceiling is the only real bound on this case
+ *    — 24 hours by default, and since 0.31.0 an operator's to set with
+ *    `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS`, which is the control
+ *    this paragraph is the argument for. It still holds whatever it is set to:
+ *    the cookie's `Max-Age` comes from what
  *    `least(absolute_expires_at, …)` wrote, so no number of renewals reads past
  *    it. At the cap the read returns `{session: null}` and the console signs
  *    out where it stands.
@@ -155,7 +158,7 @@ export interface SessionRead<T> {
  *
  * What this does NOT do is keep a dead session alive. `null` is an ANSWER, and
  * it wins the moment it arrives: a session that hit its idle deadline or its
- * 24-hour absolute cap comes back as `null` on the next renewal and the console
+ * absolute ceiling comes back as `null` on the next renewal and the console
  * goes to the sign-in splash from wherever the operator was. That is abrupt,
  * and it is the correct abrupt — the alternative is a console that keeps
  * drawing a page for a credential the server has stopped honouring, failing one

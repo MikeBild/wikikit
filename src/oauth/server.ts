@@ -5,6 +5,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config, OidcProviderConfig } from '../config.ts'
+import { OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS, OPERATOR_SESSION_IDLE_MS } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import type { Auth, Principal } from '../http/auth.ts'
 import { cutScopesToCeiling, hashApiKey } from '../http/auth.ts'
@@ -341,7 +342,7 @@ function clearCsrfCookie(response: Response, secure: boolean): Response {
   return response
 }
 
-function operatorCookie(config: Config, token: string, maxAge = 8 * 60 * 60): string {
+function operatorCookie(config: Config, token: string, maxAge = OPERATOR_SESSION_IDLE_MS / 1000): string {
   const secure = new URL(config.publicUrl).protocol === 'https:'
   const name = secure ? '__Host-wikikit_operator' : 'wikikit_operator'
   return `${name}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`
@@ -754,11 +755,15 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       if (!ceiling) return null
       session.scopes = ceiling
     }
-    // `least(absolute_expires_at, …)` is the whole of the 24-hour cap: no read,
-    // however busy, can push the idle deadline past it. RETURNING the result
-    // rather than assuming `now() + 8h` is what lets the cookie be re-stamped
-    // from the row (see GET /v1/session) without ever outliving it — the last
-    // renewal before the cap simply hands the browser whatever is left.
+    // `least(absolute_expires_at, …)` is the whole of the absolute cap: no
+    // read, however busy, can push the idle deadline past it. The clamp is the
+    // COLUMN, never a constant, which is what makes the invariant independent
+    // of WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS — whatever ceiling the
+    // mint stamped on this row is the ceiling this statement respects.
+    // RETURNING the result rather than assuming `now() + 8h` is what lets the
+    // cookie be re-stamped from the row (see GET /v1/session) without ever
+    // outliving it — the last renewal before the cap simply hands the browser
+    // whatever is left.
     const { rows: renewed } = await deps.db.query<{ expires_at: Date | string }>(
       `UPDATE wk_oauth_operator_sessions
           SET last_used_at = now(), expires_at = least(absolute_expires_at, now() + interval '8 hours')
@@ -792,8 +797,18 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
       provider_id: args.providerId ?? null,
       provider_subject: args.providerSubject ?? null,
       scopes: args.scopes,
-      expires_at: new Date(now + 8 * 60 * 60 * 1000).toISOString(),
-      absolute_expires_at: new Date(now + 24 * 60 * 60 * 1000).toISOString(),
+      expires_at: new Date(now + OPERATOR_SESSION_IDLE_MS).toISOString(),
+      // The operator's ceiling, stamped into the row rather than consulted on
+      // every read: a session keeps the deadline it was born with, so changing
+      // the variable governs sessions minted afterwards and never silently
+      // lengthens one somebody is already holding. The `??` is the same shape
+      // the refresh-token TTL uses above — the field is optional on the configs
+      // tests inject — but it spends the loader's OWN default constant rather
+      // than retyping the number, so this line cannot come to disagree with
+      // src/config.ts about what an unconfigured installation gets.
+      absolute_expires_at: new Date(
+        now + (config.oauthOperatorSessionAbsoluteTtlMs ?? OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS),
+      ).toISOString(),
     })
     if (!row) throw new OAuthError('server_error', 'operator session could not be created', 500)
     return { row, token }
@@ -1057,7 +1072,7 @@ export function createOAuthMount(config: Config, deps: { db: Db; auth: Auth; log
         // makes the documented eight-hour IDLE limit true on the browser side
         // too, and this is the natural place for it — /v1/session is the whoami
         // the console reads before it renders anything. It cannot extend the
-        // 24-hour cap: the Max-Age comes from the value
+        // absolute cap: the Max-Age comes from the value
         // `least(absolute_expires_at, …)` just wrote, never from a fresh clock.
         return withOperatorCookie(response, config, operatorToken(request, config), operatorCookieMaxAge(operator))
       }
