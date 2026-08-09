@@ -16,6 +16,8 @@ and this project adheres to
   active relations through the ordinary proposal path, and emits dedicated
   lifecycle webhooks. Restore brings back the last visible revision without
   reviving removed relations; deleted slugs remain reserved until restored.
+  MCP adds `wikikit_deleted_concepts`, `wikikit_concept_delete` and
+  `wikikit_concept_restore`.
 
 ## 0.32.0 - 2026-08-09
 
