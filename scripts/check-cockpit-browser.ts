@@ -33,6 +33,7 @@
 // this script does not own, and a checker that creates credentials on somebody
 // else's deployment is a checker nobody dares run.
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
+import { DE_PHRASES } from '../apps/cockpit/src/lib/i18n.ts'
 
 interface Viewport {
   name: string
@@ -94,6 +95,38 @@ const PROBE = `(() => {
     }
   }
   return findings
+})()`
+
+// Exact source phrases are checked in the rendered text nodes, not merely in
+// the catalogue. This catches the subtle failure mode where a German phrase
+// exists but a custom component prevents it from reaching the translation
+// boundary. Dynamic counters use the same English shapes as translateText.
+const GERMAN_I18N_PROBE = `(() => {
+  const translated = new Set(${JSON.stringify(
+    Object.entries(DE_PHRASES)
+      .filter(([english, german]) => english !== german)
+      .map(([english]) => english.replace(/\s+/g, ' ').trim()),
+  )})
+  const dynamicEnglish = [
+    /^\\d+ quotes cited$/,
+    /^\\d+ submitted · \\d+ rejected$/,
+    /^\\d+ of \\d+ pages$/,
+    /^\\d+ decided$/,
+    /^\\d+ open now$/,
+    /^In the last \\d+ (?:hours|days)\\.$/,
+    /^none open$/,
+    /^— each$/,
+  ]
+  const findings = new Set()
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const parent = node.parentElement
+    if (!parent || ['SCRIPT', 'STYLE'].includes(parent.tagName)) continue
+    const text = (node.textContent || '').replace(/\\s+/g, ' ').trim()
+    if (!text) continue
+    if (translated.has(text) || dynamicEnglish.some((pattern) => pattern.test(text))) findings.add(text)
+  }
+  return [...findings]
 })()`
 
 async function main(): Promise<void> {
@@ -189,13 +222,8 @@ async function main(): Promise<void> {
           const language = await page.getAttribute('html', 'lang')
           if (language !== 'de')
             findings.push({ route, viewport: viewport.name, what: `document language is ${language}` })
-          if (route === '/pages') {
-            const english = ['New page', 'Any time', 'Evidence', 'Summary', 'Last change']
-            for (const phrase of english) {
-              if (await page.getByText(phrase, { exact: true }).count()) {
-                findings.push({ route, viewport: viewport.name, what: `untranslated text: ${phrase}` })
-              }
-            }
+          for (const phrase of await page.evaluate<string[]>(GERMAN_I18N_PROBE)) {
+            findings.push({ route, viewport: viewport.name, what: `untranslated text: ${phrase}` })
           }
         }
       }
@@ -207,7 +235,7 @@ async function main(): Promise<void> {
 
   console.log(`› checked ${checked} route/viewport pairs against ${base}${space ? ` in ${space}` : ''}`)
   if (!findings.length) {
-    console.log('\x1b[32m✓ no layout findings\x1b[0m')
+    console.log(`\x1b[32m✓ no layout${locale === 'de' ? ' or German localisation' : ''} findings\x1b[0m`)
     // Said out loud rather than left implied: a green run means these three
     // assertions held, not that the console is correct.
     console.log('  (three assertions: document overflow, table containment, cell clipping)')

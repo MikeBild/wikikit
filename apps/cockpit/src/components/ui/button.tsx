@@ -2,6 +2,7 @@ import { Slot } from 'radix-ui'
 import { cva, type VariantProps } from 'class-variance-authority'
 import type { ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
+import { I18nText } from '@/components/i18n-text'
 
 /**
  * The registry button, with one addition and one removal.
@@ -56,7 +57,14 @@ const buttonVariants = cva(
 
 type ButtonProps = ComponentProps<'button'> & VariantProps<typeof buttonVariants> & { asChild?: boolean }
 
-export function Button({ className, variant = 'default', size = 'default', asChild = false, ...props }: ButtonProps) {
+export function Button({
+  className,
+  variant = 'default',
+  size = 'default',
+  asChild = false,
+  children,
+  ...props
+}: ButtonProps) {
   const Component = asChild ? Slot.Root : 'button'
   return (
     <Component
@@ -65,6 +73,8 @@ export function Button({ className, variant = 'default', size = 'default', asChi
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+    >
+      {asChild ? children : <I18nText>{children}</I18nText>}
+    </Component>
   )
 }

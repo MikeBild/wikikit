@@ -11,6 +11,7 @@ import { SegmentedControl } from '@/components/controls'
 import { DataState } from '@/components/data-state'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { EmptyState } from '@/components/empty-state'
+import { I18nText } from '@/components/i18n-text'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -611,97 +612,99 @@ function AskPanel({
 }) {
   const read = answer === undefined ? null : readAnswer(answer)
   return (
-    <section className="border-border flex flex-col gap-3 rounded-lg border p-4" aria-labelledby="search-ask-heading">
-      <div className="flex flex-col gap-1">
-        <h2 id="search-ask-heading" className="text-sm font-semibold tracking-tight">
-          Ask instead of searching
-        </h2>
-        <p className="text-muted-foreground text-sm">
-          A model reads the approved pages{mode === 'approved_then_sources' ? ' and the archived sources' : ''} and
-          answers in prose, citing what it used. It costs model tokens, so it runs only when you ask.
-        </p>
-      </div>
+    <I18nText>
+      <section className="border-border flex flex-col gap-3 rounded-lg border p-4" aria-labelledby="search-ask-heading">
+        <div className="flex flex-col gap-1">
+          <h2 id="search-ask-heading" className="text-sm font-semibold tracking-tight">
+            Ask instead of searching
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            A model reads the approved pages{mode === 'approved_then_sources' ? ' and the archived sources' : ''} and
+            answers in prose, citing what it used. It costs model tokens, so it runs only when you ask.
+          </p>
+        </div>
 
-      <Button
-        variant="outline"
-        className="w-fit"
-        data-testid="search-ask"
-        disabled={question === '' || pending}
-        onClick={onAsk}
-      >
-        {/* The label does not rewrite itself while it works (CUI-ACT-5): the
+        <Button
+          variant="outline"
+          className="w-fit"
+          data-testid="search-ask"
+          disabled={question === '' || pending}
+          onClick={onAsk}
+        >
+          {/* The label does not rewrite itself while it works (CUI-ACT-5): the
             spinner and the disabled state carry that, so the button an operator
             aimed at is still the button they hit. */}
-        {pending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
-        Answer this question
-      </Button>
+          {pending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
+          Answer this question
+        </Button>
 
-      {error !== null && error !== undefined ? <AskFailure error={error} /> : null}
+        {error !== null && error !== undefined ? <AskFailure error={error} /> : null}
 
-      {read ? (
-        read.missing ? (
-          <div
-            className="border-muted-foreground/40 rounded-lg border border-dashed p-3 text-sm"
-            data-testid="search-answer-missing"
-          >
-            <span className="font-medium">This wiki does not know.</span>{' '}
-            <span className="text-muted-foreground">
-              Nothing approved here answers that question. Adding a source is how the wiki learns it.
-            </span>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {read.markdown ? (
-              <div className="wk-doc" data-testid="search-answer">
-                <Markdown remarkPlugins={[remarkGfm]}>{read.markdown}</Markdown>
-              </div>
-            ) : (
-              // An answer with no prose in it is not an empty page: it is a
-              // model that returned nothing, and saying so beats a blank block.
-              <p className="text-muted-foreground text-sm" data-testid="search-answer">
-                The model returned no answer.
-              </p>
-            )}
-            {read.citations.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="text-muted-foreground">Cited pages:</span>
-                {read.citations.map((citation, index) => (
-                  <Link
-                    key={citation.slug}
-                    to="/pages/$slug"
-                    params={{ slug: citation.slug }}
-                    data-testid={`search-answer-citation-${index}`}
-                    className="underline underline-offset-2"
-                  >
-                    {citation.title || citation.slug}
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-            {read.sources.length > 0 ? (
-              <div className="border-muted-foreground/40 flex flex-col gap-2 rounded-lg border border-dashed p-3 text-xs">
-                <span className="font-medium">
-                  Part of this answer rests on archived sources rather than on approved knowledge
-                </span>
-                <div className="flex flex-wrap items-center gap-2">
-                  {read.sources.map((source, index) => (
+        {read ? (
+          read.missing ? (
+            <div
+              className="border-muted-foreground/40 rounded-lg border border-dashed p-3 text-sm"
+              data-testid="search-answer-missing"
+            >
+              <span className="font-medium">This wiki does not know.</span>{' '}
+              <span className="text-muted-foreground">
+                Nothing approved here answers that question. Adding a source is how the wiki learns it.
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {read.markdown ? (
+                <div className="wk-doc" data-testid="search-answer">
+                  <Markdown remarkPlugins={[remarkGfm]}>{read.markdown}</Markdown>
+                </div>
+              ) : (
+                // An answer with no prose in it is not an empty page: it is a
+                // model that returned nothing, and saying so beats a blank block.
+                <p className="text-muted-foreground text-sm" data-testid="search-answer">
+                  The model returned no answer.
+                </p>
+              )}
+              {read.citations.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Cited pages:</span>
+                  {read.citations.map((citation, index) => (
                     <Link
-                      key={source.id}
-                      to="/sources/$id"
-                      params={{ id: source.id }}
-                      data-testid={`search-answer-source-${index}`}
+                      key={citation.slug}
+                      to="/pages/$slug"
+                      params={{ slug: citation.slug }}
+                      data-testid={`search-answer-citation-${index}`}
                       className="underline underline-offset-2"
                     >
-                      {semanticLabel([source.title], 'Archived source')}
+                      {citation.title || citation.slug}
                     </Link>
                   ))}
                 </div>
-              </div>
-            ) : null}
-          </div>
-        )
-      ) : null}
-    </section>
+              ) : null}
+              {read.sources.length > 0 ? (
+                <div className="border-muted-foreground/40 flex flex-col gap-2 rounded-lg border border-dashed p-3 text-xs">
+                  <span className="font-medium">
+                    Part of this answer rests on archived sources rather than on approved knowledge
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {read.sources.map((source, index) => (
+                      <Link
+                        key={source.id}
+                        to="/sources/$id"
+                        params={{ id: source.id }}
+                        data-testid={`search-answer-source-${index}`}
+                        className="underline underline-offset-2"
+                      >
+                        {semanticLabel([source.title], 'Archived source')}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )
+        ) : null}
+      </section>
+    </I18nText>
   )
 }
 

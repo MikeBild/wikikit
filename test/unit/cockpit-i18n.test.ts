@@ -10,6 +10,7 @@ import {
   formatNumber,
   interpolate,
   translate,
+  translateText,
   type TranslationKey,
 } from '../../apps/cockpit/src/lib/i18n'
 import {
@@ -130,6 +131,17 @@ describe('the typed English and German Cockpit catalogs', () => {
     expect(formatNumber('en', 1234)).toBe('1,234')
     expect(formatNumber('de', 1234)).toBe('1.234')
     expect(formatDateTime('de', '2026-08-10T12:00:00Z')).not.toBe(formatDateTime('en', '2026-08-10T12:00:00Z'))
+  })
+
+  test('translates runtime counters and time windows without changing their values', () => {
+    expect(translateText('de', '0 quotes cited')).toBe('0 verwendete Zitate')
+    expect(translateText('de', '9 submitted · 2 rejected')).toBe('9 eingereicht · 2 abgelehnt')
+    expect(translateText('de', '3 of 9 pages')).toBe('3 von 9 Seiten')
+    expect(translateText('de', '9 decided')).toBe('9 entschieden')
+    expect(translateText('de', '40 open now')).toBe('40 derzeit offen')
+    expect(translateText('de', 'In the last 24 hours.')).toBe('In den letzten 24 Stunden.')
+    expect(translateText('de', 'none open')).toBe('keine offen')
+    expect(translateText('en', '9 submitted · 2 rejected')).toBe('9 submitted · 2 rejected')
   })
 
   test('covers every static presentation phrase exposed by Cockpit pages', () => {

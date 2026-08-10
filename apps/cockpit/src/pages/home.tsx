@@ -6,12 +6,14 @@ import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DataState, RowSkeleton } from '@/components/data-state'
 import { EmptyState } from '@/components/empty-state'
+import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSpace } from '@/lib/space'
+import { useI18n } from '@/lib/i18n-context'
 import {
   averageSeconds,
   changeStanding,
@@ -67,6 +69,7 @@ const COVERAGE_DAYS = 30
 
 export function HomePage() {
   const space = useSpace()
+  const { text } = useI18n()
 
   // Pinned to the hour, not to `now`: a fresh millisecond on every render is a
   // fresh query key, and the front page would refetch its coverage forever.
@@ -129,7 +132,7 @@ export function HomePage() {
                 </div>
                 {when ? (
                   <p className="text-muted-foreground text-xs" data-testid="stat-window">
-                    In {when}.
+                    {text(`In ${when}.`)}
                   </p>
                 ) : null}
               </section>
@@ -329,27 +332,33 @@ export function HomePage() {
 function GapTopics({ gaps }: { gaps: { enabled: boolean; items: readonly { lexeme: string; count: number }[] } }) {
   if (!gaps.enabled)
     return (
-      <p className="text-muted-foreground text-xs" data-testid="coverage-gaps-off">
-        Unanswered-question tracking is switched off in this deployment.
-      </p>
+      <I18nText>
+        <p className="text-muted-foreground text-xs" data-testid="coverage-gaps-off">
+          Unanswered-question tracking is switched off in this deployment.
+        </p>
+      </I18nText>
     )
   if (gaps.items.length === 0)
     return (
-      <p className="text-muted-foreground text-xs" data-testid="coverage-gaps-none">
-        Every question readers asked found an answer.
-      </p>
+      <I18nText>
+        <p className="text-muted-foreground text-xs" data-testid="coverage-gaps-none">
+          Every question readers asked found an answer.
+        </p>
+      </I18nText>
     )
   return (
-    <div className="flex flex-col gap-1.5" data-testid="coverage-gaps">
-      <p className="text-muted-foreground text-xs">Asked for, not answered</p>
-      <div className="flex flex-wrap gap-1">
-        {gaps.items.map((gap) => (
-          <Badge key={gap.lexeme} tone="unknown">
-            {gap.lexeme} · {count(gap.count)}
-          </Badge>
-        ))}
+    <I18nText>
+      <div className="flex flex-col gap-1.5" data-testid="coverage-gaps">
+        <p className="text-muted-foreground text-xs">Asked for, not answered</p>
+        <div className="flex flex-wrap gap-1">
+          {gaps.items.map((gap) => (
+            <Badge key={gap.lexeme} tone="unknown">
+              {gap.lexeme} · {count(gap.count)}
+            </Badge>
+          ))}
+        </div>
       </div>
-    </div>
+    </I18nText>
   )
 }
 
@@ -369,11 +378,13 @@ function Stat({ testId, label, value, hint }: { testId: string; label: string; v
 /** One number inside a card, where a second card would nest (CUI-LADDER-2). */
 function Fact({ testId, label, value, hint }: { testId: string; label: string; value: string; hint?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
-      <dt className="text-muted-foreground text-xs">{label}</dt>
-      <dd className="text-base font-medium tabular-nums">{value}</dd>
-      {hint ? <dd className="text-muted-foreground truncate text-xs">{hint}</dd> : null}
-    </div>
+    <I18nText>
+      <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
+        <dt className="text-muted-foreground text-xs">{label}</dt>
+        <dd className="text-base font-medium tabular-nums">{value}</dd>
+        {hint ? <dd className="text-muted-foreground truncate text-xs">{hint}</dd> : null}
+      </div>
+    </I18nText>
   )
 }
 

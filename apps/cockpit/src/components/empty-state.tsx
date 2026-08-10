@@ -87,7 +87,11 @@ export function EmptyState({
           <I18nText>{description}</I18nText>
         </EmptyDescription>
       </EmptyHeader>
-      {action ? <EmptyContent data-testid={`${testId}-action`}>{action}</EmptyContent> : null}
+      {action ? (
+        <EmptyContent data-testid={`${testId}-action`}>
+          <I18nText>{action}</I18nText>
+        </EmptyContent>
+      ) : null}
     </Empty>
   )
 }

@@ -208,6 +208,8 @@ export const CATALOGS: Record<Locale, Readonly<Record<TranslationKey, string>>> 
  */
 export const DE_PHRASES = {
   Actions: 'Aktionen',
+  Edit: 'Bearbeiten',
+  Waiting: 'Wartet',
   Active: 'Aktiv',
   Address: 'Adresse',
   Admitted: 'Zugelassen',
@@ -1004,6 +1006,22 @@ export function translateText(
     const withheld = phrase.match(/^(\d+) claims? not counted$/)
     if (withheld)
       return `${leading}${withheld[1]} nicht gezählte ${Number(withheld[1]) === 1 ? 'Aussage' : 'Aussagen'}${trailing}`
+    const quotes = phrase.match(/^(\d+) quotes cited$/)
+    if (quotes) return `${leading}${quotes[1]} verwendete Zitate${trailing}`
+    const decisions = phrase.match(/^(\d+) decided$/)
+    if (decisions) return `${leading}${decisions[1]} entschieden${trailing}`
+    const submitted = phrase.match(/^(\d+) submitted · (\d+) rejected$/)
+    if (submitted) return `${leading}${submitted[1]} eingereicht · ${submitted[2]} abgelehnt${trailing}`
+    const pageShare = phrase.match(/^(\d+) of (\d+) pages$/)
+    if (pageShare) return `${leading}${pageShare[1]} von ${pageShare[2]} Seiten${trailing}`
+    const openNow = phrase.match(/^(\d+) open now$/)
+    if (openNow) return `${leading}${openNow[1]} derzeit offen${trailing}`
+    const lastHours = phrase.match(/^In the last (\d+) hours\.$/)
+    if (lastHours) return `${leading}In den letzten ${lastHours[1]} Stunden.${trailing}`
+    const lastDays = phrase.match(/^In the last (\d+) days\.$/)
+    if (lastDays) return `${leading}In den letzten ${lastDays[1]} Tagen.${trailing}`
+    if (phrase === 'none open') return `${leading}keine offen${trailing}`
+    if (phrase === '— each') return `${leading}— je Auftrag${trailing}`
   }
   const template = locale === 'de' ? (DE_PHRASES[phrase as keyof typeof DE_PHRASES] ?? phrase) : phrase
   return `${leading}${interpolate(template, values)}${trailing}`

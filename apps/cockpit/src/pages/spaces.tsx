@@ -6,6 +6,7 @@ import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
+import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -365,24 +366,29 @@ function ExportMenu({ slug }: { slug: string }) {
  */
 function ExchangeNote() {
   return (
-    <section className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4" data-testid="spaces-exchange">
-      <h2 className="text-sm font-semibold tracking-tight">Taking a wiki elsewhere</h2>
-      <p className="text-muted-foreground text-sm">
-        <strong className="text-foreground font-medium">Markdown tree</strong> is a zip of ordinary files — one per
-        page, decision and source, plus an index. It is what to hand somebody who just wants to read the knowledge, and
-        it is lossy: claims, citations and relations are prose in it, not structure.
-      </p>
-      <p className="text-muted-foreground text-sm">
-        <strong className="text-foreground font-medium">Open Knowledge Format</strong> is the interchange bundle. It
-        carries the structure as well as the text, so a wiki exported from one WikiKit and imported into another arrives
-        with its claims still quoting their sources.
-      </p>
-      <p className="text-muted-foreground text-sm">
-        Importing a bundle is not done from this console. Sources in an imported bundle are archived directly — evidence
-        asserts nothing — but its pages and claims are staged as a single change for review, exactly like knowledge
-        WikiKit synthesized itself. Use the API or the CLI, then review the change it raises.
-      </p>
-    </section>
+    <I18nText>
+      <section
+        className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
+        data-testid="spaces-exchange"
+      >
+        <h2 className="text-sm font-semibold tracking-tight">Taking a wiki elsewhere</h2>
+        <p className="text-muted-foreground text-sm">
+          <strong className="text-foreground font-medium">Markdown tree</strong> is a zip of ordinary files — one per
+          page, decision and source, plus an index. It is what to hand somebody who just wants to read the knowledge,
+          and it is lossy: claims, citations and relations are prose in it, not structure.
+        </p>
+        <p className="text-muted-foreground text-sm">
+          <strong className="text-foreground font-medium">Open Knowledge Format</strong> is the interchange bundle. It
+          carries the structure as well as the text, so a wiki exported from one WikiKit and imported into another
+          arrives with its claims still quoting their sources.
+        </p>
+        <p className="text-muted-foreground text-sm">
+          Importing a bundle is not done from this console. Sources in an imported bundle are archived directly —
+          evidence asserts nothing — but its pages and claims are staged as a single change for review, exactly like
+          knowledge WikiKit synthesized itself. Use the API or the CLI, then review the change it raises.
+        </p>
+      </section>
+    </I18nText>
   )
 }
 

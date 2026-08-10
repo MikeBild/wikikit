@@ -7,6 +7,7 @@ import { Page } from '@/app/shell'
 import { DataState } from '@/components/data-state'
 import { CopyButton } from '@/components/copy-button'
 import { EmptyState } from '@/components/empty-state'
+import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -714,11 +715,12 @@ function Models({ by }: { by: Record<string, number> }) {
 
 /** The window the numbers above describe, in the reader's words. */
 function StatsWindow({ from, to, testId }: { from: string; to: string; testId: string }) {
+  const { text } = useI18n()
   const when = windowLabel(from, to)
   if (!when) return null
   return (
     <p className="text-muted-foreground text-xs" data-testid={testId}>
-      In {when}.
+      {text(`In ${when}.`)}
     </p>
   )
 }
@@ -726,11 +728,13 @@ function StatsWindow({ from, to, testId }: { from: string; to: string; testId: s
 /** One number inside a card, where a second card would nest (CUI-LADDER-2). */
 function Fact({ testId, label, value, hint }: { testId: string; label: string; value: string; hint?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
-      <dt className="text-muted-foreground text-xs">{label}</dt>
-      <dd className="text-base font-medium tabular-nums">{value}</dd>
-      {hint ? <dd className="text-muted-foreground truncate text-xs">{hint}</dd> : null}
-    </div>
+    <I18nText>
+      <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
+        <dt className="text-muted-foreground text-xs">{label}</dt>
+        <dd className="text-base font-medium tabular-nums">{value}</dd>
+        {hint ? <dd className="text-muted-foreground truncate text-xs">{hint}</dd> : null}
+      </div>
+    </I18nText>
   )
 }
 

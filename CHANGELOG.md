@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.3 - 2026-08-10
+
+### Fixed
+
+- **German localisation now reaches every Cockpit component boundary.** Shared
+  buttons, badges, cards and page-specific overview panels translate their
+  rendered labels, explanatory copy, counters and time windows while keeping
+  titles and other user-authored content verbatim.
+- **Production browser verification now audits localisation on every route.**
+  The read-only Cockpit check rejects visible English UI phrases in German mode
+  alongside its document-overflow, table-containment and cell-clipping checks.
+
 ## 0.33.2 - 2026-08-10
 
 ### Fixed

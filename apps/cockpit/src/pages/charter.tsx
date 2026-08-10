@@ -9,6 +9,7 @@ import { Confirm } from '@/components/confirm'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
+import { I18nText } from '@/components/i18n-text'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
@@ -461,22 +462,27 @@ function OverviewPanel({ overview }: { overview: { concepts: number; decisions: 
     { id: 'sources', label: 'Sources', value: overview.sources },
   ]
   return (
-    <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4" data-testid="charter-overview">
-      <div className="flex flex-wrap gap-6">
-        {stats.map((stat) => (
-          <div key={stat.id} className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground text-xs">{stat.label}</span>
-            <span className="text-lg font-semibold tabular-nums" data-testid={`charter-overview-${stat.id}`}>
-              {stat.value}
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="text-muted-foreground text-xs">
-        Derived from current knowledge and appended to the charter automatically, together with an index of every page
-        in this wiki. It is not part of the text above and cannot be edited here.
-      </p>
-    </section>
+    <I18nText>
+      <section
+        className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+        data-testid="charter-overview"
+      >
+        <div className="flex flex-wrap gap-6">
+          {stats.map((stat) => (
+            <div key={stat.id} className="flex flex-col gap-0.5">
+              <span className="text-muted-foreground text-xs">{stat.label}</span>
+              <span className="text-lg font-semibold tabular-nums" data-testid={`charter-overview-${stat.id}`}>
+                {stat.value}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Derived from current knowledge and appended to the charter automatically, together with an index of every page
+          in this wiki. It is not part of the text above and cannot be edited here.
+        </p>
+      </section>
+    </I18nText>
   )
 }
 

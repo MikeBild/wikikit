@@ -2,6 +2,7 @@ import { Slot } from 'radix-ui'
 import { cva, type VariantProps } from 'class-variance-authority'
 import type { ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
+import { I18nText } from '@/components/i18n-text'
 
 /**
  * The registry badge's geometry, with WikiKit's meanings.
@@ -56,7 +57,11 @@ const badgeVariants = cva(
 
 export type BadgeProps = ComponentProps<'span'> & VariantProps<typeof badgeVariants> & { asChild?: boolean }
 
-export function Badge({ className, tone = 'neutral', asChild = false, ...props }: BadgeProps) {
+export function Badge({ className, tone = 'neutral', asChild = false, children, ...props }: BadgeProps) {
   const Component = asChild ? Slot.Root : 'span'
-  return <Component data-slot="badge" data-tone={tone} className={cn(badgeVariants({ tone }), className)} {...props} />
+  return (
+    <Component data-slot="badge" data-tone={tone} className={cn(badgeVariants({ tone }), className)} {...props}>
+      {asChild ? children : <I18nText>{children}</I18nText>}
+    </Component>
+  )
 }

@@ -241,7 +241,7 @@ export function DataTable<Row>({
                     }
                   >
                     {column.headerHidden ? (
-                      <span className="sr-only">{column.label}</span>
+                      <span className="sr-only">{text(column.label)}</span>
                     ) : isOfferable(reach) ? (
                       <button
                         type="button"
