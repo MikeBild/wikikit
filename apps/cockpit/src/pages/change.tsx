@@ -19,6 +19,7 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import type { DomainState } from '@/lib/tokens'
 import { toast, toastFailure } from '@/lib/toast'
+import { semanticLabel } from '@/lib/presentation'
 import {
   annotateClaims,
   approvalEffect,
@@ -415,7 +416,7 @@ function ChangeBody({
                     data-testid={`change-source-link-${source.id}`}
                     className="font-medium underline-offset-4 hover:underline"
                   >
-                    {source.title ?? source.id}
+                    {semanticLabel([source.title], 'Archived source')}
                   </Link>
                   <span className="text-xs break-words text-muted-foreground">
                     {source.kind}
@@ -627,9 +628,9 @@ function ReviewAddress({ id }: { id: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-muted-foreground">Public review address</span>
-      <code data-testid="change-review-url" className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-all">
-        {absolute}
-      </code>
+      <span data-testid="change-review-url" className="text-xs">
+        Ready to copy
+      </span>
       <CopyButton value={absolute} label="Copy address" data-testid="change-review-url-copy" />
     </div>
   )

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Plus, Radio, Send } from 'lucide-react'
+import { Plus, Radio, Send } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { ApiError } from '@/api/client'
 import type { components } from '@/api/schema'
@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import {
   Dialog,
@@ -24,6 +25,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { Spinner } from '@/components/ui/spinner'
 import { useNow } from '@/hooks/use-now'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
@@ -678,21 +680,22 @@ function RegisterEndpoint({
                   {EVENT_TYPES.map((event) => {
                     const chosen = events.includes(event.id)
                     return (
-                      <button
+                      <label
                         key={event.id}
-                        type="button"
-                        aria-pressed={chosen}
-                        data-testid={`endpoint-event-${event.id}`}
-                        onClick={() =>
-                          setEvents(chosen ? events.filter((entry) => entry !== event.id) : [...events, event.id])
-                        }
-                        className={`flex flex-col items-start gap-0.5 rounded-lg border p-2 text-left ${
-                          chosen ? 'border-accent bg-accent/10' : 'border-border hover:bg-muted'
-                        }`}
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted has-data-checked:border-accent has-data-checked:bg-accent/10"
                       >
-                        <span className="text-sm">{event.label}</span>
-                        <span className="text-muted-foreground font-mono text-[11px]">{event.id}</span>
-                      </button>
+                        <Checkbox
+                          checked={chosen}
+                          data-testid={`endpoint-event-${event.id}`}
+                          onCheckedChange={() =>
+                            setEvents(chosen ? events.filter((entry) => entry !== event.id) : [...events, event.id])
+                          }
+                        />
+                        <span className="flex flex-col gap-0.5 text-left">
+                          <span className="text-sm">{event.label}</span>
+                          <span className="text-muted-foreground font-mono text-[11px]">{event.id}</span>
+                        </span>
+                      </label>
                     )
                   })}
                 </div>
@@ -745,7 +748,7 @@ function RegisterEndpoint({
                   aria-busy={register.isPending}
                   onClick={() => register.mutate()}
                 >
-                  {register.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+                  {register.isPending ? <Spinner data-icon="inline-start" /> : null}
                   Register endpoint
                 </Button>
               </DisabledReason>

@@ -3,6 +3,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { SessionGate } from '@/components/session-gate'
+import { I18nProvider } from '@/components/i18n-provider'
 import { ToastProvider } from '@/components/ui/toast'
 import { createQueryClient } from '@/lib/query'
 import { router } from '@/router'
@@ -17,15 +18,17 @@ if (!root) throw new Error('#root is missing from index.html')
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={createQueryClient()}>
-      {/* Outside the gate on purpose: a toast raised while signing out, or
-          while the session is still resolving, still has a viewport to land
-          in. The viewport portals to document.body, so where it is mounted
-          decides nothing about where it appears. */}
-      <ToastProvider>
-        <SessionGate>
-          <RouterProvider router={router} />
-        </SessionGate>
-      </ToastProvider>
+      <I18nProvider>
+        {/* Outside the gate on purpose: a toast raised while signing out, or
+            while the session is still resolving, still has a viewport to land
+            in. The viewport portals to document.body, so where it is mounted
+            decides nothing about where it appears. */}
+        <ToastProvider>
+          <SessionGate>
+            <RouterProvider router={router} />
+          </SessionGate>
+        </ToastProvider>
+      </I18nProvider>
     </QueryClientProvider>
   </StrictMode>,
 )

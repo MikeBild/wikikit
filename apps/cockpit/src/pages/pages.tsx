@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { RelativeTime } from '@/components/ui/relative-time'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNow } from '@/hooks/use-now'
 import { useTableView } from '@/hooks/use-table-view'
@@ -300,11 +300,13 @@ export function PagesPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {WINDOWS.map((window) => (
-                  <SelectItem key={window} value={window} data-testid={`pages-filter-changed-${window}`}>
-                    {CHANGE_WINDOW_LABEL[window] ?? window}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {WINDOWS.map((window) => (
+                    <SelectItem key={window} value={window} data-testid={`pages-filter-changed-${window}`}>
+                      {CHANGE_WINDOW_LABEL[window] ?? window}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             {filtered ? (
@@ -380,7 +382,7 @@ export function PagesPage() {
                 </Confirm>
               ) : (
                 <DisabledReason reason="Needs knowledge:propose — restoration is a review-gated change.">
-                  <Button variant="outline" disabled>
+                  <Button variant="outline" disabled data-testid={`deleted-page-restore-disabled-${item.slug}`}>
                     Restore
                   </Button>
                 </DisabledReason>

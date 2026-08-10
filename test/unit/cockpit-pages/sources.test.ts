@@ -167,12 +167,13 @@ describe('reading a source', () => {
     expect(defaultSourceView('import')).toBe('verbatim')
   })
 
-  test('a source with no title is named by something a human can act on', () => {
+  test('a source with no title uses a human label rather than an opaque identifier', () => {
     // Never a bare uuid where a url exists: the url is what somebody
     // recognises and can open.
     expect(sourceLabel({ title: 'Handbook', url: 'https://example.test/h', id: 'abc' })).toBe('Handbook')
     expect(sourceLabel({ title: null, url: 'https://example.test/h', id: 'abc' })).toContain('example.test')
-    expect(sourceLabel({ title: null, url: null, id: 'abc' })).toContain('abc')
+    const uuid = '1db97378-8f24-4f95-a5ae-fd5e66535f15'
+    expect(sourceLabel({ title: null, url: null, id: uuid })).toBe('Untitled source')
   })
 })
 

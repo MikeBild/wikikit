@@ -1,6 +1,17 @@
 import { Link, Outlet, useMatches } from '@tanstack/react-router'
 import { useMutation } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronsUpDown, LogOut, Monitor, Moon, Sun } from 'lucide-react'
+import {
+  Check,
+  ChevronDown,
+  ChevronsUpDown,
+  Languages,
+  LogOut,
+  Monitor,
+  Moon,
+  Palette,
+  Sun,
+  UserRound,
+} from 'lucide-react'
 import { Fragment, useState, type ComponentType, type ReactNode } from 'react'
 import { entryFor, GROUPS, NAV, type NavEntry, type NavGroup } from '@/app/nav'
 import { endSession } from '@/api/client'
@@ -9,6 +20,9 @@ import { useCan, useSession } from '@/lib/session'
 import { useSpaceContext } from '@/lib/space'
 import { toastFailure } from '@/lib/toast'
 import { useTheme, type Theme } from '@/lib/theme'
+import { useI18n, type LocalePreference } from '@/lib/i18n-context'
+import type { TranslationKey } from '@/lib/i18n'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
   Breadcrumb,
@@ -22,11 +36,18 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Sidebar,
   SidebarContent,
@@ -43,12 +64,12 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from '@/components/ui/sidebar'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { useSidebar } from '@/hooks/use-sidebar'
 
 export function Shell() {
-  const session = useSession()
   const can = useCan()
+  const { t } = useI18n()
 
   const signOut = useMutation({
     mutationFn: () => endSession(),
@@ -58,7 +79,7 @@ export function Shell() {
     onSuccess: () => window.location.reload(),
     // A session that will not end is a security-relevant fact, so it is said
     // out loud rather than left as a button that quietly does nothing.
-    onError: (error) => toastFailure('Could not sign out', error),
+    onError: (error) => toastFailure(t('account.signOutFailed'), error),
   })
 
   const visible = NAV.filter((entry) => entry.scope === null || can(entry.scope))
@@ -84,7 +105,7 @@ export function Shell() {
           </SidebarHeader>
 
           <SidebarContent>
-            <nav aria-label="Cockpit">
+            <nav aria-label={t('nav.label')}>
               {GROUPS.map((group) => {
                 const items = visible.filter((entry) => entry.group === group.id)
                 if (items.length === 0) return null
@@ -96,45 +117,9 @@ export function Shell() {
           <SidebarFooter>
             <SidebarMenu>
               <SidebarMenuItem>
-                <ThemeMenu />
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton data-testid="sign-out" tooltip="Sign out" onClick={() => signOut.mutate()}>
-                  <LogOut data-icon="inline-start" />
-                  <span>Sign out</span>
-                </SidebarMenuButton>
+                <AccountMenu signingOut={signOut.isPending} onSignOut={() => signOut.mutate()} />
               </SidebarMenuItem>
             </SidebarMenu>
-            <div className="flex flex-col gap-0.5 px-2 pb-1 group-data-[collapsible=icon]:hidden">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    tabIndex={0}
-                    data-testid="operator-name"
-                    className="text-muted-foreground truncate text-left text-xs"
-                  >
-                    {session.name}
-                  </div>
-                </TooltipTrigger>
-                {/*
-                  Reachable by focus and by tap rather than only by hover: on a
-                  phone there is no hover, and this names how the operator
-                  signed in — which is what a support request is keyed by.
-                */}
-                <TooltipContent data-testid="operator-provider">
-                  {session.provider_id ? `Signed in with ${session.provider_id}` : 'Signed in with an API key'}
-                </TooltipContent>
-              </Tooltip>
-              {/*
-                WikiKit stores no role, so no role is printed: the line names
-                the shape of the scopes the session actually holds. Printing
-                "ADMIN" as though it were stored would be the console lying
-                about the authorization model.
-              */}
-              <div data-testid="operator-scopes" className="text-muted-foreground truncate text-xs uppercase">
-                {scopesLabel(session.scopes)}
-              </div>
-            </div>
           </SidebarFooter>
           <SidebarRail />
         </Sidebar>
@@ -175,6 +160,7 @@ export function Shell() {
  */
 function SpaceSwitcher() {
   const { space, available, setSpace, locked } = useSpaceContext()
+  const { t } = useI18n()
   if (locked || available.length < 2) {
     return space ? (
       <div
@@ -190,18 +176,20 @@ function SpaceSwitcher() {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton data-testid="space-switcher" tooltip={space ?? 'Wiki'}>
-              <span className="truncate">{space ?? 'Choose a wiki'}</span>
+            <SidebarMenuButton data-testid="space-switcher" tooltip={space ?? t('space.fallback')}>
+              <span className="truncate">{space ?? t('space.choose')}</span>
               <ChevronsUpDown data-icon="inline-end" className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="min-w-48">
-            {available.map((slug) => (
-              <DropdownMenuItem key={slug} data-testid={`space-${slug}`} onSelect={() => setSpace(slug)}>
-                {slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
-                <span className="truncate">{slug}</span>
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuGroup>
+              {available.map((slug) => (
+                <DropdownMenuItem key={slug} data-testid={`space-${slug}`} onSelect={() => setSpace(slug)}>
+                  {slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
+                  <span className="truncate">{slug}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
@@ -211,6 +199,7 @@ function SpaceSwitcher() {
 
 function NavBlock({ group, items, open }: { group: NavGroup; items: readonly NavEntry[]; open: NavEntry | undefined }) {
   const { state } = useSidebar()
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState(group.startsOpen)
   const holdsOpenPage = items.some((item) => item.to === open?.to)
 
@@ -224,16 +213,20 @@ function NavBlock({ group, items, open }: { group: NavGroup; items: readonly Nav
   const menu = (
     <SidebarGroupContent>
       <SidebarMenu>
-        {items.map(({ to, label, icon: Icon }) => (
-          <SidebarMenuItem key={to}>
-            <SidebarMenuButton asChild isActive={open?.to === to} tooltip={label}>
-              <Link to={to} data-testid={`nav-${to === '/' ? 'home' : to.slice(1)}`}>
-                <Icon data-icon="inline-start" />
-                <span>{label}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        ))}
+        {items.map((entry) => {
+          const { to, icon: Icon } = entry
+          const label = t(navKey(entry))
+          return (
+            <SidebarMenuItem key={to}>
+              <SidebarMenuButton asChild isActive={open?.to === to} tooltip={label}>
+                <Link to={to} data-testid={`nav-${to === '/' ? 'home' : to.slice(1)}`}>
+                  <Icon data-icon="inline-start" />
+                  <span>{label}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )
+        })}
       </SidebarMenu>
     </SidebarGroupContent>
   )
@@ -253,7 +246,7 @@ function NavBlock({ group, items, open }: { group: NavGroup; items: readonly Nav
       >
         <SidebarGroupLabel asChild>
           <CollapsibleTrigger data-testid={`nav-group-${group.id}-toggle`}>
-            {group.label}
+            {t(groupKey(group.id))}
             <ChevronDown
               data-icon="inline-end"
               className="ml-auto transition-transform group-data-[state=closed]/collapsible:-rotate-90"
@@ -266,43 +259,163 @@ function NavBlock({ group, items, open }: { group: NavGroup; items: readonly Nav
   )
 }
 
-const THEMES: { value: Theme; label: string; icon: ComponentType<{ className?: string }> }[] = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'Match system', icon: Monitor },
+const THEMES: { value: Theme; label: TranslationKey; icon: ComponentType<{ className?: string }> }[] = [
+  { value: 'system', label: 'account.theme.system', icon: Monitor },
+  { value: 'light', label: 'account.theme.light', icon: Sun },
+  { value: 'dark', label: 'account.theme.dark', icon: Moon },
 ]
 
-/**
- * Three choices, in a menu rather than a segmented group.
- *
- * `system` is a real state here — it is the absence of `wk-cockpit-theme`, and
- * it is unit-tested as such (CUI-THEME-2) — so a two-way toggle would quietly
- * destroy it the first time somebody clicked. Three segments do not fit a 3rem
- * rail; a dropdown does, and keeps all three.
- */
-function ThemeMenu() {
-  const { theme, resolved, setTheme } = useTheme()
-  const Icon = resolved === 'dark' ? Moon : Sun
+const LANGUAGES: { value: LocalePreference; label: TranslationKey }[] = [
+  { value: 'auto', label: 'account.language.auto' },
+  { value: 'en', label: 'account.language.en' },
+  { value: 'de', label: 'account.language.de' },
+]
+
+function initials(value: string): string {
+  return (
+    value
+      .split(/[@\s._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'WK'
+  )
+}
+
+function AccountMenu({ signingOut, onSignOut }: { signingOut: boolean; onSignOut: () => void }) {
+  const session = useSession()
+  const { t, preference, setPreference } = useI18n()
+  const { theme, setTheme } = useTheme()
+  const signInType = session.kind === 'api_key' ? t('account.apiKey') : t('account.identity')
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <SidebarMenuButton data-testid="theme-toggle" tooltip="Theme">
-          <Icon data-icon="inline-start" />
-          <span>Theme</span>
+        <SidebarMenuButton size="lg" data-testid="account-menu-trigger" tooltip={t('account.menu')}>
+          <Avatar>
+            <AvatarFallback>{initials(session.name)}</AvatarFallback>
+          </Avatar>
+          <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-medium" data-testid="operator-name">
+              {session.name}
+            </span>
+            <span className="truncate text-xs text-muted-foreground" data-testid="operator-scopes">
+              {scopesLabel(session.scopes)}
+            </span>
+          </span>
+          <ChevronsUpDown className="ml-auto" />
         </SidebarMenuButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="end">
-        <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as Theme)}>
-          {THEMES.map(({ value, label, icon: ItemIcon }) => (
-            <DropdownMenuRadioItem key={value} value={value} data-testid={`theme-${value}`}>
-              <ItemIcon data-icon="inline-start" />
-              {label}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+      <DropdownMenuContent side="right" align="end" className="w-64" data-testid="account-menu">
+        <DropdownMenuLabel data-testid="account-profile-summary">
+          <span className="block truncate text-sm font-medium text-foreground">{session.name}</span>
+          <span className="block truncate font-normal">{signInType}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-testid="account-profile-menu">
+              <UserRound />
+              {t('account.profile')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-72" data-testid="account-profile-content">
+              <DropdownMenuLabel className="flex flex-col gap-2">
+                <span className="truncate text-sm font-medium text-foreground">{session.name}</span>
+                <span className="font-normal">
+                  {t('account.signInType')}: {signInType}
+                </span>
+                <span className="font-normal">{t('account.permissions')}</span>
+                <ScopeBadges scopes={session.scopes} />
+              </DropdownMenuLabel>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-testid="account-language-menu">
+              <Languages />
+              {t('account.language')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent data-testid="account-language-content">
+              <DropdownMenuRadioGroup
+                value={preference}
+                onValueChange={(value) => setPreference(value as LocalePreference)}
+              >
+                {LANGUAGES.map(({ value, label }) => (
+                  <DropdownMenuRadioItem key={value} value={value} data-testid={`account-language-${value}`}>
+                    {t(label)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-testid="account-theme-menu">
+              <Palette />
+              {t('account.theme')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent data-testid="account-theme-content">
+              <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as Theme)}>
+                {THEMES.map(({ value, label, icon: ItemIcon }) => (
+                  <DropdownMenuRadioItem key={value} value={value} data-testid={`account-theme-${value}`}>
+                    <ItemIcon />
+                    {t(label)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={signingOut}
+            data-testid="account-sign-out"
+            onSelect={onSignOut}
+          >
+            {signingOut ? <Spinner data-icon="inline-start" /> : <LogOut data-icon="inline-start" />}
+            {t(signingOut ? 'account.signingOut' : 'account.signOut')}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
+}
+
+const NAV_KEYS: Record<string, TranslationKey> = {
+  '/': 'nav.home',
+  '/pages': 'nav.pages',
+  '/changes': 'nav.changes',
+  '/sources': 'nav.sources',
+  '/decisions': 'nav.decisions',
+  '/search': 'nav.search',
+  '/charter': 'nav.charter',
+  '/spaces': 'nav.spaces',
+  '/api-keys': 'nav.apiKeys',
+  '/identities': 'nav.identities',
+  '/webhooks': 'nav.webhooks',
+  '/system': 'nav.system',
+}
+
+function navKey(entry: NavEntry): TranslationKey {
+  return NAV_KEYS[entry.to] ?? 'nav.home'
+}
+
+function groupKey(id: string): TranslationKey {
+  return `nav.group.${id}` as TranslationKey
+}
+
+const PAGE_KEYS: Record<string, { title: TranslationKey; description: TranslationKey }> = {
+  Home: { title: 'nav.home', description: 'page.home.description' },
+  Pages: { title: 'nav.pages', description: 'page.pages.description' },
+  Changes: { title: 'nav.changes', description: 'page.changes.description' },
+  Sources: { title: 'nav.sources', description: 'page.sources.description' },
+  Decisions: { title: 'nav.decisions', description: 'page.decisions.description' },
+  Search: { title: 'nav.search', description: 'page.search.description' },
+  Charter: { title: 'nav.charter', description: 'page.charter.description' },
+  Wikis: { title: 'nav.spaces', description: 'page.spaces.description' },
+  'API keys': { title: 'nav.apiKeys', description: 'page.apiKeys.description' },
+  People: { title: 'nav.identities', description: 'page.identities.description' },
+  Webhooks: { title: 'nav.webhooks', description: 'page.webhooks.description' },
+  System: { title: 'nav.system', description: 'page.system.description' },
 }
 
 /**
@@ -323,9 +436,13 @@ export function Page({
   actions?: ReactNode
   children: ReactNode
 }) {
-  const crumbs = useCrumbs(title)
+  const { t } = useI18n()
+  const page = PAGE_KEYS[title]
+  const localizedTitle = page ? t(page.title) : title
+  const localizedDescription = page ? t(page.description) : description
+  const crumbs = useCrumbs(localizedTitle)
   return (
-    <div data-testid="page" data-page={title} className="mx-auto max-w-7xl p-6">
+    <div data-testid="page" data-page={title} className="mx-auto max-w-7xl p-4 sm:p-6">
       {/*
         The actions drop below the title on a phone. Beside it they are
         `shrink-0`, which is right at 1280 and wrong at 390, where a 100px
@@ -359,7 +476,9 @@ export function Page({
                         <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
                       ) : crumb.to ? (
                         <BreadcrumbLink asChild>
-                          <Link to={crumb.to}>{crumb.label}</Link>
+                          <Link to={crumb.to} data-testid={`breadcrumb-link-${index}`}>
+                            {crumb.label}
+                          </Link>
                         </BreadcrumbLink>
                       ) : (
                         <span>{crumb.label}</span>
@@ -371,9 +490,9 @@ export function Page({
             </Breadcrumb>
           )}
           <h1 data-testid="page-title" className="text-lg font-semibold tracking-tight">
-            {title}
+            {localizedTitle}
           </h1>
-          {description ? <p className="text-muted-foreground text-sm">{description}</p> : null}
+          {localizedDescription ? <p className="text-muted-foreground text-sm">{localizedDescription}</p> : null}
         </div>
         {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
       </header>
@@ -384,12 +503,13 @@ export function Page({
 
 /** `Wiki · Changes · <title>`, with the section linked where it is not the page itself. */
 function useCrumbs(title: string): { label: string; to?: string }[] {
+  const { t } = useI18n()
   const entry = entryFor(useMatches().at(-1)?.pathname ?? '/')
   const group = GROUPS.find((candidate) => candidate.id === entry?.group)
   const trail: { label: string; to?: string }[] = []
-  if (group?.label) trail.push({ label: group.label })
+  if (group?.label) trail.push({ label: t(groupKey(group.id)) })
   // A detail route sits under its section: "Wiki · Changes · <title>".
-  if (entry && entry.label !== title) trail.push({ label: entry.label, to: entry.to })
+  if (entry && entry.label !== title) trail.push({ label: t(navKey(entry)), to: entry.to })
   trail.push({ label: title })
   return trail
 }

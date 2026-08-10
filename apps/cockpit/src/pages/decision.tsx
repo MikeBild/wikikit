@@ -10,6 +10,7 @@ import { RelativeTime } from '@/components/ui/relative-time'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
+import { presentValue } from '@/lib/presentation'
 
 /**
  * One decision, read as a document.
@@ -232,7 +233,9 @@ function Alternatives({ entries }: { entries: readonly unknown[] }) {
                   <Markdown remarkPlugins={[remarkGfm]}>{entry}</Markdown>
                 </div>
               ) : (
-                <pre className="scrollbar-thin overflow-x-auto font-mono text-xs">{JSON.stringify(entry, null, 2)}</pre>
+                <pre className="scrollbar-thin overflow-x-auto font-mono text-xs">
+                  {JSON.stringify(presentValue(entry), null, 2)}
+                </pre>
               )}
             </li>
           ))}
@@ -252,7 +255,7 @@ function Alternatives({ entries }: { entries: readonly unknown[] }) {
  * check, and omitted entirely when there is none.
  */
 function Provenance({ meta }: { meta: Record<string, unknown> }) {
-  const entries = Object.entries(meta)
+  const entries = Object.entries(presentValue(meta) as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
     <section className="flex flex-col gap-2" aria-labelledby="decision-provenance-heading">
@@ -314,5 +317,5 @@ function scalar(value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'string') return value || '—'
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return JSON.stringify(value)
+  return JSON.stringify(presentValue(value))
 }

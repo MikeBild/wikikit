@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
+import { KeyRound, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import {
   Dialog,
@@ -24,7 +25,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
 import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
@@ -161,12 +164,6 @@ export function ApiKeysPage() {
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="font-medium">{row.name}</span>
-            {/* The id, because it is what a support request and a server log
-                name — the key itself appears nowhere, here or in any answer
-                this endpoint gives. */}
-            <code className="text-muted-foreground font-mono text-[11px]" data-testid={`api-key-id-${row.id}`}>
-              {row.id}
-            </code>
           </div>
         ),
       },
@@ -542,49 +539,48 @@ function MintKey({
                 onChange={setMode}
               />
               {mode === 'role' ? (
-                <div className="flex flex-col gap-2" role="radiogroup" aria-label="Role preset">
+                <RadioGroup
+                  value={role}
+                  onValueChange={(value) => setRole(value as RolePreset)}
+                  aria-label="Role preset"
+                >
                   {ROLE_PRESETS.map((preset) => (
-                    <button
+                    <label
                       key={preset.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={role === preset.id}
-                      data-testid={`key-role-${preset.id}`}
-                      onClick={() => setRole(preset.id)}
-                      className={`flex flex-col items-start gap-0.5 rounded-lg border p-2 text-left ${
-                        role === preset.id ? 'border-accent bg-accent/10' : 'border-border hover:bg-muted'
-                      }`}
+                      className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted has-data-checked:border-accent has-data-checked:bg-accent/10"
                     >
-                      <span className="text-sm font-medium">{preset.label}</span>
-                      <span className="text-muted-foreground font-mono text-[11px]">{preset.scopes}</span>
-                    </button>
+                      <RadioGroupItem value={preset.id} data-testid={`key-role-${preset.id}`} />
+                      <span className="flex flex-col gap-0.5 text-left">
+                        <span className="text-sm font-medium">{preset.label}</span>
+                        <span className="text-muted-foreground font-mono text-[11px]">{preset.scopes}</span>
+                      </span>
+                    </label>
                   ))}
                   <p className="text-muted-foreground text-xs">
                     There is no preset that can approve a change. Approving publishes knowledge, so
                     <code className="mx-1 font-mono">knowledge:approve</code>
                     has to be chosen scope by scope, on purpose.
                   </p>
-                </div>
+                </RadioGroup>
               ) : (
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap gap-1.5" role="group" aria-label="Scopes">
                     {MINTABLE_SCOPES.map((scope) => {
                       const chosen = scopes.includes(scope)
                       return (
-                        <button
+                        <label
                           key={scope}
-                          type="button"
-                          aria-pressed={chosen}
-                          data-testid={`key-scope-${scope}`}
-                          onClick={() =>
-                            setScopes(chosen ? scopes.filter((entry) => entry !== scope) : [...scopes, scope])
-                          }
-                          className={`rounded-4xl border px-2 py-0.5 font-mono text-[11px] ${
-                            chosen ? 'border-accent bg-accent/15 text-accent' : 'border-border text-muted-foreground'
-                          }`}
+                          className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-2 py-1.5 font-mono text-[11px] text-muted-foreground has-data-checked:border-accent has-data-checked:bg-accent/10 has-data-checked:text-foreground"
                         >
-                          {scope}
-                        </button>
+                          <Checkbox
+                            checked={chosen}
+                            data-testid={`key-scope-${scope}`}
+                            onCheckedChange={() =>
+                              setScopes(chosen ? scopes.filter((entry) => entry !== scope) : [...scopes, scope])
+                            }
+                          />
+                          <span>{scope}</span>
+                        </label>
                       )
                     })}
                   </div>
@@ -655,7 +651,7 @@ function MintKey({
                   aria-busy={mint.isPending}
                   onClick={() => mint.mutate()}
                 >
-                  {mint.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+                  {mint.isPending ? <Spinner data-icon="inline-start" /> : null}
                   Mint key
                 </Button>
               </DisabledReason>

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { RelativeTime } from '@/components/ui/relative-time'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
@@ -160,9 +160,9 @@ export function ChangesPage() {
               params={{ id: row.parent_proposal_id }}
               search={{ space }}
               data-testid={`change-parent-${row.id}`}
-              className="font-mono text-xs underline-offset-4 hover:underline"
+              className="text-xs underline-offset-4 hover:underline"
             >
-              {row.parent_proposal_id.slice(0, 8)}
+              Parent change
             </Link>
           ) : (
             <Dash />
@@ -219,11 +219,13 @@ export function ChangesPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {STATUS_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value} data-testid={`changes-status-${option.value}`}>
-                    {option.label}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} data-testid={`changes-status-${option.value}`}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             {filtered ? (

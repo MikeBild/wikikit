@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { useSpace } from '@/lib/space'
+import { presentValue } from '@/lib/presentation'
 import { defaultSourceView, sourceLabel, type SourceView } from '@/pages/sources.logic'
 
 /**
@@ -154,20 +155,12 @@ function SourceDocument({ source }: { source: Source }) {
                 <CopyButton value={source.content_hash} size="icon-sm" label="Copy hash" data-testid="copy-hash" />
               </span>
             </Field>
-            <Field label="Source id">
-              <span className="flex flex-wrap items-center gap-2">
-                <code className="font-mono text-xs break-all" data-testid="source-id">
-                  {source.id}
-                </code>
-                <CopyButton value={source.id} size="icon-sm" label="Copy source id" data-testid="copy-id" />
-              </span>
-            </Field>
             {extraMetadata.map(([key, value]) => (
               <Field key={key} label={key}>
                 <span className="text-xs break-all" data-testid={`source-metadata-${key}`}>
                   {typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-                    ? String(value)
-                    : JSON.stringify(value)}
+                    ? String(presentValue(value))
+                    : JSON.stringify(presentValue(value))}
                 </span>
               </Field>
             ))}
@@ -277,7 +270,7 @@ function SourceDocument({ source }: { source: Source }) {
       <p className="text-muted-foreground text-sm" data-testid="citations-note">
         WikiKit does not answer which pages cite this source. To find them, search the wiki for a phrase from the
         document — every claim carries its quote.{' '}
-        <Link to="/search" className="underline underline-offset-4">
+        <Link to="/search" data-testid="source-search-link" className="underline underline-offset-4">
           Search this wiki
         </Link>
         .

@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.0 - 2026-08-10
+
+### Added
+
+- **The Cockpit now has a consistent shadcn-based interaction system.** Account,
+  profile, theme, language and sign-out controls live in one user menu; forms
+  use shared checkbox, radio, toggle and progress primitives; and the System
+  area is organised into Overview, Knowledge and Activity.
+- **English and German Cockpit localisation.** The initial language follows the
+  browser, can be changed manually, persists across sessions and formats dates
+  and numbers with the selected locale.
+- **Stable browser-test selectors.** Cockpit interactions and table structure
+  carry explicit `data-testid` attributes, guarded by an AST regression test.
+
+### Changed
+
+- **Internal UUIDs are no longer presented as user-facing labels.** Routes,
+  API calls and test selectors continue to use stable identifiers internally,
+  while the interface prefers titles, names and semantic fallbacks.
+- Production Cockpit verification uses language-independent `data-testid`
+  selectors for the edit, review and approval loop.
+
 ## 0.32.1 - 2026-08-09
 
 ### Added

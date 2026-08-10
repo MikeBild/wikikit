@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { hasNext, hasPrevious, nextPage, pageNumber, previousPage, type CursorPage } from '@/lib/cursor'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n-context'
 import { Button } from './button'
 
 /**
@@ -52,6 +53,7 @@ export function Pagination({
   className?: string
   'data-testid'?: string
 }) {
+  const { t } = useI18n()
   const back = hasPrevious(page)
   const forward = hasNext(nextCursor)
   if (!back && !forward) return null
@@ -59,12 +61,12 @@ export function Pagination({
   const position =
     total === null
       ? // No total exists, so the page number is the only place-marker there is.
-        `Page ${pageNumber(page)} · ${shown} ${unit}`
-      : `Showing ${start + 1}–${start + shown} of ${total} ${unit}`
+        t('pagination.page', { page: pageNumber(page), shown, unit })
+      : t('pagination.showing', { start: start + 1, end: start + shown, total, unit })
 
   return (
     <nav
-      aria-label="Pagination"
+      aria-label={t('pagination.label')}
       data-testid={testId}
       className={cn(
         'flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2 text-xs',
@@ -76,8 +78,8 @@ export function Pagination({
         {note ? ` · ${note}` : null}
         {/* Worth saying only when no total is on screen: without one, a disabled
             Next is otherwise indistinguishable from a slow one. */}
-        {total === null && !forward ? ' · end of the list' : null}
-        {isLoading ? ' · loading…' : null}
+        {total === null && !forward ? ` · ${t('pagination.end')}` : null}
+        {isLoading ? ` · ${t('pagination.loading')}` : null}
       </span>
       <span className="flex items-center gap-2">
         <Button
@@ -88,7 +90,7 @@ export function Pagination({
           onClick={() => onChange(previousPage(page))}
         >
           <ChevronLeft data-icon="inline-start" />
-          Previous
+          {t('pagination.previous')}
         </Button>
         <Button
           variant="outline"
@@ -100,7 +102,7 @@ export function Pagination({
           disabled={!forward || isLoading}
           onClick={() => onChange(nextPage(page, nextCursor))}
         >
-          Next
+          {t('pagination.next')}
           <ChevronRight data-icon="inline-end" />
         </Button>
       </span>

@@ -8,6 +8,7 @@ import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import {
   Dialog,
@@ -17,11 +18,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useTableView } from '@/hooks/use-table-view'
@@ -318,26 +325,28 @@ function ExportMenu({ slug }: { slug: string }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-w-72">
-        <DropdownMenuItem asChild>
-          <a href={`/v1/spaces/${slug}/export?format=md`} download data-testid={`space-export-${slug}-md`}>
-            <div className="flex flex-col gap-0.5">
-              <span>Markdown tree</span>
-              <span className="text-muted-foreground text-xs">
-                One file per page, decision and source. Readable in any editor.
-              </span>
-            </div>
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a href={`/v1/spaces/${slug}/export?format=okf`} download data-testid={`space-export-${slug}-okf`}>
-            <div className="flex flex-col gap-0.5">
-              <span>Open Knowledge Format</span>
-              <span className="text-muted-foreground text-xs">
-                The interchange bundle: claims, citations and relations survive the round trip.
-              </span>
-            </div>
-          </a>
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem asChild>
+            <a href={`/v1/spaces/${slug}/export?format=md`} download data-testid={`space-export-${slug}-md`}>
+              <div className="flex flex-col gap-0.5">
+                <span>Markdown tree</span>
+                <span className="text-muted-foreground text-xs">
+                  One file per page, decision and source. Readable in any editor.
+                </span>
+              </div>
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <a href={`/v1/spaces/${slug}/export?format=okf`} download data-testid={`space-export-${slug}-okf`}>
+              <div className="flex flex-col gap-0.5">
+                <span>Open Knowledge Format</span>
+                <span className="text-muted-foreground text-xs">
+                  The interchange bundle: claims, citations and relations survive the round trip.
+                </span>
+              </div>
+            </a>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -681,15 +690,17 @@ function SettingsForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {LANGUAGES.map((entry) => (
-                <SelectItem
-                  key={entry.value}
-                  value={entry.value}
-                  data-testid={`space-settings-language-${entry.value}`}
-                >
-                  {entry.label} — {entry.hint}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {LANGUAGES.map((entry) => (
+                  <SelectItem
+                    key={entry.value}
+                    value={entry.value}
+                    data-testid={`space-settings-language-${entry.value}`}
+                  >
+                    {entry.label} — {entry.hint}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
           <p className="text-muted-foreground text-xs">
@@ -713,17 +724,15 @@ function SettingsForm({
                 const missing = !siblings.includes(entry)
                 return (
                   <label key={entry} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       data-testid={`space-settings-import-${entry}`}
                       checked={checked}
                       disabled={save.isPending}
-                      onChange={() =>
+                      onCheckedChange={() =>
                         setImports((previous) =>
                           checked ? previous.filter((slug) => slug !== entry) : [...previous, entry].sort(),
                         )
                       }
-                      className="accent-accent size-4"
                     />
                     <span className="font-mono text-xs">{entry}</span>
                     {missing ? (

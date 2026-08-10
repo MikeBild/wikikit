@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 /**
  * A row of mutually exclusive filter choices — the review queue's
@@ -24,29 +24,23 @@ export function SegmentedControl<T extends string>({
   'data-testid'?: string
 }) {
   return (
-    <div
-      className="inline-flex items-center rounded-md border border-border p-0.5"
-      role="group"
+    <ToggleGroup
+      type="single"
+      value={value}
+      variant="outline"
+      size="sm"
+      spacing={0}
       aria-label={label}
       data-testid={testId}
+      onValueChange={(next) => {
+        if (next) onChange(next as T)
+      }}
     >
       {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => onChange(option.id)}
-          aria-pressed={value === option.id}
-          data-testid={testId ? `${testId}-${option.id}` : undefined}
-          className={cn(
-            'rounded-[6px] px-2 py-1 text-xs transition-colors',
-            value === option.id
-              ? 'bg-secondary text-secondary-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
+        <ToggleGroupItem key={option.id} value={option.id} data-testid={testId ? `${testId}-${option.id}` : undefined}>
           {option.label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   )
 }

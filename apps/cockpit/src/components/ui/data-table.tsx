@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -34,6 +35,7 @@ import {
   type TableView,
 } from '@/lib/table-view'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * The console's lists, on the shared `Table` rather than instead of it.
@@ -140,6 +142,7 @@ export function DataTable<Row>({
   /** Filters and other controls that belong beside the column menu. */
   toolbar?: ReactNode
 }) {
+  const { t } = useI18n()
   const specs = useMemo(() => capabilitiesOf(columns), [columns])
   const shown = useMemo(() => columns.filter((column) => view.visible.includes(column.id)), [columns, view.visible])
   const sort = reconcileSort(specs, paging, view.visible, view.sort)
@@ -162,7 +165,7 @@ export function DataTable<Row>({
   const capped = isCapped(rows.length, cap)
   // The count beside a capped read is a count, not a total, and the caveat is the
   // only thing that keeps "of 200" from reading as "there are 200".
-  const ceiling = capped ? (capNote ?? `only ${cap} ${unit} are loaded — there may be more`) : undefined
+  const ceiling = capped ? (capNote ?? t('table.capped', { count: cap ?? 0, unit })) : undefined
 
   /**
    * Whether there are rows on screen for a note to describe.
@@ -204,7 +207,7 @@ export function DataTable<Row>({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="rounded-lg border border-border bg-card" data-testid={`${testId}-${phase}`}>
         <Table data-testid={`${testId}-table`} aria-busy={phase === 'loading' || undefined}>
           <TableHeader>
             <TableRow>
@@ -217,6 +220,7 @@ export function DataTable<Row>({
                 return (
                   <TableHead
                     key={column.id}
+                    data-testid={`${testId}-header-${column.id}`}
                     scope="col"
                     className={column.className}
                     // Announced only where a control exists. `aria-sort="none"` on
@@ -277,9 +281,17 @@ export function DataTable<Row>({
               <EmptyRow testId={testId} columns={shown.length} message={empty} />
             ) : (
               visibleRows.map((row) => (
-                <TableRow key={rowKey(row)} data-testid={rowTestId?.(row)} {...(rowAttributes?.(row) ?? {})}>
+                <TableRow
+                  key={rowKey(row)}
+                  {...(rowAttributes?.(row) ?? {})}
+                  data-testid={rowTestId?.(row) ?? `${testId}-row-${rowKey(row)}`}
+                >
                   {shown.map((column) => (
-                    <TableCell key={column.id} className={column.className}>
+                    <TableCell
+                      key={column.id}
+                      className={column.className}
+                      data-testid={`${testId}-cell-${rowKey(row)}-${column.id}`}
+                    >
                       {column.cell(row)}
                     </TableCell>
                   ))}
@@ -329,18 +341,10 @@ function OrderNote({
   unit: string
   capped: boolean
 }) {
-  if (reach === 'server') return <>Sorted by {label} — the server orders this list.</>
-  if (capped)
-    return (
-      <>
-        Sorted by {label} across all {count} {unit} loaded — the list may hold more.
-      </>
-    )
-  return (
-    <>
-      Sorted by {label} across all {count} {unit}, not just this page.
-    </>
-  )
+  const { t } = useI18n()
+  if (reach === 'server') return <>{t('table.sorted.server', { label })}</>
+  if (capped) return <>{t('table.sorted.capped', { label, count, unit })}</>
+  return <>{t('table.sorted.all', { label, count, unit })}</>
 }
 
 /** Loading: rows in the shape of the rows that are coming, never a spinner. */
@@ -377,6 +381,7 @@ function FailureRow({
   retrying: boolean
   onRetry?: () => unknown
 }) {
+  const { t } = useI18n()
   const notice = describeFailure({ ...failureOf(error), retrying })
   return (
     <TableRow>
@@ -392,7 +397,7 @@ function FailureRow({
                 data-testid={`${testId}-retry`}
                 onClick={() => void onRetry()}
               >
-                Try again
+                {t('common.tryAgain')}
               </Button>
             ) : null}
           </div>
@@ -404,6 +409,7 @@ function FailureRow({
 
 /** The answer arrived and there is nothing in it — which is often the good news. */
 function EmptyRow({ testId, columns, message }: { testId: string; columns: number; message?: ReactNode }) {
+  const { t } = useI18n()
   return (
     <TableRow>
       <TableCell colSpan={Math.max(1, columns)} className="p-8 whitespace-normal">
@@ -412,7 +418,7 @@ function EmptyRow({ testId, columns, message }: { testId: string; columns: numbe
           className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
         >
           <Inbox className="size-5" />
-          <span>{message ?? 'Nothing here yet.'}</span>
+          <span>{message ?? t('table.empty')}</span>
         </div>
       </TableCell>
     </TableRow>
@@ -440,41 +446,46 @@ function ColumnMenu<Row>({
   view: TableView
   onViewChange: (view: TableView) => void
 }) {
+  const { t } = useI18n()
   const hidden = columns.filter((column) => !view.visible.includes(column.id)).length
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" data-testid={`${testId}-columns`}>
           <Columns3 data-icon="inline-start" />
-          Columns
+          {t('table.columns')}
           {/* The count is the exception, so it is the only thing printed: a menu
               with nothing hidden has nothing to report. */}
-          {hidden ? <span className="text-muted-foreground">{hidden} hidden</span> : null}
+          {hidden ? <span className="text-muted-foreground">{t('table.hidden', { count: hidden })}</span> : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {columns.map((column) => (
-          <DropdownMenuCheckboxItem
-            key={column.id}
-            data-testid={`${testId}-columns-${column.id}`}
-            checked={view.visible.includes(column.id)}
-            disabled={column.required}
-            onSelect={(event) => event.preventDefault()}
-            onCheckedChange={() => onViewChange({ ...view, visible: toggleVisible(specs, view.visible, column.id) })}
-          >
-            <span className={cn(column.required && 'text-muted-foreground')}>{column.label || column.id}</span>
-            {/* Named, not merely greyed: a checkbox that will not move needs a
-                reason on screen, and "this column is what names the row" is it. */}
-            {column.required ? <span className="ml-auto text-xs text-muted-foreground">always</span> : null}
-          </DropdownMenuCheckboxItem>
-        ))}
+        <DropdownMenuGroup>
+          {columns.map((column) => (
+            <DropdownMenuCheckboxItem
+              key={column.id}
+              data-testid={`${testId}-columns-${column.id}`}
+              checked={view.visible.includes(column.id)}
+              disabled={column.required}
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={() => onViewChange({ ...view, visible: toggleVisible(specs, view.visible, column.id) })}
+            >
+              <span className={cn(column.required && 'text-muted-foreground')}>{column.label || column.id}</span>
+              {column.required ? (
+                <span className="ml-auto text-xs text-muted-foreground">{t('table.always')}</span>
+              ) : null}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          data-testid={`${testId}-columns-reset`}
-          onSelect={() => onViewChange({ ...view, visible: defaultVisible(specs) })}
-        >
-          Reset columns
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            data-testid={`${testId}-columns-reset`}
+            onSelect={() => onViewChange({ ...view, visible: defaultVisible(specs) })}
+          >
+            {t('table.reset')}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

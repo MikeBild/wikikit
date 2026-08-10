@@ -1,5 +1,4 @@
 import { useEffect, useId, useReducer, useRef, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
 
 import {
   AlertDialog,
@@ -12,6 +11,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Alert } from '@/components/ui/alert'
+import { Spinner } from '@/components/ui/spinner'
+import { useI18n } from '@/lib/i18n-context'
 import {
   ANNOUNCED_ANCHOR,
   CLOSED,
@@ -165,6 +166,7 @@ export function Confirm({
   ids?: ConfirmIds
   children: (open: () => void) => ReactNode
 }) {
+  const { t } = useI18n()
   const [state, dispatch] = useReducer(reduce, CLOSED)
   const id = (part: keyof typeof DEFAULT_IDS) => ids?.[part] ?? DEFAULT_IDS[part]
 
@@ -450,7 +452,7 @@ export function Confirm({
               {/* A refusal that cannot be retried leaves nothing to cancel — the
                   operator is reading, and the control they are standing on
                   should say what it now does. */}
-              {refusal?.terminal ? 'Close' : 'Cancel'}
+              {t(refusal?.terminal ? 'common.close' : 'common.cancel')}
             </AlertDialogCancel>
             {canConfirm(state) || busy ? (
               <AlertDialogAction
@@ -473,8 +475,8 @@ export function Confirm({
               >
                 {/* A button never rewrites its label while it works: spinner plus
                     `disabled`, and the label stays the promise it made. */}
-                {busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
-                {confirmLabel}
+                {busy ? <Spinner data-icon="inline-start" /> : null}
+                {confirmLabel === 'Confirm' ? t('common.confirm') : confirmLabel}
               </AlertDialogAction>
             ) : null}
           </AlertDialogFooter>

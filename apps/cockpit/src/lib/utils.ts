@@ -17,8 +17,8 @@ export function cn(...inputs: ClassValue[]): string {
  * argument is where `29.07.2026, 21:43:19` came from on a German laptop reading
  * an English interface — a format the rest of the page cannot corroborate.
  */
-export function formatInstant(value: string | null | undefined): string {
+export function formatInstant(value: string | null | undefined, locale: string = CONSOLE_LOCALE): string {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString(CONSOLE_LOCALE)
+  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString(locale)
 }

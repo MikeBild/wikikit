@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { describeFailure } from '@/lib/failure'
 import { isRetrying, readFailure, readPhase } from '@/lib/read-state'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * ┌──────────────────────────────────────────────────────────────────────────┐
@@ -43,6 +44,7 @@ export interface DataStateProps<T> {
 }
 
 export function DataState<T>({ query, skeleton, isEmpty, empty, children }: DataStateProps<T>) {
+  const { t } = useI18n()
   // The phase, not `isPending`. A query that TanStack is still retrying stays
   // 'pending' with the server's refusal already sitting in `failureReason`, so
   // branching on `isPending` first drew a skeleton over an answer that had
@@ -61,7 +63,7 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
       retrying: isRetrying(query),
     })
     return (
-      <Alert tone={notice.tone} title={notice.title} actions={notice.actions}>
+      <Alert tone={notice.tone} title={notice.title} actions={notice.actions} data-testid="data-state-error">
         <div className="flex flex-col gap-2">
           <span>{notice.message}</span>
           {/* A refusal is terminal: WikiKit understood the request and
@@ -71,8 +73,14 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
               ever work — and so does offering it while an automatic attempt is
               already in the air. lib/failure.ts owns which is which. */}
           {notice.retryable ? (
-            <Button variant="outline" size="sm" className="w-fit" onClick={() => void query.refetch()}>
-              Try again
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              data-testid="data-state-retry"
+              onClick={() => void query.refetch()}
+            >
+              {t('common.tryAgain')}
             </Button>
           ) : null}
         </div>
@@ -80,7 +88,7 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
     )
   }
 
-  if (phase === 'loading') return <>{skeleton}</>
+  if (phase === 'loading') return <div data-testid="data-state-loading">{skeleton}</div>
 
   const data = query.data as T
   // The node the page passed, rendered as it is. This used to wrap whatever it
@@ -89,15 +97,19 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
   // "cards do not nest" (CUI-LADDER-2). The default keeps a title and a
   // description for the branches nobody has written words for yet (CUI-LOAD-3).
   if (isEmpty?.(data))
-    return <>{empty ?? <EmptyState title="Nothing here yet" description="Nothing has been recorded here." />}</>
+    return (
+      <div data-testid="data-state-empty">
+        {empty ?? <EmptyState title={t('table.empty')} description={t('table.empty')} />}
+      </div>
+    )
 
-  return <>{children(data)}</>
+  return <div data-testid="data-state-ready">{children(data)}</div>
 }
 
 /** Rows of a table, shaped like the table. */
 export function RowSkeleton({ rows = 5, columns = 4 }: { rows?: number; columns?: number }) {
   return (
-    <div className="space-y-2" aria-busy="true" aria-label="Loading">
+    <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading" data-testid="row-skeleton">
       {Array.from({ length: rows }, (_unused, row) => (
         <div key={row} className="flex gap-3">
           {Array.from({ length: columns }, (_ignored, column) => (
@@ -112,9 +124,14 @@ export function RowSkeleton({ rows = 5, columns = 4 }: { rows?: number; columns?
 /** Cards of a grid, shaped like the grid. */
 export function CardSkeleton({ cards = 6 }: { cards?: number }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading">
+    <div
+      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      aria-busy="true"
+      aria-label="Loading"
+      data-testid="card-skeleton"
+    >
       {Array.from({ length: cards }, (_unused, index) => (
-        <div key={index} className="space-y-3 rounded-lg border border-border p-4">
+        <div key={index} className="flex flex-col gap-3 rounded-lg border border-border p-4">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-3 w-24" />

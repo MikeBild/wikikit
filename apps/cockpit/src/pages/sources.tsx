@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Archive, Loader2, Plus, Radio, Trash2, X } from 'lucide-react'
+import { Archive, Plus, Radio, Trash2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
@@ -23,8 +23,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Spinner } from '@/components/ui/spinner'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
 import { describeFailure } from '@/lib/failure'
@@ -33,6 +34,7 @@ import { isRetrying, readFailure, readPhase } from '@/lib/read-state'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
+import { semanticLabel } from '@/lib/presentation'
 import {
   EMPTY_INGEST_DRAFT,
   STREAM_CAP_NOTE,
@@ -225,7 +227,7 @@ export function SourcesPage() {
         required: true,
         cell: (row) => (
           <span className="font-mono text-xs break-all" data-testid={`stream-id-${row.id}`}>
-            {row.external_source_id}
+            {semanticLabel([row.external_source_id], 'Connector document')}
           </span>
         ),
       },
@@ -513,7 +515,7 @@ function IngestJob({ id, onDismiss }: { id: string; onDismiss: () => void }) {
       data-status={status}
     >
       <div className="flex flex-wrap items-center gap-2">
-        {settled ? null : <Loader2 className="text-muted-foreground size-4 shrink-0 animate-spin" />}
+        {settled ? null : <Spinner className="text-muted-foreground shrink-0" />}
         <span className="text-sm font-medium">{report.headline}</span>
         {/* The word as well as the colour: a status is never conveyed by tone
             alone (CUI-A11Y-5). */}
@@ -637,11 +639,13 @@ function AddDocuments({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {TRANSPORTS.map((option) => (
-                  <SelectItem key={option.id} value={option.id} data-testid={`ingest-transport-${option.id}`}>
-                    {option.label}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {TRANSPORTS.map((option) => (
+                    <SelectItem key={option.id} value={option.id} data-testid={`ingest-transport-${option.id}`}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             <p className="text-muted-foreground text-xs">{transport?.hint}</p>
@@ -696,18 +700,20 @@ function AddDocuments({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="unstated" data-testid="ingest-kind-unstated">
-                    Not stated
-                  </SelectItem>
-                  <SelectItem value="meeting" data-testid="ingest-kind-meeting">
-                    Meeting
-                  </SelectItem>
-                  <SelectItem value="article" data-testid="ingest-kind-article">
-                    Article
-                  </SelectItem>
-                  <SelectItem value="note" data-testid="ingest-kind-note">
-                    Note
-                  </SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="unstated" data-testid="ingest-kind-unstated">
+                      Not stated
+                    </SelectItem>
+                    <SelectItem value="meeting" data-testid="ingest-kind-meeting">
+                      Meeting
+                    </SelectItem>
+                    <SelectItem value="article" data-testid="ingest-kind-article">
+                      Article
+                    </SelectItem>
+                    <SelectItem value="note" data-testid="ingest-kind-note">
+                      Note
+                    </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               {/* Said out loud because it is the only field here that changes
@@ -728,18 +734,20 @@ function AddDocuments({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="space" data-testid="ingest-language-space">
-                    This wiki's language
-                  </SelectItem>
-                  <SelectItem value="en" data-testid="ingest-language-en">
-                    English
-                  </SelectItem>
-                  <SelectItem value="de" data-testid="ingest-language-de">
-                    German
-                  </SelectItem>
-                  <SelectItem value="simple" data-testid="ingest-language-simple">
-                    Unstemmed
-                  </SelectItem>
+                  <SelectGroup>
+                    <SelectItem value="space" data-testid="ingest-language-space">
+                      This wiki's language
+                    </SelectItem>
+                    <SelectItem value="en" data-testid="ingest-language-en">
+                      English
+                    </SelectItem>
+                    <SelectItem value="de" data-testid="ingest-language-de">
+                      German
+                    </SelectItem>
+                    <SelectItem value="simple" data-testid="ingest-language-simple">
+                      Unstemmed
+                    </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-muted-foreground text-xs">Only for a document that is not in the wiki's language.</p>
@@ -772,7 +780,7 @@ function AddDocuments({
               aria-busy={submit.isPending}
               onClick={() => submit.mutate()}
             >
-              {submit.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+              {submit.isPending ? <Spinner data-icon="inline-start" /> : null}
               Add documents
             </Button>
           </DisabledReason>

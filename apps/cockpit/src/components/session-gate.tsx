@@ -5,6 +5,7 @@ import { resolveSessionView, sessionRefreshOptions } from '@/components/session-
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { SessionContext } from '@/lib/session'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * Blocks the whole console until the session is known, and keeps it known.
@@ -28,6 +29,7 @@ import { SessionContext } from '@/lib/session'
  * and this file must not restate either.
  */
 export function SessionGate({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const query = useQuery({
     queryKey: ['session'],
     queryFn: () => fetchSession(),
@@ -36,21 +38,21 @@ export function SessionGate({ children }: { children: ReactNode }) {
 
   const view = resolveSessionView({ data: query.data, failed: query.error !== null })
 
-  if (view === 'checking') return <Splash>Checking your session…</Splash>
+  if (view === 'checking') return <Splash>{t('session.checking')}</Splash>
 
   if (view === 'unreachable') {
     return (
       <Splash>
         <Alert
           tone="danger"
-          title="Could not reach WikiKit"
+          title={t('session.unreachable')}
           className="max-w-md"
           actions={query.error instanceof ApiError ? query.error.nextBestActions : undefined}
         >
-          {query.error instanceof Error ? query.error.message : 'The session endpoint did not answer.'}
+          {query.error instanceof Error ? query.error.message : t('session.noAnswer')}
         </Alert>
         <Button variant="outline" onClick={() => void query.refetch()} data-testid="session-retry">
-          Try again
+          {t('common.tryAgain')}
         </Button>
       </Splash>
     )
@@ -92,17 +94,18 @@ export function SessionGate({ children }: { children: ReactNode }) {
  * middle-click it.
  */
 function SignIn() {
+  const { t } = useI18n()
   // The whole current location, so a deep link survives the round trip and the
   // operator lands where they were going rather than on the home page. The
   // funnel refuses anything outside /cockpit; this bundle does not second-guess it.
   const returnTo = `${window.location.pathname}${window.location.search}`
   return (
     <div className="flex w-full max-w-sm flex-col gap-3 text-center">
-      <h1 className="text-base font-semibold">Sign in to WikiKit</h1>
-      <p className="text-muted-foreground text-sm">Continue on the WikiKit sign-in page.</p>
+      <h1 className="text-base font-semibold">{t('session.signIn.title')}</h1>
+      <p className="text-muted-foreground text-sm">{t('session.signIn.description')}</p>
       <Button asChild className="w-full">
         <a href={loginUrl(returnTo)} data-testid="sign-in">
-          Sign in
+          {t('session.signIn.action')}
         </a>
       </Button>
     </div>

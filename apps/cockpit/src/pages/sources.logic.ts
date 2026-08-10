@@ -259,5 +259,5 @@ export function sourceLabel(source: { title: string | null; url: string | null; 
   if (title) return title
   const url = source.url?.trim()
   if (url) return url
-  return `Untitled source ${source.id.slice(0, 8)}`
+  return 'Untitled source'
 }

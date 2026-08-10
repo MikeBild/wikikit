@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * Values that exist exactly once or are painful to select by hand — a raw API
@@ -25,6 +26,8 @@ export function CopyButton({
   'data-testid'?: string
 }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const { t } = useI18n()
+  const effectiveLabel = label === 'Copy' ? t('common.copy') : label
 
   return (
     <Button
@@ -32,7 +35,7 @@ export function CopyButton({
       variant="outline"
       size={size}
       data-testid={testId}
-      aria-label={size === 'icon-sm' ? label : undefined}
+      aria-label={size === 'icon-sm' ? effectiveLabel : undefined}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(value)
@@ -57,8 +60,8 @@ export function CopyButton({
         : state === 'failed'
           ? 'Copy blocked — select it'
           : state === 'copied'
-            ? 'Copied'
-            : label}
+            ? t('common.copied')
+            : effectiveLabel}
     </Button>
   )
 }

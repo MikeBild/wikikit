@@ -89,6 +89,7 @@ try {
   const scopes = session?.scopes ?? []
   console.log(`› ${BASE} — signed in as ${session?.name} with [${scopes.join(', ')}]`)
 
+  await page.evaluate("window.localStorage.setItem('wikikit-cockpit-locale', 'en')")
   await page.goto(`${BASE}/cockpit/?space=${SPACE}`, { waitUntil: 'networkidle' })
   check('the shell renders', (await page.locator('[data-testid="sidebar"]').count()) > 0)
   check('the operator and their scopes are named', (await page.locator('[data-testid="operator-scopes"]').count()) > 0)
@@ -133,24 +134,24 @@ try {
 
   // ---- the loop ------------------------------------------------------------
   await page.goto(`${BASE}/cockpit/pages/new?space=${SPACE}`, { waitUntil: 'networkidle' })
-  await page.fill('[placeholder="What this page is about"]', `Cockpit verification ${STAMP}`)
+  await page.fill('[data-testid="page-edit-title"]', `Cockpit verification ${STAMP}`)
   await page.fill(
-    '[placeholder="One sentence, shown in the page list and in search results"]',
+    '[data-testid="page-edit-summary"]',
     'Written by the automated cockpit verification run. Safe to delete.',
   )
   await page.fill(
-    'textarea',
+    '[data-testid="page-edit-markdown"]',
     `# Cockpit verification\n\nWritten by \`scripts/deploy/verify-cockpit-loop.ts\` against a live deployment, run ${STAMP}.\n\n- It exists to prove the wiki loop works end to end: edit, submit, review, approve.\n- It states nothing about this wiki's subject and is safe to delete.\n`,
   )
 
-  const submit = page.locator('button', { hasText: 'Submit change' }).first()
+  const submit = page.locator('[data-testid="page-edit-submit"]')
   check('the submit control says "Submit change", not "Save"', (await submit.count()) > 0)
   await submit.click()
   await page.waitForTimeout(600)
 
   const confirmation = await page.locator('[role="alertdialog"], [role="dialog"]').first().innerText()
   check('the confirmation says it publishes nothing', /does not publish/i.test(confirmation), confirmation.slice(0, 90))
-  await page.locator('button', { hasText: 'Submit change' }).last().click()
+  await page.locator('[data-testid="page-edit-submit-accept"]').click()
   await page.waitForURL(/\/cockpit\/changes\//, { timeout: 20_000 })
   check('submitting lands on the change it made', /\/changes\/[0-9a-f-]{36}/.test(page.url()), page.url())
 
@@ -158,9 +159,9 @@ try {
   const change = await page.locator('[data-testid="page"]').innerText()
   check('the change renders a line diff of the new page', change.includes('Cockpit verification') && /\+/.test(change))
   check('the lint result is present', /check|lint|finding/i.test(change))
-  check('the public review address is offered', change.includes('/review/'))
+  check('the public review address is offered', (await page.locator('[data-testid="change-review-url"]').count()) > 0)
 
-  const approve = page.locator('button', { hasText: 'Approve' }).first()
+  const approve = page.locator('[data-testid="approve"]')
   if (!(await approve.count())) {
     findings.push('no Approve control — this credential cannot publish, so the loop stopped at the diff')
   } else {
@@ -168,7 +169,7 @@ try {
     await page.waitForTimeout(600)
     const effect = await page.locator('[role="alertdialog"], [role="dialog"]').first().innerText()
     check('the approval confirmation names what it publishes', /page/i.test(effect), effect.slice(0, 120))
-    await page.locator('button', { hasText: 'Approve and publish' }).last().click()
+    await page.locator('[data-testid="approve-confirm"]').click()
     await page.waitForTimeout(3000)
 
     await page.goto(`${BASE}/cockpit/pages/${SLUG}?space=${SPACE}`, { waitUntil: 'networkidle' })

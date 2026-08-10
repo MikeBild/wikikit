@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { ExternalLink, LoaderCircle, Search, SearchX, Sparkles } from 'lucide-react'
+import { ExternalLink, Search, SearchX, Sparkles } from 'lucide-react'
 import { useMemo, type FormEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -17,8 +17,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Spinner } from '@/components/ui/spinner'
 import { describeFailure } from '@/lib/failure'
 import { useSpace } from '@/lib/space'
+import { semanticLabel } from '@/lib/presentation'
 import type { FilterSpec } from '@/lib/url-filters'
 import { rendersAsDash, type EvidenceCounts, type NotMeasured } from '@/pages/page.logic'
 import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
@@ -630,11 +632,7 @@ function AskPanel({
         {/* The label does not rewrite itself while it works (CUI-ACT-5): the
             spinner and the disabled state carry that, so the button an operator
             aimed at is still the button they hit. */}
-        {pending ? (
-          <LoaderCircle data-icon="inline-start" className="animate-spin" />
-        ) : (
-          <Sparkles data-icon="inline-start" />
-        )}
+        {pending ? <Spinner data-icon="inline-start" /> : <Sparkles data-icon="inline-start" />}
         Answer this question
       </Button>
 
@@ -694,7 +692,7 @@ function AskPanel({
                       data-testid={`search-answer-source-${index}`}
                       className="underline underline-offset-2"
                     >
-                      {source.title ?? source.id}
+                      {semanticLabel([source.title], 'Archived source')}
                     </Link>
                   ))}
                 </div>
