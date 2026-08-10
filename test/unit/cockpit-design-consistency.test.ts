@@ -48,6 +48,7 @@ describe('the Cockpit action hierarchy', () => {
 
     const table = source('apps/cockpit/src/components/ui/data-table.tsx')
     expect(table).toContain("column.mobileHidden && 'max-md:hidden'")
+    expect(table).toContain('isMobile ? shown.filter((column) => !column.mobileHidden) : shown')
     const browserCheck = source('scripts/check-cockpit-browser.ts')
     expect(browserCheck).toContain('requires horizontal scrolling')
     expect(browserCheck).not.toContain("table.dataset.testid === 'pages-table'")

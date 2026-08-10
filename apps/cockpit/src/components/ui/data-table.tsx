@@ -37,6 +37,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n-context'
 import { I18nText } from '@/components/i18n-text'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 /**
  * The console's lists, on the shared `Table` rather than instead of it.
@@ -149,8 +150,10 @@ export function DataTable<Row>({
   tableClassName?: string
 }) {
   const { t, text } = useI18n()
+  const isMobile = useIsMobile()
   const specs = useMemo(() => capabilitiesOf(columns), [columns])
   const shown = useMemo(() => columns.filter((column) => view.visible.includes(column.id)), [columns, view.visible])
+  const rendered = useMemo(() => (isMobile ? shown.filter((column) => !column.mobileHidden) : shown), [isMobile, shown])
   const sort = reconcileSort(specs, paging, view.visible, view.sort)
 
   const ordered = useMemo(() => {
@@ -217,7 +220,7 @@ export function DataTable<Row>({
         <Table data-testid={`${testId}-table`} aria-busy={phase === 'loading' || undefined} className={tableClassName}>
           <TableHeader>
             <TableRow>
-              {shown.map((column) => {
+              {rendered.map((column) => {
                 const reach = sortReach(
                   specs.find((spec) => spec.id === column.id),
                   paging,
@@ -276,15 +279,15 @@ export function DataTable<Row>({
             {phase === 'error' ? (
               <FailureRow
                 testId={testId}
-                columns={shown.length}
+                columns={rendered.length}
                 error={readFailure(query)}
                 retrying={isRetrying(query)}
                 onRetry={query.refetch}
               />
             ) : phase === 'loading' ? (
-              <SkeletonRows testId={testId} rows={Math.min(pageSize, 6)} columns={shown.length} />
+              <SkeletonRows testId={testId} rows={Math.min(pageSize, 6)} columns={rendered.length} />
             ) : visibleRows.length === 0 ? (
-              <EmptyRow testId={testId} columns={shown.length} message={empty} />
+              <EmptyRow testId={testId} columns={rendered.length} message={empty} />
             ) : (
               visibleRows.map((row) => (
                 <TableRow
@@ -292,7 +295,7 @@ export function DataTable<Row>({
                   {...(rowAttributes?.(row) ?? {})}
                   data-testid={rowTestId?.(row) ?? `${testId}-row-${rowKey(row)}`}
                 >
-                  {shown.map((column) => (
+                  {rendered.map((column) => (
                     <TableCell
                       key={column.id}
                       className={cn(column.mobileHidden && 'max-md:hidden', column.className)}

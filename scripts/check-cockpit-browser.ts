@@ -87,6 +87,7 @@ const PROBE = `(() => {
   }
   for (const cell of document.querySelectorAll('td, th')) {
     const style = getComputedStyle(cell)
+    if (style.display === 'none') continue
     // 'truncate' is a deliberate choice with an ellipsis. A cell overflowing
     // WITHOUT one is text nobody can read and nothing on screen says so.
     const truncating = style.textOverflow === 'ellipsis' || style.overflow === 'hidden'
@@ -202,9 +203,17 @@ async function main(): Promise<void> {
         if (space) url.searchParams.set('space', space)
         // Some cockpit routes keep a live request open. `networkidle` would turn
         // that healthy behaviour into a false timeout, so wait for the document
-        // and then for the application shell that the layout probe actually needs.
+        // and then for loaded styles, the application shell and settled table
+        // reads that the layout probe actually needs.
         await page.goto(url.href, { waitUntil: 'domcontentloaded' })
+        await page.waitForLoadState('load')
         await page.locator('[data-testid="sidebar-trigger"]').waitFor({ state: 'attached', timeout: 15_000 })
+        await page.waitForTimeout(250)
+        await page.waitForFunction(
+          `() => [...document.querySelectorAll('table')].every((table) => table.getAttribute('aria-busy') !== 'true')`,
+          undefined,
+          { timeout: 15_000 },
+        )
 
         // A route that bounced to the sign-in splash proves nothing about
         // layout, and reporting it as a pass would be the checker lying.

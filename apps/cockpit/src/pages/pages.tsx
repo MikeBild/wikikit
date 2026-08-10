@@ -171,7 +171,8 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'summary',
     label: 'Summary',
-    className: 'w-[29%] max-w-md max-md:hidden',
+    className: 'w-[29%] max-w-md',
+    mobileHidden: true,
     compare: (left, right) => compareText(left.summary, right.summary),
     // A summary is prose, so it wraps rather than scrolling the table sideways
     // — the row is allowed to be two lines tall, and `line-clamp` keeps a page
@@ -186,7 +187,8 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'rev',
     label: 'Revision',
-    className: 'w-[8%] tabular-nums max-md:hidden',
+    className: 'w-[8%] tabular-nums',
+    mobileHidden: true,
     compare: (left, right) => compareNumber(left.rev, right.rev),
     // The revision number is the count of approved changes this page has
     // survived, so it is a fact worth having and not a fact worth a column by
@@ -197,7 +199,8 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'updated',
     label: 'Last change',
-    className: 'w-[15%] max-md:hidden',
+    className: 'w-[15%]',
+    mobileHidden: true,
     descFirst: true,
     compare: (left, right) => compareTime(left.updated_at, right.updated_at),
     cell: (row) => <RelativeTime value={row.updated_at} data-testid={`pages-row-${row.slug}-updated`} />,

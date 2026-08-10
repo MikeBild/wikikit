@@ -7,7 +7,7 @@ const source = readFileSync(join(import.meta.dir, '../../apps/cockpit/src/pages/
 describe('the Pages index fits its viewport', () => {
   test('uses fixed table layout and removes secondary columns below md', () => {
     expect(source).toContain('tableClassName="w-full table-fixed"')
-    expect(source.match(/max-md:hidden/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
+    expect(source.match(/mobileHidden: true/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
   })
 
   test('never exposes UUID-shaped page labels or slugs', () => {

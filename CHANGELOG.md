@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.7 - 2026-08-10
+
+### Fixed
+
+- **Mobile tables remove collapsed columns from layout, not only from paint.**
+  The shared data table now derives its rendered columns from the Cockpit's
+  768px media-query store, so hidden columns no longer reserve fixed-layout
+  width or distort empty-state `colSpan` values. Pages declares the same
+  responsive column capability as every other table.
+- **The production browser check waits for a measurable UI.** It waits for
+  loaded styles, the mounted shell and settled table reads without relying on
+  `networkidle`, which live System requests intentionally prevent. Hidden cells
+  are excluded from clipping findings.
+
 ## 0.33.6 - 2026-08-10
 
 ### Fixed
