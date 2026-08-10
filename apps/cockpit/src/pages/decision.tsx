@@ -10,7 +10,7 @@ import { RelativeTime } from '@/components/ui/relative-time'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
-import { presentValue } from '@/lib/presentation'
+import { isUuidLike, presentValue, semanticLabel } from '@/lib/presentation'
 
 /**
  * One decision, read as a document.
@@ -67,7 +67,7 @@ export function DecisionPage() {
   // then. A frame that says "Decision" while the document loads and then
   // renames itself is a heading that moves under the reader's eyes; the slug is
   // what they clicked and it is already true.
-  const title = query.data?.title ?? slug
+  const title = semanticLabel([query.data?.title, slug], 'Decision')
 
   return (
     <Page title={title} description="A decision this wiki recorded: what was decided, why, and what was turned down.">
@@ -92,9 +92,11 @@ function DecisionDocument({ decision }: { decision: Decision }) {
         <span className="text-muted-foreground text-xs">
           Recorded <RelativeTime value={decision.created_at} data-testid="decision-recorded" />
         </span>
-        <span className="text-muted-foreground font-mono text-xs" data-testid="decision-slug">
-          {decision.slug}
-        </span>
+        {!isUuidLike(decision.slug) ? (
+          <span className="text-muted-foreground font-mono text-xs" data-testid="decision-slug">
+            {decision.slug}
+          </span>
+        ) : null}
       </div>
 
       <Supersession status={decision.status} replacedBy={replacedBy} replaces={replaces} />

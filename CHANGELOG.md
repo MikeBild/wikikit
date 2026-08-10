@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.4 - 2026-08-10
+
+### Fixed
+
+- **Opaque identifiers are removed from remaining knowledge labels.** Legacy
+  generated change titles and summaries, staged-page labels, relation targets,
+  deleted pages and decision labels now use semantic fallbacks whenever their
+  stored presentation text contains a UUID; identifiers remain unchanged in
+  routes, API requests and `data-testid` selectors.
+
 ## 0.33.3 - 2026-08-10
 
 ### Fixed

@@ -20,6 +20,7 @@ describe('opaque identifiers at the Cockpit presentation boundary', () => {
   test('chooses semantic labels and never falls back to an opaque identifier', () => {
     expect(semanticLabel([null, uuid, 'Readable title'], 'Unnamed')).toBe('Readable title')
     expect(semanticLabel([uuid], 'Unnamed')).toBe('Unnamed')
+    expect(semanticLabel([`Create fact-${uuid}`], 'Knowledge change')).toBe('Knowledge change')
   })
 
   test('does not render known raw identifier fallbacks in end-user views', () => {

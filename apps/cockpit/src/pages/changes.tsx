@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
+import { isUuidLike, semanticLabel } from '@/lib/presentation'
 import { useSpace } from '@/lib/space'
 import { compareText, compareTime } from '@/lib/table-view'
 import type { FilterSpec } from '@/lib/url-filters'
@@ -100,9 +101,11 @@ export function ChangesPage() {
               data-testid={`change-link-${row.id}`}
               className="font-medium underline-offset-4 hover:underline"
             >
-              {row.title}
+              {semanticLabel([row.title], 'Knowledge change')}
             </Link>
-            {row.summary ? <span className="line-clamp-2 text-xs text-muted-foreground">{row.summary}</span> : null}
+            {row.summary && !isUuidLike(row.summary) ? (
+              <span className="line-clamp-2 text-xs text-muted-foreground">{row.summary}</span>
+            ) : null}
           </div>
         ),
       },

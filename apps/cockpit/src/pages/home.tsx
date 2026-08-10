@@ -14,6 +14,7 @@ import { RelativeTime } from '@/components/ui/relative-time'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSpace } from '@/lib/space'
 import { useI18n } from '@/lib/i18n-context'
+import { semanticLabel } from '@/lib/presentation'
 import {
   averageSeconds,
   changeStanding,
@@ -177,7 +178,9 @@ export function HomePage() {
                             data-testid={`waiting-change-${item.id}`}
                             className="hover:bg-muted focus-visible:ring-ring/50 flex flex-col gap-1 rounded-md px-2 py-1.5 transition-colors focus-visible:ring-3 focus-visible:outline-none sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                           >
-                            <span className="min-w-0 truncate text-sm font-medium">{item.title}</span>
+                            <span className="min-w-0 truncate text-sm font-medium">
+                              {semanticLabel([item.title], 'Knowledge change')}
+                            </span>
                             <span className="flex shrink-0 items-center gap-2">
                               <Badge tone={standing.tone}>{standing.label}</Badge>
                               <RelativeTime value={item.created_at} className="text-muted-foreground text-xs" />

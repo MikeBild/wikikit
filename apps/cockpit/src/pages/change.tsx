@@ -19,7 +19,7 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import type { DomainState } from '@/lib/tokens'
 import { toast, toastFailure } from '@/lib/toast'
-import { semanticLabel } from '@/lib/presentation'
+import { isUuidLike, semanticLabel } from '@/lib/presentation'
 import {
   annotateClaims,
   approvalEffect,
@@ -87,7 +87,7 @@ export function ChangePage() {
 
   return (
     <Page
-      title={detail.data?.title ?? 'Change'}
+      title={semanticLabel([detail.data?.title], 'Knowledge change')}
       description="Every claim on these pages has to be backed by a quote from an archived source. Read what this would publish, then decide."
     >
       <DataState query={detail} skeleton={<ChangeSkeleton />}>
@@ -340,7 +340,7 @@ function ChangeBody({
               deferable ? (
                 <DisabledReason reason={reviewReason}>
                   <Confirm
-                    title={`Defer ${concept.slug}?`}
+                    title={isUuidLike(concept.slug) ? 'Defer this page?' : `Defer ${concept.slug}?`}
                     description="Move this one page into a change of its own, so the rest can be decided now."
                     confirmLabel="Defer this page"
                     ids={{
@@ -385,7 +385,7 @@ function ChangeBody({
                 >
                   <Badge tone="danger">removed</Badge>
                   <span className="font-mono text-xs">
-                    {edge.from_slug} —{edge.kind}→ {edge.to_slug}
+                    {semanticLabel([edge.from_slug], 'Page')} —{edge.kind}→ {semanticLabel([edge.to_slug], 'Page')}
                   </span>
                   <span className="text-muted-foreground">deactivated on approval</span>
                 </li>
@@ -650,6 +650,7 @@ function ConceptCard({
 }) {
   const diff = conceptDiff(concept)
   const claims = annotateClaims(concept)
+  const label = semanticLabel([concept.slug], concept.is_new ? 'New page' : 'Page update')
   return (
     <Card data-testid={`concept-${concept.slug}`} data-stale={String(concept.stale)}>
       <CardHeader>
@@ -661,7 +662,7 @@ function ConceptCard({
             data-testid={`concept-link-${concept.slug}`}
             className="font-mono text-sm underline-offset-4 hover:underline"
           >
-            {concept.slug}
+            {label}
           </Link>
           <Badge tone={concept.is_new ? 'accent' : 'neutral'}>{concept.is_new ? 'new page' : 'update'}</Badge>
           {concept.stale ? <Badge tone="warning">base moved on</Badge> : null}
@@ -701,7 +702,7 @@ function ConceptCard({
                 >
                   <Badge tone="success">added</Badge>
                   <span className="font-mono text-xs">
-                    {relation.kind} → {relation.to_slug}
+                    {relation.kind} → {semanticLabel([relation.to_slug], 'Page')}
                   </span>
                 </li>
               ))}

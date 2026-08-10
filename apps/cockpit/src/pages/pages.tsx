@@ -364,8 +364,10 @@ export function PagesPage() {
               data-testid={`deleted-page-${item.slug}`}
             >
               <div>
-                <div className="font-medium">{item.title}</div>
-                <div className="text-muted-foreground font-mono text-xs">{item.slug}</div>
+                <div className="font-medium">{semanticLabel([item.title], text('Untitled page'))}</div>
+                {!isUuidLike(item.slug) ? (
+                  <div className="text-muted-foreground font-mono text-xs">{item.slug}</div>
+                ) : null}
               </div>
               {canPropose ? (
                 <Confirm

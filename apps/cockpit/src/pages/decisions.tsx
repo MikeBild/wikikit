@@ -12,6 +12,7 @@ import { RelativeTime } from '@/components/ui/relative-time'
 import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
+import { isUuidLike, semanticLabel } from '@/lib/presentation'
 import { useSpace } from '@/lib/space'
 import { compareText, compareTime } from '@/lib/table-view'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
@@ -83,7 +84,7 @@ const COLUMNS: readonly DataColumn<DecisionRow>[] = [
         data-testid={`decision-${row.slug}`}
         className="font-medium underline-offset-2 hover:underline"
       >
-        {row.title}
+        {semanticLabel([row.title], 'Decision')}
       </Link>
     ),
   },
@@ -92,7 +93,8 @@ const COLUMNS: readonly DataColumn<DecisionRow>[] = [
     label: 'Slug',
     hiddenByDefault: true,
     compare: (left, right) => compareText(left.slug, right.slug),
-    cell: (row) => <span className="font-mono text-xs text-muted-foreground">{row.slug}</span>,
+    cell: (row) =>
+      !isUuidLike(row.slug) ? <span className="font-mono text-xs text-muted-foreground">{row.slug}</span> : null,
   },
   {
     id: 'status',

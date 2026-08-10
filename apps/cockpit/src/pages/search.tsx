@@ -675,7 +675,7 @@ function AskPanel({
                       data-testid={`search-answer-citation-${index}`}
                       className="underline underline-offset-2"
                     >
-                      {citation.title || citation.slug}
+                      {semanticLabel([citation.title, citation.slug], 'Page')}
                     </Link>
                   ))}
                 </div>
