@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { describeFailure } from '@/lib/failure'
 import { isRetrying, readFailure, readPhase } from '@/lib/read-state'
 import { useI18n } from '@/lib/i18n-context'
+import { I18nText } from '@/components/i18n-text'
 
 /**
  * ┌──────────────────────────────────────────────────────────────────────────┐
@@ -88,7 +89,12 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
     )
   }
 
-  if (phase === 'loading') return <div data-testid="data-state-loading">{skeleton}</div>
+  if (phase === 'loading')
+    return (
+      <div data-testid="data-state-loading">
+        <I18nText>{skeleton}</I18nText>
+      </div>
+    )
 
   const data = query.data as T
   // The node the page passed, rendered as it is. This used to wrap whatever it
@@ -99,11 +105,15 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
   if (isEmpty?.(data))
     return (
       <div data-testid="data-state-empty">
-        {empty ?? <EmptyState title={t('table.empty')} description={t('table.empty')} />}
+        <I18nText>{empty ?? <EmptyState title={t('table.empty')} description={t('table.empty')} />}</I18nText>
       </div>
     )
 
-  return <div data-testid="data-state-ready">{children(data)}</div>
+  return (
+    <div data-testid="data-state-ready">
+      <I18nText>{children(data)}</I18nText>
+    </div>
+  )
 }
 
 /** Rows of a table, shaped like the table. */
