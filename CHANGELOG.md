@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.6 - 2026-08-10
+
+### Fixed
+
+- **Cockpit tables now fit without horizontal scrolling.** At the mobile
+  breakpoint, secondary columns collapse while identity, state and row actions
+  remain available; the shared shadcn table uses a fixed, wrapping layout for
+  the remaining columns. The browser release check now rejects horizontal
+  scrolling in every visible table on every Cockpit route at phone and laptop
+  widths.
+- **Help follows one shadcn interaction hierarchy.** Short explanations use a
+  specific hover/focus tooltip and open a longer click/touch popover; field help
+  is attached directly to its label. Dense supplemental prose was removed from
+  forms, source details and empty states while critical effects, permissions
+  and errors remain visible.
+- **The expanded responsive and help contracts are regression tested.** Stable
+  `data-testid` selectors, German and English copy, keyboard access, responsive
+  column policy and the zero-scroll browser probe are covered by the Cockpit
+  design checks.
+
 ## 0.33.5 - 2026-08-10
 
 ### Fixed

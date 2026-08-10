@@ -123,6 +123,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
     id: 'title',
     label: 'Source',
     required: true,
+    className: 'max-w-64 whitespace-normal',
     cell: (row) => (
       <Link
         to="/sources/$id"
@@ -137,6 +138,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'kind',
     label: 'Kind',
+    mobileHidden: true,
     // A kind is not a status — it is what the bytes are, and nothing about it
     // is good or bad news. `neutral` is the only honest tone; a `url` source
     // wearing `accent` would read as though the console had an opinion about
@@ -146,6 +148,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'archived',
     label: 'Archived',
+    mobileHidden: true,
     cell: (row) => <RelativeTime value={row.created_at} data-testid={`source-archived-${row.id}`} />,
   },
   {
@@ -162,6 +165,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'hash',
     label: 'Content hash',
+    mobileHidden: true,
     // The first twelve characters of a sha256, which is what the eye compares.
     // The whole 64 and a copy control live on the source page: a copy button in
     // every row of every page is 25 tab stops for a value nobody copies 25 of.
@@ -226,6 +230,7 @@ export function SourcesPage() {
         id: 'external',
         label: 'Document',
         required: true,
+        className: 'max-w-56 whitespace-normal',
         cell: (row) => (
           <span className="font-mono text-xs break-all" data-testid={`stream-id-${row.id}`}>
             {semanticLabel([row.external_source_id], 'Connector document')}
@@ -235,16 +240,19 @@ export function SourcesPage() {
       {
         id: 'version',
         label: 'Version',
+        mobileHidden: true,
         cell: (row) => <span className="text-muted-foreground text-xs">{row.latest_version ?? '—'}</span>,
       },
       {
         id: 'seen',
         label: 'Last seen',
+        mobileHidden: true,
         cell: (row) => <RelativeTime value={row.latest_observed_at} data-testid={`stream-seen-${row.id}`} />,
       },
       {
         id: 'head',
         label: 'Current version',
+        mobileHidden: true,
         cell: (row) =>
           row.latest_source_id ? (
             <Link
@@ -378,7 +386,7 @@ export function SourcesPage() {
                 icon={Radio}
                 framed={false}
                 title="No connector streams"
-                description="Every source in this wiki was added by hand. A stream appears when a connector pushes a document with a stable id, so later versions of it replace this one instead of forking the archive."
+                description="Connector-pushed documents appear here with their current version."
                 data-testid="streams-empty-state"
               />
             }

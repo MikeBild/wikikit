@@ -7,6 +7,7 @@ import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
 import { SegmentedControl } from '@/components/controls'
 import { CopyButton } from '@/components/copy-button'
+import { FieldLabel } from '@/components/context-help'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
@@ -160,6 +161,7 @@ export function ApiKeysPage() {
         id: 'name',
         label: 'Key',
         required: true,
+        className: 'max-w-44 whitespace-normal',
         compare: (left, right) => compareText(left.name, right.name),
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -181,6 +183,7 @@ export function ApiKeysPage() {
       {
         id: 'scopes',
         label: 'Scopes',
+        mobileHidden: true,
         cell: (row) => (
           <div className="flex flex-wrap gap-1" data-testid={`api-key-scopes-${row.id}`}>
             {row.scopes.map((scope) => (
@@ -194,6 +197,7 @@ export function ApiKeysPage() {
       {
         id: 'space',
         label: 'Reaches',
+        mobileHidden: true,
         compare: (left, right) => compareText(left.space ?? '', right.space ?? ''),
         // `null` here is a MEASURED fact and not a missing one, so it is not an
         // em dash: the server means "this key is valid in every wiki", which is
@@ -208,6 +212,7 @@ export function ApiKeysPage() {
       {
         id: 'last_used',
         label: 'Last used',
+        mobileHidden: true,
         descFirst: true,
         compare: (left, right) => compareTime(left.last_used_at, right.last_used_at),
         // Same reading as `space`: a key nobody has presented yet has a known
@@ -501,7 +506,14 @@ function MintKey({
         ) : (
           <div className="flex flex-col gap-4 overflow-y-auto">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="key-name">What is this key for?</Label>
+              <FieldLabel
+                htmlFor="key-name"
+                helpTitle="About API key names"
+                help={<p>The name identifies this key later; the secret itself is never shown again or stored.</p>}
+                testId="key-name-help"
+              >
+                What is this key for?
+              </FieldLabel>
               <Input
                 id="key-name"
                 data-testid="key-name"
@@ -509,10 +521,6 @@ function MintKey({
                 placeholder="Nightly handbook connector"
                 onChange={(event) => setName(event.target.value)}
               />
-              <p className="text-muted-foreground text-xs">
-                The name is the only thing that will identify this key afterwards — the key itself is never shown again
-                and never stored.
-              </p>
             </div>
 
             <div className="flex flex-col gap-2">

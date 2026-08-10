@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
-import { SectionHeading } from '@/components/context-help'
+import { FieldLabel, SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { I18nText } from '@/components/i18n-text'
@@ -126,6 +126,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
     id: 'wiki',
     label: 'Wiki',
     required: true,
+    className: 'max-w-48 whitespace-normal',
     compare: (left, right) => compareText(left.slug, right.slug),
     cell: (space) => (
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -144,6 +145,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'purpose',
     label: 'Purpose',
+    mobileHidden: true,
     // `TableCell` is `whitespace-nowrap`, which is right for a slug and wrong for
     // a sentence: without the override this column would be one unbreakable line
     // and would set the table's width on its own.
@@ -160,6 +162,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'language',
     label: 'Retrieval',
+    mobileHidden: true,
     compare: (left, right) =>
       compareText(readLanguage(left.settings) ?? DEFAULT_LANGUAGE, readLanguage(right.settings) ?? DEFAULT_LANGUAGE),
     cell: (space) => {
@@ -176,6 +179,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'imports',
     label: 'Reads from',
+    mobileHidden: true,
     cell: (space) => {
       const imports = readImports(space.settings)
       // Not configured and configured-as-none are the same fact here — this wiki
@@ -647,56 +651,78 @@ function SettingsForm({
     <>
       <div className="flex flex-col gap-4 overflow-y-auto">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="space-settings-purpose">Purpose</Label>
+          <FieldLabel
+            htmlFor="space-settings-purpose"
+            helpTitle="About wiki purpose"
+            help={
+              <p>One or two sentences. An agent asked to find the right wiki for a task is matched against this.</p>
+            }
+            testId="space-purpose-help"
+          >
+            Purpose
+          </FieldLabel>
           <Textarea
             id="space-settings-purpose"
             data-testid="space-settings-purpose"
             value={purpose}
             disabled={save.isPending}
-            aria-describedby="space-settings-purpose-help"
             onChange={(event) => setPurpose(event.target.value)}
             placeholder="What this wiki knows about."
           />
-          <p id="space-settings-purpose-help" className="text-muted-foreground text-xs">
-            One or two sentences. An agent asked to find the right wiki for a task is matched against this.
-          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="space-settings-use-when">Use when</Label>
+          <FieldLabel
+            htmlFor="space-settings-use-when"
+            helpTitle="About use-when guidance"
+            help={<p>The situation that should send somebody here rather than to another wiki.</p>}
+            testId="space-use-when-help"
+          >
+            Use when
+          </FieldLabel>
           <Input
             id="space-settings-use-when"
             data-testid="space-settings-use-when"
             value={useWhen}
             disabled={save.isPending}
-            aria-describedby="space-settings-use-when-help"
             onChange={(event) => setUseWhen(event.target.value)}
             placeholder="Questions about deployment, on-call and incident handling."
           />
-          <p id="space-settings-use-when-help" className="text-muted-foreground text-xs">
-            The situation that should send somebody here rather than to another wiki.
-          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="space-settings-keywords">Keywords</Label>
+          <FieldLabel
+            htmlFor="space-settings-keywords"
+            helpTitle="About wiki keywords"
+            help={
+              <p>
+                Comma separated. These weigh heaviest when WikiKit picks a wiki for a task, so a handful of exact terms
+                beats a paragraph.
+              </p>
+            }
+            testId="space-keywords-help"
+          >
+            Keywords
+          </FieldLabel>
           <Input
             id="space-settings-keywords"
             data-testid="space-settings-keywords"
             value={keywords}
             disabled={save.isPending}
-            aria-describedby="space-settings-keywords-help"
             onChange={(event) => setKeywords(event.target.value)}
             placeholder="kubernetes, on-call, postmortem"
           />
-          <p id="space-settings-keywords-help" className="text-muted-foreground text-xs">
-            Comma separated. These weigh heaviest when WikiKit picks a wiki for a task, so a handful of exact terms
-            beats a paragraph.
-          </p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="space-settings-language">Search language</Label>
+          <FieldLabel
+            htmlFor="space-settings-language"
+            helpTitle="About search language"
+            help={<p>How search reduces words before matching them.</p>}
+            testId="space-language-help"
+          >
+            Search language
+          </FieldLabel>
           <Select value={language} disabled={save.isPending} onValueChange={(next) => setLanguage(next as Language)}>
             <SelectTrigger id="space-settings-language" data-testid="space-settings-language" className="w-full">
               <SelectValue />
@@ -715,10 +741,7 @@ function SettingsForm({
               </SelectGroup>
             </SelectContent>
           </Select>
-          <p className="text-muted-foreground text-xs">
-            How search reduces words before matching them. Changing it rebuilds the search index for every page and
-            source in this wiki.
-          </p>
+          <p className="text-muted-foreground text-xs">Changing this rebuilds the search index for this wiki.</p>
         </div>
 
         <fieldset className="flex flex-col gap-2">

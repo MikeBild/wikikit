@@ -31,6 +31,28 @@ describe('the Cockpit action hierarchy', () => {
     for (const selector of retiredSelectors) expect(allPages).not.toContain(selector)
   })
 
+  test('tables that exceeded the phone viewport collapse secondary columns', () => {
+    const minimumResponsiveColumns: Record<string, number> = {
+      'changes.tsx': 2,
+      'sources.tsx': 6,
+      'spaces.tsx': 3,
+      'api-keys.tsx': 3,
+      'identities.tsx': 4,
+      'webhooks.tsx': 8,
+      'charter.tsx': 2,
+    }
+    for (const [page, minimum] of Object.entries(minimumResponsiveColumns)) {
+      const contents = source(`apps/cockpit/src/pages/${page}`)
+      expect(contents.match(/mobileHidden: true/g)?.length ?? 0, page).toBeGreaterThanOrEqual(minimum)
+    }
+
+    const table = source('apps/cockpit/src/components/ui/data-table.tsx')
+    expect(table).toContain("column.mobileHidden && 'max-md:hidden'")
+    const browserCheck = source('scripts/check-cockpit-browser.ts')
+    expect(browserCheck).toContain('requires horizontal scrolling')
+    expect(browserCheck).not.toContain("table.dataset.testid === 'pages-table'")
+  })
+
   test('icons beside button copy use the shadcn data-icon contract', () => {
     const offenders: string[] = []
     for (const file of cockpitFiles.filter((path) => !path.includes('/components/ui/'))) {
@@ -102,6 +124,7 @@ describe('the Cockpit explanation hierarchy', () => {
     const help = source('apps/cockpit/src/components/context-help.tsx')
     expect(help).toContain('<TooltipTrigger asChild>')
     expect(help).toContain('<PopoverTrigger asChild>')
+    expect(help).toContain('const label = text(title)')
     expect(help).toContain('aria-label={label}')
     expect(help).toContain('data-testid={`${testId}-trigger`}')
     expect(help).toContain('data-testid={`${testId}-content`}')

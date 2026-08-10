@@ -98,7 +98,7 @@
     "CUI-LAYOUT-2": { "enforced_by": [], "why": "Graded at review. No lint rule forbids space-y-*." },
     "CUI-LAYOUT-3": {
       "enforced_by": [],
-      "why": "scripts/check-cockpit-browser.ts asserts every table has a horizontally scrolling ancestor. Not in the gate: it needs a browser, a database and a running server."
+      "why": "scripts/check-cockpit-browser.ts rejects every visible table whose scroll width exceeds its container. Not in the gate: it needs a browser, a database and a running server."
     },
     "CUI-RESP-1": {
       "enforced_by": [],

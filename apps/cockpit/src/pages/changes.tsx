@@ -88,6 +88,7 @@ export function ChangesPage() {
         id: 'title',
         label: 'Change',
         required: true,
+        className: 'max-w-56 whitespace-normal',
         compare: (left, right) => compareText(left.title, right.title),
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -118,6 +119,7 @@ export function ChangesPage() {
       {
         id: 'raised',
         label: 'Raised',
+        mobileHidden: true,
         descFirst: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
         cell: (row) => <RelativeTime value={row.created_at} data-testid={`change-raised-${row.id}`} />,
@@ -125,6 +127,7 @@ export function ChangesPage() {
       {
         id: 'reviewer',
         label: 'Reviewer',
+        mobileHidden: true,
         compare: (left, right) => compareText(left.reviewer, right.reviewer),
         // A change nobody has decided has no reviewer, and that is an absent
         // value, not an empty one (CUI-SEV-2).
@@ -272,7 +275,7 @@ export function ChangesPage() {
               framed={false}
               data-testid="changes-empty"
               title="Nothing is waiting"
-              description="No change has ever been raised in this wiki. Adding a document under Sources, or editing a page, is what puts one here."
+              description="Add a source or edit a page to raise the first change."
             />
           )
         }

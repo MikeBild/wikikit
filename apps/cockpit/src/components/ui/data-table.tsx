@@ -82,6 +82,8 @@ export interface DataColumn<Row> {
   /** Identifies the row or carries its actions. Hiding it breaks the list. */
   required?: boolean
   hiddenByDefault?: boolean
+  /** Hide a secondary column below md; its essential fact must be repeated in the primary cell when needed. */
+  mobileHidden?: boolean
   /** A date column's first click should be newest-first, not oldest-first. */
   descFirst?: boolean
   className?: string
@@ -226,7 +228,7 @@ export function DataTable<Row>({
                     key={column.id}
                     data-testid={`${testId}-header-${column.id}`}
                     scope="col"
-                    className={column.className}
+                    className={cn(column.mobileHidden && 'max-md:hidden', column.className)}
                     // Announced only where a control exists. `aria-sort="none"` on
                     // a column nobody can sort tells a screen reader there is a
                     // move to make, and there is not.
@@ -293,7 +295,7 @@ export function DataTable<Row>({
                   {shown.map((column) => (
                     <TableCell
                       key={column.id}
-                      className={column.className}
+                      className={cn(column.mobileHidden && 'max-md:hidden', column.className)}
                       data-testid={`${testId}-cell-${rowKey(row)}-${column.id}`}
                     >
                       <I18nText>{column.cell(row)}</I18nText>
@@ -476,6 +478,7 @@ function ColumnMenu<Row>({
             <DropdownMenuCheckboxItem
               key={column.id}
               data-testid={`${testId}-columns-${column.id}`}
+              className={cn(column.mobileHidden && 'max-md:hidden')}
               checked={view.visible.includes(column.id)}
               disabled={column.required}
               onSelect={(event) => event.preventDefault()}

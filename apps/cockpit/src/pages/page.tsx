@@ -201,7 +201,7 @@ export function PageDetailPage() {
             empty={
               <EmptyState
                 title="No revisions recorded"
-                description="Every approved change writes a revision here. This page has none, which means nothing has been approved for it yet."
+                description="No approved change has written a revision for this page yet."
                 data-testid="page-history-empty"
               />
             }
@@ -240,7 +240,7 @@ function ClaimsPanel({ claims }: { claims: readonly Claim[] }) {
       {claims.length === 0 ? (
         <EmptyState
           title="No claims yet"
-          description="A claim is one statement this page makes, tied to a verbatim quote from an archived source. Claims are produced by ingesting documents; a page written by hand starts without them."
+          description="Ingest a source to add quoted, reviewable claims to this page."
           data-testid="page-claims-empty"
         />
       ) : (

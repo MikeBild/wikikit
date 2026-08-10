@@ -212,15 +212,44 @@ export const DE_PHRASES = {
   Waiting: 'Wartet',
   'More information': 'Weitere Informationen',
   'About asking': 'Informationen zur Antwortfunktion',
+  'About API key names': 'Informationen zu API-Schlüsselnamen',
+  'About charter Markdown': 'Informationen zum Markdown der Leitlinien',
   'About connector streams': 'Informationen zu Connector-Datenströmen',
+  'About connector-managed sources': 'Informationen zu Connector-verwalteten Quellen',
+  'About identity providers': 'Informationen zu Identitätsanbietern',
+  'About identity subjects': 'Informationen zu Identitätssubjekten',
   'About MCP clients': 'Informationen zu MCP-Clients',
   'About reference targets': 'Informationen zu Referenzzielen',
+  'About search language': 'Informationen zur Suchsprache',
+  'About the archive record': 'Informationen zum Archiveintrag',
+  'About the archived document': 'Informationen zum archivierten Dokument',
   'About this build': 'Informationen zu diesem Build',
+  'About use-when guidance': 'Informationen zur Verwendungsempfehlung',
   'About the derived overview': 'Informationen zur abgeleiteten Übersicht',
   'About version history': 'Informationen zum Versionsverlauf',
+  'About webhook addresses': 'Informationen zu Webhook-Adressen',
+  'About webhook subscriptions': 'Informationen zu Webhook-Abonnements',
   'About wiki exchange formats': 'Informationen zu Wiki-Austauschformaten',
+  'About wiki keywords': 'Informationen zu Wiki-Schlüsselwörtern',
+  'About wiki purpose': 'Informationen zum Wiki-Zweck',
+  'About writing pages by hand': 'Informationen zum manuellen Verfassen von Seiten',
+  'A stable upstream id lets each push archive a new version without forking the archive. Older versions remain available to the claims that quote them.':
+    'Eine stabile Upstream-ID ermöglicht es, bei jedem Push eine neue Version zu archivieren, ohne das Archiv aufzuteilen. Ältere Versionen bleiben für die Aussagen verfügbar, die sie zitieren.',
   'Add a document to archive evidence and draft reviewable pages.':
     'Füge ein Dokument hinzu, um Nachweise zu archivieren und prüfbare Seitenentwürfe zu erstellen.',
+  'Add a source or edit a page to raise the first change.':
+    'Füge eine Quelle hinzu oder bearbeite eine Seite, um die erste Änderung zu erstellen.',
+  'An HTTPS address WikiKit can reach. Deliveries are POST requests, not browser pages.':
+    'Eine für WikiKit erreichbare HTTPS-Adresse. Zustellungen sind POST-Anfragen und keine Browserseiten.',
+  'An endpoint subscribed to everything also receives event types introduced in later releases.':
+    'Ein Endpunkt mit einem Abonnement für alle Ereignisse empfängt auch Ereignistypen aus späteren Versionen.',
+  'Approve a change carrying a decision to add it here.':
+    'Gib eine Änderung mit einer Entscheidung frei, um sie hier hinzuzufügen.',
+  'Changing this rebuilds the search index for this wiki.': 'Eine Änderung erstellt den Suchindex dieses Wikis neu.',
+  'Claims and the quotes behind them come from ingesting sources. A page written here stages text only.':
+    'Aussagen und die zugehörigen Zitate entstehen beim Einlesen von Quellen. Eine hier verfasste Seite stellt nur Text zur Prüfung bereit.',
+  'Connector-pushed documents appear here with their current version.':
+    'Von Connectoren übertragene Dokumente erscheinen hier mit ihrer aktuellen Version.',
   'Create a key for an agent, connector or script.':
     'Erstelle einen Schlüssel für einen Agenten, Connector oder ein Skript.',
   'Create a page here or add evidence under Sources.':
@@ -228,6 +257,12 @@ export const DE_PHRASES = {
   'Derived overview': 'Abgeleitete Übersicht',
   'Grant a person access through a configured identity provider.':
     'Gewähre einer Person über einen konfigurierten Identitätsanbieter Zugriff.',
+  'Every classification and synthesis job reads this text. Write the scope, vocabulary and boundaries a contributor needs.':
+    'Jeder Klassifizierungs- und Syntheseauftrag liest diesen Text. Beschreibe Geltungsbereich, Vokabular und Grenzen für Mitwirkende.',
+  'How search reduces words before matching them.':
+    'Wie die Suche Wörter vor dem Abgleich auf ihre Grundform reduziert.',
+  'Ingest a source to add quoted, reviewable claims to this page.':
+    'Lies eine Quelle ein, um dieser Seite zitierte, prüfbare Aussagen hinzuzufügen.',
   'Import with the API or CLI, then review the change it raises in this cockpit.':
     'Importiere über die API oder CLI und prüfe anschließend die erzeugte Änderung in diesem Cockpit.',
   'Register an endpoint to receive signed WikiKit events.':
@@ -236,6 +271,20 @@ export const DE_PHRASES = {
     'Durchsuche freigegebenes Wissen oder beziehe archivierte Quellennachweise ein.',
   'Write the rules that guide classification and synthesis for this wiki.':
     'Verfasse die Regeln, die Klassifizierung und Synthese für dieses Wiki steuern.',
+  'No approved change has written a revision for this page yet.':
+    'Noch keine freigegebene Änderung hat eine Revision für diese Seite geschrieben.',
+  'No subscribed event has happened since this endpoint was registered.':
+    'Seit der Registrierung dieses Endpunkts ist kein abonniertes Ereignis eingetreten.',
+  'The configured provider id. Any other value is refused.':
+    'Die konfigurierte Anbieter-ID. Jeder andere Wert wird abgelehnt.',
+  'The name identifies this key later; the secret itself is never shown again or stored.':
+    'Der Name identifiziert diesen Schlüssel später; das Geheimnis selbst wird weder erneut angezeigt noch gespeichert.',
+  'The page as fetched and projected to Markdown. The live page may have changed since.':
+    'Die abgerufene und in Markdown überführte Seite. Die Live-Seite kann sich inzwischen geändert haben.',
+  'The stable id the provider sends for this person, rather than their changeable email.':
+    'Die stabile ID, die der Anbieter für diese Person sendet, statt ihrer veränderlichen E-Mail-Adresse.',
+  'What WikiKit knows about these bytes. The hash makes the same document ingested twice one source rather than two.':
+    'Was WikiKit über diese Bytes weiß. Der Hash sorgt dafür, dass dasselbe zweimal eingelesene Dokument eine Quelle bleibt.',
   'carries the structure as well as the text, so imported claims still quote their sources.':
     'enthält neben dem Text auch die Struktur, sodass importierte Aussagen weiterhin ihre Quellen zitieren.',
   'is a zip of ordinary files — one per page, decision and source, plus an index. It is best for reading and is lossy: claims, citations and relations become prose rather than structure.':

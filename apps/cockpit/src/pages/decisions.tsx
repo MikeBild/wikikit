@@ -218,7 +218,7 @@ export function DecisionsPage() {
               framed={false}
               data-testid="decisions-empty"
               title="No decisions yet"
-              description="A decision is recorded by the change that proposes it. Approve a change carrying one and it appears here, with its context, its rationale and the alternatives that were discarded."
+              description="Approve a change carrying a decision to add it here."
             />
           )
         }

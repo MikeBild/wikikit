@@ -162,14 +162,15 @@ different bytes announce a different string, in the DOM, in every screenshot.
   does not. Every element between `body` and the scrolling pane is bounded to the
   viewport.
 - **CUI-LAYOUT-2** — Spacing is `flex` + `gap-*`.
-- **CUI-LAYOUT-3** — A table wide enough to overflow scrolls inside its own
-  container, never by pushing the page sideways.
+- **CUI-LAYOUT-3** — A visible table fits its container without horizontal
+  scrolling. Secondary columns collapse responsively; the primary identity and
+  row actions remain reachable.
 
 ## 12. Responsiveness
 
-- **CUI-RESP-1** — A new or touched page is usable at 390px wide. A table may
-  scroll horizontally inside its own container; nothing else may, and a table may
-  not take the row's own controls with it.
+- **CUI-RESP-1** — A new or touched page is usable at 390px wide without
+  horizontal scrolling. A table keeps its primary identity and row actions on
+  screen and hides secondary columns at that width.
 
 ## 13. Accessibility
 

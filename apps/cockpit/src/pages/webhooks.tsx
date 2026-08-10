@@ -7,6 +7,7 @@ import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { SegmentedControl } from '@/components/controls'
 import { CopyButton } from '@/components/copy-button'
+import { ContextHelp, FieldLabel } from '@/components/context-help'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
@@ -23,7 +24,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Spinner } from '@/components/ui/spinner'
 import { useNow } from '@/hooks/use-now'
@@ -214,19 +214,29 @@ export function WebhooksPage() {
         id: 'url',
         label: 'Endpoint',
         required: true,
+        className: 'max-w-48 whitespace-normal',
         compare: (left, right) => compareText(left.url, right.url),
         cell: (row) => (
           // Text, not an anchor. A webhook target is a machine's address, and
           // making it a link invites an operator to open a POST-only URL in a
           // tab and read a 405 as evidence the endpoint is broken.
-          <span className="block max-w-[42ch] truncate font-mono text-xs" data-testid={`webhook-url-${row.id}`}>
-            {row.url}
-          </span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span
+              className="block max-w-48 truncate font-mono text-xs md:max-w-[42ch]"
+              data-testid={`webhook-url-${row.id}`}
+            >
+              {row.url}
+            </span>
+            <span className="md:hidden">
+              <Badge tone={BADGE_TONE[endpointCondition(row, now).state]}>{endpointCondition(row, now).word}</Badge>
+            </span>
+          </div>
         ),
       },
       {
         id: 'condition',
         label: 'Condition',
+        mobileHidden: true,
         cell: (row) => {
           const condition = endpointCondition(row, now)
           return (
@@ -247,6 +257,7 @@ export function WebhooksPage() {
       {
         id: 'events',
         label: 'Subscribed to',
+        mobileHidden: true,
         cell: (row) =>
           // An empty array is not an absence: the API reads "no events named" as
           // "every event", so it must never render as an em dash.
@@ -265,6 +276,7 @@ export function WebhooksPage() {
       {
         id: 'failures',
         label: 'Failures in a row',
+        mobileHidden: true,
         cell: (row) => (
           // A measured zero, printed as zero. The em-dash rule is for a value
           // nobody sent; this endpoint has been counted and the count is none.
@@ -341,6 +353,7 @@ export function WebhooksPage() {
       {
         id: 'attempt',
         label: 'Attempts',
+        mobileHidden: true,
         cell: (row) => (
           <span className="tabular-nums" data-testid={`delivery-attempt-${row.id}`}>
             {row.attempt}
@@ -350,6 +363,7 @@ export function WebhooksPage() {
       {
         id: 'response',
         label: 'Answered',
+        mobileHidden: true,
         // Genuinely absent: a delivery that never reached the endpoint has no
         // response status, and `0` would read as a status code (CUI-SEV-2).
         cell: (row) => (
@@ -361,6 +375,7 @@ export function WebhooksPage() {
       {
         id: 'next',
         label: 'Next attempt',
+        mobileHidden: true,
         compare: (left, right) => compareTime(left.next_attempt_at, right.next_attempt_at),
         cell: (row) =>
           row.next_attempt_at ? (
@@ -372,6 +387,7 @@ export function WebhooksPage() {
       {
         id: 'error',
         label: 'What went wrong',
+        mobileHidden: true,
         cell: (row) =>
           row.last_error ? (
             // The endpoint's own words, never rewritten (CUI-LOAD-2). Truncated
@@ -387,6 +403,7 @@ export function WebhooksPage() {
       {
         id: 'created',
         label: 'Queued',
+        mobileHidden: true,
         descFirst: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
         cell: (row) => <RelativeTime value={row.created_at} />,
@@ -486,7 +503,7 @@ export function WebhooksPage() {
                   icon={Send}
                   framed={false}
                   title="Nothing has been sent yet"
-                  description="This endpoint is registered and no event it subscribes to has happened since. That is good news, not a fault — raise or approve a change and the first delivery appears here."
+                  description="No subscribed event has happened since this endpoint was registered."
                   data-testid="deliveries-empty-state"
                 />
               }
@@ -632,7 +649,14 @@ function RegisterEndpoint({
         ) : (
           <div className="flex flex-col gap-4 overflow-y-auto">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="endpoint-url">Address</Label>
+              <FieldLabel
+                htmlFor="endpoint-url"
+                helpTitle="About webhook addresses"
+                help={<p>An HTTPS address WikiKit can reach. Deliveries are POST requests, not browser pages.</p>}
+                testId="webhook-address-help"
+              >
+                Address
+              </FieldLabel>
               <Input
                 id="endpoint-url"
                 data-testid="endpoint-url"
@@ -642,15 +666,16 @@ function RegisterEndpoint({
                 placeholder="https://example.com/hooks/wikikit"
                 onChange={(event) => setUrl(event.target.value)}
               />
-              <p className="text-muted-foreground text-xs">
-                An https:// address WikiKit can reach. Deliveries are POSTs, so this URL never needs to answer a
-                browser.
-              </p>
             </div>
 
             <div className="flex flex-col gap-2">
               {/* Not a <Label>: a group of controls, not one labelable field. */}
-              <span className="text-sm leading-none font-medium">What should it hear about?</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm leading-none font-medium">What should it hear about?</span>
+                <ContextHelp title="About webhook subscriptions" testId="webhook-subscriptions-help">
+                  <p>An endpoint subscribed to everything also receives event types introduced in later releases.</p>
+                </ContextHelp>
+              </div>
               <SegmentedControl
                 label="Which events"
                 data-testid="endpoint-scope"
@@ -661,12 +686,7 @@ function RegisterEndpoint({
                 ]}
                 onChange={setScope}
               />
-              {scope === 'all' ? (
-                <p className="text-muted-foreground text-xs">
-                  Including event types added in later releases — an endpoint that subscribes to everything keeps
-                  subscribing to everything.
-                </p>
-              ) : (
+              {scope === 'all' ? null : (
                 <div className="flex flex-col gap-1.5" role="group" aria-label="Event types">
                   {EVENT_TYPES.map((event) => {
                     const chosen = events.includes(event.id)

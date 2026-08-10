@@ -5,6 +5,7 @@ import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
+import { FieldLabel } from '@/components/context-help'
 import { SegmentedControl } from '@/components/controls'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
@@ -187,6 +188,7 @@ export function IdentitiesPage() {
         id: 'person',
         label: 'Person',
         required: true,
+        className: 'max-w-44 whitespace-normal',
         compare: (left, right) => compareText(personLabel(left), personLabel(right)),
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -195,12 +197,16 @@ export function IdentitiesPage() {
                 identity with no email is addressed by its subject above, and a
                 second line saying "—" adds a fact nobody needed. */}
             {row.email ? <span className="text-muted-foreground truncate text-xs">{row.email}</span> : null}
+            <span className="md:hidden">
+              <Badge tone={BADGE_TONE[grantState(row)]}>{row.revoked_at ? 'Revoked' : 'Admitted'}</Badge>
+            </span>
           </div>
         ),
       },
       {
         id: 'status',
         label: 'Status',
+        mobileHidden: true,
         compare: (left, right) => compareText(left.revoked_at, right.revoked_at),
         cell: (row) => (
           // The word as well as the colour (CUI-A11Y-5).
@@ -212,6 +218,7 @@ export function IdentitiesPage() {
       {
         id: 'ceiling',
         label: 'May do',
+        mobileHidden: true,
         cell: (row) => (
           <div className="flex flex-wrap gap-1" data-testid={`identity-ceiling-${row.provider}-${row.subject}`}>
             {/* An empty ceiling is not "no data": it is a stored array that
@@ -231,6 +238,7 @@ export function IdentitiesPage() {
       {
         id: 'provider',
         label: 'Signs in with',
+        mobileHidden: true,
         compare: (left, right) => compareText(left.provider, right.provider),
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -251,6 +259,7 @@ export function IdentitiesPage() {
       {
         id: 'last_seen',
         label: 'Last seen',
+        mobileHidden: true,
         descFirst: true,
         compare: (left, right) => compareTime(left.last_seen_at, right.last_seen_at),
         // A grant nobody has used yet is a known fact, not a missing one, so it
@@ -644,7 +653,14 @@ function GrantAccess({
         <div className="flex flex-col gap-4 overflow-y-auto">
           <div className="flex flex-col gap-4 sm:flex-row">
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor="grant-provider">Identity provider</Label>
+              <FieldLabel
+                htmlFor="grant-provider"
+                helpTitle="About identity providers"
+                help={<p>The configured provider id. Any other value is refused.</p>}
+                testId="grant-provider-help"
+              >
+                Identity provider
+              </FieldLabel>
               <Input
                 id="grant-provider"
                 data-testid="grant-provider"
@@ -653,13 +669,16 @@ function GrantAccess({
                 placeholder="entra"
                 onChange={(event) => setProvider(event.target.value)}
               />
-              <p className="text-muted-foreground text-xs">
-                The id of a provider this deployment is configured to authenticate against. Anything else is refused — a
-                typo would otherwise create a grant no login can ever match.
-              </p>
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor="grant-subject">Subject</Label>
+              <FieldLabel
+                htmlFor="grant-subject"
+                helpTitle="About identity subjects"
+                help={<p>The stable id the provider sends for this person, rather than their changeable email.</p>}
+                testId="grant-subject-help"
+              >
+                Subject
+              </FieldLabel>
               <Input
                 id="grant-subject"
                 data-testid="grant-subject"
@@ -668,9 +687,6 @@ function GrantAccess({
                 placeholder="Provider subject"
                 onChange={(event) => setSubject(event.target.value)}
               />
-              <p className="text-muted-foreground text-xs">
-                The stable id the provider sends for this person — not their email, which they can change.
-              </p>
             </div>
           </div>
 

@@ -2,6 +2,7 @@ import { CircleHelp } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { I18nText } from '@/components/i18n-text'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18n } from '@/lib/i18n-context'
@@ -15,7 +16,7 @@ import { useI18n } from '@/lib/i18n-context'
  */
 export function ContextHelp({ title, children, testId }: { title: string; children: ReactNode; testId: string }) {
   const { text } = useI18n()
-  const label = text('More information')
+  const label = text(title)
   return (
     <Popover>
       <Tooltip>
@@ -39,6 +40,32 @@ export function ContextHelp({ title, children, testId }: { title: string; childr
         </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** A shadcn field label with supplemental guidance beside it. */
+export function FieldLabel({
+  htmlFor,
+  children,
+  help,
+  helpTitle,
+  testId,
+}: {
+  htmlFor?: string
+  children: ReactNode
+  help: ReactNode
+  helpTitle: string
+  testId: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label htmlFor={htmlFor}>
+        <I18nText>{children}</I18nText>
+      </Label>
+      <ContextHelp title={helpTitle} testId={testId}>
+        {help}
+      </ContextHelp>
+    </div>
   )
 }
 

@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
+import { FieldLabel } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import {
@@ -290,7 +291,18 @@ export function PageEditPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <section className={cn('flex min-w-0 flex-col gap-1.5', pane === 'preview' && 'hidden md:flex')}>
-          <Label htmlFor="page-markdown">Markdown</Label>
+          <FieldLabel
+            htmlFor="page-markdown"
+            helpTitle="About writing pages by hand"
+            help={
+              <p>
+                Claims and the quotes behind them come from ingesting sources. A page written here stages text only.
+              </p>
+            }
+            testId="page-markdown-help"
+          >
+            Markdown
+          </FieldLabel>
           <Textarea
             id="page-markdown"
             data-testid="page-edit-markdown"
@@ -301,14 +313,6 @@ export function PageEditPage() {
             placeholder={'# Heading\n\nWhat this wiki knows, in Markdown.'}
             onChange={(event) => update({ markdown: event.target.value })}
           />
-          {/* Said once, where it changes what somebody writes: prose is what
-              this box makes. Claims — the statements that carry a verbatim
-              quote — come from ingesting a source, and a textarea cannot
-              produce a quote from an archive. */}
-          <p className="text-muted-foreground text-xs">
-            Claims and the quotes behind them come from ingesting sources under Sources. A page written here stages its
-            text and nothing else.
-          </p>
         </section>
 
         <section className={cn('flex min-w-0 flex-col gap-1.5', pane === 'write' && 'hidden md:flex')}>

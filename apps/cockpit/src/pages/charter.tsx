@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
-import { ContextHelp, SectionHeading } from '@/components/context-help'
+import { ContextHelp, FieldLabel, SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
@@ -116,6 +116,7 @@ const VERSION_COLUMNS: readonly DataColumn<CharterVersion>[] = [
   {
     id: 'author',
     label: 'Written by',
+    mobileHidden: true,
     compare: (left, right) => compareText(left.created_by, right.created_by),
     // Nobody recorded is an em dash, not an empty cell and not "system"
     // (CUI-SEV-2) — a revision whose author the server did not send is a
@@ -130,6 +131,7 @@ const VERSION_COLUMNS: readonly DataColumn<CharterVersion>[] = [
   {
     id: 'written',
     label: 'Written',
+    mobileHidden: true,
     compare: (left, right) => compareTime(left.created_at, right.created_at),
     descFirst: true,
     cell: (version) => <RelativeTime value={version.created_at} data-testid={`charter-version-${version.rev}-time`} />,
@@ -498,9 +500,19 @@ function EditingView({
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <label htmlFor="charter-body" className="text-sm font-medium">
+          <FieldLabel
+            htmlFor="charter-body"
+            helpTitle="About charter Markdown"
+            help={
+              <p>
+                Every classification and synthesis job reads this text. Write the scope, vocabulary and boundaries a
+                contributor needs.
+              </p>
+            }
+            testId="charter-body-help"
+          >
             Charter (Markdown)
-          </label>
+          </FieldLabel>
           <span
             data-testid="charter-length"
             className={
@@ -516,15 +528,10 @@ function EditingView({
           value={draft}
           disabled={busy}
           aria-invalid={overLimit || undefined}
-          aria-describedby="charter-body-help"
           onChange={(event) => onChange(event.target.value)}
           className="min-h-[24rem] font-mono text-xs"
           placeholder="What this wiki is for, what belongs in it, and how a page should be written."
         />
-        <p id="charter-body-help" className="text-muted-foreground text-xs">
-          Plain Markdown. Every classification and synthesis job for this wiki reads it, so write the rules a
-          contributor would need — scope, vocabulary, what is out of bounds.
-        </p>
       </div>
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium">Preview</span>

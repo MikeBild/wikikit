@@ -13,9 +13,9 @@
 //      An app shell whose panes scroll and whose document does not is the whole
 //      layout contract; a horizontal document scrollbar means something escaped
 //      a `min-w-0` and the page's right-hand side is simply unreachable.
-//   2. Every <table> has an ancestor that actually scrolls horizontally
-//      (CUI-LAYOUT-3). A wide table is fine. A wide table that widens the page
-//      is not.
+//   2. Every <table> fits its visible container without horizontal scrolling
+//      (CUI-LAYOUT-3). Secondary columns collapse responsively; the primary
+//      identity and row actions remain visible.
 //   3. No cell clips its own content. `truncate` is a deliberate choice with an
 //      ellipsis; a cell whose scrollWidth exceeds its clientWidth without one is
 //      text nobody can read and nothing says so.
@@ -81,8 +81,8 @@ const PROBE = `(() => {
       if (overflowX === 'auto' || overflowX === 'scroll') { scroller = node; break }
     }
     if (!scroller) findings.push('a table has no horizontally scrolling ancestor')
-    if (table.dataset.testid === 'pages-table' && scroller && scroller.scrollWidth > scroller.clientWidth + 1) {
-      findings.push('the pages table requires horizontal scrolling (' + scroller.scrollWidth + ' > ' + scroller.clientWidth + ')')
+    if (scroller && scroller.scrollWidth > scroller.clientWidth + 1) {
+      findings.push((table.dataset.testid || 'a table') + ' requires horizontal scrolling (' + scroller.scrollWidth + ' > ' + scroller.clientWidth + ')')
     }
   }
   for (const cell of document.querySelectorAll('td, th')) {
@@ -200,7 +200,11 @@ async function main(): Promise<void> {
         // reproducible across runs.
         const url = new URL(`${base.replace(/\/$/, '')}/cockpit${route === '/' ? '/' : route}`)
         if (space) url.searchParams.set('space', space)
-        await page.goto(url.href, { waitUntil: 'networkidle' })
+        // Some cockpit routes keep a live request open. `networkidle` would turn
+        // that healthy behaviour into a false timeout, so wait for the document
+        // and then for the application shell that the layout probe actually needs.
+        await page.goto(url.href, { waitUntil: 'domcontentloaded' })
+        await page.locator('[data-testid="sidebar-trigger"]').waitFor({ state: 'attached', timeout: 15_000 })
 
         // A route that bounced to the sign-in splash proves nothing about
         // layout, and reporting it as a pass would be the checker lying.

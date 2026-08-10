@@ -169,8 +169,9 @@ settles.
 - Spacing is `flex` + `gap-*`, never `space-y-*` (CUI-LAYOUT-2).
 - Container ladder: nothing → tabs → card → accordion. Cards do not nest
   (CUI-LADDER-1/2).
-- Usable at 390px. Only a table scrolls sideways, inside its own container, and
-  it must not take the row's own controls with it (CUI-RESP-1, CUI-LAYOUT-3).
+- Usable at 390px without horizontal scrolling. Tables collapse secondary
+  columns while keeping their primary identity and row actions visible
+  (CUI-RESP-1, CUI-LAYOUT-3).
 - Every interactive element carries a `data-testid` (CUI-A11Y-4). The PROD
   verification checklist is driven by them.
 

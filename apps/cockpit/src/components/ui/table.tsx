@@ -5,37 +5,10 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * The one local deviation from what `shadcn add table` writes: below `md`, a
- * row's last cell is pinned to the right edge of the scroller.
- *
- * Measured at 390, every list in this console: the tables are 713px (spaces) to
- * 1749px (webhook endpoints) wide inside a 342px container, and **the last
- * column is the row's actions on every one of them**. So `edit`, `revoke`,
- * `delete`, `approve` and `expand` sat between 370px and 1400px off the right
- * of the window — reachable only by scrolling a table sideways first, on a
- * surface where that gesture is also how you scroll the page. On a phone the
- * cockpit was read-only by accident, which for a product whose whole point is
- * that a human approves every change is the one thing it cannot be.
- *
- * UI-UX.md §7 lets a table scroll horizontally, and this keeps that: the data
- * still scrolls, in full, with nothing hidden. What stops scrolling is the
- * column that is not data. `md` rather than `sm` because 768px is the console's
- * own breakpoint — `useIsMobile`, the sidebar sheet and this now change shape
- * at the same width — and above it nothing about a table changes at all.
- *
- * `max-w-36` and `flex-wrap` are the other half, and they are what a first
- * attempt without them measured: pinned but unbounded, the identities list's
- * three controls ("Edit", "Revoke sessions", "Delete") held 230px of a 342px
- * window open permanently and cut the identity's name to 110px at *every*
- * scroll position — the column that says whose access is being revoked.
- * Bounded, that cell is 139px, the name gets 219px, and the three controls
- * stack. Cells whose actions already fit are untouched: `concepts` is 62px,
- * `sources` 16px.
- *
- * `:last-child` rather than a marker class because the alternative is a prop
- * threaded through ten call sites that all already put their actions last; the
- * structure is the signal, and the narrow-viewport case in
- * `test/unit/cockpit-overflow.test.ts` is what checks it stays true.
+ * shadcn's scroll container remains as a defensive boundary, but the cockpit's
+ * responsive contract is stricter: below `md` the table itself fits the card.
+ * `DataTable` removes secondary columns, while fixed layout plus wrapping keeps
+ * the remaining identity, state and action cells inside the viewport.
  */
 function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
@@ -61,8 +34,8 @@ function Table({ className, ...props }: React.ComponentProps<'table'>) {
           // added for. It also makes the overflow check's "N scrolling inside"
           // mean something: with `w-full` no table could ever scroll, so a green
           // run was measuring the bug rather than the absence of it.
-          'min-w-full caption-bottom text-sm',
-          'max-md:[&_tr>:last-child]:sticky max-md:[&_tr>:last-child]:right-0 max-md:[&_tr>:last-child]:max-w-36 max-md:[&_tr>:last-child]:flex-wrap max-md:[&_tr>:last-child]:bg-card',
+          'min-w-full caption-bottom text-sm max-md:w-full max-md:table-fixed',
+          'max-md:[&_tr>:last-child]:max-w-36 max-md:[&_tr>:last-child]:flex-wrap',
           className,
         )}
         {...props}
@@ -107,7 +80,7 @@ function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0',
+        'h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground max-md:break-words max-md:whitespace-normal [&:has([role=checkbox])]:pr-0',
         className,
       )}
       {...props}
@@ -119,7 +92,10 @@ function TableCell({ className, ...props }: React.ComponentProps<'td'>) {
   return (
     <td
       data-slot="table-cell"
-      className={cn('p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0', className)}
+      className={cn(
+        'p-2 align-middle whitespace-nowrap max-md:break-words max-md:whitespace-normal [&:has([role=checkbox])]:pr-0',
+        className,
+      )}
       {...props}
     />
   )

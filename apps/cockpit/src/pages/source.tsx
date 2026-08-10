@@ -8,10 +8,11 @@ import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { CopyButton } from '@/components/copy-button'
 import { SegmentedControl } from '@/components/controls'
+import { ContextHelp } from '@/components/context-help'
 import { CardSkeleton, DataState } from '@/components/data-state'
 import { EmptyState } from '@/components/empty-state'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { useSpace } from '@/lib/space'
 import { presentValue } from '@/lib/presentation'
@@ -94,10 +95,14 @@ function SourceDocument({ source }: { source: Source }) {
       <Card>
         <CardHeader>
           <CardTitle>The archive record</CardTitle>
-          <CardDescription>
-            What WikiKit knows about these bytes. The hash is what makes the same document ingested twice one source
-            rather than two.
-          </CardDescription>
+          <CardAction>
+            <ContextHelp title="About the archive record" testId="source-archive-help">
+              <p>
+                What WikiKit knows about these bytes. The hash makes the same document ingested twice one source rather
+                than two.
+              </p>
+            </ContextHelp>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <dl className="grid gap-4 sm:grid-cols-2">
@@ -175,10 +180,14 @@ function SourceDocument({ source }: { source: Source }) {
         <Card>
           <CardHeader>
             <CardTitle>Kept in step by a connector</CardTitle>
-            <CardDescription>
-              This document has a stable id upstream, so each push archives a new version instead of forking the
-              archive. Older versions stay exactly where they are — the claims that quote them keep their evidence.
-            </CardDescription>
+            <CardAction>
+              <ContextHelp title="About connector-managed sources" testId="source-connector-help">
+                <p>
+                  A stable upstream id lets each push archive a new version without forking the archive. Older versions
+                  remain available to the claims that quote them.
+                </p>
+              </ContextHelp>
+            </CardAction>
           </CardHeader>
           <CardContent>
             <dl className="grid gap-4 sm:grid-cols-2">
@@ -215,11 +224,15 @@ function SourceDocument({ source }: { source: Source }) {
       <Card>
         <CardHeader>
           <CardTitle>The document</CardTitle>
-          <CardDescription>
-            {source.kind === 'url'
-              ? 'The page as it was fetched, projected to Markdown. The bytes below are the archive; the live page may have changed since.'
-              : 'Exactly what was handed to WikiKit. Nothing here has been edited.'}
-          </CardDescription>
+          <CardAction>
+            <ContextHelp title="About the archived document" testId="source-document-help">
+              <p>
+                {source.kind === 'url'
+                  ? 'The page as fetched and projected to Markdown. The live page may have changed since.'
+                  : 'Exactly what was handed to WikiKit. Nothing here has been edited.'}
+              </p>
+            </ContextHelp>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <SegmentedControl
