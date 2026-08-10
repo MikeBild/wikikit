@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
+import { ContextHelp, SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
@@ -252,7 +253,6 @@ export function CharterPage() {
               {(open) => (
                 <DisabledReason reason={submitReason} data-testid="charter-submit-reason">
                   <Button
-                    variant="accent"
                     data-testid="charter-submit"
                     disabled={save.isPending || overLimit || unchanged}
                     onClick={open}
@@ -312,16 +312,15 @@ export function CharterPage() {
             ) : null}
             <DisabledReason
               reason={admin ? null : 'Needs admin — the charter is configuration, not reviewed knowledge.'}
-              data-testid="charter-edit-reason"
+              data-testid={written ? 'charter-edit-reason' : 'charter-write-reason'}
             >
               <Button
-                variant="accent"
-                data-testid="charter-edit"
+                data-testid={written ? 'charter-edit' : 'charter-write'}
                 disabled={!admin}
                 onClick={() => setDraft(doc.markdown)}
               >
-                <Pencil data-icon="inline-start" />
-                Edit
+                {written ? <Pencil data-icon="inline-start" /> : <ScrollText data-icon="inline-start" />}
+                {written ? 'Edit' : 'Write the charter'}
               </Button>
             </DisabledReason>
           </>
@@ -337,8 +336,6 @@ export function CharterPage() {
                 rev={data.rev}
                 updatedAt={data.updated_at}
                 overview={data.overview}
-                canWrite={admin}
-                onWrite={() => setDraft(data.markdown)}
               />
             ) : (
               <EditingView draft={draft} onChange={setDraft} overLimit={overLimit} busy={save.isPending} />
@@ -347,13 +344,18 @@ export function CharterPage() {
         </DataState>
 
         <section className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-sm font-semibold tracking-tight">Version history</h2>
-            <p className="text-muted-foreground text-sm">
-              Every charter written for this wiki, newest first. Writing supersedes the current revision rather than
-              overwriting it.
-            </p>
-          </div>
+          <SectionHeading
+            helpTitle="About version history"
+            help={
+              <p>
+                Every charter written for this wiki, newest first. Writing supersedes the current revision rather than
+                overwriting it.
+              </p>
+            }
+            testId="charter-history-help"
+          >
+            Version history
+          </SectionHeading>
           <DataTable
             testId="charter-versions"
             columns={VERSION_COLUMNS}
@@ -380,15 +382,11 @@ function ReadingView({
   rev,
   updatedAt,
   overview,
-  canWrite,
-  onWrite,
 }: {
   markdown: string
   rev: number | null
   updatedAt: string | null
   overview: { concepts: number; decisions: number; sources: number }
-  canWrite: boolean
-  onWrite: () => void
 }) {
   const empty = rev === null || markdown.trim().length === 0
 
@@ -404,17 +402,7 @@ function ReadingView({
         <EmptyState
           icon={ScrollText}
           title="No charter yet"
-          description="A charter tells WikiKit what this wiki is for, what belongs in it and what does not, and how a page should be written. It is read by classification and synthesis on every job — without one, they fall back to their defaults."
-          action={
-            <DisabledReason
-              reason={canWrite ? null : 'Needs admin — the charter is configuration, not reviewed knowledge.'}
-              data-testid="charter-write-reason"
-            >
-              <Button variant="accent" data-testid="charter-write" disabled={!canWrite} onClick={onWrite}>
-                Write the charter
-              </Button>
-            </DisabledReason>
-          }
+          description="Write the rules that guide classification and synthesis for this wiki."
           data-testid="charter-empty"
         />
       ) : (
@@ -467,6 +455,15 @@ function OverviewPanel({ overview }: { overview: { concepts: number; decisions: 
         className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
         data-testid="charter-overview"
       >
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold">Derived overview</h2>
+          <ContextHelp title="About the derived overview" testId="charter-overview-help">
+            <p>
+              Derived from current knowledge and appended to the charter automatically, together with an index of every
+              page in this wiki. It is not part of the text above and cannot be edited here.
+            </p>
+          </ContextHelp>
+        </div>
         <div className="flex flex-wrap gap-6">
           {stats.map((stat) => (
             <div key={stat.id} className="flex flex-col gap-0.5">
@@ -477,10 +474,6 @@ function OverviewPanel({ overview }: { overview: { concepts: number; decisions: 
             </div>
           ))}
         </div>
-        <p className="text-muted-foreground text-xs">
-          Derived from current knowledge and appended to the charter automatically, together with an index of every page
-          in this wiki. It is not part of the text above and cannot be edited here.
-        </p>
       </section>
     </I18nText>
   )

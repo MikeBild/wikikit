@@ -342,8 +342,7 @@ export function PagesPage() {
             <EmptyState
               framed={false}
               title="No pages yet"
-              description="A page states what this wiki knows, and every claim on it carries a verbatim quote from a source. Write one by hand, or add a document under Sources and review the pages it produces."
-              action={<NewPage testId="pages-empty-new" canPropose={canPropose} />}
+              description="Create a page here or add evidence under Sources."
               data-testid="pages-empty"
             />
           )
@@ -521,12 +520,7 @@ function EvidenceCell({ row }: { row: PageRow }) {
     )
 
   return (
-    <div
-      className="flex flex-col items-start gap-0.5"
-      data-testid={testId}
-      data-evidence={evidence.level}
-      title={text(evidence.reading)}
-    >
+    <div className="flex flex-col items-start gap-0.5" data-testid={testId} data-evidence={evidence.level}>
       <div className="flex items-center gap-1.5">
         {evidence.count ? <span className="tabular-nums">{text(evidence.count)}</span> : null}
         {evidence.flag ? <Badge tone={evidence.tone}>{text(evidence.flag)}</Badge> : null}
@@ -548,14 +542,14 @@ function NewPage({ testId, canPropose }: { testId: string; canPropose: boolean }
   if (!canPropose)
     return (
       <DisabledReason reason="Needs knowledge:propose — writing a page means submitting a change for review.">
-        <Button variant="accent" disabled data-testid={testId}>
+        <Button disabled data-testid={testId}>
           <FilePlus2 data-icon="inline-start" />
           {text('New page')}
         </Button>
       </DisabledReason>
     )
   return (
-    <Button asChild variant="accent">
+    <Button asChild>
       <Link to="/pages/new" search={KEEP_SEARCH} data-testid={testId}>
         <FilePlus2 data-icon="inline-start" />
         {text('New page')}

@@ -289,16 +289,8 @@ export function ApiKeysPage() {
               icon={KeyRound}
               framed={false}
               title="No API keys"
-              description="Every agent, connector and script that reaches WikiKit presents one of these. People sign in instead, and their authority comes from an identity grant."
+              description="Create a key for an agent, connector or script."
               data-testid="api-keys-empty-state"
-              action={
-                <DisabledReason reason={mayAdmin ? null : 'Needs admin'}>
-                  <Button data-testid="mint-key-empty" disabled={!mayAdmin} onClick={() => setMinting(true)}>
-                    <Plus data-icon="inline-start" />
-                    Mint a key
-                  </Button>
-                </DisabledReason>
-              }
             />
           ) : (
             <EmptyState

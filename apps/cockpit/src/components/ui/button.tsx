@@ -5,13 +5,13 @@ import { cn } from '@/lib/utils'
 import { I18nText } from '@/components/i18n-text'
 
 /**
- * The registry button, with one addition and one removal.
+ * The registry button, with one product-level colour decision and one removal.
  *
- * ADDED — `accent`. WikiKit's primary action on a live surface is a decision an
- * operator takes on the knowledge base — approve this proposal, ingest this
- * source, publish this charter — and `default` (near-black in light,
- * near-white in dark) reads as chrome beside a row of severity badges. `accent`
- * is the palette's blue and is what "do this now" looks like here.
+ * COLOUR — the stock `default` variant is the one and only primary action and
+ * uses the cockpit's blue action token. Keeping a second `accent` variant made
+ * visually identical actions depend on which page happened to author them:
+ * some were black, others blue. The remaining names follow shadcn literally:
+ * outline is secondary, ghost is tertiary and destructive is irreversible.
  *
  * REMOVED — the `buttonVariants` export. A module that exports both a component
  * and a helper defeats fast refresh, and `eslint-plugin-react-refresh` is active
@@ -27,8 +27,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
-        accent: 'bg-accent text-accent-foreground hover:bg-accent/90',
+        default: 'bg-accent text-accent-foreground hover:bg-accent/90',
         outline:
           'border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
         secondary:

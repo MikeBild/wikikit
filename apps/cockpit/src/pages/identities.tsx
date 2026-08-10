@@ -351,16 +351,8 @@ export function IdentitiesPage() {
               icon={Users}
               framed={false}
               title="Nobody has been granted access"
-              description="A person signs in through an identity provider, and this grant is what decides whether that sign-in is allowed and what it may reach. Without a grant here, a successful login still reaches nothing."
+              description="Grant a person access through a configured identity provider."
               data-testid="identities-empty-state"
-              action={
-                <DisabledReason reason={mayAdmin ? null : 'Needs admin'}>
-                  <Button data-testid="grant-access-empty" disabled={!mayAdmin} onClick={() => setGranting(true)}>
-                    <UserPlus data-icon="inline-start" />
-                    Grant access
-                  </Button>
-                </DisabledReason>
-              }
             />
           ) : (
             <EmptyState

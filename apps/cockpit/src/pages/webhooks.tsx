@@ -439,20 +439,8 @@ export function WebhooksPage() {
                 icon={Radio}
                 framed={false}
                 title="No endpoints registered"
-                description="Nothing outside WikiKit is being told about this wiki. Register a URL and WikiKit posts a signed event to it whenever a change is raised, approved or rejected."
+                description="Register an endpoint to receive signed WikiKit events."
                 data-testid="webhooks-empty-state"
-                action={
-                  <DisabledReason reason={mayAdmin ? null : 'Needs admin'}>
-                    <Button
-                      data-testid="register-endpoint-empty"
-                      disabled={!mayAdmin}
-                      onClick={() => setRegistering(true)}
-                    >
-                      <Plus data-icon="inline-start" />
-                      Register an endpoint
-                    </Button>
-                  </DisabledReason>
-                }
               />
             }
           />

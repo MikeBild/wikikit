@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
+import { SectionHeading } from '@/components/context-help'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
@@ -331,31 +332,27 @@ export function SourcesPage() {
                 icon={Archive}
                 framed={false}
                 title="No sources yet"
-                description="A wiki with no evidence can hold no knowledge. Add a document and WikiKit archives it verbatim, then drafts pages that quote it."
+                description="Add a document to archive evidence and draft reviewable pages."
                 data-testid="sources-empty-state"
-                action={
-                  <DisabledReason reason={mayAdd ? null : 'Needs knowledge:propose'}>
-                    <Button data-testid="add-documents-empty" disabled={!mayAdd} onClick={() => setAdding(true)}>
-                      <Plus data-icon="inline-start" />
-                      Add documents
-                    </Button>
-                  </DisabledReason>
-                }
               />
             }
           />
         </section>
 
         <section className="flex flex-col gap-3" aria-labelledby="streams-heading">
-          <div className="flex flex-col gap-1">
-            <h2 id="streams-heading" className="text-sm font-semibold">
-              Connector streams
-            </h2>
-            <p className="text-muted-foreground text-sm">
-              One stream is one upstream document that a connector keeps in step — each push archives a new version and
-              moves the stream's head.
-            </p>
-          </div>
+          <SectionHeading
+            id="streams-heading"
+            helpTitle="About connector streams"
+            help={
+              <p>
+                One stream is one upstream document that a connector keeps in step — each push archives a new version
+                and moves the stream's head.
+              </p>
+            }
+            testId="sources-streams-help"
+          >
+            Connector streams
+          </SectionHeading>
           <DataTable
             testId="streams"
             columns={streamColumns}

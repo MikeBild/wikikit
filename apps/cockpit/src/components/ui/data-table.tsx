@@ -414,18 +414,23 @@ function FailureRow({
 /** The answer arrived and there is nothing in it — which is often the good news. */
 function EmptyRow({ testId, columns, message }: { testId: string; columns: number; message?: ReactNode }) {
   const { t } = useI18n()
+  const custom = message !== undefined && typeof message !== 'string'
   return (
     <TableRow>
       <TableCell colSpan={Math.max(1, columns)} className="p-8 whitespace-normal">
-        <div
-          data-testid={`${testId}-empty`}
-          className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
-        >
-          <Inbox className="size-5" />
-          <span>
-            <I18nText>{message ?? t('table.empty')}</I18nText>
-          </span>
-        </div>
+        {custom ? (
+          <I18nText>{message}</I18nText>
+        ) : (
+          <div
+            data-testid={`${testId}-empty`}
+            className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
+          >
+            <Inbox className="size-5" />
+            <span>
+              <I18nText>{message ?? t('table.empty')}</I18nText>
+            </span>
+          </div>
+        )}
       </TableCell>
     </TableRow>
   )

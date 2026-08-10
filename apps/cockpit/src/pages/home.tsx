@@ -102,7 +102,7 @@ export function HomePage() {
       title={space}
       description="What this wiki learned lately, what is waiting for a reviewer, and where its knowledge is thin."
       actions={
-        <Button asChild variant="accent">
+        <Button asChild>
           <Link to="/changes" search={(prev) => prev} data-testid="home-open-changes">
             Review changes
           </Link>

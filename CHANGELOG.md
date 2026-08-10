@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.5 - 2026-08-10
+
+### Fixed
+
+- **Cockpit actions now follow one visual hierarchy.** The shared shadcn button
+  uses the blue action token for the sole primary variant on every route;
+  outline, ghost and destructive buttons keep their semantic roles, and page
+  actions are no longer repeated inside empty states.
+- **Contextual explanations replace dense supplemental prose.** A shared,
+  keyboard-accessible help control combines a short hover/focus tooltip with a
+  click/touch popover on Charter, Search, Sources, System and Wikis surfaces,
+  with complete German and English copy and stable `data-testid` selectors.
+- **Custom table empty states render exactly one icon.** The generic inbox icon
+  is omitted when a domain-specific empty state is supplied. Regression tests
+  now enforce the button hierarchy, shadcn icon spacing, reachable help,
+  absence of native `title` fallbacks and non-duplicated actions.
+
 ## 0.33.4 - 2026-08-10
 
 ### Fixed

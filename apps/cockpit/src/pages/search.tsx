@@ -8,6 +8,7 @@ import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { SegmentedControl } from '@/components/controls'
+import { SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { EmptyState } from '@/components/empty-state'
@@ -176,7 +177,7 @@ export function SearchPage() {
               aria-label="Search this wiki"
               data-testid="search-input"
             />
-            <Button type="submit" variant="accent" data-testid="search-submit">
+            <Button type="submit" data-testid="search-submit">
               <Search data-icon="inline-start" />
               Search
             </Button>
@@ -207,7 +208,7 @@ export function SearchPage() {
             icon={Search}
             data-testid="search-idle"
             title="Search this wiki"
-            description="Results come in two tiers: what this wiki has approved, and — if you ask for them — lines found only in the archived sources behind it. The second tier is evidence, not knowledge."
+            description="Search approved knowledge or include archived source evidence."
           />
         ) : (
           <DataState
@@ -491,10 +492,6 @@ function PageEvidenceLine({ hit, index }: { hit: SearchHit; index: number }) {
       className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
       data-testid={testId}
       data-evidence={evidence.level}
-      // The whole state as one sentence, for a reader who would rather have the
-      // numbers spelled out before deciding to open the page. Every word of it
-      // is also on screen — the attribute adds, it never carries.
-      title={evidence.reading}
     >
       <span className="text-muted-foreground font-medium">Evidence:</span>
       {evidence.count ? <span className="text-muted-foreground tabular-nums">{evidence.count}</span> : null}
@@ -614,15 +611,19 @@ function AskPanel({
   return (
     <I18nText>
       <section className="border-border flex flex-col gap-3 rounded-lg border p-4" aria-labelledby="search-ask-heading">
-        <div className="flex flex-col gap-1">
-          <h2 id="search-ask-heading" className="text-sm font-semibold tracking-tight">
-            Ask instead of searching
-          </h2>
-          <p className="text-muted-foreground text-sm">
-            A model reads the approved pages{mode === 'approved_then_sources' ? ' and the archived sources' : ''} and
-            answers in prose, citing what it used. It costs model tokens, so it runs only when you ask.
-          </p>
-        </div>
+        <SectionHeading
+          id="search-ask-heading"
+          helpTitle="About asking"
+          help={
+            <p>
+              A model reads the approved pages{mode === 'approved_then_sources' ? ' and the archived sources' : ''} and
+              answers in prose, citing what it used. It costs model tokens, so it runs only when you ask.
+            </p>
+          }
+          testId="search-ask-help"
+        >
+          Ask instead of searching
+        </SectionHeading>
 
         <Button
           variant="outline"

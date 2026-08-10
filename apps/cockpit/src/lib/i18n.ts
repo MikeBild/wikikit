@@ -210,6 +210,36 @@ export const DE_PHRASES = {
   Actions: 'Aktionen',
   Edit: 'Bearbeiten',
   Waiting: 'Wartet',
+  'More information': 'Weitere Informationen',
+  'About asking': 'Informationen zur Antwortfunktion',
+  'About connector streams': 'Informationen zu Connector-Datenströmen',
+  'About MCP clients': 'Informationen zu MCP-Clients',
+  'About reference targets': 'Informationen zu Referenzzielen',
+  'About this build': 'Informationen zu diesem Build',
+  'About the derived overview': 'Informationen zur abgeleiteten Übersicht',
+  'About version history': 'Informationen zum Versionsverlauf',
+  'About wiki exchange formats': 'Informationen zu Wiki-Austauschformaten',
+  'Add a document to archive evidence and draft reviewable pages.':
+    'Füge ein Dokument hinzu, um Nachweise zu archivieren und prüfbare Seitenentwürfe zu erstellen.',
+  'Create a key for an agent, connector or script.':
+    'Erstelle einen Schlüssel für einen Agenten, Connector oder ein Skript.',
+  'Create a page here or add evidence under Sources.':
+    'Erstelle hier eine Seite oder füge unter „Quellen“ Nachweise hinzu.',
+  'Derived overview': 'Abgeleitete Übersicht',
+  'Grant a person access through a configured identity provider.':
+    'Gewähre einer Person über einen konfigurierten Identitätsanbieter Zugriff.',
+  'Import with the API or CLI, then review the change it raises in this cockpit.':
+    'Importiere über die API oder CLI und prüfe anschließend die erzeugte Änderung in diesem Cockpit.',
+  'Register an endpoint to receive signed WikiKit events.':
+    'Registriere einen Endpunkt, um signierte WikiKit-Ereignisse zu empfangen.',
+  'Search approved knowledge or include archived source evidence.':
+    'Durchsuche freigegebenes Wissen oder beziehe archivierte Quellennachweise ein.',
+  'Write the rules that guide classification and synthesis for this wiki.':
+    'Verfasse die Regeln, die Klassifizierung und Synthese für dieses Wiki steuern.',
+  'carries the structure as well as the text, so imported claims still quote their sources.':
+    'enthält neben dem Text auch die Struktur, sodass importierte Aussagen weiterhin ihre Quellen zitieren.',
+  'is a zip of ordinary files — one per page, decision and source, plus an index. It is best for reading and is lossy: claims, citations and relations become prose rather than structure.':
+    'ist ein ZIP-Archiv mit gewöhnlichen Dateien – je eine pro Seite, Entscheidung und Quelle sowie einem Index. Es eignet sich zum Lesen, verliert aber Struktur: Aussagen, Zitate und Beziehungen werden zu Fließtext.',
   'Knowledge change': 'Wissensänderung',
   'Page update': 'Seitenaktualisierung',
   'Defer this page?': 'Diese Seite zurückstellen?',

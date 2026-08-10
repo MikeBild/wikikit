@@ -118,7 +118,7 @@ export function PageDetailPage() {
       actions={
         canPropose ? (
           <div className="flex gap-2">
-            <Button asChild variant="accent">
+            <Button asChild>
               <Link to="/pages/$slug/edit" params={{ slug }} search={KEEP_SEARCH} data-testid="page-edit">
                 <PencilLine data-icon="inline-start" />
                 Edit
@@ -141,7 +141,7 @@ export function PageDetailPage() {
           </div>
         ) : (
           <DisabledReason reason="Needs knowledge:propose — editing a page means submitting a change for review.">
-            <Button variant="accent" disabled data-testid="page-edit">
+            <Button disabled data-testid="page-edit">
               <PencilLine data-icon="inline-start" />
               Edit
             </Button>

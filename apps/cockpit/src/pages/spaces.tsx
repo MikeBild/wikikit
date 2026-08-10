@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
+import { SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { I18nText } from '@/components/i18n-text'
@@ -233,7 +234,7 @@ export function SpacesPage() {
       description="Every wiki this installation holds, what each one is for, and how each one is read."
       actions={
         <DisabledReason reason={admin ? null : 'Needs admin — creating a wiki is an installation-level act.'}>
-          <Button variant="accent" data-testid="spaces-new" disabled={!admin} onClick={() => setCreating(true)}>
+          <Button data-testid="spaces-new" disabled={!admin} onClick={() => setCreating(true)}>
             <Plus data-icon="inline-start" />
             New wiki
           </Button>
@@ -371,21 +372,27 @@ function ExchangeNote() {
         className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
         data-testid="spaces-exchange"
       >
-        <h2 className="text-sm font-semibold tracking-tight">Taking a wiki elsewhere</h2>
+        <SectionHeading
+          helpTitle="About wiki exchange formats"
+          help={
+            <>
+              <p>
+                <strong className="text-foreground font-medium">Markdown tree</strong> is a zip of ordinary files — one
+                per page, decision and source, plus an index. It is best for reading and is lossy: claims, citations and
+                relations become prose rather than structure.
+              </p>
+              <p>
+                <strong className="text-foreground font-medium">Open Knowledge Format</strong> carries the structure as
+                well as the text, so imported claims still quote their sources.
+              </p>
+            </>
+          }
+          testId="spaces-exchange-help"
+        >
+          Taking a wiki elsewhere
+        </SectionHeading>
         <p className="text-muted-foreground text-sm">
-          <strong className="text-foreground font-medium">Markdown tree</strong> is a zip of ordinary files — one per
-          page, decision and source, plus an index. It is what to hand somebody who just wants to read the knowledge,
-          and it is lossy: claims, citations and relations are prose in it, not structure.
-        </p>
-        <p className="text-muted-foreground text-sm">
-          <strong className="text-foreground font-medium">Open Knowledge Format</strong> is the interchange bundle. It
-          carries the structure as well as the text, so a wiki exported from one WikiKit and imported into another
-          arrives with its claims still quoting their sources.
-        </p>
-        <p className="text-muted-foreground text-sm">
-          Importing a bundle is not done from this console. Sources in an imported bundle are archived directly —
-          evidence asserts nothing — but its pages and claims are staged as a single change for review, exactly like
-          knowledge WikiKit synthesized itself. Use the API or the CLI, then review the change it raises.
+          Import with the API or CLI, then review the change it raises in this cockpit.
         </p>
       </section>
     </I18nText>
@@ -508,7 +515,6 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
             {(open) => (
               <DisabledReason reason={reason} data-testid="space-create-reason">
                 <Button
-                  variant="accent"
                   data-testid="space-create-submit"
                   disabled={!slugValid || !nameValid || create.isPending}
                   onClick={open}
@@ -792,7 +798,7 @@ function SettingsForm({
           onConfirm={() => save.mutateAsync()}
         >
           {(open) => (
-            <Button variant="accent" data-testid="space-settings-submit" disabled={save.isPending} onClick={open}>
+            <Button data-testid="space-settings-submit" disabled={save.isPending} onClick={open}>
               Save settings
             </Button>
           )}

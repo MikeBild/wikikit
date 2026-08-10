@@ -60,13 +60,19 @@
     },
     "CUI-ACT-2": { "enforced_by": [], "why": "Graded at review." },
     "CUI-ACT-3": { "enforced_by": [], "why": "Graded at review. A lint rule would hold this and does not exist yet." },
-    "CUI-ACT-4": { "enforced_by": [], "why": "Graded at review." },
+    "CUI-ACT-4": {
+      "enforced_by": ["test/unit/cockpit-design-consistency.test.ts"],
+      "why": "The consistency test holds the current page-header actions against the retired duplicate empty-state selectors. Broader action hierarchy remains a review judgement."
+    },
     "CUI-ACT-5": {
       "enforced_by": [],
       "why": "The Button primitive composes disabled with a spinner rather than swapping its label, so the affordance exists. Whether a page uses it is not checked."
     },
     "CUI-WORDS-1": { "enforced_by": [], "why": "Graded at review." },
-    "CUI-WORDS-2": { "enforced_by": [], "why": "Graded at review. No test forbids a title= attribute." },
+    "CUI-WORDS-2": {
+      "enforced_by": ["test/unit/cockpit-design-consistency.test.ts"],
+      "why": "The consistency test forbids native title attributes and holds the shared tooltip-plus-popover help primitive."
+    },
     "CUI-SEV-1": { "enforced_by": ["test/unit/cockpit-ui-contract.test.ts"] },
     "CUI-SEV-2": {
       "enforced_by": [],
@@ -111,8 +117,8 @@
       "why": "Confirm blocks dismissal while its mutation is in flight, in code that has no test around it yet."
     },
     "CUI-A11Y-4": {
-      "enforced_by": [],
-      "why": "Aspirational as a rule about EVERY element. The testids the production checklist drives are present because the checklist would fail without them, which is a weaker guarantee than a test."
+      "enforced_by": ["test/unit/cockpit-testids.test.ts"],
+      "why": "The AST test requires an explicit kebab-case selector on every rendered interactive element outside the vendored UI primitives."
     },
     "CUI-A11Y-5": {
       "enforced_by": [],

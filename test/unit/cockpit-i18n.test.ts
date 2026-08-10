@@ -25,6 +25,7 @@ const PRESENTATION_PROPS = new Set([
   'confirmLabel',
   'description',
   'empty',
+  'helpTitle',
   'hint',
   'label',
   'placeholder',

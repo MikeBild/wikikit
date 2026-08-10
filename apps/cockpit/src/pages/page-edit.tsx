@@ -402,12 +402,7 @@ export function PageEditPage() {
             >
               {(open) => (
                 <DisabledReason reason={blockedReason}>
-                  <Button
-                    variant="accent"
-                    data-testid="page-edit-submit"
-                    disabled={blockedReason !== null}
-                    onClick={open}
-                  >
+                  <Button data-testid="page-edit-submit" disabled={blockedReason !== null} onClick={open}>
                     <Send data-icon="inline-start" />
                     Submit change
                   </Button>

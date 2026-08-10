@@ -6,10 +6,11 @@ import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DataState } from '@/components/data-state'
 import { CopyButton } from '@/components/copy-button'
+import { ContextHelp } from '@/components/context-help'
 import { EmptyState } from '@/components/empty-state'
 import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs } from '@/components/ui/tabs'
 import { useI18n } from '@/lib/i18n-context'
@@ -178,10 +179,14 @@ export function SystemPage() {
           <Card data-testid="build-card">
             <CardHeader>
               <CardTitle>This build</CardTitle>
-              <CardDescription>
-                The version this process is serving, and a fingerprint of every document it publishes about itself — so
-                a deployment can be compared without downloading any of them.
-              </CardDescription>
+              <CardAction>
+                <ContextHelp title="About this build" testId="system-build-help">
+                  <p>
+                    The version this process is serving, and a fingerprint of every document it publishes about itself —
+                    so a deployment can be compared without downloading any of them.
+                  </p>
+                </ContextHelp>
+              </CardAction>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-4">
@@ -292,11 +297,15 @@ export function SystemPage() {
           <Card data-testid="knowledge-config-card">
             <CardHeader>
               <CardTitle>Pages this installation treats as reference targets</CardTitle>
-              <CardDescription>
-                {SCAFFOLDING_EFFECT} Which markers count is configuration, so it differs between installations — this is
-                what yours honours. Reading it is an admin's right, not a reader's; a session without it is told so here
-                rather than shown a card that is missing.
-              </CardDescription>
+              <CardAction>
+                <ContextHelp title="About reference targets" testId="system-reference-targets-help">
+                  <p>
+                    {SCAFFOLDING_EFFECT} Which markers count is configuration, so it differs between installations —
+                    this is what yours honours. Reading it is an admin's right, not a reader's; a session without it is
+                    told so here rather than shown a card that is missing.
+                  </p>
+                </ContextHelp>
+              </CardAction>
             </CardHeader>
             <CardContent>
               <DataState
@@ -608,11 +617,15 @@ export function SystemPage() {
           <Card data-testid="mcp-card">
             <CardHeader>
               <CardTitle>Agents on the MCP endpoint</CardTitle>
-              <CardDescription>
-                Every MCP client this installation serves, across all wikis rather than just {space}. Reading it is an
-                admin's right, not a reader's — a session without it is told so here rather than shown a card that is
-                missing.
-              </CardDescription>
+              <CardAction>
+                <ContextHelp title="About MCP clients" testId="system-mcp-help">
+                  <p>
+                    Every MCP client this installation serves, across all wikis rather than just {space}. Reading it is
+                    an admin's right, not a reader's — a session without it is told so here rather than shown a card
+                    that is missing.
+                  </p>
+                </ContextHelp>
+              </CardAction>
             </CardHeader>
             <CardContent>
               <DataState
