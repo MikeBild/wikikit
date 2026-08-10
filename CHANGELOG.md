@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.1 - 2026-08-10
+
+### Fixed
+
+- **The Pages index no longer needs horizontal scrolling.** Its primary and
+  evidence columns fit the available width, secondary columns collapse on
+  narrow screens, and the production browser check now exercises a named wiki
+  and rejects any horizontally scrolling Pages table.
+- **German localisation covers the complete static Cockpit surface.** Shared
+  controls, dialogs, table content, labels, help text, placeholders and
+  accessibility names use explicit phrase translations. An AST regression test
+  rejects new static Cockpit copy without German coverage.
+- **Opaque identifiers stay internal.** UUID-shaped page titles, slugs, parent
+  changes, source fallbacks and webhook event identifiers no longer appear as
+  end-user labels; routes and `data-testid` selectors remain unchanged.
+
 ## 0.33.0 - 2026-08-10
 
 ### Added

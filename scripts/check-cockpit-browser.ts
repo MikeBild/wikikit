@@ -27,6 +27,7 @@
 //
 //   bun scripts/check-cockpit-browser.ts                     against a local dev stack
 //   bun scripts/check-cockpit-browser.ts --remote <url>      against a deployment
+//   bun scripts/check-cockpit-browser.ts --remote <url> --space workkit-ops --locale de
 //
 // Remote mode is READ-ONLY and mints nothing: it is pointed at installations
 // this script does not own, and a checker that creates credentials on somebody
@@ -79,6 +80,9 @@ const PROBE = `(() => {
       if (overflowX === 'auto' || overflowX === 'scroll') { scroller = node; break }
     }
     if (!scroller) findings.push('a table has no horizontally scrolling ancestor')
+    if (table.dataset.testid === 'pages-table' && scroller && scroller.scrollWidth > scroller.clientWidth + 1) {
+      findings.push('the pages table requires horizontal scrolling (' + scroller.scrollWidth + ' > ' + scroller.clientWidth + ')')
+    }
   }
   for (const cell of document.querySelectorAll('td, th')) {
     const style = getComputedStyle(cell)
@@ -96,6 +100,14 @@ async function main(): Promise<void> {
   const remoteFlag = process.argv.indexOf('--remote')
   const base =
     (remoteFlag >= 0 ? process.argv[remoteFlag + 1] : process.env.WIKIKIT_DEV_ORIGIN) ?? 'http://127.0.0.1:4060'
+  const spaceFlag = process.argv.indexOf('--space')
+  const space = spaceFlag >= 0 ? process.argv[spaceFlag + 1] : undefined
+  const localeFlag = process.argv.indexOf('--locale')
+  const locale = localeFlag >= 0 ? process.argv[localeFlag + 1] : undefined
+  if (locale !== undefined && locale !== 'en' && locale !== 'de') {
+    console.error('✗ --locale must be en or de')
+    process.exit(2)
+  }
 
   let chromium: typeof import('playwright').chromium
   try {
@@ -146,12 +158,16 @@ async function main(): Promise<void> {
       const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } })
       const page = await context.newPage()
       await signIn(page)
+      if (locale) {
+        await page.evaluate((selected) => localStorage.setItem('wikikit-cockpit-locale', selected), locale)
+      }
       for (const route of routes) {
         // `?space=` so a route that needs a wiki has one; without it the shell
         // picks the first available, which is fine but slower and less
         // reproducible across runs.
-        const url = `${base.replace(/\/$/, '')}/cockpit${route === '/' ? '/' : route}`
-        await page.goto(url, { waitUntil: 'networkidle' })
+        const url = new URL(`${base.replace(/\/$/, '')}/cockpit${route === '/' ? '/' : route}`)
+        if (space) url.searchParams.set('space', space)
+        await page.goto(url.href, { waitUntil: 'networkidle' })
 
         // A route that bounced to the sign-in splash proves nothing about
         // layout, and reporting it as a pass would be the checker lying.
@@ -169,6 +185,19 @@ async function main(): Promise<void> {
         for (const what of await page.evaluate<string[]>(PROBE)) {
           findings.push({ route, viewport: viewport.name, what })
         }
+        if (locale === 'de') {
+          const language = await page.getAttribute('html', 'lang')
+          if (language !== 'de')
+            findings.push({ route, viewport: viewport.name, what: `document language is ${language}` })
+          if (route === '/pages') {
+            const english = ['New page', 'Any time', 'Evidence', 'Summary', 'Last change']
+            for (const phrase of english) {
+              if (await page.getByText(phrase, { exact: true }).count()) {
+                findings.push({ route, viewport: viewport.name, what: `untranslated text: ${phrase}` })
+              }
+            }
+          }
+        }
       }
       await context.close()
     }
@@ -176,7 +205,7 @@ async function main(): Promise<void> {
     await browser.close()
   }
 
-  console.log(`› checked ${checked} route/viewport pairs against ${base}`)
+  console.log(`› checked ${checked} route/viewport pairs against ${base}${space ? ` in ${space}` : ''}`)
   if (!findings.length) {
     console.log('\x1b[32m✓ no layout findings\x1b[0m')
     // Said out loud rather than left implied: a green run means these three

@@ -21,6 +21,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { PanelLeftIcon } from 'lucide-react'
+import { useI18n } from '@/lib/i18n-context'
+import { I18nText } from '@/components/i18n-text'
 
 const SIDEBAR_WIDTH = '16rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
@@ -181,8 +183,12 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>
+              <I18nText>Sidebar</I18nText>
+            </SheetTitle>
+            <SheetDescription>
+              <I18nText>Displays the mobile sidebar.</I18nText>
+            </SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -238,6 +244,7 @@ function Sidebar({
 
 function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar()
+  const { text } = useI18n()
 
   return (
     <Button
@@ -253,19 +260,20 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">{text('Toggle Sidebar')}</span>
     </Button>
   )
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
   const { toggleSidebar } = useSidebar()
+  const { text } = useI18n()
 
   return (
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label={text('Toggle Sidebar')}
       tabIndex={-1}
       onClick={toggleSidebar}
       // Stock ships a `title="Toggle Sidebar"` here as well. It is deleted rather

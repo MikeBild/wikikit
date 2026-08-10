@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * Why a control is refusing, said where every input can reach it.
@@ -37,6 +38,7 @@ export function DisabledReason({
   children: ReactNode
   'data-testid'?: string
 }) {
+  const { text } = useI18n()
   if (!reason) return <>{children}</>
   return (
     // Its own provider: these wrap buttons inside dialogs and sheets, which
@@ -52,7 +54,7 @@ export function DisabledReason({
             {children}
           </span>
         </TooltipTrigger>
-        <TooltipContent data-testid={testId}>{reason}</TooltipContent>
+        <TooltipContent data-testid={testId}>{text(reason)}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

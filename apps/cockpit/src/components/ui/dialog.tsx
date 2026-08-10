@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { XIcon } from 'lucide-react'
+import { I18nText } from '@/components/i18n-text'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -232,7 +233,9 @@ function DialogContent({
               data-testid={testId ? `${testId}-close` : 'dialog-close'}
             >
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">
+                <I18nText>Close</I18nText>
+              </span>
             </Button>
           </DialogPrimitive.Close>
         )}

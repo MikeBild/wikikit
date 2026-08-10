@@ -6,6 +6,7 @@ import { Dialog as SheetPrimitive } from 'radix-ui'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { XIcon } from 'lucide-react'
+import { I18nText } from '@/components/i18n-text'
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -73,7 +74,9 @@ function SheetContent({
               data-testid={testId ? `${testId}-close` : 'sheet-close'}
             >
               <XIcon />
-              <span className="sr-only">Close</span>
+              <span className="sr-only">
+                <I18nText>Close</I18nText>
+              </span>
             </Button>
           </SheetPrimitive.Close>
         )}

@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
+import { I18nText } from '@/components/i18n-text'
 import {
   Sidebar,
   SidebarContent,
@@ -436,13 +437,13 @@ export function Page({
   actions?: ReactNode
   children: ReactNode
 }) {
-  const { t } = useI18n()
+  const { t, text } = useI18n()
   const page = PAGE_KEYS[title]
-  const localizedTitle = page ? t(page.title) : title
-  const localizedDescription = page ? t(page.description) : description
+  const localizedTitle = page ? t(page.title) : text(title)
+  const localizedDescription = page ? t(page.description) : description ? text(description) : undefined
   const crumbs = useCrumbs(localizedTitle)
   return (
-    <div data-testid="page" data-page={title} className="mx-auto max-w-7xl p-4 sm:p-6">
+    <div data-testid="page" data-page={title} className="mx-auto w-full min-w-0 max-w-7xl p-4 sm:p-6">
       {/*
         The actions drop below the title on a phone. Beside it they are
         `shrink-0`, which is right at 1280 and wrong at 390, where a 100px
@@ -494,9 +495,13 @@ export function Page({
           </h1>
           {localizedDescription ? <p className="text-muted-foreground text-sm">{localizedDescription}</p> : null}
         </div>
-        {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}
+        {actions ? (
+          <div className="flex shrink-0 gap-2">
+            <I18nText>{actions}</I18nText>
+          </div>
+        ) : null}
       </header>
-      {children}
+      <I18nText>{children}</I18nText>
     </div>
   )
 }

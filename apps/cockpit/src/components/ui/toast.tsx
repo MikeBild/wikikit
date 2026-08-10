@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useTheme } from '@/lib/theme'
 import { dismissToast, useToasts, type ToastRecord, type ToastTone } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * The corner where the console says what just happened.
@@ -56,6 +57,7 @@ const TONE_ICON: Record<ToastTone, string> = {
 
 function ToastItem({ record }: { record: ToastRecord }) {
   const Icon = ICONS[record.tone]
+  const { text } = useI18n()
   return (
     <div
       // A refusal interrupts; a confirmation does not. `alert` is an assertive
@@ -72,17 +74,17 @@ function ToastItem({ record }: { record: ToastRecord }) {
       <Icon className={cn('mt-0.5 size-4 shrink-0', TONE_ICON[record.tone])} />
       <div className="min-w-0 space-y-1">
         <div className="font-medium leading-tight">
-          {record.title}
+          {text(record.title)}
           {/* The same failure raised four times is one toast and a count. The
               count is shown rather than swallowed: "this refused four times" and
               "this refused once" are different stories about the request. */}
           {record.count > 1 ? <span className="ml-1.5 text-xs text-muted-foreground">×{record.count}</span> : null}
         </div>
-        {record.detail ? <div className="break-words text-muted-foreground">{record.detail}</div> : null}
+        {record.detail ? <div className="break-words text-muted-foreground">{text(record.detail)}</div> : null}
         {record.actions?.length ? (
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
             {record.actions.map((action) => (
-              <li key={action}>{action}</li>
+              <li key={action}>{text(action)}</li>
             ))}
           </ul>
         ) : null}
@@ -95,7 +97,7 @@ function ToastItem({ record }: { record: ToastRecord }) {
           variant="ghost"
           size="icon"
           className="size-6"
-          aria-label="Dismiss"
+          aria-label={text('Dismiss')}
           data-testid="toast-dismiss"
           onClick={() => dismissToast(record.id)}
         >
@@ -125,11 +127,12 @@ function ToastItem({ record }: { record: ToastRecord }) {
 function ToastViewport() {
   const toasts = useToasts()
   const { resolved } = useTheme()
+  const { text } = useI18n()
 
   return createPortal(
     <div
       role="region"
-      aria-label="Notifications"
+      aria-label={text('Notifications')}
       aria-live="polite"
       data-testid="toasts"
       // The theme is stamped EXPLICITLY. This console runs no theme library and

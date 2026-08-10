@@ -1,4 +1,5 @@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * A row of mutually exclusive filter choices — the review queue's
@@ -23,6 +24,7 @@ export function SegmentedControl<T extends string>({
   label: string
   'data-testid'?: string
 }) {
+  const { text } = useI18n()
   return (
     <ToggleGroup
       type="single"
@@ -30,7 +32,7 @@ export function SegmentedControl<T extends string>({
       variant="outline"
       size="sm"
       spacing={0}
-      aria-label={label}
+      aria-label={text(label)}
       data-testid={testId}
       onValueChange={(next) => {
         if (next) onChange(next as T)
@@ -38,7 +40,7 @@ export function SegmentedControl<T extends string>({
     >
       {options.map((option) => (
         <ToggleGroupItem key={option.id} value={option.id} data-testid={testId ? `${testId}-${option.id}` : undefined}>
-          {option.label}
+          {text(option.label)}
         </ToggleGroupItem>
       ))}
     </ToggleGroup>

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Alert } from '@/components/ui/alert'
 import { Spinner } from '@/components/ui/spinner'
+import { I18nText } from '@/components/i18n-text'
 import { useI18n } from '@/lib/i18n-context'
 import {
   ANNOUNCED_ANCHOR,
@@ -166,7 +167,7 @@ export function Confirm({
   ids?: ConfirmIds
   children: (open: () => void) => ReactNode
 }) {
-  const { t } = useI18n()
+  const { t, text } = useI18n()
   const [state, dispatch] = useReducer(reduce, CLOSED)
   const id = (part: keyof typeof DEFAULT_IDS) => ids?.[part] ?? DEFAULT_IDS[part]
 
@@ -356,7 +357,7 @@ export function Confirm({
     <>
       {/* Handed out, not called — see `openFromCurrentFocus`. */}
       {/* eslint-disable-next-line react-hooks/refs */}
-      {children(openFromCurrentFocus)}
+      <I18nText>{children(openFromCurrentFocus)}</I18nText>
       <AlertDialog
         open={isOpen(state)}
         onOpenChange={(next) => {
@@ -396,9 +397,9 @@ export function Confirm({
           }}
         >
           <AlertDialogHeader>
-            <AlertDialogTitle data-testid="confirm-title">{title}</AlertDialogTitle>
+            <AlertDialogTitle data-testid="confirm-title">{text(title)}</AlertDialogTitle>
             <AlertDialogDescription id={effectId} data-testid="confirm-description">
-              {description}
+              <I18nText>{description}</I18nText>
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -414,7 +415,7 @@ export function Confirm({
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
               {details ? (
                 <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm" data-testid="confirm-details">
-                  {details}
+                  <I18nText>{details}</I18nText>
                 </div>
               ) : null}
 
@@ -476,7 +477,7 @@ export function Confirm({
                 {/* A button never rewrites its label while it works: spinner plus
                     `disabled`, and the label stays the promise it made. */}
                 {busy ? <Spinner data-icon="inline-start" /> : null}
-                {confirmLabel === 'Confirm' ? t('common.confirm') : confirmLabel}
+                {confirmLabel === 'Confirm' ? t('common.confirm') : text(confirmLabel)}
               </AlertDialogAction>
             ) : null}
           </AlertDialogFooter>

@@ -18,9 +18,11 @@ import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useCan } from '@/lib/session'
+import { useI18n } from '@/lib/i18n-context'
 import { useSpace } from '@/lib/space'
 import { toast } from '@/lib/toast'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
+import { isUuidLike, semanticLabel } from '@/lib/presentation'
 import {
   CHANGE_WINDOW_LABEL,
   changedWithin,
@@ -147,26 +149,15 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'page',
     label: 'Page',
+    className: 'w-[38%] max-md:w-[65%]',
     required: true,
     compare: (left, right) => compareText(left.title, right.title),
-    cell: (row) => (
-      <div className="flex min-w-0 flex-col">
-        <Link
-          to="/pages/$slug"
-          params={{ slug: row.slug }}
-          search={KEEP_SEARCH}
-          data-testid={`pages-row-${row.slug}-link`}
-          className="truncate font-medium text-foreground underline-offset-2 hover:underline"
-        >
-          {row.title}
-        </Link>
-        <span className="truncate font-mono text-xs text-muted-foreground">{row.slug}</span>
-      </div>
-    ),
+    cell: (row) => <PageCell row={row} />,
   },
   {
     id: 'evidence',
     label: 'Evidence',
+    className: 'w-[18%] max-md:w-[35%]',
     // Second, ahead of the page's own summary, and that ordering is the only
     // thing here that costs anything. Below `md` a row's last cell is pinned and
     // everything between the first column and it is reached by scrolling the
@@ -180,7 +171,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'summary',
     label: 'Summary',
-    className: 'max-w-md',
+    className: 'w-[29%] max-w-md max-md:hidden',
     compare: (left, right) => compareText(left.summary, right.summary),
     // A summary is prose, so it wraps rather than scrolling the table sideways
     // — the row is allowed to be two lines tall, and `line-clamp` keeps a page
@@ -195,7 +186,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'rev',
     label: 'Revision',
-    className: 'tabular-nums',
+    className: 'w-[8%] tabular-nums max-md:hidden',
     compare: (left, right) => compareNumber(left.rev, right.rev),
     // The revision number is the count of approved changes this page has
     // survived, so it is a fact worth having and not a fact worth a column by
@@ -206,6 +197,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
   {
     id: 'updated',
     label: 'Last change',
+    className: 'w-[15%] max-md:hidden',
     descFirst: true,
     compare: (left, right) => compareTime(left.updated_at, right.updated_at),
     cell: (row) => <RelativeTime value={row.updated_at} data-testid={`pages-row-${row.slug}-updated`} />,
@@ -217,6 +209,7 @@ export function PagesPage() {
   const can = useCan()
   const canPropose = can('knowledge:propose')
   const client = useQueryClient()
+  const { text, locale } = useI18n()
 
   const { view, setView } = useTableView(LIST_ID, COLUMNS)
   const { filters, setFilters, clear, filtered } = useUrlFilters(LIST_ID, FILTERS)
@@ -229,12 +222,12 @@ export function PagesPage() {
   const deleted = useQuery({ queryKey: keys.deletedConcepts(space), queryFn: () => wk.concepts.deleted(space) })
   const restore = useMutation({
     mutationFn: (slug: string) => wk.concepts.restore(space, slug),
-    onSuccess: (result) => {
+    onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.space(space) })
       toast({
         tone: 'success',
         title: 'Restoration submitted for review',
-        detail: `Review proposal ${result.proposal_id} is now pending.`,
+        detail: 'The restoration is now waiting for review.',
       })
     },
   })
@@ -284,6 +277,7 @@ export function PagesPage() {
         unit="pages"
         cap={LIST_LIMIT}
         capNote={`only the first ${LIST_LIMIT} pages are loaded, in slug order — Search reaches the rest`}
+        tableClassName="w-full table-fixed"
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
             <Select
@@ -296,14 +290,14 @@ export function PagesPage() {
                 setPage(resetPage())
               }}
             >
-              <SelectTrigger size="sm" aria-label="Changed within" data-testid="pages-filter-changed">
+              <SelectTrigger size="sm" aria-label={text('Changed within')} data-testid="pages-filter-changed">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
                   {WINDOWS.map((window) => (
                     <SelectItem key={window} value={window} data-testid={`pages-filter-changed-${window}`}>
-                      {CHANGE_WINDOW_LABEL[window] ?? window}
+                      {text(CHANGE_WINDOW_LABEL[window] ?? window)}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -319,7 +313,7 @@ export function PagesPage() {
                   setPage(resetPage())
                 }}
               >
-                Clear filter
+                {text('Clear filter')}
               </Button>
             ) : null}
           </div>
@@ -332,10 +326,14 @@ export function PagesPage() {
             <EmptyState
               framed={false}
               title="No pages changed in that window"
-              description={`This wiki has ${items.length} ${items.length === 1 ? 'page' : 'pages'} loaded, none of them changed ${(CHANGE_WINDOW_LABEL[changed] ?? changed).toLowerCase()}.`}
+              description={
+                locale === 'de'
+                  ? `Dieses Wiki enthält ${items.length} geladene ${items.length === 1 ? 'Seite' : 'Seiten'}; keine davon wurde im gewählten Zeitraum geändert.`
+                  : `This wiki has ${items.length} ${items.length === 1 ? 'page' : 'pages'} loaded, none of them changed ${(CHANGE_WINDOW_LABEL[changed] ?? changed).toLowerCase()}.`
+              }
               action={
                 <Button variant="outline" size="sm" data-testid="pages-empty-clear" onClick={() => clear()}>
-                  Show every page
+                  {text('Show every page')}
                 </Button>
               }
               data-testid="pages-empty-filtered"
@@ -353,9 +351,11 @@ export function PagesPage() {
       />
       {deleted.data?.items.length ? (
         <section className="mt-8 flex flex-col gap-3" data-testid="deleted-pages">
-          <h2 className="text-sm font-semibold">Deleted pages</h2>
+          <h2 className="text-sm font-semibold">{text('Deleted pages')}</h2>
           <p className="text-muted-foreground text-sm">
-            Retained for audit. Restoring makes only the last visible revision current; relationships stay removed.
+            {text(
+              'Retained for audit. Restoring makes only the last visible revision current; relationships stay removed.',
+            )}
           </p>
           {deleted.data.items.map((item) => (
             <div
@@ -376,14 +376,14 @@ export function PagesPage() {
                 >
                   {(open) => (
                     <Button variant="outline" onClick={open} data-testid={`deleted-page-restore-${item.slug}`}>
-                      Restore
+                      {text('Restore')}
                     </Button>
                   )}
                 </Confirm>
               ) : (
                 <DisabledReason reason="Needs knowledge:propose — restoration is a review-gated change.">
                   <Button variant="outline" disabled data-testid={`deleted-page-restore-disabled-${item.slug}`}>
-                    Restore
+                    {text('Restore')}
                   </Button>
                 </DisabledReason>
               )}
@@ -392,6 +392,27 @@ export function PagesPage() {
         </section>
       ) : null}
     </Page>
+  )
+}
+
+function PageCell({ row }: { row: PageRow }) {
+  const { text } = useI18n()
+  const title = semanticLabel([row.title], text('Untitled page'))
+  return (
+    <div className="flex min-w-0 flex-col">
+      <Link
+        to="/pages/$slug"
+        params={{ slug: row.slug }}
+        search={KEEP_SEARCH}
+        data-testid={`pages-row-${row.slug}-link`}
+        className="truncate font-medium text-foreground underline-offset-2 hover:underline"
+      >
+        {title}
+      </Link>
+      {!isUuidLike(row.slug) ? (
+        <span className="truncate font-mono text-xs text-muted-foreground">{row.slug}</span>
+      ) : null}
+    </div>
   )
 }
 
@@ -456,6 +477,7 @@ export function PagesPage() {
  * hear an empty cell.
  */
 function EvidenceCell({ row }: { row: PageRow }) {
+  const { text } = useI18n()
   const evidence = pageEvidence(row.evidence, row.not_measured)
   const testId = `pages-row-${row.slug}-evidence`
 
@@ -479,19 +501,19 @@ function EvidenceCell({ row }: { row: PageRow }) {
                   sentence is the reason, the line beside the dash is the number,
                   and a reader who can see the dash gets the number without
                   opening anything. */}
-              <span className="sr-only">{evidence.reading}</span>
+              <span className="sr-only">{text(evidence.reading)}</span>
               {/* Present on exactly one level (`reference_withheld`), and hidden
                   from the accessibility tree because the sr-only sentence above
                   already contains the same count in words — announcing "2 claims
                   not counted" twice teaches nothing the second time. */}
               {evidence.detail ? (
                 <span className="text-xs" aria-hidden="true" data-testid={`${testId}-withheld`}>
-                  {evidence.detail}
+                  {text(evidence.detail)}
                 </span>
               ) : null}
             </span>
           </TooltipTrigger>
-          <TooltipContent data-testid={`${testId}-reason`}>{evidence.reading}</TooltipContent>
+          <TooltipContent data-testid={`${testId}-reason`}>{text(evidence.reading)}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     )
@@ -501,13 +523,13 @@ function EvidenceCell({ row }: { row: PageRow }) {
       className="flex flex-col items-start gap-0.5"
       data-testid={testId}
       data-evidence={evidence.level}
-      title={evidence.reading}
+      title={text(evidence.reading)}
     >
       <div className="flex items-center gap-1.5">
-        {evidence.count ? <span className="tabular-nums">{evidence.count}</span> : null}
-        {evidence.flag ? <Badge tone={evidence.tone}>{evidence.flag}</Badge> : null}
+        {evidence.count ? <span className="tabular-nums">{text(evidence.count)}</span> : null}
+        {evidence.flag ? <Badge tone={evidence.tone}>{text(evidence.flag)}</Badge> : null}
       </div>
-      {evidence.detail ? <span className="text-xs text-muted-foreground">{evidence.detail}</span> : null}
+      {evidence.detail ? <span className="text-xs text-muted-foreground">{text(evidence.detail)}</span> : null}
     </div>
   )
 }
@@ -520,12 +542,13 @@ function EvidenceCell({ row }: { row: PageRow }) {
  * this button does and which scope would let them.
  */
 function NewPage({ testId, canPropose }: { testId: string; canPropose: boolean }) {
+  const { text } = useI18n()
   if (!canPropose)
     return (
       <DisabledReason reason="Needs knowledge:propose — writing a page means submitting a change for review.">
         <Button variant="accent" disabled data-testid={testId}>
           <FilePlus2 data-icon="inline-start" />
-          New page
+          {text('New page')}
         </Button>
       </DisabledReason>
     )
@@ -533,7 +556,7 @@ function NewPage({ testId, canPropose }: { testId: string; canPropose: boolean }
     <Button asChild variant="accent">
       <Link to="/pages/new" search={KEEP_SEARCH} data-testid={testId}>
         <FilePlus2 data-icon="inline-start" />
-        New page
+        {text('New page')}
       </Link>
     </Button>
   )

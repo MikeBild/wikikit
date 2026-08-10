@@ -1,6 +1,8 @@
 import { Inbox, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { I18nText } from '@/components/i18n-text'
+import { useI18n } from '@/lib/i18n-context'
 import { cn } from '@/lib/utils'
 
 /**
@@ -66,6 +68,7 @@ export function EmptyState({
   className?: string
   'data-testid'?: string
 }) {
+  const { text } = useI18n()
   return (
     <Empty
       data-testid={testId}
@@ -79,8 +82,10 @@ export function EmptyState({
         <EmptyMedia variant="icon">
           <Icon />
         </EmptyMedia>
-        <EmptyTitle data-testid={`${testId}-title`}>{title}</EmptyTitle>
-        <EmptyDescription data-testid={`${testId}-description`}>{description}</EmptyDescription>
+        <EmptyTitle data-testid={`${testId}-title`}>{text(title)}</EmptyTitle>
+        <EmptyDescription data-testid={`${testId}-description`}>
+          <I18nText>{description}</I18nText>
+        </EmptyDescription>
       </EmptyHeader>
       {action ? <EmptyContent data-testid={`${testId}-action`}>{action}</EmptyContent> : null}
     </Empty>

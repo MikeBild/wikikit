@@ -33,6 +33,7 @@ import { describeFailure } from '@/lib/failure'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { compareText, compareTime } from '@/lib/table-view'
+import { isUuidLike } from '@/lib/presentation'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import { DELIVERY_CAP_NOTE, DELIVERY_CEILING, deliverySubject } from '@/pages/webhooks.logic'
 
@@ -319,9 +320,11 @@ export function WebhooksPage() {
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="font-mono text-xs">{row.event_type.replace('wikikit.', '')}</span>
-            <code className="text-muted-foreground font-mono text-[11px]" data-testid={`delivery-event-${row.id}`}>
-              {row.event_id}
-            </code>
+            {!isUuidLike(row.event_id) ? (
+              <code className="text-muted-foreground font-mono text-[11px]" data-testid={`delivery-event-${row.id}`}>
+                {row.event_id}
+              </code>
+            ) : null}
           </div>
         ),
       },

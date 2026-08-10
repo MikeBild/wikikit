@@ -261,9 +261,9 @@ function ChangeBody({
                   params={{ id: detail.parent_proposal_id }}
                   search={{ space }}
                   data-testid="change-parent-link"
-                  className="font-mono text-xs underline-offset-4 hover:underline"
+                  className="text-xs underline-offset-4 hover:underline"
                 >
-                  {detail.parent_proposal_id}
+                  Parent change
                 </Link>
               </Fact>
             ) : null}
@@ -822,7 +822,7 @@ function ClaimRow({
               data-testid={`citation-${slug}-${index}-${citationIndex}`}
               className="cursor-pointer text-muted-foreground"
             >
-              Quote from {citation.source_title ?? citation.source_id}
+              Quote from {semanticLabel([citation.source_title], 'Archived source')}
               {citation.locator ? ` · ${citation.locator}` : ''}
             </summary>
             <blockquote className="mt-1 border-l-2 border-border pl-3 whitespace-pre-wrap">{citation.quote}</blockquote>

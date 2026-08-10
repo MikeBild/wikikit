@@ -3,9 +3,12 @@ import { Slot } from 'radix-ui'
 
 import { cn } from '@/lib/utils'
 import { ChevronRightIcon, MoreHorizontalIcon } from 'lucide-react'
+import { useI18n } from '@/lib/i18n-context'
+import { I18nText } from '@/components/i18n-text'
 
 function Breadcrumb({ className, ...props }: React.ComponentProps<'nav'>) {
-  return <nav aria-label="breadcrumb" data-slot="breadcrumb" className={cn(className)} {...props} />
+  const { text } = useI18n()
+  return <nav aria-label={text('breadcrumb')} data-slot="breadcrumb" className={cn(className)} {...props} />
 }
 
 function BreadcrumbList({ className, ...props }: React.ComponentProps<'ol'>) {
@@ -73,7 +76,9 @@ function BreadcrumbEllipsis({ className, ...props }: React.ComponentProps<'span'
       {...props}
     >
       <MoreHorizontalIcon />
-      <span className="sr-only">More</span>
+      <span className="sr-only">
+        <I18nText>More</I18nText>
+      </span>
     </span>
   )
 }

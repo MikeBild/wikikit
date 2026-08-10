@@ -29,12 +29,17 @@ describe('opaque identifiers at the Cockpit presentation boundary', () => {
       'apps/cockpit/src/pages/source.tsx',
       'apps/cockpit/src/pages/identities.tsx',
       'apps/cockpit/src/pages/change.tsx',
+      'apps/cockpit/src/pages/pages.tsx',
       'apps/cockpit/src/pages/search.tsx',
+      'apps/cockpit/src/pages/webhooks.tsx',
     ]
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n')
     expect(sources).not.toContain('{row.id}\n')
     expect(sources).not.toContain('parent_proposal_id.slice(0, 8)')
     expect(sources).not.toContain('source.title ?? source.id')
+    expect(sources).not.toContain('{detail.parent_proposal_id}')
+    expect(sources).not.toContain('{citation.source_title ?? citation.source_id}')
+    expect(sources).toContain('!isUuidLike(row.event_id)')
   })
 })

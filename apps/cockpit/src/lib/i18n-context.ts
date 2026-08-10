@@ -50,6 +50,7 @@ export interface I18nValue {
   preference: LocalePreference
   setPreference(preference: LocalePreference): void
   t(key: TranslationKey, values?: Readonly<Record<string, string | number>>): string
+  text(source: string, values?: Readonly<Record<string, string | number>>): string
   number(value: number): string
   dateTime(value: string | number | Date): string
 }

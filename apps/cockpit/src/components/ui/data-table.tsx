@@ -36,6 +36,7 @@ import {
 } from '@/lib/table-view'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n-context'
+import { I18nText } from '@/components/i18n-text'
 
 /**
  * The console's lists, on the shared `Table` rather than instead of it.
@@ -116,6 +117,7 @@ export function DataTable<Row>({
   cap,
   capNote,
   toolbar,
+  tableClassName,
 }: {
   testId: string
   columns: readonly DataColumn<Row>[]
@@ -141,8 +143,10 @@ export function DataTable<Row>({
   capNote?: string
   /** Filters and other controls that belong beside the column menu. */
   toolbar?: ReactNode
+  /** Optional layout contract for a table whose columns must fit without horizontal scrolling. */
+  tableClassName?: string
 }) {
-  const { t } = useI18n()
+  const { t, text } = useI18n()
   const specs = useMemo(() => capabilitiesOf(columns), [columns])
   const shown = useMemo(() => columns.filter((column) => view.visible.includes(column.id)), [columns, view.visible])
   const sort = reconcileSort(specs, paging, view.visible, view.sort)
@@ -165,7 +169,7 @@ export function DataTable<Row>({
   const capped = isCapped(rows.length, cap)
   // The count beside a capped read is a count, not a total, and the caveat is the
   // only thing that keeps "of 200" from reading as "there are 200".
-  const ceiling = capped ? (capNote ?? t('table.capped', { count: cap ?? 0, unit })) : undefined
+  const ceiling = capped ? text(capNote ?? t('table.capped', { count: cap ?? 0, unit: text(unit) })) : undefined
 
   /**
    * Whether there are rows on screen for a note to describe.
@@ -187,12 +191,12 @@ export function DataTable<Row>({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {toolbar}
+        <I18nText>{toolbar}</I18nText>
         <div className="ml-auto flex items-center gap-2">
           {reaches ? (
             <span data-testid={`${testId}-order-note`} className="text-xs text-muted-foreground">
               <OrderNote
-                label={shown.find((column) => column.id === sort?.column)?.label ?? sort?.column ?? ''}
+                label={text(shown.find((column) => column.id === sort?.column)?.label ?? sort?.column ?? '')}
                 reach={sortReach(
                   specs.find((spec) => spec.id === sort?.column),
                   paging,
@@ -208,7 +212,7 @@ export function DataTable<Row>({
       </div>
 
       <div className="rounded-lg border border-border bg-card" data-testid={`${testId}-${phase}`}>
-        <Table data-testid={`${testId}-table`} aria-busy={phase === 'loading' || undefined}>
+        <Table data-testid={`${testId}-table`} aria-busy={phase === 'loading' || undefined} className={tableClassName}>
           <TableHeader>
             <TableRow>
               {shown.map((column) => {
@@ -245,7 +249,7 @@ export function DataTable<Row>({
                         onClick={() => onViewChange({ ...view, sort: nextSort(specs, paging, sort, column.id) })}
                         className="inline-flex items-center gap-1 rounded font-medium hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        {column.label}
+                        {text(column.label)}
                         {active === 'asc' ? (
                           <ArrowUp className="size-3" />
                         ) : active === 'desc' ? (
@@ -255,7 +259,7 @@ export function DataTable<Row>({
                         )}
                       </button>
                     ) : (
-                      column.label
+                      text(column.label)
                     )}
                   </TableHead>
                 )
@@ -292,7 +296,7 @@ export function DataTable<Row>({
                       className={column.className}
                       data-testid={`${testId}-cell-${rowKey(row)}-${column.id}`}
                     >
-                      {column.cell(row)}
+                      <I18nText>{column.cell(row)}</I18nText>
                     </TableCell>
                   ))}
                 </TableRow>
@@ -312,7 +316,7 @@ export function DataTable<Row>({
           // every row. A cursor-paged list has no total and does not get one.
           total={paging === 'whole' ? ordered.length : null}
           note={ceiling}
-          unit={unit}
+          unit={text(unit)}
         />
       </div>
     </div>
@@ -418,7 +422,9 @@ function EmptyRow({ testId, columns, message }: { testId: string; columns: numbe
           className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
         >
           <Inbox className="size-5" />
-          <span>{message ?? t('table.empty')}</span>
+          <span>
+            <I18nText>{message ?? t('table.empty')}</I18nText>
+          </span>
         </div>
       </TableCell>
     </TableRow>
@@ -446,7 +452,7 @@ function ColumnMenu<Row>({
   view: TableView
   onViewChange: (view: TableView) => void
 }) {
-  const { t } = useI18n()
+  const { t, text } = useI18n()
   const hidden = columns.filter((column) => !view.visible.includes(column.id)).length
   return (
     <DropdownMenu>
@@ -470,7 +476,7 @@ function ColumnMenu<Row>({
               onSelect={(event) => event.preventDefault()}
               onCheckedChange={() => onViewChange({ ...view, visible: toggleVisible(specs, view.visible, column.id) })}
             >
-              <span className={cn(column.required && 'text-muted-foreground')}>{column.label || column.id}</span>
+              <span className={cn(column.required && 'text-muted-foreground')}>{text(column.label || column.id)}</span>
               {column.required ? (
                 <span className="ml-auto text-xs text-muted-foreground">{t('table.always')}</span>
               ) : null}
