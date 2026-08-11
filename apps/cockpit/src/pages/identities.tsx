@@ -211,17 +211,15 @@ export function IdentitiesPage() {
         compare: (left, right) => compareText(left.revoked_at, right.revoked_at),
         cell: (row) => (
           // The word as well as the colour (CUI-A11Y-5).
-          <Badge tone={BADGE_TONE[grantState(row)]} data-testid={`identity-status-${row.provider}-${row.subject}`}>
-            {row.revoked_at ? 'Revoked' : 'Admitted'}
-          </Badge>
+          <Badge tone={BADGE_TONE[grantState(row)]}>{row.revoked_at ? 'Revoked' : 'Admitted'}</Badge>
         ),
       },
       {
         id: 'ceiling',
         label: 'May do',
-        priority: 'secondary',
+        priority: 'optional',
         cell: (row) => (
-          <div className="flex flex-wrap gap-1" data-testid={`identity-ceiling-${row.provider}-${row.subject}`}>
+          <div className="flex flex-wrap gap-1">
             {/* An empty ceiling is not "no data": it is a stored array that
                 denies every login, and it has to read as the lockout it is. */}
             {row.allowed_scopes.length === 0 ? (
@@ -267,7 +265,7 @@ export function IdentitiesPage() {
         // says "Never" rather than the em dash that means "unmeasured".
         cell: (row) =>
           row.last_seen_at ? (
-            <RelativeTime value={row.last_seen_at} data-testid={`identity-seen-${row.provider}-${row.subject}`} />
+            <RelativeTime value={row.last_seen_at} />
           ) : (
             <span className="text-muted-foreground text-xs">Never signed in</span>
           ),
@@ -286,24 +284,34 @@ export function IdentitiesPage() {
         headerHidden: true,
         required: true,
         className: 'text-right',
-        cell: (row) => (
+        cell: (row, index) => (
           <div className="flex justify-end gap-1">
             {row.revoked_at ? (
-              <RestoreGrant grant={row} allowed={mayAdmin} onRestore={restore.mutateAsync} />
+              <RestoreGrant
+                grant={row}
+                allowed={mayAdmin}
+                testId={`identities-row-${index + 1}-restore`}
+                onRestore={restore.mutateAsync}
+              />
             ) : (
               <>
                 <DisabledReason reason={mayAdmin ? null : 'Needs admin'}>
                   <Button
                     variant="ghost"
                     size="sm"
-                    data-testid={`identity-edit-${row.provider}-${row.subject}`}
+                    data-testid={`identities-row-${index + 1}-edit`}
                     disabled={!mayAdmin}
                     onClick={() => setEditing(row)}
                   >
                     Change ceiling
                   </Button>
                 </DisabledReason>
-                <RevokeGrant grant={row} allowed={mayAdmin} onRevoke={revoke.mutateAsync} />
+                <RevokeGrant
+                  grant={row}
+                  allowed={mayAdmin}
+                  testId={`identities-row-${index + 1}-revoke`}
+                  onRevoke={revoke.mutateAsync}
+                />
               </>
             )}
           </div>
@@ -333,7 +341,7 @@ export function IdentitiesPage() {
         columns={columns}
         rows={rows}
         rowKey={(row) => `${row.provider}:${row.subject}`}
-        rowTestId={(row) => `identity-row-${row.provider}-${row.subject}`}
+        rowTestId={(_row, index) => `identities-row-${index + 1}`}
         rowAttributes={(row) => ({ 'data-status': row.revoked_at ? 'revoked' : 'active' })}
         query={identitiesQuery}
         view={view.view}
@@ -414,10 +422,12 @@ export function IdentitiesPage() {
 function RevokeGrant({
   grant,
   allowed,
+  testId,
   onRevoke,
 }: {
   grant: IdentityGrant
   allowed: boolean
+  testId: string
   onRevoke: (grant: IdentityGrant) => Promise<unknown>
 }) {
   return (
@@ -452,7 +462,7 @@ function RevokeGrant({
             variant="ghost"
             size="icon-sm"
             aria-label={`Revoke ${personLabel(grant)}`}
-            data-testid={`identity-revoke-${grant.provider}-${grant.subject}`}
+            data-testid={testId}
             disabled={!allowed}
             onClick={open}
           >
@@ -475,10 +485,12 @@ function RevokeGrant({
 function RestoreGrant({
   grant,
   allowed,
+  testId,
   onRestore,
 }: {
   grant: IdentityGrant
   allowed: boolean
+  testId: string
   onRestore: (grant: IdentityGrant) => Promise<unknown>
 }) {
   return (
@@ -504,13 +516,7 @@ function RestoreGrant({
     >
       {(open) => (
         <DisabledReason reason={allowed ? null : 'Needs admin'}>
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid={`identity-restore-${grant.provider}-${grant.subject}`}
-            disabled={!allowed}
-            onClick={open}
-          >
+          <Button variant="ghost" size="sm" data-testid={testId} disabled={!allowed} onClick={open}>
             <RotateCcw data-icon="inline-start" />
             Restore
           </Button>

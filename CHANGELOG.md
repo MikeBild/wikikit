@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.9 - 2026-08-11
+
+### Fixed
+
+- **Production-sized Cockpit rows keep selectors semantic and unique.** Changes,
+  sources, streams, webhooks, deliveries and identity grants now use visible row
+  positions instead of database identifiers. Cell contents no longer repeat the
+  selector already owned by their shared table cell, and timestamps without a
+  caller-defined testing role no longer share a global fallback selector.
+- **Real production values fit responsive tables.** Long charter authors wrap,
+  and identity scope ceilings collapse at tablet width, closing overflow cases
+  that only appear with populated production data.
+
 ## 0.33.8 - 2026-08-11
 
 ### Changed

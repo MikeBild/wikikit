@@ -116,14 +116,15 @@ const VERSION_COLUMNS: readonly DataColumn<CharterVersion>[] = [
   {
     id: 'author',
     label: 'Written by',
-    priority: 'secondary',
+    priority: 'optional',
+    overflow: 'wrap',
     compare: (left, right) => compareText(left.created_by, right.created_by),
     // Nobody recorded is an em dash, not an empty cell and not "system"
     // (CUI-SEV-2) — a revision whose author the server did not send is a
     // different fact from one written by an account called nothing.
     cell: (version) =>
       version.created_by ? (
-        <span className="truncate">{version.created_by}</span>
+        <span className="break-all">{version.created_by}</span>
       ) : (
         <span className="text-muted-foreground">—</span>
       ),

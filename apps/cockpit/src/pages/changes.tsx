@@ -114,7 +114,7 @@ export function ChangesPage() {
         id: 'status',
         label: 'Status',
         compare: (left, right) => compareText(statusOrder(left), statusOrder(right)),
-        cell: (row, index) => <StatusCell row={row} testId={`changes-row-${index + 1}-status`} />,
+        cell: (row) => <StatusCell row={row} />,
       },
       {
         id: 'raised',
@@ -122,7 +122,7 @@ export function ChangesPage() {
         priority: 'secondary',
         descFirst: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
-        cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`changes-row-${index + 1}-raised`} />,
+        cell: (row) => <RelativeTime value={row.created_at} />,
       },
       {
         id: 'reviewer',
@@ -194,7 +194,7 @@ export function ChangesPage() {
         columns={columns}
         rows={rows}
         rowKey={(row) => row.id}
-        rowTestId={(row) => `change-row-${row.id}`}
+        rowTestId={(_row, index) => `changes-row-${index + 1}`}
         // The status is on the row as data, not only as a colour, so a
         // verification checklist can assert on it without reading pixels.
         rowAttributes={(row) => ({
@@ -292,18 +292,12 @@ export function ChangesPage() {
  * that can tell them apart is a word (CUI-A11Y-5). A change somebody read and
  * sent back must not look like one nobody has opened.
  */
-function StatusCell({ row, testId }: { row: ChangeRow; testId: string }) {
+function StatusCell({ row }: { row: ChangeRow }) {
   const reading = changeState(row.status, row.changes_requested)
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <Badge tone={badgeTone(reading.state)} data-testid={testId}>
-        {reading.label}
-      </Badge>
-      {reading.flag ? (
-        <Badge tone={badgeTone(reading.flag.state)} data-testid={`${testId}-flag`}>
-          {reading.flag.label}
-        </Badge>
-      ) : null}
+      <Badge tone={badgeTone(reading.state)}>{reading.label}</Badge>
+      {reading.flag ? <Badge tone={badgeTone(reading.flag.state)}>{reading.flag.label}</Badge> : null}
     </div>
   )
 }

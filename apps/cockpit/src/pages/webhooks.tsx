@@ -443,7 +443,7 @@ export function WebhooksPage() {
             columns={endpointColumns}
             rows={endpoints}
             rowKey={(row) => row.id}
-            rowTestId={(row) => `webhook-row-${row.id}`}
+            rowTestId={(_row, index) => `webhooks-row-${index + 1}`}
             rowAttributes={(row) => ({ 'data-condition': endpointCondition(row, now).status })}
             query={endpointsQuery}
             view={endpointView.view}
@@ -488,7 +488,7 @@ export function WebhooksPage() {
               columns={deliveryColumns}
               rows={deliveries}
               rowKey={(row) => row.id}
-              rowTestId={(row) => `delivery-row-${row.id}`}
+              rowTestId={(_row, index) => `deliveries-row-${index + 1}`}
               rowAttributes={(row) => ({ 'data-status': row.status })}
               query={deliveriesQuery}
               view={deliveryView.view}

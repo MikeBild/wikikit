@@ -149,7 +149,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
     id: 'archived',
     label: 'Archived',
     priority: 'secondary',
-    cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`sources-row-${index + 1}-archived`} />,
+    cell: (row) => <RelativeTime value={row.created_at} />,
   },
   {
     id: 'url',
@@ -169,11 +169,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
     // The first twelve characters of a sha256, which is what the eye compares.
     // The whole 64 and a copy control live on the source page: a copy button in
     // every row of every page is 25 tab stops for a value nobody copies 25 of.
-    cell: (row, index) => (
-      <code className="text-muted-foreground font-mono text-xs" data-testid={`sources-row-${index + 1}-hash`}>
-        {row.content_hash.slice(0, 12)}
-      </code>
-    ),
+    cell: (row) => <code className="text-muted-foreground font-mono text-xs">{row.content_hash.slice(0, 12)}</code>,
   },
 ]
 
@@ -336,7 +332,7 @@ export function SourcesPage() {
             columns={SOURCE_COLUMNS}
             rows={sourcesQuery.data?.items ?? []}
             rowKey={(row) => row.id}
-            rowTestId={(row) => `source-row-${row.id}`}
+            rowTestId={(_row, index) => `sources-row-${index + 1}`}
             query={sourcesQuery}
             view={sourcesView.view}
             onViewChange={sourcesView.setView}
@@ -380,7 +376,7 @@ export function SourcesPage() {
             columns={streamColumns}
             rows={streamsQuery.data?.items ?? []}
             rowKey={(row) => row.id}
-            rowTestId={(row) => `stream-row-${row.id}`}
+            rowTestId={(_row, index) => `streams-row-${index + 1}`}
             query={streamsQuery}
             view={streamsView.view}
             onViewChange={streamsView.setView}

@@ -48,7 +48,7 @@ export function RelativeTime({
   value,
   label: given,
   className,
-  'data-testid': testId = 'relative-time',
+  'data-testid': testId,
 }: {
   value: TimeInput
   /**
@@ -114,7 +114,7 @@ export function RelativeTime({
             {label}
           </span>
         </TooltipTrigger>
-        <TooltipContent data-testid={`${testId}-exact`}>{exact}</TooltipContent>
+        <TooltipContent data-testid={testId ? `${testId}-exact` : undefined}>{exact}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

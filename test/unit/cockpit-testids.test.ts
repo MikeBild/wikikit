@@ -50,8 +50,13 @@ describe('the Cockpit data-testid contract', () => {
   test('never puts opaque database identifiers into selectors', () => {
     const offenders: string[] = []
     for (const file of files) {
-      for (const attribute of testIdAttributes(readFileSync(file, 'utf8'))) {
-        for (const match of attribute.matchAll(/\$\{([A-Za-z_$][\w$]*\.)?(id|[a-z_]+_id)\}/g)) {
+      const source = readFileSync(file, 'utf8')
+      const selectors = [
+        ...testIdAttributes(source),
+        ...[...source.matchAll(/rowTestId\s*=\s*\{[^\n]+/g)].map((match) => match[0]),
+      ]
+      for (const attribute of selectors) {
+        for (const match of attribute.matchAll(/\$\{([A-Za-z_$][\w$]*\.)?(id|subject|[a-z_]+_id)\}/g)) {
           const owner = match[1]?.slice(0, -1)
           if (owner && ['stat', 'preset', 'option', 'event', 'group', 'tab', 'column'].includes(owner)) continue
           offenders.push(`${file}: ${attribute}`)
