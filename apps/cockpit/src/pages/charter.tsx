@@ -414,7 +414,9 @@ function ReadingView({
             <Badge tone="success" data-testid="charter-rev">
               Revision {rev}
             </Badge>
-            <span>written</span>
+            <span>
+              <I18nText>written</I18nText>
+            </span>
             <RelativeTime value={updatedAt} data-testid="charter-updated" />
           </div>
           {/*

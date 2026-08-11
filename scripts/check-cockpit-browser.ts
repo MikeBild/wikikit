@@ -144,6 +144,9 @@ const GERMAN_I18N_PROBE = `(() => {
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const parent = node.parentElement
     if (!parent || ['SCRIPT', 'STYLE'].includes(parent.tagName)) continue
+    // Charter Markdown is authored knowledge, not Cockpit chrome. It must stay
+    // exactly as written even when it happens to contain a catalogued UI word.
+    if (parent.closest('.wk-doc')) continue
     const text = (node.textContent || '').replace(/\\s+/g, ' ').trim()
     if (!text) continue
     if (translated.has(text) || dynamicEnglish.some((pattern) => pattern.test(text))) findings.add(text)

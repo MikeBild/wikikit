@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.10 - 2026-08-11
+
+### Fixed
+
+- **German production views finish at the component boundary.** The Charter's
+  revision metadata now translates its lower-case status explicitly, while the
+  browser verifier leaves authored Markdown untouched instead of mistaking its
+  English words for untranslated Cockpit chrome.
+- **Long localized change states remain readable at tablet width.** Status cells
+  and their semantic badges wrap within the table rather than clipping or
+  forcing horizontal scrolling.
+
 ## 0.33.9 - 2026-08-11
 
 ### Fixed

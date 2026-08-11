@@ -113,6 +113,7 @@ export function ChangesPage() {
       {
         id: 'status',
         label: 'Status',
+        overflow: 'wrap',
         compare: (left, right) => compareText(statusOrder(left), statusOrder(right)),
         cell: (row) => <StatusCell row={row} />,
       },
@@ -296,8 +297,14 @@ function StatusCell({ row }: { row: ChangeRow }) {
   const reading = changeState(row.status, row.changes_requested)
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <Badge tone={badgeTone(reading.state)}>{reading.label}</Badge>
-      {reading.flag ? <Badge tone={badgeTone(reading.flag.state)}>{reading.flag.label}</Badge> : null}
+      <Badge className="h-auto min-h-5 whitespace-normal text-center" tone={badgeTone(reading.state)}>
+        {reading.label}
+      </Badge>
+      {reading.flag ? (
+        <Badge className="h-auto min-h-5 whitespace-normal text-center" tone={badgeTone(reading.flag.state)}>
+          {reading.flag.label}
+        </Badge>
+      ) : null}
     </div>
   )
 }

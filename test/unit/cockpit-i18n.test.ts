@@ -174,6 +174,11 @@ describe('the typed English and German Cockpit catalogs', () => {
     const branches = cockpitTsxFiles(root).filter((file) => /locale\s*(?:===|!==)/.test(readFileSync(file, 'utf8')))
     expect(branches).toEqual([])
   })
+
+  test('keeps authored Charter Markdown outside the rendered UI translation probe', () => {
+    const browserCheck = readFileSync(join(import.meta.dir, '../../scripts/check-cockpit-browser.ts'), 'utf8')
+    expect(browserCheck).toContain("parent.closest('.wk-doc')")
+  })
 })
 
 describe('locale preference and automatic detection', () => {
