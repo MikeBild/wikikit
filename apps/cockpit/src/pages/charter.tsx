@@ -116,7 +116,7 @@ const VERSION_COLUMNS: readonly DataColumn<CharterVersion>[] = [
   {
     id: 'author',
     label: 'Written by',
-    mobileHidden: true,
+    priority: 'secondary',
     compare: (left, right) => compareText(left.created_by, right.created_by),
     // Nobody recorded is an em dash, not an empty cell and not "system"
     // (CUI-SEV-2) — a revision whose author the server did not send is a
@@ -131,7 +131,7 @@ const VERSION_COLUMNS: readonly DataColumn<CharterVersion>[] = [
   {
     id: 'written',
     label: 'Written',
-    mobileHidden: true,
+    priority: 'secondary',
     compare: (left, right) => compareTime(left.created_at, right.created_at),
     descFirst: true,
     cell: (version) => <RelativeTime value={version.created_at} data-testid={`charter-version-${version.rev}-time`} />,
@@ -330,7 +330,7 @@ export function CharterPage() {
       }
     >
       <div className="flex flex-col gap-6">
-        <DataState query={charter} skeleton={<DocumentSkeleton />}>
+        <DataState testId="charter-document" query={charter} skeleton={<DocumentSkeleton />}>
           {(data) =>
             draft === null ? (
               <ReadingView

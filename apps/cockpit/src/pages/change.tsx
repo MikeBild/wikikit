@@ -90,7 +90,7 @@ export function ChangePage() {
       title={semanticLabel([detail.data?.title], 'Knowledge change')}
       description="Every claim on these pages has to be backed by a quote from an archived source. Read what this would publish, then decide."
     >
-      <DataState query={detail} skeleton={<ChangeSkeleton />}>
+      <DataState testId="change-detail" query={detail} skeleton={<ChangeSkeleton />}>
         {(loaded) => <ChangeBody detail={loaded} lint={lint} space={space} id={id} />}
       </DataState>
     </Page>
@@ -407,13 +407,13 @@ function ChangeBody({
             </p>
           ) : (
             <ul className="flex flex-col gap-2 text-sm">
-              {detail.sources.map((source) => (
-                <li key={source.id} className="flex flex-col gap-0.5" data-testid={`change-source-${source.id}`}>
+              {detail.sources.map((source, index) => (
+                <li key={source.id} className="flex flex-col gap-0.5" data-testid={`change-source-${index + 1}`}>
                   <Link
                     to="/sources/$id"
                     params={{ id: source.id }}
                     search={{ space }}
-                    data-testid={`change-source-link-${source.id}`}
+                    data-testid={`change-source-${index + 1}-open`}
                     className="font-medium underline-offset-4 hover:underline"
                   >
                     {semanticLabel([source.title], 'Archived source')}

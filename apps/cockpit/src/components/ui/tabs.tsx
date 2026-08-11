@@ -1,3 +1,4 @@
+import { Tabs as TabsPrimitive } from 'radix-ui'
 import { useId, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -72,76 +73,37 @@ export function Tabs<T extends string>({
   const auto = useId()
   const scope = group ?? auto
   const resolves = (id: T) => group !== undefined && (panels === undefined || panels.includes(id))
-  const enabled = tabs.filter((tab) => !tab.disabled)
-
-  function step(direction: 1 | -1) {
-    if (enabled.length === 0) return
-    const at = enabled.findIndex((tab) => tab.id === value)
-    const next = enabled[(at + direction + enabled.length) % enabled.length]
-    if (!next) return
-    onValueChange(next.id)
-    /*
-      Focus follows selection, which is the other half of the arrow-key promise.
-      Selection alone left the ring on the tab the reader had just left — a tab
-      that now draws as unselected and carries `tabIndex={-1}`, so the strip
-      looked like it had moved and the keyboard had not. Addressed by id rather
-      than by a ref map because the ids are this component's own and unique to
-      the strip; the node is the one currently rendered, and its id does not
-      change when `value` does.
-    */
-    document.getElementById(tabDomId(scope, next.id))?.focus()
-  }
-
   return (
-    <div
-      role="tablist"
+    <TabsPrimitive.Root
+      value={value}
+      onValueChange={(next) => onValueChange(next as T)}
       data-testid={testId}
-      /*
-        `flex-wrap`, because a tab that is off the edge of the strip is a tab
-        nobody knows about. Four of the six strips are rendered inside an
-        `overflow-x-auto` wrapper, which turns that into a sideways scroll
-        rather than a clip — and a sideways scroll is what UI-UX.md §7 reserves
-        for tables. It is not hypothetical: giving these strips their counts
-        (`Pending · Changes requested 30 · Rejected 30`) took the proposals
-        strip to 349px inside 342px at 390, and to 349 inside 312 at 360. Wrapping is
-        inert wherever the strip fits, which is every strip at every width the
-        console is actually operated at above the phone.
-      */
-      className={cn('flex flex-wrap gap-1 border-b border-border', className)}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowRight') step(1)
-        else if (event.key === 'ArrowLeft') step(-1)
-        else return
-        event.preventDefault()
-      }}
+      className={cn('flex min-w-0 flex-col gap-2', className)}
     >
-      {tabs.map((tab) => {
-        const active = tab.id === value
-        return (
-          <button
+      <TabsPrimitive.List
+        data-slot="tabs-list"
+        className="flex min-w-0 flex-wrap items-center gap-1 border-b border-border text-muted-foreground"
+      >
+        {tabs.map((tab) => (
+          <TabsPrimitive.Trigger
             key={tab.id}
-            type="button"
-            role="tab"
+            value={tab.id}
             id={tabDomId(scope, tab.id)}
-            aria-selected={active}
             aria-controls={resolves(tab.id) ? panelDomId(group!, tab.id) : undefined}
-            tabIndex={active ? 0 : -1}
             disabled={tab.disabled}
             data-testid={`${testId}-${tab.id}`}
-            onClick={() => onValueChange(tab.id)}
             className={cn(
-              '-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50',
-              active
-                ? 'border-accent font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
+              '-mb-px inline-flex min-h-9 items-center gap-2 border-b-2 border-transparent px-3 py-2 text-sm transition-colors',
+              'hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-foreground',
             )}
           >
             {tab.label}
             {tab.badge}
-          </button>
-        )
-      })}
-    </div>
+          </TabsPrimitive.Trigger>
+        ))}
+      </TabsPrimitive.List>
+    </TabsPrimitive.Root>
   )
 }
 

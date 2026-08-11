@@ -212,6 +212,7 @@ export function SearchPage() {
           />
         ) : (
           <DataState
+            testId="search-results"
             query={results}
             skeleton={<ResultsSkeleton />}
             isEmpty={(data) => data.hits.length === 0}

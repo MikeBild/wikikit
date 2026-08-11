@@ -71,7 +71,7 @@ export function DecisionPage() {
 
   return (
     <Page title={title} description="A decision this wiki recorded: what was decided, why, and what was turned down.">
-      <DataState query={query} skeleton={<DocumentSkeleton />}>
+      <DataState testId="decision-document" query={query} skeleton={<DocumentSkeleton />}>
         {(decision) => <DecisionDocument decision={decision} />}
       </DataState>
     </Page>
@@ -187,19 +187,19 @@ function SlugLinks({ slugs, testId }: { slugs: readonly string[]; testId: string
 }
 
 /** One prose part of the document. An empty part is `—`, never a blank space. */
-function Section({ id, title, body }: { id: string; title: string; body: string }) {
+function Section({ id: sectionId, title, body }: { id: string; title: string; body: string }) {
   const text = body.trim()
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={`decision-${id}-heading`}>
-      <h2 id={`decision-${id}-heading`} className="text-sm font-semibold tracking-tight">
+    <section className="flex flex-col gap-2" aria-labelledby={`decision-${sectionId}-heading`}>
+      <h2 id={`decision-${sectionId}-heading`} className="text-sm font-semibold tracking-tight">
         {title}
       </h2>
       {text ? (
-        <div className="wk-doc" data-testid={`decision-${id}`}>
+        <div className="wk-doc" data-testid={`decision-${sectionId}`}>
           <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
         </div>
       ) : (
-        <p className="text-muted-foreground text-sm" data-testid={`decision-${id}`}>
+        <p className="text-muted-foreground text-sm" data-testid={`decision-${sectionId}`}>
           —
         </p>
       )}

@@ -158,13 +158,8 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     id: 'evidence',
     label: 'Evidence',
     className: 'w-[18%] max-md:w-[35%]',
-    // Second, ahead of the page's own summary, and that ordering is the only
-    // thing here that costs anything. Below `md` a row's last cell is pinned and
-    // everything between the first column and it is reached by scrolling the
-    // table sideways (components/ui/table.tsx) — so at 390px a column placed
-    // after `summary` is a column an operator on a phone never sees. Evidence is
-    // asked before the summary is read, not after: the summary says what the
-    // page claims, this says whether anything backs the claim.
+    // Evidence remains beside the page on phones; prose and revision metadata
+    // collapse instead, so the two facts still fit without sideways scrolling.
     compare: (left, right) => compareNumber(evidenceRank(left.evidence), evidenceRank(right.evidence)),
     cell: (row) => <EvidenceCell row={row} />,
   },
@@ -172,7 +167,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     id: 'summary',
     label: 'Summary',
     className: 'w-[29%] max-w-md',
-    mobileHidden: true,
+    priority: 'optional',
     compare: (left, right) => compareText(left.summary, right.summary),
     // A summary is prose, so it wraps rather than scrolling the table sideways
     // — the row is allowed to be two lines tall, and `line-clamp` keeps a page
@@ -188,7 +183,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     id: 'rev',
     label: 'Revision',
     className: 'w-[8%] tabular-nums',
-    mobileHidden: true,
+    priority: 'optional',
     compare: (left, right) => compareNumber(left.rev, right.rev),
     // The revision number is the count of approved changes this page has
     // survived, so it is a fact worth having and not a fact worth a column by
@@ -200,7 +195,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     id: 'updated',
     label: 'Last change',
     className: 'w-[15%]',
-    mobileHidden: true,
+    priority: 'optional',
     descFirst: true,
     compare: (left, right) => compareTime(left.updated_at, right.updated_at),
     cell: (row) => <RelativeTime value={row.updated_at} data-testid={`pages-row-${row.slug}-updated`} />,
@@ -212,7 +207,7 @@ export function PagesPage() {
   const can = useCan()
   const canPropose = can('knowledge:propose')
   const client = useQueryClient()
-  const { text, locale } = useI18n()
+  const { t, text } = useI18n()
 
   const { view, setView } = useTableView(LIST_ID, COLUMNS)
   const { filters, setFilters, clear, filtered } = useUrlFilters(LIST_ID, FILTERS)
@@ -329,11 +324,10 @@ export function PagesPage() {
             <EmptyState
               framed={false}
               title="No pages changed in that window"
-              description={
-                locale === 'de'
-                  ? `Dieses Wiki enthält ${items.length} geladene ${items.length === 1 ? 'Seite' : 'Seiten'}; keine davon wurde im gewählten Zeitraum geändert.`
-                  : `This wiki has ${items.length} ${items.length === 1 ? 'page' : 'pages'} loaded, none of them changed ${(CHANGE_WINDOW_LABEL[changed] ?? changed).toLowerCase()}.`
-              }
+              description={t(items.length === 1 ? 'pages.empty.filtered.one' : 'pages.empty.filtered.many', {
+                count: items.length,
+                window: text(CHANGE_WINDOW_LABEL[changed] ?? changed).toLowerCase(),
+              })}
               action={
                 <Button variant="outline" size="sm" data-testid="pages-empty-clear" onClick={() => clear()}>
                   {text('Show every page')}

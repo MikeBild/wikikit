@@ -496,7 +496,7 @@ export function Page({
           {localizedDescription ? <p className="text-muted-foreground text-sm">{localizedDescription}</p> : null}
         </div>
         {actions ? (
-          <div className="flex shrink-0 gap-2">
+          <div data-testid="page-actions" className="flex min-w-0 flex-wrap items-center justify-end gap-2 sm:shrink-0">
             <I18nText>{actions}</I18nText>
           </div>
         ) : null}

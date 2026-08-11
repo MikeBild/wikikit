@@ -74,7 +74,7 @@ export function SourcePage() {
           data-testid="source-missing-id"
         />
       ) : (
-        <DataState query={source} skeleton={<CardSkeleton cards={2} />}>
+        <DataState testId="source-document" query={source} skeleton={<CardSkeleton cards={2} />}>
           {(data) => <SourceDocument source={data} />}
         </DataState>
       )}

@@ -124,11 +124,11 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
     label: 'Source',
     required: true,
     className: 'max-w-64 whitespace-normal',
-    cell: (row) => (
+    cell: (row, index) => (
       <Link
         to="/sources/$id"
         params={{ id: row.id }}
-        data-testid={`source-link-${row.id}`}
+        data-testid={`sources-row-${index + 1}-open`}
         className="font-medium underline-offset-4 hover:underline"
       >
         {sourceLabel(row)}
@@ -138,7 +138,7 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'kind',
     label: 'Kind',
-    mobileHidden: true,
+    priority: 'secondary',
     // A kind is not a status — it is what the bytes are, and nothing about it
     // is good or bad news. `neutral` is the only honest tone; a `url` source
     // wearing `accent` would read as though the console had an opinion about
@@ -148,8 +148,8 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'archived',
     label: 'Archived',
-    mobileHidden: true,
-    cell: (row) => <RelativeTime value={row.created_at} data-testid={`source-archived-${row.id}`} />,
+    priority: 'secondary',
+    cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`sources-row-${index + 1}-archived`} />,
   },
   {
     id: 'url',
@@ -165,12 +165,12 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
   {
     id: 'hash',
     label: 'Content hash',
-    mobileHidden: true,
+    priority: 'secondary',
     // The first twelve characters of a sha256, which is what the eye compares.
     // The whole 64 and a copy control live on the source page: a copy button in
     // every row of every page is 25 tab stops for a value nobody copies 25 of.
-    cell: (row) => (
-      <code className="text-muted-foreground font-mono text-xs" data-testid={`source-hash-${row.id}`}>
+    cell: (row, index) => (
+      <code className="text-muted-foreground font-mono text-xs" data-testid={`sources-row-${index + 1}-hash`}>
         {row.content_hash.slice(0, 12)}
       </code>
     ),
@@ -231,8 +231,8 @@ export function SourcesPage() {
         label: 'Document',
         required: true,
         className: 'max-w-56 whitespace-normal',
-        cell: (row) => (
-          <span className="font-mono text-xs break-all" data-testid={`stream-id-${row.id}`}>
+        cell: (row, index) => (
+          <span className="font-mono text-xs break-all" data-testid={`streams-row-${index + 1}-document`}>
             {semanticLabel([row.external_source_id], 'Connector document')}
           </span>
         ),
@@ -240,25 +240,27 @@ export function SourcesPage() {
       {
         id: 'version',
         label: 'Version',
-        mobileHidden: true,
+        priority: 'secondary',
         cell: (row) => <span className="text-muted-foreground text-xs">{row.latest_version ?? '—'}</span>,
       },
       {
         id: 'seen',
         label: 'Last seen',
-        mobileHidden: true,
-        cell: (row) => <RelativeTime value={row.latest_observed_at} data-testid={`stream-seen-${row.id}`} />,
+        priority: 'secondary',
+        cell: (row, index) => (
+          <RelativeTime value={row.latest_observed_at} data-testid={`streams-row-${index + 1}-seen`} />
+        ),
       },
       {
         id: 'head',
         label: 'Current version',
-        mobileHidden: true,
-        cell: (row) =>
+        priority: 'secondary',
+        cell: (row, index) =>
           row.latest_source_id ? (
             <Link
               to="/sources/$id"
               params={{ id: row.latest_source_id }}
-              data-testid={`stream-head-${row.id}`}
+              data-testid={`streams-row-${index + 1}-open`}
               className="underline-offset-4 hover:underline"
             >
               Open
@@ -275,7 +277,14 @@ export function SourcesPage() {
         headerHidden: true,
         required: true,
         className: 'text-right',
-        cell: (row) => <ForgetStream stream={row} allowed={mayAdd} onForget={forget.mutateAsync} />,
+        cell: (row, index) => (
+          <ForgetStream
+            stream={row}
+            allowed={mayAdd}
+            testId={`streams-row-${index + 1}-forget`}
+            onForget={forget.mutateAsync}
+          />
+        ),
       },
     ],
     // `mayAdd`, not `can`: `useCan` hands back a fresh closure on every render,
@@ -306,8 +315,13 @@ export function SourcesPage() {
               Being added
             </h2>
             <div className="flex flex-col gap-3">
-              {jobs.map((id) => (
-                <IngestJob key={id} id={id} onDismiss={() => setJobs((open) => open.filter((job) => job !== id))} />
+              {jobs.map((id, index) => (
+                <IngestJob
+                  key={id}
+                  id={id}
+                  testId={`ingest-job-${index + 1}`}
+                  onDismiss={() => setJobs((open) => open.filter((job) => job !== id))}
+                />
               ))}
             </div>
           </section>
@@ -425,10 +439,12 @@ export function SourcesPage() {
 function ForgetStream({
   stream,
   allowed,
+  testId,
   onForget,
 }: {
   stream: SourceStream
   allowed: boolean
+  testId: string
   onForget: (externalSourceId: string) => Promise<unknown>
 }) {
   return (
@@ -453,12 +469,16 @@ function ForgetStream({
       onConfirm={() => onForget(stream.external_source_id)}
     >
       {(open) => (
-        <DisabledReason reason={allowed ? null : 'Needs knowledge:propose'}>
+        <DisabledReason
+          reason={allowed ? null : 'Needs knowledge:propose'}
+          label={`Forget ${stream.external_source_id}`}
+          data-testid={`${testId}-tooltip`}
+        >
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label={`Forget ${stream.external_source_id}`}
-            data-testid={`stream-forget-${stream.id}`}
+            data-testid={testId}
             disabled={!allowed}
             onClick={open}
           >
@@ -478,7 +498,7 @@ function ForgetStream({
  * resumes by itself. A panel that stopped asking there would leave an operator
  * staring at "paused" on a job that finished overnight.
  */
-function IngestJob({ id, onDismiss }: { id: string; onDismiss: () => void }) {
+function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDismiss: () => void }) {
   const job = useQuery({
     queryKey: keys.ingestJob(id),
     queryFn: () => wk.ingest.job(id),
@@ -498,7 +518,7 @@ function IngestJob({ id, onDismiss }: { id: string; onDismiss: () => void }) {
       retrying: isRetrying(job),
     })
     return (
-      <Alert tone={failure.tone} title={failure.title} actions={failure.actions} data-testid={`ingest-error-${id}`}>
+      <Alert tone={failure.tone} title={failure.title} actions={failure.actions} data-testid={`${testId}-error`}>
         {failure.message}
       </Alert>
     )
@@ -516,7 +536,7 @@ function IngestJob({ id, onDismiss }: { id: string; onDismiss: () => void }) {
   return (
     <div
       className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3"
-      data-testid={`ingest-job-${id}`}
+      data-testid={testId}
       data-status={status}
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -524,25 +544,27 @@ function IngestJob({ id, onDismiss }: { id: string; onDismiss: () => void }) {
         <span className="text-sm font-medium">{report.headline}</span>
         {/* The word as well as the colour: a status is never conveyed by tone
             alone (CUI-A11Y-5). */}
-        <Badge tone={BADGE_TONE[state]} data-testid={`ingest-status-${id}`}>
+        <Badge tone={BADGE_TONE[state]} data-testid={`${testId}-status`}>
           {status.replace('_', ' ')}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto"
-          aria-label="Dismiss this job"
-          data-testid={`ingest-dismiss-${id}`}
-          onClick={onDismiss}
-        >
-          <X />
-        </Button>
+        <DisabledReason reason={null} label="Dismiss this job" data-testid={`${testId}-dismiss-tooltip`}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="ml-auto"
+            aria-label="Dismiss this job"
+            data-testid={`${testId}-dismiss`}
+            onClick={onDismiss}
+          >
+            <X />
+          </Button>
+        </DisabledReason>
       </div>
       <p className="text-muted-foreground text-sm">{report.detail}</p>
       {report.reviewable ? (
         <Link
           to="/changes"
-          data-testid={`ingest-review-${id}`}
+          data-testid={`${testId}-review`}
           className="text-sm font-medium underline-offset-4 hover:underline"
         >
           Review the change →

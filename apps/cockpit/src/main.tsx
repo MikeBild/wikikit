@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { SessionGate } from '@/components/session-gate'
 import { I18nProvider } from '@/components/i18n-provider'
 import { ToastProvider } from '@/components/ui/toast'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { createQueryClient } from '@/lib/query'
 import { router } from '@/router'
 import './index.css'
@@ -23,11 +24,13 @@ createRoot(root).render(
             while the session is still resolving, still has a viewport to land
             in. The viewport portals to document.body, so where it is mounted
             decides nothing about where it appears. */}
-        <ToastProvider>
-          <SessionGate>
-            <RouterProvider router={router} />
-          </SessionGate>
-        </ToastProvider>
+        <TooltipProvider>
+          <ToastProvider>
+            <SessionGate>
+              <RouterProvider router={router} />
+            </SessionGate>
+          </ToastProvider>
+        </TooltipProvider>
       </I18nProvider>
     </QueryClientProvider>
   </StrictMode>,

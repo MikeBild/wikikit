@@ -31,15 +31,19 @@ import { useI18n } from '@/lib/i18n-context'
  */
 export function DisabledReason({
   reason,
+  label,
   children,
   'data-testid': testId = 'disabled-reason',
 }: {
   reason: string | null | undefined
+  /** Hover/focus label for an enabled icon-only action. A disabled reason takes precedence. */
+  label?: string
   children: ReactNode
   'data-testid'?: string
 }) {
   const { text } = useI18n()
-  if (!reason) return <>{children}</>
+  const message = reason ?? label
+  if (!message) return <>{children}</>
   return (
     // Its own provider: these wrap buttons inside dialogs and sheets, which
     // mount their own trees, and Radix throws rather than degrades when a
@@ -54,7 +58,7 @@ export function DisabledReason({
             {children}
           </span>
         </TooltipTrigger>
-        <TooltipContent data-testid={testId}>{text(reason)}</TooltipContent>
+        <TooltipContent data-testid={testId}>{text(message)}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )

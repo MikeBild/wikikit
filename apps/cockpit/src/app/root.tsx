@@ -40,7 +40,7 @@ export function Root() {
   if (query.error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <Alert tone="danger" title="Could not list wikis" className="max-w-md">
+        <Alert tone="danger" title="Could not list wikis" className="max-w-md" data-testid="wiki-list-error">
           {query.error instanceof Error ? query.error.message : 'The spaces endpoint did not answer.'}
         </Alert>
       </div>

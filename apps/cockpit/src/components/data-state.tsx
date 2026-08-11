@@ -31,6 +31,8 @@ import { I18nText } from '@/components/i18n-text'
  * └──────────────────────────────────────────────────────────────────────────┘
  */
 export interface DataStateProps<T> {
+  /** Stable semantic prefix for loading, error, empty and ready states. */
+  testId: string
   query: UseQueryResult<T>
   /**
    * A skeleton in the SHAPE of what is coming. Required, not optional: making
@@ -44,7 +46,7 @@ export interface DataStateProps<T> {
   children: (data: T) => ReactNode
 }
 
-export function DataState<T>({ query, skeleton, isEmpty, empty, children }: DataStateProps<T>) {
+export function DataState<T>({ testId, query, skeleton, isEmpty, empty, children }: DataStateProps<T>) {
   const { t } = useI18n()
   // The phase, not `isPending`. A query that TanStack is still retrying stays
   // 'pending' with the server's refusal already sitting in `failureReason`, so
@@ -64,7 +66,7 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
       retrying: isRetrying(query),
     })
     return (
-      <Alert tone={notice.tone} title={notice.title} actions={notice.actions} data-testid="data-state-error">
+      <Alert tone={notice.tone} title={notice.title} actions={notice.actions} data-testid={`${testId}-error`}>
         <div className="flex flex-col gap-2">
           <span>{notice.message}</span>
           {/* A refusal is terminal: WikiKit understood the request and
@@ -78,7 +80,7 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
               variant="outline"
               size="sm"
               className="w-fit"
-              data-testid="data-state-retry"
+              data-testid={`${testId}-retry`}
               onClick={() => void query.refetch()}
             >
               {t('common.tryAgain')}
@@ -91,7 +93,7 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
 
   if (phase === 'loading')
     return (
-      <div data-testid="data-state-loading">
+      <div data-testid={`${testId}-loading`}>
         <I18nText>{skeleton}</I18nText>
       </div>
     )
@@ -104,13 +106,13 @@ export function DataState<T>({ query, skeleton, isEmpty, empty, children }: Data
   // description for the branches nobody has written words for yet (CUI-LOAD-3).
   if (isEmpty?.(data))
     return (
-      <div data-testid="data-state-empty">
+      <div data-testid={`${testId}-empty`}>
         <I18nText>{empty ?? <EmptyState title={t('table.empty')} description={t('table.empty')} />}</I18nText>
       </div>
     )
 
   return (
-    <div data-testid="data-state-ready">
+    <div data-testid={`${testId}-ready`}>
       <I18nText>{children(data)}</I18nText>
     </div>
   )

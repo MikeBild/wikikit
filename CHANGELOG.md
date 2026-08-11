@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.33.8 - 2026-08-11
+
+### Changed
+
+- **The Cockpit now applies one shadcn interaction system throughout.** Buttons,
+  form fields, tabs, dialogs, sheets, alerts, toasts and page actions share the
+  same component hierarchy, spacing and icon ownership. Icon-only actions expose
+  keyboard-accessible help instead of duplicating icons or relying on inline prose.
+- **Responsive tables use explicit information priority.** Essential columns stay
+  visible, secondary columns collapse on phones, and optional columns also collapse
+  on tablets. Headers and cells wrap within their surfaces instead of introducing
+  horizontal table or document scrolling in either supported language.
+- **Cockpit selectors and localisation are complete runtime contracts.** Interactive
+  elements and async states use unique semantic `data-testid` values without opaque
+  database identifiers. English and neutral German copy are checked statically and
+  across every navigable production-browser route at phone, tablet and laptop widths.
+
 ## 0.33.7 - 2026-08-10
 
 ### Fixed

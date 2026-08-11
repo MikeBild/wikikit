@@ -5,9 +5,9 @@ import { join } from 'node:path'
 const source = readFileSync(join(import.meta.dir, '../../apps/cockpit/src/pages/pages.tsx'), 'utf8')
 
 describe('the Pages index fits its viewport', () => {
-  test('uses fixed table layout and removes secondary columns below md', () => {
+  test('uses fixed table layout and removes lower-priority columns responsively', () => {
     expect(source).toContain('tableClassName="w-full table-fixed"')
-    expect(source.match(/mobileHidden: true/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
+    expect(source.match(/priority: '(?:secondary|optional)'/g)?.length ?? 0).toBeGreaterThanOrEqual(3)
   })
 
   test('never exposes UUID-shaped page labels or slugs', () => {

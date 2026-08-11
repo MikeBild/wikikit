@@ -88,6 +88,8 @@ const EN = {
   'page.identities.description': 'People who can sign in and their permission ceilings.',
   'page.webhooks.description': 'Destinations that receive WikiKit events.',
   'page.system.description': 'Installation health, knowledge quality and activity.',
+  'pages.empty.filtered.one': 'This wiki has {count} page loaded; none changed {window}.',
+  'pages.empty.filtered.many': 'This wiki has {count} pages loaded; none changed {window}.',
   'system.tab.overview': 'Overview',
   'system.tab.knowledge': 'Knowledge',
   'system.tab.activity': 'Activity',
@@ -183,6 +185,8 @@ const DE: Record<TranslationKey, string> = {
   'page.identities.description': 'Personen mit Zugang und ihre Berechtigungsgrenzen.',
   'page.webhooks.description': 'Ziele, die WikiKit-Ereignisse empfangen.',
   'page.system.description': 'Installationszustand, Wissensqualität und Aktivität.',
+  'pages.empty.filtered.one': 'Dieses Wiki enthält {count} geladene Seite; sie wurde {window} nicht geändert.',
+  'pages.empty.filtered.many': 'Dieses Wiki enthält {count} geladene Seiten; keine davon wurde {window} geändert.',
   'system.tab.overview': 'Übersicht',
   'system.tab.knowledge': 'Wissen',
   'system.tab.activity': 'Aktivität',
@@ -236,41 +240,41 @@ export const DE_PHRASES = {
   'A stable upstream id lets each push archive a new version without forking the archive. Older versions remain available to the claims that quote them.':
     'Eine stabile Upstream-ID ermöglicht es, bei jedem Push eine neue Version zu archivieren, ohne das Archiv aufzuteilen. Ältere Versionen bleiben für die Aussagen verfügbar, die sie zitieren.',
   'Add a document to archive evidence and draft reviewable pages.':
-    'Füge ein Dokument hinzu, um Nachweise zu archivieren und prüfbare Seitenentwürfe zu erstellen.',
+    'Ein Dokument hinzufügen, um Nachweise zu archivieren und prüfbare Seitenentwürfe zu erstellen.',
   'Add a source or edit a page to raise the first change.':
-    'Füge eine Quelle hinzu oder bearbeite eine Seite, um die erste Änderung zu erstellen.',
+    'Eine Quelle hinzufügen oder eine Seite bearbeiten, um die erste Änderung zu erstellen.',
   'An HTTPS address WikiKit can reach. Deliveries are POST requests, not browser pages.':
     'Eine für WikiKit erreichbare HTTPS-Adresse. Zustellungen sind POST-Anfragen und keine Browserseiten.',
   'An endpoint subscribed to everything also receives event types introduced in later releases.':
     'Ein Endpunkt mit einem Abonnement für alle Ereignisse empfängt auch Ereignistypen aus späteren Versionen.',
   'Approve a change carrying a decision to add it here.':
-    'Gib eine Änderung mit einer Entscheidung frei, um sie hier hinzuzufügen.',
+    'Eine Änderung mit Entscheidung freigeben, damit sie hier erscheint.',
   'Changing this rebuilds the search index for this wiki.': 'Eine Änderung erstellt den Suchindex dieses Wikis neu.',
   'Claims and the quotes behind them come from ingesting sources. A page written here stages text only.':
     'Aussagen und die zugehörigen Zitate entstehen beim Einlesen von Quellen. Eine hier verfasste Seite stellt nur Text zur Prüfung bereit.',
   'Connector-pushed documents appear here with their current version.':
     'Von Connectoren übertragene Dokumente erscheinen hier mit ihrer aktuellen Version.',
   'Create a key for an agent, connector or script.':
-    'Erstelle einen Schlüssel für einen Agenten, Connector oder ein Skript.',
+    'Einen Schlüssel für einen Agenten, Connector oder ein Skript erstellen.',
   'Create a page here or add evidence under Sources.':
-    'Erstelle hier eine Seite oder füge unter „Quellen“ Nachweise hinzu.',
+    'Hier eine Seite erstellen oder unter „Quellen“ Nachweise hinzufügen.',
   'Derived overview': 'Abgeleitete Übersicht',
   'Grant a person access through a configured identity provider.':
-    'Gewähre einer Person über einen konfigurierten Identitätsanbieter Zugriff.',
+    'Einer Person über einen konfigurierten Identitätsanbieter Zugriff gewähren.',
   'Every classification and synthesis job reads this text. Write the scope, vocabulary and boundaries a contributor needs.':
-    'Jeder Klassifizierungs- und Syntheseauftrag liest diesen Text. Beschreibe Geltungsbereich, Vokabular und Grenzen für Mitwirkende.',
+    'Jeder Klassifizierungs- und Syntheseauftrag liest diesen Text. Geltungsbereich, Vokabular und Grenzen für Mitwirkende beschreiben.',
   'How search reduces words before matching them.':
     'Wie die Suche Wörter vor dem Abgleich auf ihre Grundform reduziert.',
   'Ingest a source to add quoted, reviewable claims to this page.':
-    'Lies eine Quelle ein, um dieser Seite zitierte, prüfbare Aussagen hinzuzufügen.',
+    'Eine Quelle einlesen, um dieser Seite zitierte, prüfbare Aussagen hinzuzufügen.',
   'Import with the API or CLI, then review the change it raises in this cockpit.':
-    'Importiere über die API oder CLI und prüfe anschließend die erzeugte Änderung in diesem Cockpit.',
+    'Über API oder CLI importieren und anschließend die erzeugte Änderung in diesem Cockpit prüfen.',
   'Register an endpoint to receive signed WikiKit events.':
-    'Registriere einen Endpunkt, um signierte WikiKit-Ereignisse zu empfangen.',
+    'Einen Endpunkt registrieren, um signierte WikiKit-Ereignisse zu empfangen.',
   'Search approved knowledge or include archived source evidence.':
-    'Durchsuche freigegebenes Wissen oder beziehe archivierte Quellennachweise ein.',
+    'Freigegebenes Wissen durchsuchen oder archivierte Quellennachweise einbeziehen.',
   'Write the rules that guide classification and synthesis for this wiki.':
-    'Verfasse die Regeln, die Klassifizierung und Synthese für dieses Wiki steuern.',
+    'Regeln verfassen, die Klassifizierung und Synthese für dieses Wiki steuern.',
   'No approved change has written a revision for this page yet.':
     'Noch keine freigegebene Änderung hat eine Revision für diese Seite geschrieben.',
   'No subscribed event has happened since this endpoint was registered.':
@@ -474,7 +478,7 @@ export const DE_PHRASES = {
   Article: 'Artikel',
   Meeting: 'Besprechung',
   'Plain Markdown. Every classification and synthesis job for this wiki reads it, so write the rules a contributor would need — scope, vocabulary, what is out of bounds.':
-    'Reines Markdown. Jeder Klassifizierungs- und Syntheseauftrag liest diese Regeln. Beschreibe Geltungsbereich, Begriffe und Ausschlüsse.',
+    'Reines Markdown. Jeder Klassifizierungs- und Syntheseauftrag liest diese Regeln. Geltungsbereich, Begriffe und Ausschlüsse beschreiben.',
   'The rendered page appears here as you type.': 'Die gerenderte Seite erscheint hier während der Eingabe.',
   'Nightly handbook connector': 'Nächtlicher Handbuch-Konnektor',
   'The plaintext API key': 'Der API-Schlüssel im Klartext',
@@ -519,7 +523,7 @@ export const DE_PHRASES = {
   'What this wiki knows on this subject, with the quote behind every claim it makes.':
     'Das Wissen dieses Wikis zu diesem Thema mit dem Beleg hinter jeder Aussage.',
   'Every claim on these pages has to be backed by a quote from an archived source. Read what this would publish, then decide.':
-    'Jede Aussage auf diesen Seiten benötigt ein Zitat aus einer archivierten Quelle. Prüfe den Inhalt vor deiner Entscheidung.',
+    'Jede Aussage auf diesen Seiten benötigt ein Zitat aus einer archivierten Quelle. Inhalt vor der Entscheidung prüfen.',
   'A decision this wiki recorded: what was decided, why, and what was turned down.':
     'Eine dokumentierte Entscheidung dieses Wikis mit Begründung und verworfenen Alternativen.',
   'Clear filter': 'Filter löschen',
@@ -540,7 +544,7 @@ export const DE_PHRASES = {
   'Retained for audit. Restoring makes only the last visible revision current; relationships stay removed.':
     'Für die Nachvollziehbarkeit aufbewahrt. Beim Wiederherstellen wird nur die letzte sichtbare Revision aktuell; Beziehungen bleiben entfernt.',
   'A page states what this wiki knows, and every claim on it carries a verbatim quote from a source. Write one by hand, or add a document under Sources and review the pages it produces.':
-    'Eine Seite beschreibt das Wissen dieses Wikis; jede Aussage enthält ein wörtliches Zitat aus einer Quelle. Schreibe eine Seite oder füge unter Quellen ein Dokument hinzu und prüfe die daraus erstellten Seiten.',
+    'Eine Seite beschreibt das Wissen dieses Wikis; jede Aussage enthält ein wörtliches Zitat aus einer Quelle. Eine Seite schreiben oder unter „Quellen“ ein Dokument hinzufügen und die daraus erstellten Seiten prüfen.',
   'Every page this wiki holds. A page states what is known; editing one submits a change for review.':
     'Alle Seiten dieses Wikis. Eine Seite beschreibt bekanntes Wissen; eine Bearbeitung wird als Änderung zur Prüfung eingereicht.',
   'Needs knowledge:propose — writing a page means submitting a change for review.':
@@ -613,7 +617,7 @@ export const DE_PHRASES = {
   'Version history': 'Versionsverlauf',
   'Waiting for review': 'Wartet auf Prüfung',
   'Webhook delivery': 'Webhook-Zustellung',
-  'What are you adding?': 'Was möchtest du hinzufügen?',
+  'What are you adding?': 'Was wird hinzugefügt?',
   'What is it? (optional)': 'Welche Art ist es? (optional)',
   'What is this key for?': 'Wofür wird dieser Schlüssel verwendet?',
   'What may it do?': 'Was darf er tun?',
@@ -622,7 +626,7 @@ export const DE_PHRASES = {
     'Was dieses Wiki an andere Systeme gesendet hat und was nicht angekommen ist.',
   'Where the knowledge is thin': 'Wo Nachweise fehlen',
   'WikiKit has no way to delete a wiki.': 'WikiKit bietet keine Möglichkeit, ein Wiki zu löschen.',
-  'Your decision': 'Deine Entscheidung',
+  'Your decision': 'Entscheidung',
   added: 'hinzugefügt',
   'base moved on': 'Basis wurde geändert',
   'deactivated on approval': 'wird bei Freigabe deaktiviert',
@@ -648,7 +652,7 @@ export const DE_PHRASES = {
   'Every agent, connector and script that reaches WikiKit presents one of these. People sign in instead, and their authority comes from an identity grant.':
     'Jeder Agent, Konnektor und jedes Skript verwendet einen solchen Schlüssel. Personen melden sich stattdessen an und erhalten ihre Berechtigungen über eine Identitätsfreigabe.',
   'This is what the filter is showing, not what the deployment holds. Switch to All to see every key.':
-    'Der Filter zeigt nur einen Ausschnitt. Wähle „Alle“, um jeden Schlüssel zu sehen.',
+    'Der Filter zeigt nur einen Ausschnitt. „Alle“ zeigt jeden Schlüssel.',
   'Revoke this key?': 'Diesen Schlüssel widerrufen?',
   'Revoke key': 'Schlüssel widerrufen',
   'This key will never be shown again': 'Dieser Schlüssel wird nie wieder angezeigt',
@@ -657,7 +661,7 @@ export const DE_PHRASES = {
     'In diesem Wiki wurde noch keine Änderung eingereicht. Das Hinzufügen eines Dokuments unter Quellen oder das Bearbeiten einer Seite erzeugt eine Änderung.',
   'No source named': 'Keine Quelle angegeben',
   'This address is missing the id of a source. Open one from the Sources list.':
-    'In dieser Adresse fehlt die Quelle. Öffne eine Quelle aus der Quellenliste.',
+    'In dieser Adresse fehlt die Quelle. Eine Quelle aus der Quellenliste öffnen.',
   'Delete this page': 'Diese Seite löschen',
   'This submits a deletion for review. History and evidence remain retained.':
     'Die Löschung wird zur Prüfung eingereicht. Verlauf und Nachweise bleiben erhalten.',
@@ -677,7 +681,7 @@ export const DE_PHRASES = {
   'A person signs in through an identity provider, and this grant is what decides whether that sign-in is allowed and what it may reach. Without a grant here, a successful login still reaches nothing.':
     'Eine Person meldet sich über einen Identitätsanbieter an. Diese Freigabe entscheidet, ob die Anmeldung zulässig ist und worauf sie zugreifen darf.',
   'This is what the filter is showing, not what the deployment holds. Switch to All to see every grant.':
-    'Der Filter zeigt nur einen Ausschnitt. Wähle „Alle“, um jede Freigabe zu sehen.',
+    'Der Filter zeigt nur einen Ausschnitt. „Alle“ zeigt jede Freigabe.',
   "Revoke this person's access?": 'Zugriff dieser Person widerrufen?',
   'Revoke access': 'Zugriff widerrufen',
   'Re-admit this person?': 'Diese Person wieder zulassen?',
@@ -688,7 +692,7 @@ export const DE_PHRASES = {
     'Diese Seiten wurden seit Erstellung der Änderung weiterbearbeitet',
   'This change stages no pages': 'Diese Änderung enthält keine Seiten',
   'It only removes relations between pages that already exist. What it takes away is listed below.':
-    'Sie entfernt ausschließlich Beziehungen zwischen vorhandenen Seiten. Die betroffenen Beziehungen sind unten aufgeführt.',
+    'Entfernt ausschließlich Beziehungen zwischen vorhandenen Seiten. Die betroffenen Beziehungen stehen unten.',
   'Approve and publish?': 'Freigeben und veröffentlichen?',
   'Approve and publish': 'Freigeben und veröffentlichen',
   'Send this back with a note?': 'Mit einer Notiz zurückgeben?',
@@ -746,13 +750,13 @@ export const DE_PHRASES = {
   'Save settings': 'Einstellungen speichern',
   'No sources yet': 'Noch keine Quellen',
   'A wiki with no evidence can hold no knowledge. Add a document and WikiKit archives it verbatim, then drafts pages that quote it.':
-    'Ein Wiki ohne Nachweise kann kein Wissen enthalten. Füge ein Dokument hinzu; WikiKit archiviert es wörtlich und entwirft daraus zitierte Seiten.',
+    'Ein Wiki ohne Nachweise kann kein Wissen enthalten. Ein Dokument hinzufügen; WikiKit archiviert es wörtlich und entwirft daraus zitierte Seiten.',
   'No connector streams': 'Keine Konnektor-Datenströme',
   'Forget this stream?': 'Diesen Datenstrom vergessen?',
   'Forget stream': 'Datenstrom vergessen',
   'No endpoints registered': 'Keine Endpunkte registriert',
   'Nothing outside WikiKit is being told about this wiki. Register a URL and WikiKit posts a signed event to it whenever a change is raised, approved or rejected.':
-    'Kein externes System wird über dieses Wiki informiert. Registriere eine URL; WikiKit sendet signierte Ereignisse, wenn Änderungen eingereicht, freigegeben oder abgelehnt werden.',
+    'Kein externes System wird über dieses Wiki informiert. Eine URL registrieren; WikiKit sendet signierte Ereignisse, wenn Änderungen eingereicht, freigegeben oder abgelehnt werden.',
   'Nothing has been sent yet': 'Noch nichts gesendet',
   'This secret will never be shown again': 'Dieses Geheimnis wird nie wieder angezeigt',
   'The endpoint was registered without a secret': 'Der Endpunkt wurde ohne Geheimnis registriert',
@@ -793,7 +797,7 @@ export const DE_PHRASES = {
   'A page keeps its address. Staging a different one would create a second page rather than rename this.':
     'Eine Seite behält ihre Adresse. Durch die Bereitstellung einer anderen Seite würde eine zweite Seite erstellt, anstatt diese umzubenennen.',
   'A wiki holds pages, the sources behind them and the changes waiting for review. Create one over the API to get started.':
-    'Ein Wiki enthält Seiten, die dahinter stehenden Quellen und die Änderungen, die auf Überprüfung warten. Erstellen Sie eines über die API, um loszulegen.',
+    'Ein Wiki enthält Seiten, ihre Quellen und noch zu prüfende Änderungen. Zum Einstieg ein Wiki über die API erstellen.',
   'A wiki is a whole knowledge base: its own pages, sources, changes and charter. Nothing is shared with another wiki unless it is declared in Settings.':
     'Ein Wiki ist eine eigene Wissensbasis mit Seiten, Quellen, Änderungen und Leitlinien. Inhalte werden nur über ausdrücklich konfigurierte Verknüpfungen mit anderen Wikis geteilt.',
   'API keys that were killed when this grant was revoked do not come back. Anything running on one needs a new key.':
@@ -810,26 +814,26 @@ export const DE_PHRASES = {
   'Claims and the quotes behind them come from ingesting sources under Sources. A page written here stages its text and nothing else.':
     'Aussagen und ihre Zitate entstehen beim Einlesen von Quellen. Eine hier verfasste Seite merkt nur ihren Text zur Prüfung vor.',
   'Claims somebody disputed, pages nobody has revisited, and how long a change waits.':
-    'Behauptungen, die jemand bestritten hat, Seiten, die niemand noch einmal besucht hat, und wie lange auf eine Änderung gewartet wird.',
+    'Bestrittene Aussagen, lange nicht überarbeitete Seiten und die Wartezeit offener Änderungen.',
   'Closing this panel discards it. WikiKit kept the hash, not the key.':
     'Durch das Schließen dieses Panels wird es verworfen. WikiKit hat den Hash behalten, nicht den Schlüssel.',
   'Comma separated. These weigh heaviest when WikiKit picks a wiki for a task, so a handful of exact terms beats a paragraph.':
     'Komma getrennt. Diese wiegen am schwersten, wenn WikiKit ein Wiki für eine Aufgabe auswählt, sodass eine Handvoll genauer Begriffe einen Absatz übertrifft.',
   'Contradicts a claim already visible on the same frame — approval marks BOTH of them disputed.':
-    'Widerspricht einer Behauptung, die bereits auf demselben Rahmen sichtbar ist – Genehmigungszeichen, BEIDE umstritten.',
+    'Widerspricht einer bereits auf derselben Seite sichtbaren Aussage – bei Freigabe werden beide als umstritten markiert.',
   'Could not list wikis': 'Wikis konnten nicht aufgelistet werden',
   'Decisions recorded by this change (': 'Durch diese Änderung erfasste Entscheidungen (',
   'Derived from current knowledge and appended to the charter automatically, together with an index of every page in this wiki. It is not part of the text above and cannot be edited here.':
-    'Aus aktuellem Wissensstand abgeleitet und automatisch der Charta beigefügt, zusammen mit einem Index aller Seiten in diesem Wiki. Es ist nicht Teil des obigen Textes und kann hier nicht bearbeitet werden.',
+    'Aus dem aktuellen Wissen abgeleitet und zusammen mit einem Seitenindex automatisch an die Leitlinien angehängt. Dieser Abschnitt gehört nicht zum bearbeitbaren Text.',
   'Displays the mobile sidebar.': 'Zeigt die mobile Seitenleiste an.',
   'Emptying either box removes what is stored. The email does not stay empty: every sign-in writes back whatever the provider asserts. To keep it gone, clear it and then revoke the grant — a revoked identity cannot sign in, so nothing rewrites it — or remove the person at the provider.':
-    'Durch das Leeren einer der beiden Boxen wird der gespeicherte Inhalt entfernt. Die E-Mail bleibt nicht leer: Bei jedem Login wird zurückgeschrieben, was der Anbieter behauptet. Um es nicht mehr zu löschen, löschen Sie es und widerrufen Sie dann die Gewährung – eine widerrufene Identität kann sich nicht anmelden, daher wird sie nicht neu geschrieben – oder entfernen Sie die Person beim Anbieter.',
+    'Ein leeres Feld entfernt den gespeicherten Wert. Bei jeder Anmeldung übernimmt WikiKit die E-Mail erneut vom Anbieter. Damit sie dauerhaft leer bleibt, den Wert löschen und anschließend den Zugriff widerrufen oder die Person beim Anbieter entfernen.',
   'Every MCP client this installation serves, across all wikis rather than just':
     'Jeder MCP-Client, den diese Installation bedient, in allen Wikis und nicht nur',
   'Every charter written for this wiki, newest first. Writing supersedes the current revision rather than overwriting it.':
-    'Jede für dieses Wiki geschriebene Charta, die neueste zuerst. Beim Schreiben wird die aktuelle Revision ersetzt, anstatt sie zu überschreiben.',
+    'Alle Fassungen der Leitlinien, neueste zuerst. Eine neue Fassung ersetzt die aktuelle, ohne den Verlauf zu überschreiben.',
   'Every claim carries a citation, no claim collides with a visible one, and no relation points at a page that is not there.':
-    'Jeder Anspruch trägt ein Zitat, kein Anspruch kollidiert mit einem sichtbaren Anspruch und keine Beziehung verweist auf eine Seite, die nicht vorhanden ist.',
+    'Jede Aussage besitzt einen Quellenbeleg, widerspricht keiner sichtbaren Aussage und verweist nur auf vorhandene Seiten.',
   "Every finding names a page, and each one is shown with that page's diff below.":
     'Jedes Ergebnis benennt eine Seite und jedes wird unten mit dem Diff dieser Seite angezeigt.',
   'Every question readers asked found an answer.': 'Auf jede Frage, die die Leser stellten, gab es eine Antwort.',
@@ -844,13 +848,13 @@ export const DE_PHRASES = {
     'Nur in archivierten Quellen zu finden – kein anerkanntes Wissen',
   'Granting again would be refused. Restore': 'Eine erneute Gewährung würde abgelehnt. Wiederherstellen',
   'How search reduces words before matching them. Changing it rebuilds the search index for every page and source in this wiki.':
-    'Wie die Suche Wörter reduziert, bevor sie mit ihnen übereinstimmt. Wenn Sie es ändern, wird der Suchindex für jede Seite und Quelle in diesem Wiki neu erstellt.',
+    'Legt fest, wie Wörter vor dem Abgleich auf ihren Stamm reduziert werden. Eine Änderung baut den Suchindex aller Seiten und Quellen neu auf.',
   'How this wiki describes itself to agents, which language its search is stemmed in, and which other wikis it may read.':
     'Wie sich dieses Wiki den Agenten selbst beschreibt, in welcher Sprache die Suche erfolgt und welche anderen Wikis es möglicherweise liest.',
-  'How to read this document': 'So lesen Sie dieses Dokument',
+  'How to read this document': 'Dokument lesen',
   'I have stored it — close': 'Ich habe ihn gespeichert – schließen',
   'Importing a bundle is not done from this console. Sources in an imported bundle are archived directly — evidence asserts nothing — but its pages and claims are staged as a single change for review, exactly like knowledge WikiKit synthesized itself. Use the API or the CLI, then review the change it raises.':
-    'Der Import eines Bundles erfolgt nicht über diese Konsole. Quellen in einem importierten Paket werden direkt archiviert – Beweise belegen nichts – aber seine Seiten und Behauptungen werden als einzelne Änderung zur Überprüfung bereitgestellt, genau wie das Wissen, das WikiKit selbst synthetisiert hat. Verwenden Sie die API oder die CLI und überprüfen Sie dann die dadurch ausgelöste Änderung.',
+    'Bundles werden über API oder CLI importiert. Quellen werden direkt archiviert; Seiten, Aussagen und Belege landen gemeinsam in einer Änderung zur Prüfung.',
   In: 'In',
   'Including event types added in later releases — an endpoint that subscribes to everything keeps subscribing to everything.':
     'Einschließlich der in späteren Versionen hinzugefügten Ereignistypen – ein Endpunkt, der alles abonniert, abonniert weiterhin alles.',
@@ -860,12 +864,12 @@ export const DE_PHRASES = {
   'Lower-case letters, digits and hyphens. It is the address of this wiki in every URL and every API call, and it cannot be changed afterwards.':
     'Kleinbuchstaben, Ziffern und Bindestriche. Es ist die Adresse dieses Wikis in jeder URL und jedem API-Aufruf und kann nachträglich nicht mehr geändert werden.',
   'Move this one page into a change of its own, so the rest can be decided now.':
-    'Verschieben Sie diese eine Seite in eine eigene Änderung, damit der Rest jetzt entschieden werden kann.',
+    'Diese Seite in eine eigene Änderung verschieben, damit der Rest jetzt entschieden werden kann.',
   'Name the claim that is unsupported, or the source that has to be quoted.':
-    'Nennen Sie die Behauptung, die nicht unterstützt wird, oder die Quelle, die zitiert werden muss.',
+    'Die unbelegte Aussage oder die noch zu zitierende Quelle benennen.',
   'No archived source is attached. Every claim above is therefore unciteable — that is what the missing-citations check reports.':
-    'Es ist keine archivierte Quelle angehängt. Jede der oben genannten Behauptungen ist daher nicht zitierfähig – das zeigt die Prüfung auf fehlende Zitate.',
-  'No charter has ever been written for this wiki.': 'Für dieses Wiki wurde noch nie eine Charta verfasst.',
+    'Keine archivierte Quelle ist angehängt. Die Aussagen oben lassen sich daher nicht belegen; genau das meldet die Prüfung auf fehlende Zitate.',
+  'No charter has ever been written for this wiki.': 'Für dieses Wiki wurden noch keine Leitlinien verfasst.',
   'No citation. Nothing in an archived source says this.': 'Kein Zitat. Nichts in einer archivierten Quelle sagt dies.',
   'No preset can approve a change or administer this installation. Approving is what publishes knowledge and':
     'Kein Preset kann eine Änderung genehmigen oder diese Installation verwalten. Genehmigen ist das, was Wissen veröffentlicht und',
@@ -876,11 +880,11 @@ export const DE_PHRASES = {
   'Nothing approved here answers that question. Adding a source is how the wiki learns it.':
     'Nichts, was hier genehmigt wurde, beantwortet diese Frage. Durch das Hinzufügen einer Quelle lernt das Wiki diese.',
   'Nothing in the archive is quoted for this claim, so nobody can check it.':
-    'Zu dieser Behauptung wird im Archiv nichts zitiert, so dass niemand sie überprüfen kann.',
+    'Für diese Aussage ist kein Zitat aus dem Archiv hinterlegt; sie lässt sich daher nicht prüfen.',
   'Nothing is deleted. The versions already archived stay exactly as they are, and every page that quotes them keeps its evidence — a claim never loses its citation.':
-    'Es wird nichts gelöscht. Die bereits archivierten Versionen bleiben genau so, wie sie sind, und jede Seite, die sie zitiert, behält ihre Beweise – eine Behauptung verliert nie ihre Zitierung.',
+    'Nichts wird gelöscht. Archivierte Versionen bleiben unverändert und jede Seite behält ihre Quellenbelege.',
   'Nothing is published. This change is closed for good and marked as having changes requested; WikiKit has no rebase, so acting on your note produces a NEW change rather than an edit to this one.':
-    'Es wird nichts veröffentlicht. Diese Änderung ist endgültig geschlossen und als Änderungswunsch markiert; WikiKit hat kein Rebase, daher führt die Reaktion auf Ihre Notiz eher zu einer NEUEN Änderung als zu einer Bearbeitung dieser Änderung.',
+    'Nichts wird veröffentlicht. Die Änderung wird mit Änderungswunsch geschlossen. Eine Überarbeitung erzeugt anschließend eine neue Änderung.',
   'Nothing — this is the first version': 'Nichts – das ist die erste Version',
   'One file per page, decision and source. Readable in any editor.':
     'Eine Datei pro Seite, Entscheidung und Quelle. In jedem Editor lesbar.',
@@ -898,8 +902,8 @@ export const DE_PHRASES = {
   'Purpose, use-when and keywords change which wiki an agent is pointed at for a task. Nothing already written changes, and no page moves.':
     'Zweck, Verwendungszeitpunkt und Schlüsselwörter ändern, auf welches Wiki ein Agent für eine Aufgabe verwiesen wird. Es ändert sich nichts bereits Geschriebenes und es werden keine Seiten verschoben.',
   'Quote from': 'Zitat von',
-  'Read the': 'Lesen Sie die',
-  'Read the archived source': 'Lesen Sie die archivierte Quelle',
+  'Read the': 'Öffnen:',
+  'Read the archived source': 'Archivierte Quelle öffnen',
   Reading: 'Lektüre',
   'Reading from': 'Lesen aus',
   'Ready to copy': 'Bereit zum Kopieren',
@@ -908,8 +912,8 @@ export const DE_PHRASES = {
   'Replaced by': 'Ersetzt durch',
   'Requests to': 'Anfragen an',
   'Results come in two tiers: what this wiki has approved, and — if you ask for them — lines found only in the archived sources behind it. The second tier is evidence, not knowledge.':
-    'Die Ergebnisse gibt es auf zwei Ebenen: was dieses Wiki genehmigt hat und – wenn Sie danach fragen – Zeilen, die nur in den archivierten Quellen dahinter zu finden sind. Die zweite Stufe besteht aus Beweisen, nicht aus Wissen.',
-  'Review the change →': 'Überprüfen Sie die Änderung →',
+    'Ergebnisse bestehen aus freigegebenem Wissen und optional aus Treffern in archivierten Quellen. Die zweite Ebene ist Evidenz, noch kein freigegebenes Wissen.',
+  'Review the change →': 'Änderung prüfen →',
   Searched: 'Gesucht',
   'Searches, reads, questions, ingests and proposals — through this console, the API and agents alike.':
     'Suchvorgänge, Lesevorgänge, Fragen, Aufnahmen und Vorschläge – über diese Konsole, die API und Agenten gleichermaßen.',
@@ -922,13 +926,13 @@ export const DE_PHRASES = {
     'Die bisherige Berechtigungsgrenze wird wiederhergestellt –',
   'The change that made it': 'Die Veränderung, die es bewirkt hat',
   'The charter is not reviewed: it is configuration an admin owns, so no change proposal is created and nobody approves it.':
-    'Die Charta wird nicht überprüft: Es handelt sich um eine Konfiguration, die einem Administrator gehört, daher wird kein Änderungsvorschlag erstellt und niemand genehmigt ihn.',
+    'Leitlinien sind Administrationskonfiguration und durchlaufen keine Änderungsprüfung.',
   'The diff above is unaffected — this check is advisory. Nothing here says the change is clean; it says nobody looked.':
     'Der obige Unterschied ist davon nicht betroffen – diese Prüfung ist beratend. Nichts hier besagt, dass die Änderung sauber ist; Es heißt, niemand hat nachgeschaut.',
   'The id of a provider this deployment is configured to authenticate against. Anything else is refused — a typo would otherwise create a grant no login can ever match.':
     'Die ID eines Anbieters, bei dem diese Bereitstellung für die Authentifizierung konfiguriert ist. Alles andere wird abgelehnt – ein Tippfehler würde andernfalls zu einer Bewilligung führen, mit der kein Login jemals übereinstimmen kann.',
   'The interchange bundle: claims, citations and relations survive the round trip.':
-    'Das Austauschbündel: Ansprüche, Zitate und Beziehungen überleben den Hin- und Rückweg.',
+    'Das Austauschbundle erhält Aussagen, Quellenbelege und Beziehungen vollständig.',
   'The model returned no answer.': 'Das Modell gab keine Antwort zurück.',
   'The name is the only thing that will identify this key afterwards — the key itself is never shown again and never stored.':
     'Der Name ist das Einzige, was diesen Schlüssel später identifiziert – der Schlüssel selbst wird nie wieder angezeigt und nie gespeichert.',
@@ -943,30 +947,30 @@ export const DE_PHRASES = {
   'The stable id the provider sends for this person — not their email, which they can change.':
     'Die stabile ID, die der Anbieter für diese Person sendet – nicht ihre E-Mail-Adresse, die sie ändern kann.',
   'The staged text is kept for the audit trail but never becomes visible. Use “Request changes” instead when the author should try again — a bare rejection carries no instruction.':
-    'Der bereitgestellte Text wird für den Audit-Trail aufbewahrt, wird jedoch nie sichtbar. Verwenden Sie stattdessen „Änderungen anfordern“, wenn der Autor es erneut versuchen soll – eine bloße Ablehnung enthält keine Anweisung.',
+    'Der vorgeschlagene Text bleibt im Prüfverlauf, wird aber nicht veröffentlicht. „Änderungen anfordern“ verwenden, wenn eine Überarbeitung erwartet wird; eine Ablehnung enthält keine Arbeitsanweisung.',
   'The version before this one': 'Die Version vor dieser',
   'The version this process is serving, and a fingerprint of every document it publishes about itself — so a deployment can be compared without downloading any of them.':
     'Die Version, die dieser Prozess bereitstellt, und ein Fingerabdruck jedes Dokuments, das er über sich selbst veröffentlicht – sodass eine Bereitstellung verglichen werden kann, ohne dass eines davon heruntergeladen werden muss.',
   'Their work stays. Pages they wrote stay visible, changes they raised stay in the queue, and decisions they approved stay approved — revoking access has never rewritten history here.':
-    'Ihre Arbeit bleibt. Von ihnen geschriebene Seiten bleiben sichtbar, von ihnen vorgenommene Änderungen bleiben in der Warteschlange und von ihnen genehmigte Entscheidungen bleiben genehmigt – der Widerruf des Zugriffs hat hier noch nie die Geschichte neu geschrieben.',
+    'Die bisherige Arbeit bleibt erhalten: Seiten, Änderungen und Entscheidungen werden durch den Zugriffswiderruf nicht umgeschrieben.',
   'There is no preset that can approve a change. Approving publishes knowledge, so':
     'Es gibt keine Voreinstellung, die eine Änderung genehmigen kann. Die Genehmigung veröffentlicht Wissen, also',
   'There is no way back. WikiKit stores a hash and never the key, so a revoked key cannot be re-enabled — mint a replacement, hand it to whatever was using this one, and revoke afterwards to avoid a gap.':
-    'Es gibt keinen Weg zurück. WikiKit speichert einen Hash und niemals den Schlüssel, sodass ein widerrufener Schlüssel nicht erneut aktiviert werden kann – erstellen Sie einen Ersatz, geben Sie ihn an denjenigen weiter, der diesen verwendet hat, und widerrufen Sie ihn anschließend, um eine Lücke zu vermeiden.',
+    'Der Widerruf lässt sich nicht rückgängig machen. WikiKit speichert nur einen Hash. Zuerst einen Ersatzschlüssel verteilen und anschließend den alten Schlüssel widerrufen, um Unterbrechungen zu vermeiden.',
   "This decision is yours, not an agent's. Approving publishes the pages above into":
-    'Diese Entscheidung liegt bei Ihnen, nicht bei einem Agenten. Durch die Genehmigung werden die oben genannten Seiten veröffentlicht',
+    'Diese Entscheidung trifft ein Mensch, kein Agent. Die Freigabe veröffentlicht die oben genannten Seiten in',
   'This document has a stable id upstream, so each push archives a new version instead of forking the archive. Older versions stay exactly where they are — the claims that quote them keep their evidence.':
-    'Dieses Dokument verfügt über eine stabile Upstream-ID, sodass bei jedem Push eine neue Version archiviert wird, anstatt das Archiv zu forken. Ältere Versionen bleiben genau dort, wo sie sind – die Behauptungen, die sie zitieren, behalten ihre Beweise.',
+    'Dieses Dokument besitzt upstream eine stabile ID. Jeder Push archiviert eine neue Version; ältere Versionen und ihre Quellenbelege bleiben erhalten.',
   'This document is too large to diff line by line without freezing the tab. Here is what it says now, then what it would say.':
     'Dieses Dokument ist zu groß, um es Zeile für Zeile zu unterscheiden, ohne die Registerkarte einzufrieren. Hier ist, was es jetzt sagt und was es damals sagen würde.',
   'This draft exists only in this browser. Leaving now throws it away — nothing has been sent to WikiKit yet, so there is no change to come back to.':
-    'Dieser Entwurf existiert nur in diesem Browser. Wenn Sie jetzt gehen, wird es weggeworfen – es wurde noch nichts an WikiKit gesendet, es gibt also keine Änderung, auf die Sie zurückkommen könnten.',
+    'Dieser Entwurf existiert nur in diesem Browser. Beim Verlassen wird er verworfen; an WikiKit wurde noch nichts gesendet.',
   'This endpoint is registered and no event it subscribes to has happened since. That is good news, not a fault — raise or approve a change and the first delivery appears here.':
-    'Dieser Endpunkt ist registriert und seitdem ist kein Ereignis aufgetreten, das er abonniert hat. Das ist eine gute Nachricht, kein Fehler – erheben oder genehmigen Sie eine Änderung und die erste Lieferung erscheint hier.',
+    'Der Endpunkt ist registriert, aber seitdem trat kein abonniertes Ereignis auf. Nach dem nächsten passenden Ereignis erscheint hier die erste Zustellung.',
   'This form did not load their row, so a name or email left blank here keeps what is stored rather than clearing it. To remove either one, close this and use Change ceiling on their row.':
-    'Dieses Formular hat den vorhandenen Eintrag nicht geladen. Leere Felder behalten daher den gespeicherten Namen oder die E-Mail-Adresse. Zum Entfernen schließe den Dialog und öffne am Eintrag „Berechtigungsgrenze ändern“.',
+    'Dieses Formular hat den vorhandenen Eintrag nicht geladen. Leere Felder behalten daher Name und E-Mail-Adresse. Zum Entfernen den Dialog schließen und am Eintrag „Berechtigungsgrenze ändern“ öffnen.',
   'This grant is the only authorization WikiKit reads, so revoking it takes effect immediately and everywhere: the sessions this person has open right now stop working mid-request, and any API key minted through this identity is killed with it. A key bound to a grant cannot outlive the grant.':
-    'Diese Gewährung ist die einzige Berechtigung, die WikiKit liest, daher wird der Widerruf sofort und überall wirksam: Die Sitzungen, die diese Person gerade geöffnet hat, funktionieren während der Anfrage nicht mehr, und jeder über diese Identität geprägte API-Schlüssel wird damit gelöscht. Ein an einen Zuschuss gebundener Schlüssel kann den Zuschuss nicht überleben.',
+    'Diese Zugriffsfreigabe ist die einzige von WikiKit ausgewertete Berechtigung. Ein Widerruf wirkt sofort, beendet offene Sitzungen und widerruft alle über diese Identität ausgestellten API-Schlüssel.',
   'This installation answered with two versions —': 'Diese Installation antwortete mit zwei Versionen –',
   'This installation holds no wikis yet.': 'Diese Installation enthält noch keine Wikis.',
   'This record does not name what replaced it. The': 'Dieser Datensatz nennt nicht, was ihn ersetzt hat. Der',
@@ -976,40 +980,39 @@ export const DE_PHRASES = {
     'Die Nachverfolgung unbeantworteter Fragen ist in dieser Bereitstellung deaktiviert.',
   Unstemmed: 'Ohne Wortstammerkennung',
   'Until a new charter is written, nothing steers classification and synthesis for this wiki: they fall back to their defaults. Pages already written are unaffected.':
-    'Bis eine neue Charta verfasst ist, steuert nichts die Klassifizierung und Synthese für dieses Wiki: Sie greifen auf ihre Standardwerte zurück. Bereits geschriebene Seiten bleiben davon unberührt.',
+    'Bis neue Leitlinien vorliegen, verwenden Klassifizierung und Synthese ihre Standardwerte. Bestehende Seiten bleiben unverändert.',
   'What WikiKit knows about these bytes. The hash is what makes the same document ingested twice one source rather than two.':
     'Was WikiKit über diese Bytes weiß. Der Hash ist dafür verantwortlich, dass das gleiche Dokument, das zweimal aufgenommen wurde, eine Quelle statt zwei ist.',
   'What a person calls it. This one can be changed later.':
     'Wie eine Person es nennt. Dieser kann später geändert werden.',
   "What changes: this stream leaves the list below, and the wiki's lint report starts naming the visible claims whose upstream document no longer exists, so a human can decide what to do about them. A later push from the connector brings the stream back.":
-    'Was sich ändert: Dieser Stream verlässt die Liste unten und der Lint-Bericht des Wikis beginnt mit der Benennung der sichtbaren Ansprüche, deren Originaldokument nicht mehr existiert, sodass ein Mensch entscheiden kann, was mit ihnen zu tun ist. Ein späterer Push vom Connector bringt den Stream zurück.',
+    'Der Datenstrom verschwindet aus der Liste. Der Prüfbericht markiert anschließend sichtbare Aussagen ohne vorhandenes Upstream-Dokument. Ein späterer Connector-Push stellt den Datenstrom wieder her.',
   'What reviewers did here — through this console, the API and agents alike.':
     'Was die Rezensenten hier getan haben – über diese Konsole, die API und Agenten gleichermaßen.',
   'What synthesis cost this wiki: calls, tokens and time, from the audit ledger.':
-    'Welche Synthese kostet dieses Wiki: Aufrufe, Token und Zeit aus dem Audit-Ledger.',
+    'Kosten der Synthese für dieses Wiki: Aufrufe, Tokens und Laufzeit aus dem Prüfprotokoll.',
   'What the linter finds in this wiki: claims with no quote behind them, pages nothing links to, changes nobody has reviewed.':
-    'Was der Linter in diesem Wiki findet: Behauptungen ohne Zitat dahinter, Seiten, auf die nichts verlinkt ist, Änderungen, die niemand überprüft hat.',
+    'Ergebnisse der Wiki-Prüfung: Aussagen ohne Quellenbeleg, nicht verlinkte Seiten und ungeprüfte Änderungen.',
   'Where it came from': 'Woher es kam',
   "Which markers count is configuration, so it differs between installations — this is what yours honours. Reading it is an admin's right, not a reader's; a session without it is told so here rather than shown a card that is missing.":
-    'Welche Markierungen zählen, hängt von der Konfiguration ab und unterscheidet sich daher je nach Installation – dies ist Ihre Ehre. Es ist das Recht eines Administrators, es zu lesen, nicht das eines Lesers. Eine Sitzung ohne sie wird hier also mitgeteilt, anstatt eine Karte anzuzeigen, die fehlt.',
+    'Welche Markierungen zählen, legt die Installation fest. Diese Auswertung ist nur mit Administrationsrechten sichtbar; ohne Berechtigung erscheint ein entsprechender Hinweis.',
   'WikiKit archives what you give it verbatim, quotes it claim by claim into pages, and puts those pages in Changes for a human to approve. Nothing becomes visible knowledge here without that approval.':
-    'WikiKit archiviert, was Sie ihm wörtlich geben, zitiert es Anspruch für Anspruch in Seiten und fügt diese Seiten in Änderungen ein, damit ein Mensch sie genehmigen kann. Ohne diese Zustimmung wird hier nichts sichtbares Wissen.',
+    'WikiKit archiviert Eingaben unverändert, verknüpft Aussagen mit Zitaten und legt daraus Seitenänderungen zur menschlichen Prüfung an. Ohne Freigabe entsteht kein sichtbares Wissen.',
   "WikiKit created the endpoint but sent no signing secret back, so there is nothing to give the receiving system. Delete this endpoint and register it again; if it happens twice, this deployment's webhook surface needs looking at before anything is wired to it.":
-    'WikiKit hat den Endpunkt erstellt, aber kein Signaturgeheimnis zurückgesendet, sodass dem empfangenden System nichts weitergegeben werden kann. Löschen Sie diesen Endpunkt und registrieren Sie ihn erneut; Wenn es zweimal passiert, muss die Webhook-Oberfläche dieser Bereitstellung überprüft werden, bevor etwas damit verbunden wird.',
+    'WikiKit hat den Endpunkt ohne Signaturgeheimnis erstellt. Den Endpunkt löschen und erneut registrieren. Tritt der Fehler wieder auf, muss die Webhook-Konfiguration dieser Installation geprüft werden.',
   'WikiKit does not answer which pages cite this source. To find them, search the wiki for a phrase from the document — every claim carries its quote.':
-    'WikiKit antwortet nicht, welche Seiten diese Quelle zitieren. Um sie zu finden, durchsuchen Sie das Wiki nach einem Satz aus dem Dokument – ​​jede Behauptung enthält ein Zitat.',
+    'WikiKit liefert keine direkte Liste zitierender Seiten. Eine Suche nach einem Satz aus dem Dokument findet die zugehörigen Aussagen und Quellenbelege.',
   "WikiKit reads this ceiling on every request, so whatever you set here is in force on this person's next call — there is no session to wait out and nothing to re-issue.":
-    'WikiKit liest diese Obergrenze bei jeder Anfrage, sodass alles, was Sie hier festlegen, beim nächsten Anruf dieser Person wirksam ist – es gibt keine Sitzung, die abgewartet werden muss, und nichts, was erneut ausgegeben werden muss.',
+    'WikiKit prüft diese Berechtigungsgrenze bei jeder Anfrage. Änderungen gelten daher sofort beim nächsten Aufruf.',
   'Write the page in Markdown. Submitting stages a change — a reviewer decides whether it becomes part of the wiki.':
-    'Schreiben Sie die Seite in Markdown. Durch das Einreichen wird eine Änderung inszeniert – ein Prüfer entscheidet, ob sie Teil des Wikis wird.',
+    'Seite in Markdown verfassen und als Änderung einreichen. Erst eine Prüfung entscheidet über die Veröffentlichung.',
   and: 'Und',
   'and answers in prose, citing what it used. It costs model tokens, so it runs only when you ask.':
-    'und antwortet in Prosa unter Angabe dessen, was verwendet wurde. Es kostet Modelltokens und wird daher nur ausgeführt, wenn Sie danach fragen.',
+    'und beantwortet die Frage mit Quellenangaben. Der Vorgang verbraucht Modell-Tokens und startet nur auf ausdrückliche Anforderung.',
   'are chosen scope by scope, on purpose.': 'werden absichtlich Bereich für Bereich ausgewählt.',
-  'becomes current the moment you confirm, and revision':
-    'wird zum Zeitpunkt Ihrer Bestätigung und Überarbeitung aktuell',
+  'becomes current the moment you confirm, and revision': 'wird mit der Bestätigung aktuell; Revision',
   'can never be granted to a person — it means “everything, including whatever is added later”, which is a grant nobody can audit. That stays a key somebody minted on the host.':
-    'kann niemals einer Person gewährt werden – es bedeutet „alles, einschließlich allem, was später hinzugefügt wird“, was eine Gewährung ist, die niemand überprüfen kann. Das bleibt ein Schlüssel, den jemand dem Gastgeber eingeprägt hat.',
+    'kann keiner Person zugewiesen werden: Es umfasst auch künftig hinzugefügte Rechte und ist daher nicht sinnvoll prüfbar. Diese Berechtigung bleibt hostseitig ausgestellten Schlüsseln vorbehalten.',
   collides: 'kollidiert',
   'decision log': 'Entscheidungsprotokoll',
   'error(s),': 'Fehler,',
@@ -1018,20 +1021,20 @@ export const DE_PHRASES = {
   'from a document this wiki archived. Nobody has reviewed':
     'aus einem Dokument, das dieses Wiki archiviert hat. Niemand hat eine Bewertung abgegeben',
   'from the list instead — it re-admits them at the ceiling that grant already carries.':
-    'Stattdessen werden sie von der Liste gestrichen – sie werden mit der Obergrenze, die für den Zuschuss bereits gilt, wieder aufgenommen.',
+    'Stattdessen den Eintrag aus der Liste wiederherstellen. Dabei gilt erneut die bereits gespeicherte Berechtigungsgrenze.',
   'has to be chosen scope by scope, on purpose.': 'muss Bereich für Bereich absichtlich ausgewählt werden.',
   'into a page, so': 'in eine Seite, also',
   'is a zip of ordinary files — one per page, decision and source, plus an index. It is what to hand somebody who just wants to read the knowledge, and it is lossy: claims, citations and relations are prose in it, not structure.':
-    'ist eine ZIP-Datei mit gewöhnlichen Dateien – eine pro Seite, Entscheidung und Quelle sowie ein Index. Es ist etwas, das man jemandem geben kann, der das Wissen einfach nur lesen möchte, und es ist verlustbehaftet: Behauptungen, Zitate und Beziehungen sind darin Prosa, keine Struktur.',
+    'ist eine ZIP-Datei mit je einer Datei pro Seite, Entscheidung und Quelle sowie einem Index. Das Format ist gut lesbar, verliert aber die Struktur von Aussagen, Quellenbelegen und Beziehungen.',
   'is already admitted on this provider and subject, so this is not a new grant. Submitting replaces their current ceiling —':
-    'ist für diesen Anbieter und Fachbereich bereits zugelassen, es handelt sich also nicht um eine neue Förderung. Die Einreichung ersetzt ihre aktuelle Obergrenze –',
+    'ist für diesen Anbieter und dieses Subjekt bereits zugelassen. Die Eingabe ersetzt daher die bestehende Berechtigungsgrenze –',
   'is left with no charter. Every revision stays readable in the history below — this deletes what is in force, not the record of it.':
-    'bleibt ohne Charter. Jede Revision bleibt in der Historie unten lesbar – dadurch wird die gültige Version gelöscht, nicht deren Aufzeichnung.',
+    'bleibt ohne Leitlinien. Jede Fassung bleibt im Verlauf lesbar; entfernt wird nur die aktuell gültige Fassung.',
   'is superseded and': 'wird ersetzt und',
   'is superseded — kept in history, no longer in force. Classification and synthesis in':
     'wird ersetzt – in der Geschichte beibehalten, nicht mehr in Kraft. Klassifizierung und Synthese in',
   'is the interchange bundle. It carries the structure as well as the text, so a wiki exported from one WikiKit and imported into another arrives with its claims still quoting their sources.':
-    'ist das Austauschbündel. Es trägt sowohl die Struktur als auch den Text, sodass ein Wiki, das aus einem WikiKit exportiert und in ein anderes importiert wird, mit seinen Ansprüchen ankommt, die immer noch ihre Quellen angeben.',
+    'ist das Austauschbundle. Es erhält neben dem Text auch Aussagen, Quellenbelege und Beziehungen vollständig.',
   'more.': 'mehr.',
   'no other wiki': 'kein anderes Wiki',
   'not created yet': 'noch nicht erstellt',

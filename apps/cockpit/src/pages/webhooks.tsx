@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Field, FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Spinner } from '@/components/ui/spinner'
 import { useNow } from '@/hooks/use-now'
@@ -216,14 +217,14 @@ export function WebhooksPage() {
         required: true,
         className: 'max-w-48 whitespace-normal',
         compare: (left, right) => compareText(left.url, right.url),
-        cell: (row) => (
+        cell: (row, index) => (
           // Text, not an anchor. A webhook target is a machine's address, and
           // making it a link invites an operator to open a POST-only URL in a
           // tab and read a 405 as evidence the endpoint is broken.
           <div className="flex min-w-0 flex-col gap-1">
             <span
               className="block max-w-48 truncate font-mono text-xs md:max-w-[42ch]"
-              data-testid={`webhook-url-${row.id}`}
+              data-testid={`webhooks-row-${index + 1}-url`}
             >
               {row.url}
             </span>
@@ -236,18 +237,19 @@ export function WebhooksPage() {
       {
         id: 'condition',
         label: 'Condition',
-        mobileHidden: true,
-        cell: (row) => {
+        priority: 'secondary',
+        cell: (row, index) => {
           const condition = endpointCondition(row, now)
           return (
             <div className="flex flex-col gap-1">
               {/* The word as well as the colour (CUI-A11Y-5). */}
-              <Badge tone={BADGE_TONE[condition.state]} data-testid={`webhook-condition-${row.id}`}>
+              <Badge tone={BADGE_TONE[condition.state]} data-testid={`webhooks-row-${index + 1}-condition`}>
                 {condition.word}
               </Badge>
               {condition.status === 'circuit_open' && row.disabled_until ? (
                 <span className="text-muted-foreground text-xs">
-                  Paused until <RelativeTime value={row.disabled_until} data-testid={`webhook-until-${row.id}`} />
+                  Paused until{' '}
+                  <RelativeTime value={row.disabled_until} data-testid={`webhooks-row-${index + 1}-until`} />
                 </span>
               ) : null}
             </div>
@@ -257,14 +259,14 @@ export function WebhooksPage() {
       {
         id: 'events',
         label: 'Subscribed to',
-        mobileHidden: true,
-        cell: (row) =>
+        priority: 'secondary',
+        cell: (row, index) =>
           // An empty array is not an absence: the API reads "no events named" as
           // "every event", so it must never render as an em dash.
           row.events.length === 0 ? (
             <span className="text-xs">Every event</span>
           ) : (
-            <div className="flex flex-wrap gap-1" data-testid={`webhook-events-${row.id}`}>
+            <div className="flex flex-wrap gap-1" data-testid={`webhooks-row-${index + 1}-events`}>
               {row.events.map((event) => (
                 <Badge key={event} tone="neutral" className="font-mono text-[10px]">
                   {event.replace('wikikit.', '')}
@@ -276,11 +278,11 @@ export function WebhooksPage() {
       {
         id: 'failures',
         label: 'Failures in a row',
-        mobileHidden: true,
-        cell: (row) => (
+        priority: 'secondary',
+        cell: (row, index) => (
           // A measured zero, printed as zero. The em-dash rule is for a value
           // nobody sent; this endpoint has been counted and the count is none.
-          <span className="tabular-nums" data-testid={`webhook-failures-${row.id}`}>
+          <span className="tabular-nums" data-testid={`webhooks-row-${index + 1}-failures`}>
             {row.failure_count}
           </span>
         ),
@@ -299,12 +301,12 @@ export function WebhooksPage() {
         headerHidden: true,
         required: true,
         className: 'text-right',
-        cell: (row) => (
+        cell: (row, index) => (
           <Button
             variant={selected?.id === row.id ? 'secondary' : 'ghost'}
             size="sm"
             aria-pressed={selected?.id === row.id}
-            data-testid={`webhook-inspect-${row.id}`}
+            data-testid={`webhooks-row-${index + 1}-inspect`}
             onClick={() => {
               setChosen(row.id)
               // A new endpoint is a new result: the delivery walk starts again
@@ -329,11 +331,14 @@ export function WebhooksPage() {
         label: 'Event',
         required: true,
         compare: (left, right) => compareText(left.event_type, right.event_type),
-        cell: (row) => (
+        cell: (row, index) => (
           <div className="flex min-w-0 flex-col gap-0.5">
             <span className="font-mono text-xs">{row.event_type.replace('wikikit.', '')}</span>
             {!isUuidLike(row.event_id) ? (
-              <code className="text-muted-foreground font-mono text-[11px]" data-testid={`delivery-event-${row.id}`}>
+              <code
+                className="text-muted-foreground font-mono text-[11px]"
+                data-testid={`deliveries-row-${index + 1}-event`}
+              >
                 {row.event_id}
               </code>
             ) : null}
@@ -344,8 +349,8 @@ export function WebhooksPage() {
         id: 'status',
         label: 'Status',
         compare: (left, right) => compareText(left.status, right.status),
-        cell: (row) => (
-          <Badge tone={BADGE_TONE[deliveryState(row.status)]} data-testid={`delivery-status-${row.id}`}>
+        cell: (row, index) => (
+          <Badge tone={BADGE_TONE[deliveryState(row.status)]} data-testid={`deliveries-row-${index + 1}-status`}>
             {DELIVERY_WORDS[row.status] ?? row.status}
           </Badge>
         ),
@@ -353,9 +358,9 @@ export function WebhooksPage() {
       {
         id: 'attempt',
         label: 'Attempts',
-        mobileHidden: true,
-        cell: (row) => (
-          <span className="tabular-nums" data-testid={`delivery-attempt-${row.id}`}>
+        priority: 'secondary',
+        cell: (row, index) => (
+          <span className="tabular-nums" data-testid={`deliveries-row-${index + 1}-attempt`}>
             {row.attempt}
           </span>
         ),
@@ -363,11 +368,11 @@ export function WebhooksPage() {
       {
         id: 'response',
         label: 'Answered',
-        mobileHidden: true,
+        priority: 'secondary',
         // Genuinely absent: a delivery that never reached the endpoint has no
         // response status, and `0` would read as a status code (CUI-SEV-2).
-        cell: (row) => (
-          <span className="tabular-nums" data-testid={`delivery-response-${row.id}`}>
+        cell: (row, index) => (
+          <span className="tabular-nums" data-testid={`deliveries-row-${index + 1}-response`}>
             {row.response_status ?? '—'}
           </span>
         ),
@@ -375,11 +380,11 @@ export function WebhooksPage() {
       {
         id: 'next',
         label: 'Next attempt',
-        mobileHidden: true,
+        priority: 'secondary',
         compare: (left, right) => compareTime(left.next_attempt_at, right.next_attempt_at),
-        cell: (row) =>
+        cell: (row, index) =>
           row.next_attempt_at ? (
-            <RelativeTime value={row.next_attempt_at} data-testid={`delivery-next-${row.id}`} />
+            <RelativeTime value={row.next_attempt_at} data-testid={`deliveries-row-${index + 1}-next`} />
           ) : (
             <span className="text-muted-foreground text-xs">—</span>
           ),
@@ -387,13 +392,13 @@ export function WebhooksPage() {
       {
         id: 'error',
         label: 'What went wrong',
-        mobileHidden: true,
-        cell: (row) =>
+        priority: 'secondary',
+        cell: (row, index) =>
           row.last_error ? (
             // The endpoint's own words, never rewritten (CUI-LOAD-2). Truncated
             // on screen, whole in the title of nothing: the full text is the
             // cell's own content, so a screen reader and a copy both get it.
-            <span className="block max-w-[36ch] truncate text-xs" data-testid={`delivery-error-${row.id}`}>
+            <span className="block max-w-[36ch] truncate text-xs" data-testid={`deliveries-row-${index + 1}-error`}>
               {row.last_error}
             </span>
           ) : (
@@ -403,7 +408,7 @@ export function WebhooksPage() {
       {
         id: 'created',
         label: 'Queued',
-        mobileHidden: true,
+        priority: 'secondary',
         descFirst: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
         cell: (row) => <RelativeTime value={row.created_at} />,
@@ -647,8 +652,8 @@ function RegisterEndpoint({
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-4 overflow-y-auto">
-            <div className="flex flex-col gap-2">
+          <FieldGroup className="overflow-y-auto">
+            <Field>
               <FieldLabel
                 htmlFor="endpoint-url"
                 helpTitle="About webhook addresses"
@@ -666,16 +671,14 @@ function RegisterEndpoint({
                 placeholder="https://example.com/hooks/wikikit"
                 onChange={(event) => setUrl(event.target.value)}
               />
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
+            <FieldSet>
               {/* Not a <Label>: a group of controls, not one labelable field. */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm leading-none font-medium">What should it hear about?</span>
-                <ContextHelp title="About webhook subscriptions" testId="webhook-subscriptions-help">
-                  <p>An endpoint subscribed to everything also receives event types introduced in later releases.</p>
-                </ContextHelp>
-              </div>
+              <FieldLegend variant="label">What should it hear about?</FieldLegend>
+              <ContextHelp title="About webhook subscriptions" testId="webhook-subscriptions-help">
+                <p>An endpoint subscribed to everything also receives event types introduced in later releases.</p>
+              </ContextHelp>
               <SegmentedControl
                 label="Which events"
                 data-testid="endpoint-scope"
@@ -711,7 +714,7 @@ function RegisterEndpoint({
                   })}
                 </div>
               )}
-            </div>
+            </FieldSet>
 
             {refusal ? (
               <Alert
@@ -723,7 +726,7 @@ function RegisterEndpoint({
                 {refusal.message}
               </Alert>
             ) : null}
-          </div>
+          </FieldGroup>
         )}
 
         <DialogFooter data-testid="register-endpoint-footer">

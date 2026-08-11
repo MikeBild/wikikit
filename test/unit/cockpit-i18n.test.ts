@@ -163,6 +163,17 @@ describe('the typed English and German Cockpit catalogs', () => {
     )
     expect([...missing].sort()).toEqual([])
   })
+
+  test('keeps German copy neutral and prevents page-local locale branches', () => {
+    const german = [...Object.values(CATALOGS.de), ...Object.values(DE_PHRASES)].join('\n')
+    expect(german).not.toMatch(
+      /\b(?:Sie|Ihnen|Ihre[mnrs]?|Du|Dich|Dir|Dein\w*|Gib|Schreib|Lies|Füge|Erstelle|Gewähre|Beschreibe|Importiere|Registriere|Durchsuche|Verfasse|Wähle|Öffne|Prüfe)\b/,
+    )
+
+    const root = join(import.meta.dir, '../../apps/cockpit/src')
+    const branches = cockpitTsxFiles(root).filter((file) => /locale\s*(?:===|!==)/.test(readFileSync(file, 'utf8')))
+    expect(branches).toEqual([])
+  })
 })
 
 describe('locale preference and automatic detection', () => {

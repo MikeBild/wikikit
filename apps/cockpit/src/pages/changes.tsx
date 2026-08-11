@@ -90,7 +90,7 @@ export function ChangesPage() {
         required: true,
         className: 'max-w-56 whitespace-normal',
         compare: (left, right) => compareText(left.title, right.title),
-        cell: (row) => (
+        cell: (row, index) => (
           <div className="flex min-w-0 flex-col gap-0.5">
             {/* A link navigates and does nothing else (CUI-ACT-1). The whole row
                 is not the target: a row-wide click handler steals the text
@@ -99,7 +99,7 @@ export function ChangesPage() {
               to="/changes/$id"
               params={{ id: row.id }}
               search={{ space }}
-              data-testid={`change-link-${row.id}`}
+              data-testid={`changes-row-${index + 1}-open`}
               className="font-medium underline-offset-4 hover:underline"
             >
               {semanticLabel([row.title], 'Knowledge change')}
@@ -114,20 +114,20 @@ export function ChangesPage() {
         id: 'status',
         label: 'Status',
         compare: (left, right) => compareText(statusOrder(left), statusOrder(right)),
-        cell: (row) => <StatusCell row={row} />,
+        cell: (row, index) => <StatusCell row={row} testId={`changes-row-${index + 1}-status`} />,
       },
       {
         id: 'raised',
         label: 'Raised',
-        mobileHidden: true,
+        priority: 'secondary',
         descFirst: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
-        cell: (row) => <RelativeTime value={row.created_at} data-testid={`change-raised-${row.id}`} />,
+        cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`changes-row-${index + 1}-raised`} />,
       },
       {
         id: 'reviewer',
         label: 'Reviewer',
-        mobileHidden: true,
+        priority: 'secondary',
         compare: (left, right) => compareText(left.reviewer, right.reviewer),
         // A change nobody has decided has no reviewer, and that is an absent
         // value, not an empty one (CUI-SEV-2).
@@ -139,9 +139,9 @@ export function ChangesPage() {
         hiddenByDefault: true,
         descFirst: true,
         compare: (left, right) => compareTime(left.reviewed_at, right.reviewed_at),
-        cell: (row) =>
+        cell: (row, index) =>
           row.reviewed_at ? (
-            <RelativeTime value={row.reviewed_at} data-testid={`change-decided-${row.id}`} />
+            <RelativeTime value={row.reviewed_at} data-testid={`changes-row-${index + 1}-decided`} />
           ) : (
             <Dash />
           ),
@@ -159,13 +159,13 @@ export function ChangesPage() {
         label: 'Split from',
         hiddenByDefault: true,
         compare: (left, right) => compareText(left.parent_proposal_id, right.parent_proposal_id),
-        cell: (row) =>
+        cell: (row, index) =>
           row.parent_proposal_id ? (
             <Link
               to="/changes/$id"
               params={{ id: row.parent_proposal_id }}
               search={{ space }}
-              data-testid={`change-parent-${row.id}`}
+              data-testid={`changes-row-${index + 1}-parent`}
               className="text-xs underline-offset-4 hover:underline"
             >
               Parent change
@@ -292,15 +292,15 @@ export function ChangesPage() {
  * that can tell them apart is a word (CUI-A11Y-5). A change somebody read and
  * sent back must not look like one nobody has opened.
  */
-function StatusCell({ row }: { row: ChangeRow }) {
+function StatusCell({ row, testId }: { row: ChangeRow; testId: string }) {
   const reading = changeState(row.status, row.changes_requested)
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <Badge tone={badgeTone(reading.state)} data-testid={`change-status-${row.id}`}>
+      <Badge tone={badgeTone(reading.state)} data-testid={testId}>
         {reading.label}
       </Badge>
       {reading.flag ? (
-        <Badge tone={badgeTone(reading.flag.state)} data-testid={`change-flag-${row.id}`}>
+        <Badge tone={badgeTone(reading.flag.state)} data-testid={`${testId}-flag`}>
           {reading.flag.label}
         </Badge>
       ) : null}

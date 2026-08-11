@@ -70,7 +70,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 export interface DataColumn<Row> {
   id: string
   label: string
-  cell: (row: Row) => ReactNode
+  cell: (row: Row, index: number) => ReactNode
   /**
    * Presence is the capability: a column with a comparator can be ordered by the
    * console, one without it cannot be ordered at all. `compareText`, `compareTime`
@@ -83,8 +83,12 @@ export interface DataColumn<Row> {
   /** Identifies the row or carries its actions. Hiding it breaks the list. */
   required?: boolean
   hiddenByDefault?: boolean
-  /** Hide a secondary column below md; its essential fact must be repeated in the primary cell when needed. */
+  /** Responsive importance. Secondary columns collapse on phones; optional columns also collapse on tablets. */
+  priority?: 'essential' | 'secondary' | 'optional'
+  /** @deprecated Use `priority: 'secondary'`. */
   mobileHidden?: boolean
+  width?: 'compact' | 'normal' | 'wide' | 'fill'
+  overflow?: 'wrap' | 'truncate'
   /** A date column's first click should be newest-first, not oldest-first. */
   descFirst?: boolean
   className?: string
@@ -127,7 +131,7 @@ export function DataTable<Row>({
   /** Every row for `'whole'`, this page's rows for `'cursor'`. */
   rows: readonly Row[]
   rowKey: (row: Row) => string
-  rowTestId?: (row: Row) => string
+  rowTestId?: (row: Row, index: number) => string
   rowAttributes?: (row: Row) => Record<string, string>
   query: TableQuery
   /** What to say when the answer arrived and there is nothing in it. */
@@ -153,7 +157,13 @@ export function DataTable<Row>({
   const isMobile = useIsMobile()
   const specs = useMemo(() => capabilitiesOf(columns), [columns])
   const shown = useMemo(() => columns.filter((column) => view.visible.includes(column.id)), [columns, view.visible])
-  const rendered = useMemo(() => (isMobile ? shown.filter((column) => !column.mobileHidden) : shown), [isMobile, shown])
+  const rendered = useMemo(
+    () =>
+      isMobile
+        ? shown.filter((column) => !column.mobileHidden && (column.priority ?? 'essential') === 'essential')
+        : shown,
+    [isMobile, shown],
+  )
   const sort = reconcileSort(specs, paging, view.visible, view.sort)
 
   const ordered = useMemo(() => {
@@ -231,7 +241,7 @@ export function DataTable<Row>({
                     key={column.id}
                     data-testid={`${testId}-header-${column.id}`}
                     scope="col"
-                    className={cn(column.mobileHidden && 'max-md:hidden', column.className)}
+                    className={columnClassName(column)}
                     // Announced only where a control exists. `aria-sort="none"` on
                     // a column nobody can sort tells a screen reader there is a
                     // move to make, and there is not.
@@ -252,9 +262,9 @@ export function DataTable<Row>({
                         type="button"
                         data-testid={`${testId}-sort-${column.id}`}
                         onClick={() => onViewChange({ ...view, sort: nextSort(specs, paging, sort, column.id) })}
-                        className="inline-flex items-center gap-1 rounded font-medium hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="flex min-w-0 max-w-full flex-wrap items-center justify-start gap-1 rounded text-left font-medium whitespace-normal hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                       >
-                        {text(column.label)}
+                        <span className="min-w-0 break-words whitespace-normal">{text(column.label)}</span>
                         {active === 'asc' ? (
                           <ArrowUp className="size-3" />
                         ) : active === 'desc' ? (
@@ -289,19 +299,19 @@ export function DataTable<Row>({
             ) : visibleRows.length === 0 ? (
               <EmptyRow testId={testId} columns={rendered.length} message={empty} />
             ) : (
-              visibleRows.map((row) => (
+              visibleRows.map((row, index) => (
                 <TableRow
                   key={rowKey(row)}
                   {...(rowAttributes?.(row) ?? {})}
-                  data-testid={rowTestId?.(row) ?? `${testId}-row-${rowKey(row)}`}
+                  data-testid={rowTestId?.(row, index) ?? `${testId}-row-${index + 1}`}
                 >
                   {rendered.map((column) => (
                     <TableCell
                       key={column.id}
-                      className={cn(column.mobileHidden && 'max-md:hidden', column.className)}
-                      data-testid={`${testId}-cell-${rowKey(row)}-${column.id}`}
+                      className={columnClassName(column)}
+                      data-testid={`${testId}-row-${index + 1}-${column.id}`}
                     >
-                      <I18nText>{column.cell(row)}</I18nText>
+                      <I18nText>{column.cell(row, index)}</I18nText>
                     </TableCell>
                   ))}
                 </TableRow>
@@ -481,7 +491,7 @@ function ColumnMenu<Row>({
             <DropdownMenuCheckboxItem
               key={column.id}
               data-testid={`${testId}-columns-${column.id}`}
-              className={cn(column.mobileHidden && 'max-md:hidden')}
+              className={cn((column.mobileHidden || column.priority !== 'essential') && 'max-md:hidden')}
               checked={view.visible.includes(column.id)}
               disabled={column.required}
               onSelect={(event) => event.preventDefault()}
@@ -505,6 +515,20 @@ function ColumnMenu<Row>({
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function columnClassName<Row>(column: DataColumn<Row>): string {
+  return cn(
+    (column.mobileHidden || column.priority === 'secondary') && 'max-md:hidden',
+    column.priority === 'optional' && 'max-lg:hidden',
+    column.width === 'compact' && 'w-24',
+    column.width === 'normal' && 'w-40',
+    column.width === 'wide' && 'w-64',
+    column.width === 'fill' && 'w-auto',
+    column.overflow === 'truncate' && 'truncate',
+    column.overflow === 'wrap' && 'break-words whitespace-normal',
+    column.className,
   )
 }
 

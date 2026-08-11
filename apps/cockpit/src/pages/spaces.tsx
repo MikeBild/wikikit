@@ -145,7 +145,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'purpose',
     label: 'Purpose',
-    mobileHidden: true,
+    priority: 'secondary',
     // `TableCell` is `whitespace-nowrap`, which is right for a slug and wrong for
     // a sentence: without the override this column would be one unbreakable line
     // and would set the table's width on its own.
@@ -162,7 +162,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'language',
     label: 'Retrieval',
-    mobileHidden: true,
+    priority: 'optional',
     compare: (left, right) =>
       compareText(readLanguage(left.settings) ?? DEFAULT_LANGUAGE, readLanguage(right.settings) ?? DEFAULT_LANGUAGE),
     cell: (space) => {
@@ -179,7 +179,7 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
   {
     id: 'imports',
     label: 'Reads from',
-    mobileHidden: true,
+    priority: 'optional',
     cell: (space) => {
       const imports = readImports(space.settings)
       // Not configured and configured-as-none are the same fact here — this wiki
@@ -562,7 +562,7 @@ function SettingsDialog({ slug, onClose }: { slug: string; onClose: () => void }
           </DialogDescription>
         </DialogHeader>
 
-        <DataState query={space} skeleton={<FormSkeleton />}>
+        <DataState testId="space-settings" query={space} skeleton={<FormSkeleton />}>
           {(data) => (
             <SettingsForm
               // Re-keyed on the server's own version marker: a fresh read after

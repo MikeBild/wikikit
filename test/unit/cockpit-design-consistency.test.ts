@@ -43,14 +43,20 @@ describe('the Cockpit action hierarchy', () => {
     }
     for (const [page, minimum] of Object.entries(minimumResponsiveColumns)) {
       const contents = source(`apps/cockpit/src/pages/${page}`)
-      expect(contents.match(/mobileHidden: true/g)?.length ?? 0, page).toBeGreaterThanOrEqual(minimum)
+      expect(contents.match(/priority: '(?:secondary|optional)'/g)?.length ?? 0, page).toBeGreaterThanOrEqual(minimum)
     }
 
     const table = source('apps/cockpit/src/components/ui/data-table.tsx')
-    expect(table).toContain("column.mobileHidden && 'max-md:hidden'")
-    expect(table).toContain('isMobile ? shown.filter((column) => !column.mobileHidden) : shown')
+    expect(table).toContain("column.priority === 'secondary'")
+    expect(table).toContain("column.priority === 'optional'")
+    expect(table).toContain("(column.priority ?? 'essential') === 'essential'")
+    const primitive = source('apps/cockpit/src/components/ui/table.tsx')
+    expect(primitive).toContain('w-full table-fixed')
+    expect(primitive).not.toContain('overflow-x-auto')
     const browserCheck = source('scripts/check-cockpit-browser.ts')
-    expect(browserCheck).toContain('requires horizontal scrolling')
+    expect(browserCheck).toContain('exceeds its surface')
+    expect(browserCheck).toContain('duplicate data-testid')
+    expect(browserCheck).toContain('interactive element has no data-testid')
     expect(browserCheck).not.toContain("table.dataset.testid === 'pages-table'")
   })
 
@@ -96,6 +102,24 @@ describe('the Cockpit action hierarchy', () => {
       walk(parsed)
     }
     expect(offenders).toEqual([])
+  })
+
+  test('uses the shared shadcn structure for tabs, forms and page actions', () => {
+    const tabs = source('apps/cockpit/src/components/ui/tabs.tsx')
+    expect(tabs).toContain("import { Tabs as TabsPrimitive } from 'radix-ui'")
+    expect(tabs).toContain('<TabsPrimitive.List')
+    expect(tabs).toContain('<TabsPrimitive.Trigger')
+
+    const editor = source('apps/cockpit/src/pages/page-edit.tsx')
+    expect(editor).toContain('<FieldGroup>')
+    expect(editor).toContain('<Field>')
+    for (const page of ['api-keys.tsx', 'identities.tsx', 'webhooks.tsx']) {
+      expect(source(`apps/cockpit/src/pages/${page}`)).toContain('<FieldGroup className="overflow-y-auto">')
+    }
+
+    const shell = source('apps/cockpit/src/app/shell.tsx')
+    expect(shell).toContain('data-testid="page-actions"')
+    expect(shell).toContain('flex-wrap')
   })
 })
 

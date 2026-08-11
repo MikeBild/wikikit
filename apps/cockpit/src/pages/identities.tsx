@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Field, FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Spinner } from '@/components/ui/spinner'
@@ -206,7 +207,7 @@ export function IdentitiesPage() {
       {
         id: 'status',
         label: 'Status',
-        mobileHidden: true,
+        priority: 'secondary',
         compare: (left, right) => compareText(left.revoked_at, right.revoked_at),
         cell: (row) => (
           // The word as well as the colour (CUI-A11Y-5).
@@ -218,7 +219,7 @@ export function IdentitiesPage() {
       {
         id: 'ceiling',
         label: 'May do',
-        mobileHidden: true,
+        priority: 'secondary',
         cell: (row) => (
           <div className="flex flex-wrap gap-1" data-testid={`identity-ceiling-${row.provider}-${row.subject}`}>
             {/* An empty ceiling is not "no data": it is a stored array that
@@ -238,7 +239,7 @@ export function IdentitiesPage() {
       {
         id: 'provider',
         label: 'Signs in with',
-        mobileHidden: true,
+        priority: 'optional',
         compare: (left, right) => compareText(left.provider, right.provider),
         cell: (row) => (
           <div className="flex min-w-0 flex-col gap-0.5">
@@ -259,7 +260,7 @@ export function IdentitiesPage() {
       {
         id: 'last_seen',
         label: 'Last seen',
-        mobileHidden: true,
+        priority: 'optional',
         descFirst: true,
         compare: (left, right) => compareTime(left.last_seen_at, right.last_seen_at),
         // A grant nobody has used yet is a known fact, not a missing one, so it
@@ -650,9 +651,9 @@ function GrantAccess({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 overflow-y-auto">
+        <FieldGroup className="overflow-y-auto">
           <div className="flex flex-col gap-4 sm:flex-row">
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Field className="min-w-0 flex-1">
               <FieldLabel
                 htmlFor="grant-provider"
                 helpTitle="About identity providers"
@@ -669,8 +670,8 @@ function GrantAccess({
                 placeholder="entra"
                 onChange={(event) => setProvider(event.target.value)}
               />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            </Field>
+            <Field className="min-w-0 flex-1">
               <FieldLabel
                 htmlFor="grant-subject"
                 helpTitle="About identity subjects"
@@ -687,11 +688,11 @@ function GrantAccess({
                 placeholder="Provider subject"
                 onChange={(event) => setSubject(event.target.value)}
               />
-            </div>
+            </Field>
           </div>
 
           <div className="flex flex-col gap-4 sm:flex-row">
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Field className="min-w-0 flex-1">
               <Label htmlFor="grant-name">Name (optional)</Label>
               <Input
                 id="grant-name"
@@ -700,8 +701,8 @@ function GrantAccess({
                 placeholder="How this row should read"
                 onChange={(event) => setDisplayName(event.target.value)}
               />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            </Field>
+            <Field className="min-w-0 flex-1">
               <Label htmlFor="grant-email">Email (optional)</Label>
               <Input
                 id="grant-email"
@@ -712,7 +713,7 @@ function GrantAccess({
                 placeholder="person@example.com"
                 onChange={(event) => setEmail(event.target.value)}
               />
-            </div>
+            </Field>
           </div>
           {/* Only on a form that was loaded from the row: there, an empty box
               is the operator emptying a value they can see, and it is sent as
@@ -726,10 +727,10 @@ function GrantAccess({
             </p>
           ) : null}
 
-          <div className="flex flex-col gap-2">
+          <FieldSet>
             {/* Not a <Label>: what follows is a group of controls rather than
                 one labelable field, so each group carries its own aria-label. */}
-            <span className="text-sm leading-none font-medium">How far may they reach?</span>
+            <FieldLegend variant="label">How far may they reach?</FieldLegend>
             <SegmentedControl
               label="How to choose the ceiling"
               data-testid="grant-mode"
@@ -802,7 +803,7 @@ function GrantAccess({
                 </p>
               </div>
             )}
-          </div>
+          </FieldSet>
 
           {collision ? (
             <Alert tone="warning" title="This person already has a revoked grant" data-testid="grant-collision">
@@ -840,7 +841,7 @@ function GrantAccess({
               {refusal.message}
             </Alert>
           ) : null}
-        </div>
+        </FieldGroup>
 
         <DialogFooter data-testid="grant-footer">
           <Button

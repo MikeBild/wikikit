@@ -6,6 +6,7 @@ import { useTheme } from '@/lib/theme'
 import { dismissToast, useToasts, type ToastRecord, type ToastTone } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n-context'
+import { DisabledReason } from '@/components/disabled-reason'
 
 /**
  * The corner where the console says what just happened.
@@ -55,7 +56,7 @@ const TONE_ICON: Record<ToastTone, string> = {
   danger: 'text-destructive',
 }
 
-function ToastItem({ record }: { record: ToastRecord }) {
+function ToastItem({ record, testId }: { record: ToastRecord; testId: string }) {
   const Icon = ICONS[record.tone]
   const { text } = useI18n()
   return (
@@ -64,7 +65,7 @@ function ToastItem({ record }: { record: ToastRecord }) {
       // live region and is reserved for the two tones an operator must not miss;
       // `status` announces the other two when the reader next comes up for air.
       role={record.sticky ? 'alert' : 'status'}
-      data-testid="toast"
+      data-testid={testId}
       data-tone={record.tone}
       className={cn(
         'pointer-events-auto grid grid-cols-[auto_1fr_auto] gap-x-3 rounded-lg border bg-popover p-3 text-sm text-popover-foreground shadow-lg',
@@ -72,7 +73,7 @@ function ToastItem({ record }: { record: ToastRecord }) {
       )}
     >
       <Icon className={cn('mt-0.5 size-4 shrink-0', TONE_ICON[record.tone])} />
-      <div className="min-w-0 space-y-1">
+      <div className="flex min-w-0 flex-col gap-1">
         <div className="font-medium leading-tight">
           {text(record.title)}
           {/* The same failure raised four times is one toast and a count. The
@@ -82,7 +83,7 @@ function ToastItem({ record }: { record: ToastRecord }) {
         </div>
         {record.detail ? <div className="break-words text-muted-foreground">{text(record.detail)}</div> : null}
         {record.actions?.length ? (
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+          <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-xs text-muted-foreground">
             {record.actions.map((action) => (
               <li key={action}>{text(action)}</li>
             ))}
@@ -93,16 +94,17 @@ function ToastItem({ record }: { record: ToastRecord }) {
           The ones that leave on their own do not need a control, and giving them
           one trains the hand to clear the corner without reading it. */}
       {record.sticky ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          aria-label={text('Dismiss')}
-          data-testid="toast-dismiss"
-          onClick={() => dismissToast(record.id)}
-        >
-          <X className="size-3.5" />
-        </Button>
+        <DisabledReason reason={null} label={text('Dismiss')} data-testid={`${testId}-dismiss-tooltip`}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={text('Dismiss')}
+            data-testid={`${testId}-dismiss`}
+            onClick={() => dismissToast(record.id)}
+          >
+            <X />
+          </Button>
+        </DisabledReason>
       ) : (
         <span />
       )}
@@ -147,8 +149,8 @@ function ToastViewport() {
       data-theme={resolved}
       className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col gap-2 p-4 sm:inset-x-auto sm:right-0 sm:w-96"
     >
-      {toasts.map((record) => (
-        <ToastItem key={record.id} record={record} />
+      {toasts.map((record, index) => (
+        <ToastItem key={record.id} record={record} testId={`toast-${index + 1}`} />
       ))}
     </div>,
     document.body,

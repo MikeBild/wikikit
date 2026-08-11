@@ -21,8 +21,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldGroup, FieldLabel as UiFieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, type TabDefinition } from '@/components/ui/tabs'
@@ -216,10 +216,10 @@ export function PageEditPage() {
   /* ------------------------------------------------------------- the form */
 
   const form = (
-    <div className="flex flex-col gap-5">
+    <FieldGroup>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="page-title">Title</Label>
+        <Field>
+          <UiFieldLabel htmlFor="page-title">Title</UiFieldLabel>
           <Input
             id="page-title"
             data-testid="page-edit-title"
@@ -233,10 +233,10 @@ export function PageEditPage() {
               update(isNew && !slugTouched ? { title, slug: slugify(title) } : { title })
             }}
           />
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="page-slug">Address</Label>
+        <Field>
+          <UiFieldLabel htmlFor="page-slug">Address</UiFieldLabel>
           {isNew ? (
             <>
               <Input
@@ -251,10 +251,10 @@ export function PageEditPage() {
                   update({ slug: event.target.value })
                 }}
               />
-              <p className="text-muted-foreground text-xs">
+              <FieldDescription>
                 Lower-case letters, digits and hyphens. Every link to this page will use it, so it does not change
                 later.
-              </p>
+              </FieldDescription>
             </>
           ) : (
             <>
@@ -264,16 +264,16 @@ export function PageEditPage() {
               {/* A slug is not editable here, and that is the API being honest
                   rather than a field somebody forgot: staging a different slug
                   would create a SECOND page, not rename this one. */}
-              <p className="text-muted-foreground text-xs">
+              <FieldDescription>
                 A page keeps its address. Staging a different one would create a second page rather than rename this.
-              </p>
+              </FieldDescription>
             </>
           )}
-        </div>
+        </Field>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="page-summary">Summary</Label>
+      <Field>
+        <UiFieldLabel htmlFor="page-summary">Summary</UiFieldLabel>
         <Input
           id="page-summary"
           data-testid="page-edit-summary"
@@ -281,7 +281,7 @@ export function PageEditPage() {
           placeholder="One sentence, shown in the page list and in search results"
           onChange={(event) => update({ summary: event.target.value })}
         />
-      </div>
+      </Field>
 
       {/* Below `md` the two panes are one pane with a tab strip; above it they
           sit side by side, because the whole point of a preview is watching the
@@ -290,7 +290,7 @@ export function PageEditPage() {
       <Tabs tabs={PANES} value={pane} onValueChange={setPane} className="md:hidden" data-testid="page-edit-panes" />
 
       <div className="grid gap-4 md:grid-cols-2">
-        <section className={cn('flex min-w-0 flex-col gap-1.5', pane === 'preview' && 'hidden md:flex')}>
+        <Field className={cn('min-w-0', pane === 'preview' && 'hidden md:flex')}>
           <FieldLabel
             htmlFor="page-markdown"
             helpTitle="About writing pages by hand"
@@ -313,10 +313,10 @@ export function PageEditPage() {
             placeholder={'# Heading\n\nWhat this wiki knows, in Markdown.'}
             onChange={(event) => update({ markdown: event.target.value })}
           />
-        </section>
+        </Field>
 
         <section className={cn('flex min-w-0 flex-col gap-1.5', pane === 'write' && 'hidden md:flex')}>
-          <Label>Preview</Label>
+          <UiFieldLabel>Preview</UiFieldLabel>
           <div className="border-border min-h-80 rounded-lg border p-3">
             {draft.markdown.trim() ? (
               <article className="wk-doc" data-testid="page-edit-preview">
@@ -330,7 +330,7 @@ export function PageEditPage() {
           </div>
         </section>
       </div>
-    </div>
+    </FieldGroup>
   )
 
   return (
@@ -342,7 +342,7 @@ export function PageEditPage() {
         {isNew ? (
           form
         ) : (
-          <DataState query={concept} skeleton={<FormSkeleton />}>
+          <DataState testId="page-edit-document" query={concept} skeleton={<FormSkeleton />}>
             {() => form}
           </DataState>
         )}

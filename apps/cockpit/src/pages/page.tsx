@@ -159,7 +159,7 @@ export function PageDetailPage() {
         />
 
         <TabPanel active={tab === 'document'} group={TAB_LIST} id="document">
-          <DataState query={concept} skeleton={<DocumentSkeleton />}>
+          <DataState testId="page-document" query={concept} skeleton={<DocumentSkeleton />}>
             {(data) => (
               <div className="flex flex-col gap-8">
                 <div className="flex flex-col gap-3">
@@ -195,6 +195,7 @@ export function PageDetailPage() {
 
         <TabPanel active={tab === 'history'} group={TAB_LIST} id="history">
           <DataState
+            testId="page-history"
             query={history}
             skeleton={<HistorySkeleton />}
             isEmpty={(data) => data.revisions.length === 0}
@@ -245,8 +246,8 @@ function ClaimsPanel({ claims }: { claims: readonly Claim[] }) {
         />
       ) : (
         <ul className="flex flex-col gap-2">
-          {claims.map((claim) => (
-            <ClaimRow key={claim.id} claim={claim} />
+          {claims.map((claim, index) => (
+            <ClaimRow key={claim.id} claim={claim} index={index} />
           ))}
         </ul>
       )}
@@ -254,12 +255,12 @@ function ClaimsPanel({ claims }: { claims: readonly Claim[] }) {
   )
 }
 
-function ClaimRow({ claim }: { claim: Claim }) {
+function ClaimRow({ claim, index: claimIndex }: { claim: Claim; index: number }) {
   const evidence = evidenceOf(claim.citations.length)
   const status = statusBadge(claim.status)
   return (
     <li
-      data-testid={`page-claim-${claim.id}`}
+      data-testid={`page-claim-${claimIndex + 1}`}
       data-cited={evidence.cited ? 'yes' : 'no'}
       // The frame is the difference a reader sees before they read anything, and
       // it is never the only signal: the badge beside it says "No quote" in
@@ -274,14 +275,14 @@ function ClaimRow({ claim }: { claim: Claim }) {
         <p className="min-w-0 text-sm">{claimSentence(claim)}</p>
         <div className="flex shrink-0 flex-wrap items-center gap-1">
           <Badge tone={status.tone}>{status.label}</Badge>
-          <Badge tone={evidence.tone} data-testid={`page-claim-${claim.id}-evidence`}>
+          <Badge tone={evidence.tone} data-testid={`page-claim-${claimIndex + 1}-evidence`}>
             {evidence.label}
           </Badge>
         </div>
       </div>
 
       {evidence.cited ? (
-        <details data-testid={`page-claim-${claim.id}-quotes`}>
+        <details data-testid={`page-claim-${claimIndex + 1}-quotes`}>
           <summary className="focus-visible:ring-ring cursor-pointer rounded text-xs text-muted-foreground focus-visible:ring-2 focus-visible:outline-none">
             Read the {evidence.label.toLowerCase()}
           </summary>
@@ -297,7 +298,7 @@ function ClaimRow({ claim }: { claim: Claim }) {
                     to="/sources/$id"
                     params={{ id: citation.source_id }}
                     search={KEEP_SEARCH}
-                    data-testid={`page-claim-${claim.id}-source-${index}`}
+                    data-testid={`page-claim-${claimIndex + 1}-source-${index + 1}`}
                     className="underline underline-offset-2"
                   >
                     The source this is quoted from

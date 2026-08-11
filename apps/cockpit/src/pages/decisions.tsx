@@ -91,6 +91,7 @@ const COLUMNS: readonly DataColumn<DecisionRow>[] = [
   {
     id: 'slug',
     label: 'Slug',
+    priority: 'optional',
     hiddenByDefault: true,
     compare: (left, right) => compareText(left.slug, right.slug),
     cell: (row) =>
@@ -105,6 +106,7 @@ const COLUMNS: readonly DataColumn<DecisionRow>[] = [
   {
     id: 'recorded',
     label: 'Recorded',
+    priority: 'secondary',
     descFirst: true,
     compare: (left, right) => compareTime(left.created_at, right.created_at),
     cell: (row) => <RelativeTime value={row.created_at} data-testid={`decision-${row.slug}-recorded`} />,

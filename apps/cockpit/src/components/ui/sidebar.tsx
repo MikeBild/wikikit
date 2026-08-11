@@ -273,6 +273,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
+      data-testid="sidebar-rail"
       aria-label={text('Toggle Sidebar')}
       tabIndex={-1}
       onClick={toggleSidebar}
@@ -292,7 +293,9 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
         className,
       )}
       {...props}
-    />
+    >
+      <span className="sr-only">{text('Toggle Sidebar')}</span>
+    </button>
   )
 }
 

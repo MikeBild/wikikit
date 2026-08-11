@@ -2,7 +2,7 @@ import { CircleHelp } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { I18nText } from '@/components/i18n-text'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
+import { FieldLabel as FieldLabelPrimitive } from '@/components/ui/field'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useI18n } from '@/lib/i18n-context'
@@ -59,9 +59,9 @@ export function FieldLabel({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <Label htmlFor={htmlFor}>
+      <FieldLabelPrimitive htmlFor={htmlFor}>
         <I18nText>{children}</I18nText>
-      </Label>
+      </FieldLabelPrimitive>
       <ContextHelp title={helpTitle} testId={testId}>
         {help}
       </ContextHelp>

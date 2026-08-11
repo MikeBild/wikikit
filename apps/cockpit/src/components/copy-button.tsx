@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { DisabledReason } from '@/components/disabled-reason'
 import { useI18n } from '@/lib/i18n-context'
 
 /**
@@ -29,7 +30,7 @@ export function CopyButton({
   const { t } = useI18n()
   const effectiveLabel = label === 'Copy' ? t('common.copy') : label
 
-  return (
+  const control = (
     <Button
       type="button"
       variant="outline"
@@ -63,5 +64,12 @@ export function CopyButton({
             ? t('common.copied')
             : effectiveLabel}
     </Button>
+  )
+  return size === 'icon-sm' ? (
+    <DisabledReason reason={null} label={effectiveLabel} data-testid={`${testId}-tooltip`}>
+      {control}
+    </DisabledReason>
+  ) : (
+    control
   )
 }

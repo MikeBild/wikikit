@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Field, FieldDescription, FieldGroup, FieldLegend, FieldSet } from '@/components/ui/field'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -175,17 +176,15 @@ export function ApiKeysPage() {
         compare: (left, right) => compareText(left.revoked_at, right.revoked_at),
         cell: (row) => (
           // The word as well as the colour (CUI-A11Y-5).
-          <Badge tone={BADGE_TONE[keyState(row)]} data-testid={`api-key-status-${row.id}`}>
-            {row.revoked_at ? 'Revoked' : 'Live'}
-          </Badge>
+          <Badge tone={BADGE_TONE[keyState(row)]}>{row.revoked_at ? 'Revoked' : 'Live'}</Badge>
         ),
       },
       {
         id: 'scopes',
         label: 'Scopes',
-        mobileHidden: true,
+        priority: 'optional',
         cell: (row) => (
-          <div className="flex flex-wrap gap-1" data-testid={`api-key-scopes-${row.id}`}>
+          <div className="flex flex-wrap gap-1">
             {row.scopes.map((scope) => (
               <Badge key={scope} tone="neutral" className="font-mono text-[10px]">
                 {scope}
@@ -197,7 +196,7 @@ export function ApiKeysPage() {
       {
         id: 'space',
         label: 'Reaches',
-        mobileHidden: true,
+        priority: 'optional',
         compare: (left, right) => compareText(left.space ?? '', right.space ?? ''),
         // `null` here is a MEASURED fact and not a missing one, so it is not an
         // em dash: the server means "this key is valid in every wiki", which is
@@ -212,15 +211,15 @@ export function ApiKeysPage() {
       {
         id: 'last_used',
         label: 'Last used',
-        mobileHidden: true,
+        priority: 'optional',
         descFirst: true,
         compare: (left, right) => compareTime(left.last_used_at, right.last_used_at),
         // Same reading as `space`: a key nobody has presented yet has a known
         // history, and "Never" says it. An em dash would claim WikiKit does not
         // know, and it does.
-        cell: (row) =>
+        cell: (row, index) =>
           row.last_used_at ? (
-            <RelativeTime value={row.last_used_at} data-testid={`api-key-used-${row.id}`} />
+            <RelativeTime value={row.last_used_at} data-testid={`api-keys-row-${index + 1}-used`} />
           ) : (
             <span className="text-muted-foreground text-xs">Never</span>
           ),
@@ -231,7 +230,7 @@ export function ApiKeysPage() {
         descFirst: true,
         hiddenByDefault: true,
         compare: (left, right) => compareTime(left.created_at, right.created_at),
-        cell: (row) => <RelativeTime value={row.created_at} data-testid={`api-key-created-${row.id}`} />,
+        cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`api-keys-row-${index + 1}-created`} />,
       },
       {
         id: 'actions',
@@ -239,7 +238,14 @@ export function ApiKeysPage() {
         headerHidden: true,
         required: true,
         className: 'text-right',
-        cell: (row) => <RevokeKey apiKey={row} allowed={mayAdmin} onRevoke={revoke.mutateAsync} />,
+        cell: (row, index) => (
+          <RevokeKey
+            apiKey={row}
+            allowed={mayAdmin}
+            testId={`api-keys-row-${index + 1}-revoke`}
+            onRevoke={revoke.mutateAsync}
+          />
+        ),
       },
     ],
     [mayAdmin, revoke.mutateAsync],
@@ -265,7 +271,7 @@ export function ApiKeysPage() {
         columns={columns}
         rows={rows}
         rowKey={(row) => row.id}
-        rowTestId={(row) => `api-key-row-${row.id}`}
+        rowTestId={(_row, index) => `api-keys-row-${index + 1}`}
         rowAttributes={(row) => ({ 'data-status': row.revoked_at ? 'revoked' : 'active' })}
         query={keysQuery}
         view={view.view}
@@ -327,10 +333,12 @@ export function ApiKeysPage() {
 function RevokeKey({
   apiKey,
   allowed,
+  testId,
   onRevoke,
 }: {
   apiKey: ApiKey
   allowed: boolean
+  testId: string
   onRevoke: (id: string) => Promise<unknown>
 }) {
   // A key that is already revoked has nothing left to withdraw. The control
@@ -365,12 +373,12 @@ function RevokeKey({
       onConfirm={() => onRevoke(apiKey.id)}
     >
       {(open) => (
-        <DisabledReason reason={reason}>
+        <DisabledReason reason={reason} label={`Revoke ${apiKey.name}`} data-testid={`${testId}-tooltip`}>
           <Button
             variant="ghost"
             size="icon-sm"
             aria-label={`Revoke ${apiKey.name}`}
-            data-testid={`api-key-revoke-${apiKey.id}`}
+            data-testid={testId}
             disabled={reason !== null}
             onClick={open}
           >
@@ -504,8 +512,8 @@ function MintKey({
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4 overflow-y-auto">
-            <div className="flex flex-col gap-2">
+          <FieldGroup className="overflow-y-auto">
+            <Field>
               <FieldLabel
                 htmlFor="key-name"
                 helpTitle="About API key names"
@@ -521,13 +529,13 @@ function MintKey({
                 placeholder="Nightly handbook connector"
                 onChange={(event) => setName(event.target.value)}
               />
-            </div>
+            </Field>
 
-            <div className="flex flex-col gap-2">
+            <FieldSet>
               {/* Not a <Label>: what follows is a group of controls, not one
                   labelable field, and `htmlFor` pointing at a <div> names
                   nothing. Each group carries its own `aria-label` instead. */}
-              <span className="text-sm leading-none font-medium">What may it do?</span>
+              <FieldLegend variant="label">What may it do?</FieldLegend>
               <SegmentedControl
                 label="How to choose the scopes"
                 data-testid="key-mode"
@@ -590,9 +598,9 @@ function MintKey({
                   </p>
                 </div>
               )}
-            </div>
+            </FieldSet>
 
-            <div className="flex flex-col gap-2">
+            <Field>
               <div className="flex items-center justify-between gap-3">
                 <Label htmlFor="key-space">Limit it to this wiki</Label>
                 <Switch
@@ -603,19 +611,19 @@ function MintKey({
                   aria-label={`Limit this key to ${space}`}
                 />
               </div>
-              <p className="text-muted-foreground text-xs">
+              <FieldDescription>
                 {limitToSpace
                   ? `This key will reach ${space} and nothing else.`
                   : 'This key will reach every wiki in this deployment.'}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
 
             {refusal ? (
               <Alert tone={refusal.tone} title={refusal.title} actions={refusal.actions} data-testid="mint-key-refusal">
                 {refusal.message}
               </Alert>
             ) : null}
-          </div>
+          </FieldGroup>
         )}
 
         <DialogFooter data-testid="mint-key-footer">

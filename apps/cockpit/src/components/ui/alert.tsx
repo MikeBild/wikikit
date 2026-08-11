@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from './button'
 import { I18nText } from '@/components/i18n-text'
 import { useI18n } from '@/lib/i18n-context'
+import { DisabledReason } from '@/components/disabled-reason'
 
 const alertVariants = cva('relative w-full rounded-lg border p-3 text-sm grid grid-cols-[auto_1fr_auto] gap-x-3', {
   variants: {
@@ -34,16 +35,26 @@ export type AlertProps = ComponentProps<'div'> &
      * "nobody mentioned it".
      */
     dismissible?: boolean
+    'data-testid'?: string
   }
 
-export function Alert({ className, tone = 'info', title, actions, children, dismissible, ...props }: AlertProps) {
+export function Alert({
+  className,
+  tone = 'info',
+  title,
+  actions,
+  children,
+  dismissible,
+  'data-testid': testId,
+  ...props
+}: AlertProps) {
   const [dismissed, setDismissed] = useState(false)
   const { text } = useI18n()
   if (dismissed) return null
   const Icon = ICONS[tone ?? 'info']
   const canDismiss = dismissible && tone === 'info'
   return (
-    <div role="alert" className={cn(alertVariants({ tone }), className)} {...props}>
+    <div role="alert" data-testid={testId} className={cn(alertVariants({ tone }), className)} {...props}>
       <Icon
         className={cn(
           'mt-0.5 size-4 shrink-0',
@@ -52,7 +63,7 @@ export function Alert({ className, tone = 'info', title, actions, children, dism
           tone === 'info' && 'text-muted-foreground',
         )}
       />
-      <div className="min-w-0 space-y-1">
+      <div className="flex min-w-0 flex-col gap-1">
         <div className="font-medium leading-tight">{text(title)}</div>
         {children ? (
           <div className="text-muted-foreground break-words">
@@ -63,7 +74,7 @@ export function Alert({ className, tone = 'info', title, actions, children, dism
           // The server said what to do instead of retrying. An error banner
           // that drops that on the floor turns a terminal instruction back
           // into a mystery.
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+          <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-xs text-muted-foreground">
             {actions.map((action) => (
               <li key={action}>{text(action)}</li>
             ))}
@@ -71,15 +82,17 @@ export function Alert({ className, tone = 'info', title, actions, children, dism
         ) : null}
       </div>
       {canDismiss ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          aria-label={text('Dismiss')}
-          onClick={() => setDismissed(true)}
-        >
-          <X className="size-3.5" />
-        </Button>
+        <DisabledReason reason={null} label={text('Dismiss')} data-testid={`${testId ?? 'alert'}-dismiss-tooltip`}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={text('Dismiss')}
+            data-testid={`${testId ?? 'alert'}-dismiss`}
+            onClick={() => setDismissed(true)}
+          >
+            <X />
+          </Button>
+        </DisabledReason>
       ) : (
         <span />
       )}

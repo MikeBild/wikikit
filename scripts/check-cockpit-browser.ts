@@ -7,7 +7,7 @@
 // defects that reach an operator, and they are invisible to every other check
 // in this repository.
 //
-// Three assertions, on every navigable route, at 390×844 and 1280×800:
+// The assertions run on every navigable route at phone, tablet and laptop widths:
 //
 //   1. The document itself does not scroll horizontally (CUI-LAYOUT-1/RESP-1).
 //      An app shell whose panes scroll and whose document does not is the whole
@@ -46,6 +46,7 @@ interface Viewport {
 // overflow, the laptop catches a sidebar that steals width from a wide table.
 const VIEWPORTS: Viewport[] = [
   { name: 'phone', width: 390, height: 844 },
+  { name: 'tablet', width: 768, height: 1024 },
   { name: 'laptop', width: 1280, height: 800 },
 ]
 
@@ -75,14 +76,9 @@ const PROBE = `(() => {
     findings.push('the document scrolls horizontally (' + doc.scrollWidth + ' > ' + doc.clientWidth + ')')
   }
   for (const table of document.querySelectorAll('table')) {
-    let scroller = null
-    for (let node = table.parentElement; node; node = node.parentElement) {
-      const overflowX = getComputedStyle(node).overflowX
-      if (overflowX === 'auto' || overflowX === 'scroll') { scroller = node; break }
-    }
-    if (!scroller) findings.push('a table has no horizontally scrolling ancestor')
-    if (scroller && scroller.scrollWidth > scroller.clientWidth + 1) {
-      findings.push((table.dataset.testid || 'a table') + ' requires horizontal scrolling (' + scroller.scrollWidth + ' > ' + scroller.clientWidth + ')')
+    const container = table.parentElement
+    if (table.scrollWidth > table.clientWidth + 1 || (container && container.scrollWidth > container.clientWidth + 1)) {
+      findings.push((table.dataset.testid || 'a table') + ' exceeds its surface')
     }
   }
   for (const cell of document.querySelectorAll('td, th')) {
@@ -93,6 +89,31 @@ const PROBE = `(() => {
     const truncating = style.textOverflow === 'ellipsis' || style.overflow === 'hidden'
     if (!truncating && cell.scrollWidth > cell.clientWidth + 1) {
       findings.push('a cell clips its own content: ' + (cell.textContent || '').trim().slice(0, 40))
+    }
+  }
+  const ids = new Map()
+  for (const element of document.querySelectorAll('[data-testid]')) {
+    const id = element.getAttribute('data-testid')
+    if (!id) continue
+    ids.set(id, (ids.get(id) || 0) + 1)
+    if (/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(id)) {
+      findings.push('opaque identifier in data-testid: ' + id)
+    }
+  }
+  for (const [id, count] of ids) {
+    if (count > 1) findings.push('duplicate data-testid: ' + id + ' (' + count + ' elements)')
+  }
+  const interactive = 'a,button,input,select,textarea,[role="button"],[role="tab"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"]'
+  for (const element of document.querySelectorAll(interactive)) {
+    const style = getComputedStyle(element)
+    if (style.display === 'none' || style.visibility === 'hidden') continue
+    if (!element.getAttribute('data-testid')) {
+      findings.push('interactive element has no data-testid: ' + element.tagName.toLowerCase())
+    }
+    if (element.tagName === 'BUTTON' && element.getAttribute('aria-label')) {
+      const visibleText = (element.textContent || '').trim()
+      const icons = element.querySelectorAll('svg').length
+      if (!visibleText && icons !== 1) findings.push('icon-only button has ' + icons + ' icons')
     }
   }
   return findings
@@ -251,7 +272,7 @@ async function main(): Promise<void> {
     console.log(`\x1b[32m✓ no layout${locale === 'de' ? ' or German localisation' : ''} findings\x1b[0m`)
     // Said out loud rather than left implied: a green run means these three
     // assertions held, not that the console is correct.
-    console.log('  (three assertions: document overflow, table containment, cell clipping)')
+    console.log('  (layout, table containment, cell clipping, selectors and icon ownership)')
     return
   }
   for (const finding of findings) {

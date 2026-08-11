@@ -6,7 +6,8 @@ import { Dialog as SheetPrimitive } from 'radix-ui'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { XIcon } from 'lucide-react'
-import { I18nText } from '@/components/i18n-text'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useI18n } from '@/lib/i18n-context'
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -49,6 +50,7 @@ function SheetContent({
   showCloseButton?: boolean
   'data-testid'?: string
 }) {
+  const { t } = useI18n()
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -64,21 +66,24 @@ function SheetContent({
       >
         {children}
         {showCloseButton && (
-          <SheetPrimitive.Close data-slot="sheet-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-3 right-3"
-              size="icon-sm"
-              // Same rule as dialog.tsx: the one control every sheet has in
-              // common gets a name derived from the panel's own.
-              data-testid={testId ? `${testId}-close` : 'sheet-close'}
-            >
-              <XIcon />
-              <span className="sr-only">
-                <I18nText>Close</I18nText>
-              </span>
-            </Button>
-          </SheetPrimitive.Close>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SheetPrimitive.Close data-slot="sheet-close" asChild>
+                <Button
+                  variant="ghost"
+                  className="absolute top-3 right-3"
+                  size="icon-sm"
+                  aria-label={t('common.close')}
+                  data-testid={testId ? `${testId}-close` : 'sheet-close'}
+                >
+                  <XIcon />
+                </Button>
+              </SheetPrimitive.Close>
+            </TooltipTrigger>
+            <TooltipContent data-testid={testId ? `${testId}-close-tooltip` : 'sheet-close-tooltip'}>
+              {t('common.close')}
+            </TooltipContent>
+          </Tooltip>
         )}
       </SheetPrimitive.Content>
     </SheetPortal>

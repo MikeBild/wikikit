@@ -190,7 +190,7 @@ export function SystemPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-4">
-                <DataState query={readiness} skeleton={<VersionSkeleton />}>
+                <DataState testId="system-readiness-data" query={readiness} skeleton={<VersionSkeleton />}>
                   {(ready) => {
                     const standing = readinessStanding(ready.status)
                     return (
@@ -210,6 +210,7 @@ export function SystemPage() {
                 </DataState>
 
                 <DataState
+                  testId="system-artifacts"
                   query={descriptor}
                   skeleton={<ArtifactsSkeleton />}
                   isEmpty={(data) => data.artifacts.length === 0}
@@ -309,6 +310,7 @@ export function SystemPage() {
             </CardHeader>
             <CardContent>
               <DataState
+                testId="system-knowledge-config"
                 query={knowledgeConfig}
                 skeleton={<MarkersSkeleton />}
                 isEmpty={(data) => data.scaffolding_kinds.items.length === 0}
@@ -388,6 +390,7 @@ export function SystemPage() {
             </CardHeader>
             <CardContent>
               <DataState
+                testId="system-lint"
                 query={lint}
                 skeleton={<FactsSkeleton facts={3} />}
                 isEmpty={(data) => data.findings.length === 0}
@@ -447,6 +450,7 @@ export function SystemPage() {
               </CardHeader>
               <CardContent>
                 <DataState
+                  testId="system-http"
                   query={http}
                   skeleton={<FactsSkeleton facts={4} />}
                   isEmpty={(data) => data.totals.length === 0}
@@ -504,6 +508,7 @@ export function SystemPage() {
               </CardHeader>
               <CardContent>
                 <DataState
+                  testId="system-usage"
                   query={usage}
                   skeleton={<FactsSkeleton facts={3} />}
                   isEmpty={(data) => data.totals.length === 0}
@@ -555,7 +560,7 @@ export function SystemPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <DataState query={llm} skeleton={<FactsSkeleton facts={3} />}>
+                <DataState testId="system-llm" query={llm} skeleton={<FactsSkeleton facts={3} />}>
                   {(data) => (
                     <div className="flex flex-col gap-3">
                       <dl className="grid grid-cols-3 gap-3">
@@ -587,7 +592,7 @@ export function SystemPage() {
                 <CardDescription>What this wiki told the outside world, and what never arrived.</CardDescription>
               </CardHeader>
               <CardContent>
-                <DataState query={webhooks} skeleton={<FactsSkeleton facts={4} />}>
+                <DataState testId="system-webhooks" query={webhooks} skeleton={<FactsSkeleton facts={4} />}>
                   {(data) => (
                     <div className="flex flex-col gap-3">
                       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -629,6 +634,7 @@ export function SystemPage() {
             </CardHeader>
             <CardContent>
               <DataState
+                testId="system-mcp"
                 query={mcp}
                 skeleton={<FactsSkeleton facts={4} />}
                 isEmpty={(data) => data.totals.length === 0}

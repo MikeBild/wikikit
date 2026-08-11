@@ -110,7 +110,7 @@ export function HomePage() {
       }
     >
       <div className="flex flex-col gap-4">
-        <DataState query={knowledge} skeleton={<StripSkeleton />}>
+        <DataState testId="home-knowledge" query={knowledge} skeleton={<StripSkeleton />}>
           {(stats) => {
             const when = windowLabel(stats.from, stats.to)
             return (
@@ -149,6 +149,7 @@ export function HomePage() {
             </CardHeader>
             <CardContent>
               <DataState
+                testId="home-waiting"
                 query={waiting}
                 skeleton={<RowSkeleton rows={5} columns={2} />}
                 isEmpty={(data) => data.items.length === 0}
@@ -167,7 +168,7 @@ export function HomePage() {
               >
                 {(data) => (
                   <ul className="flex flex-col gap-0.5">
-                    {data.items.map((item) => {
+                    {data.items.map((item, index) => {
                       const standing = changeStanding(item.status, item.changes_requested)
                       return (
                         <li key={item.id}>
@@ -175,7 +176,7 @@ export function HomePage() {
                             to="/changes/$id"
                             params={{ id: item.id }}
                             search={(prev) => prev}
-                            data-testid={`waiting-change-${item.id}`}
+                            data-testid={`waiting-change-${index + 1}`}
                             className="hover:bg-muted focus-visible:ring-ring/50 flex flex-col gap-1 rounded-md px-2 py-1.5 transition-colors focus-visible:ring-3 focus-visible:outline-none sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                           >
                             <span className="min-w-0 truncate text-sm font-medium">
@@ -213,7 +214,7 @@ export function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DataState query={coverage} skeleton={<FactsSkeleton facts={3} />}>
+              <DataState testId="home-coverage" query={coverage} skeleton={<FactsSkeleton facts={3} />}>
                 {(data) => (
                   <div className="flex flex-col gap-4">
                     <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -255,7 +256,7 @@ export function HomePage() {
               <CardDescription>Every page here is written from an archived document.</CardDescription>
             </CardHeader>
             <CardContent>
-              <DataState query={ingests} skeleton={<FactsSkeleton facts={3} />}>
+              <DataState testId="home-ingests" query={ingests} skeleton={<FactsSkeleton facts={3} />}>
                 {(data) => (
                   <dl className="grid grid-cols-3 gap-3">
                     <Fact testId="ingest-created" label="Submitted" value={count(data.totals.jobs.created)} />
@@ -281,6 +282,7 @@ export function HomePage() {
             </CardHeader>
             <CardContent>
               <DataState
+                testId="home-reviews"
                 query={reviews}
                 skeleton={<FactsSkeleton facts={2} />}
                 isEmpty={(data) => data.totals.length === 0}

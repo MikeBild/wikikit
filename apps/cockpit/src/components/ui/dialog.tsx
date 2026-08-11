@@ -3,10 +3,11 @@
 import * as React from 'react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 import { XIcon } from 'lucide-react'
-import { I18nText } from '@/components/i18n-text'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useI18n } from '@/lib/i18n-context'
 
 /**
  * The vendored Radix Dialog. This file used to be the console's own overlay.
@@ -147,6 +148,7 @@ function DialogContent({
   closeDisabled?: boolean
   'data-testid'?: string
 }) {
+  const { t } = useI18n()
   /**
    * Whatever had focus when this content first rendered — the control the
    * operator pressed to open the dialog.
@@ -224,20 +226,25 @@ function DialogContent({
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
-              disabled={closeDisabled}
-              data-testid={testId ? `${testId}-close` : 'dialog-close'}
-            >
-              <XIcon />
-              <span className="sr-only">
-                <I18nText>Close</I18nText>
-              </span>
-            </Button>
-          </DialogPrimitive.Close>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DialogPrimitive.Close data-slot="dialog-close" asChild>
+                <Button
+                  variant="ghost"
+                  className="absolute top-2 right-2"
+                  size="icon-sm"
+                  disabled={closeDisabled}
+                  aria-label={t('common.close')}
+                  data-testid={testId ? `${testId}-close` : 'dialog-close'}
+                >
+                  <XIcon />
+                </Button>
+              </DialogPrimitive.Close>
+            </TooltipTrigger>
+            <TooltipContent data-testid={testId ? `${testId}-close-tooltip` : 'dialog-close-tooltip'}>
+              {t('common.close')}
+            </TooltipContent>
+          </Tooltip>
         )}
       </DialogPrimitive.Content>
     </DialogPortal>
