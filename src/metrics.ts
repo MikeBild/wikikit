@@ -21,8 +21,12 @@ export interface LlmUsageLike {
 export interface Metrics {
   /** One line per finished HTTP request: counter by method/route/status + duration histogram by method/route. */
   httpRequest(method: string, route: string, status: number, durationMs: number): void
-  /** One terminal ingest job: counter by outcome + duration histogram. */
-  ingestJob(status: 'done' | 'failed', durationMs: number): void
+  /**
+   * One terminal ingest job: counter by outcome + duration histogram.
+   * 'timeout' and 'worker_lost' come from the reaper as well as the worker —
+   * an outcome nothing counts is an outcome nothing can alert on.
+   */
+  ingestJob(status: 'done' | 'failed' | 'timeout' | 'worker_lost', durationMs: number): void
   /** One LLM call: call counter + token counters split by direction (cost telemetry from day one). */
   llmCall(kind: string, model: string, usage: LlmUsageLike, result?: 'success' | 'error', durationMs?: number): void
   /** One webhook delivery outcome (delivered = success, failed = will retry, dead = gave up). */

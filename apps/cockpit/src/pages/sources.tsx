@@ -30,12 +30,13 @@ import { Spinner } from '@/components/ui/spinner'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
 import { describeFailure } from '@/lib/failure'
-import { isTerminalStatus, liveReadOptions } from '@/lib/live'
+import { fractionOf, isTerminalStatus, liveReadOptions } from '@/lib/live'
 import { isRetrying, readFailure, readPhase } from '@/lib/read-state'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import { semanticLabel } from '@/lib/presentation'
+import { useI18n } from '@/lib/i18n-context'
 import {
   EMPTY_INGEST_DRAFT,
   STREAM_CAP_NOTE,
@@ -495,6 +496,7 @@ function ForgetStream({
  * staring at "paused" on a job that finished overnight.
  */
 function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDismiss: () => void }) {
+  const { text } = useI18n()
   const job = useQuery({
     queryKey: keys.ingestJob(id),
     queryFn: () => wk.ingest.job(id),
@@ -525,6 +527,7 @@ function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDi
   // and a shimmering box in its place would be the console pretending it does
   // not know what it just did.
   const report = describeIngest(job.data ?? { status: 'queued', proposal_id: null, error: null })
+  const fraction = fractionOf(report.progress?.done, report.progress?.total)
   const status = job.data?.status ?? 'queued'
   const settled = isTerminalStatus(status)
   const state = STATUS_STATE[status] ?? 'unknown'
@@ -537,7 +540,7 @@ function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDi
     >
       <div className="flex flex-wrap items-center gap-2">
         {settled ? null : <Spinner className="text-muted-foreground shrink-0" />}
-        <span className="text-sm font-medium">{report.headline}</span>
+        <span className="text-sm font-medium">{text(report.headline)}</span>
         {/* The word as well as the colour: a status is never conveyed by tone
             alone (CUI-A11Y-5). */}
         <Badge tone={BADGE_TONE[state]} data-testid={`${testId}-status`}>
@@ -556,7 +559,27 @@ function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDi
           </Button>
         </DisabledReason>
       </div>
-      <p className="text-muted-foreground text-sm">{report.detail}</p>
+      <p className="text-muted-foreground text-sm">{text(report.detail)}</p>
+      {/* A count of pages actually finished — never a percentage nobody
+          measured (see fractionOf). The bar only appears alongside it. */}
+      {report.progress ? (
+        <div className="flex flex-col gap-1" data-testid={`${testId}-progress`}>
+          <span className="text-muted-foreground text-xs">
+            {text('{done} of {total} pages written', { done: report.progress.done, total: report.progress.total })}
+          </span>
+          {fraction === null ? null : (
+            <div
+              className="bg-muted h-1 w-full overflow-hidden rounded-full"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={report.progress.total}
+              aria-valuenow={report.progress.done}
+            >
+              <div className="bg-primary h-full transition-all" style={{ width: `${Math.round(fraction * 100)}%` }} />
+            </div>
+          )}
+        </div>
+      ) : null}
       {report.reviewable ? (
         <Link
           to="/changes"

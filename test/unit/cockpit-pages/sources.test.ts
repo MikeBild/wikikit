@@ -89,6 +89,31 @@ describe('what an ingest job is reported to have done', () => {
     expect(job({ status: 'failed' }).detail).toMatch(/did not say/i)
   })
 
+  test('a running job names the stage it is in, so a long wait is not a mystery', () => {
+    // The whole point: "running" for twenty minutes looked identical to stuck.
+    expect(job({ status: 'running', phase: 'synthesize' }).headline).toMatch(/writing the pages/i)
+    expect(job({ status: 'running', phase: 'decisions' }).headline).toMatch(/decisions/i)
+    expect(job({ status: 'running', phase: 'propose' }).headline).toMatch(/change/i)
+  })
+
+  test('a phase this bundle does not know falls back to the plain sentence', () => {
+    // A server newer than the console must not leak a raw enum value at the
+    // operator.
+    const report = job({ status: 'running', phase: 'some-future-stage' })
+    expect(report.headline).toBe('Reading the document')
+    expect(report.headline).not.toContain('some-future-stage')
+  })
+
+  test('progress is carried only where the server counted it', () => {
+    expect(job({ status: 'running', phase: 'synthesize', progress: { done: 3, total: 10 } }).progress).toEqual({
+      done: 3,
+      total: 10,
+    })
+    expect(job({ status: 'running', phase: 'classify' }).progress).toBeNull()
+    // A terminal job is not "3 of 10" any more, whatever the row still holds.
+    expect(job({ status: 'done', proposal_id: 'p-1', progress: { done: 3, total: 10 } }).progress).toBeUndefined()
+  })
+
   test('a status this console cannot read names it rather than guessing', () => {
     const report = job({ status: 'teleporting' })
     expect(report.detail).toContain('teleporting')

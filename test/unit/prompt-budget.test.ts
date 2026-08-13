@@ -19,14 +19,16 @@ import { estimateTokens } from '../../src/ingest/chunk.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
 import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
-import * as synthesizeV2 from '../../src/llm/prompts/synthesize.v2.ts'
+import * as synthesizeV3 from '../../src/llm/prompts/synthesize.v3.ts'
+import * as decisionsV1 from '../../src/llm/prompts/decisions.v1.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
 
 // Ceilings sit ~30% above the committed prompts: enough headroom to edit a
 // sentence without ceremony, tight enough that a doubling cannot slip through.
 const BUDGETS: [string, string, number][] = [
   ['classify.v2', classifyV2.system, 380],
-  ['synthesize.v2', synthesizeV2.system, 1100],
+  ['synthesize.v3', synthesizeV3.system, 1000],
+  ['decisions.v1', decisionsV1.system, 500],
   ['answer.v1', answerV1.system, 600],
   ['distill.v1', distillV1.system, 660],
   ['adjudicate.v1', adjudicateV1.system, 300],

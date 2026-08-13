@@ -279,7 +279,8 @@ describe('MCP server (integration)', () => {
     expect(review.payload.decisions).toEqual([
       {
         slug: 'meeting-notes-decision',
-        title: 'Decision on Meeting notes',
+        title: 'Decision from Meeting notes',
+        supersedes_slug: null,
         context: '# Meeting notes',
         decision: '# Meeting notes',
         rationale: '',

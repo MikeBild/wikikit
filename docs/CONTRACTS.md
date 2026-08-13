@@ -373,6 +373,10 @@ CREATE TABLE wk_ingest_jobs (
   heartbeat_at timestamptz,
   lease_owner text,
   lease_expires_at timestamptz,
+  resume_at   timestamptz,                           -- set while quota_blocked
+  phase       text,                                  -- advisory: acquire|classify|synthesize|decisions|adjudicate|propose
+  progress_done  integer,                            -- position inside a countable phase
+  progress_total integer,
   finished_at timestamptz
 );
 CREATE INDEX wk_ingest_jobs_queue_idx ON wk_ingest_jobs (created_at) WHERE status = 'queued';
@@ -1890,6 +1894,21 @@ crash) are flipped to `failed` with
 `code: 'worker_lost'` AND emit `wikikit.ingest.failed` in the same
 transaction — every failure path reaches the outbox.
 
+The lease answers only "is a worker alive". A worker blocked inside an LLM
+call renews it indefinitely, so a single job additionally carries a wall-clock
+ceiling (`WIKIKIT_INGEST_MAX_RUNTIME_MS`, default 45 min): the worker aborts
+the in-flight request and fails the job with `code: 'timeout'`, and the reaper
+flips any `running` row older than the ceiling (plus a heartbeat grace) the
+same way — the backstop for a wedged worker or one running an older binary.
+
+While running, a job publishes `phase` and, inside a countable stage,
+`progress_done`/`progress_total` (during `synthesize`: concepts finished of
+total). Both are advisory diagnostics, written under the same lease guard as
+the heartbeat and never allowed to fail the job; a reader that does not know a
+phase value treats the job as plain `running`. They are reset when a job is
+claimed and kept on terminal rows, so "failed while synthesizing 3 of 10"
+survives as a post-mortem.
+
 ### 9.2 Proposal (`wk_change_proposals.status`)
 
 ```
@@ -1943,6 +1962,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_INGEST_CONCURRENCY`                     | `2`                                                                | 1–16                                                        |
 | `WIKIKIT_INGEST_LEASE_MS`                        | `900000`                                                           | 10 s–24 h                                                   |
 | `WIKIKIT_INGEST_HEARTBEAT_MS`                    | `30000`                                                            | 1 s–1 h; less than half the lease                           |
+| `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `2700000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)          |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                             |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | `10000`                                                            |                                                             |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | `10`                                                               |                                                             |

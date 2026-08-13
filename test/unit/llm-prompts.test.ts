@@ -9,7 +9,8 @@
 import { describe, expect, test } from 'bun:test'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
 import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
-import * as synthesizeV2 from '../../src/llm/prompts/synthesize.v2.ts'
+import * as synthesizeV3 from '../../src/llm/prompts/synthesize.v3.ts'
+import * as decisionsV1 from '../../src/llm/prompts/decisions.v1.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
@@ -18,6 +19,7 @@ import type {
   AnswerInput,
   ClassifyInput,
   DistillInput,
+  ExtractDecisionsInput,
   SynthesizeInput,
 } from '../../src/llm/schemas.ts'
 
@@ -93,10 +95,28 @@ const adjudicateInput: AdjudicateInput = {
   incoming: { object: 'draft-v0.1', quote: null },
 }
 
+// Decision extraction: the branch that matters is whether the space already
+// holds decisions — that list is what makes duplicate marking possible.
+const extractDecisionsInputEmpty: ExtractDecisionsInput = {
+  source: { title: 'Weekly sync', markdown: '# Weekly sync\n\nWe decided to ship the draft on Friday.' },
+  sourceKind: 'meeting',
+  existingDecisions: [],
+}
+
+const extractDecisionsInput: ExtractDecisionsInput = {
+  source: { title: null, markdown: 'We decided to ship the draft on Friday, as agreed last week.' },
+  sourceKind: 'meeting',
+  existingDecisions: [
+    { slug: 'ship-on-friday', title: 'Ship on Friday', decision: 'Releases go out on Friday mornings.' },
+    { slug: 'no-direct-mqtt', title: 'No direct MQTT', decision: 'Integrate over standard webhooks only.' },
+  ],
+}
+
 describe('prompt version constants', () => {
   test('PROMPT_VERSIONS match the per-file version exports', () => {
     expect(PROMPT_VERSIONS.classify).toBe(classifyV2.version)
-    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV2.version)
+    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV3.version)
+    expect(PROMPT_VERSIONS.decisions).toBe(decisionsV1.version)
     expect(PROMPT_VERSIONS.answer).toBe(answerV1.version)
     expect(PROMPT_VERSIONS.distill).toBe(distillV1.version)
     expect(PROMPT_VERSIONS.adjudicate).toBe(adjudicateV1.version)
@@ -120,17 +140,27 @@ describe('golden snapshots', () => {
     expect(classifyV2.render(classifyInputEmptyIndex)).toMatchSnapshot()
   })
 
-  test('synthesize.v2 system prompt', () => {
-    expect(synthesizeV2.system).toMatchSnapshot()
+  test('synthesize.v3 system prompt', () => {
+    expect(synthesizeV3.system).toMatchSnapshot()
   })
-  test('synthesize.v2 render for existing concept', () => {
-    expect(synthesizeV2.render(synthesizeInput)).toMatchSnapshot()
+  test('synthesize.v3 render for existing concept', () => {
+    expect(synthesizeV3.render(synthesizeInput)).toMatchSnapshot()
   })
-  test('synthesize.v2 render for new concept', () => {
-    expect(synthesizeV2.render(synthesizeInputNewConcept)).toMatchSnapshot()
+  test('synthesize.v3 render for new concept', () => {
+    expect(synthesizeV3.render(synthesizeInputNewConcept)).toMatchSnapshot()
   })
-  test('synthesize.v2 render for meeting source (decision mining on)', () => {
-    expect(synthesizeV2.render(synthesizeInputMeeting)).toMatchSnapshot()
+  test('synthesize.v3 render for meeting source', () => {
+    expect(synthesizeV3.render(synthesizeInputMeeting)).toMatchSnapshot()
+  })
+
+  test('decisions.v1 system prompt', () => {
+    expect(decisionsV1.system).toMatchSnapshot()
+  })
+  test('decisions.v1 render with no existing decisions', () => {
+    expect(decisionsV1.render(extractDecisionsInputEmpty)).toMatchSnapshot()
+  })
+  test('decisions.v1 render with existing decisions to compare against', () => {
+    expect(decisionsV1.render(extractDecisionsInput)).toMatchSnapshot()
   })
 
   test('answer.v1 system prompt', () => {
@@ -177,16 +207,16 @@ describe('golden snapshots', () => {
   test('classify.v2 render without charter omits the Space guidance section', () => {
     expect(classifyV2.render(classifyInput)).not.toContain('## Space guidance')
   })
-  test('synthesize.v2 render without charter omits the Space guidance section', () => {
-    expect(synthesizeV2.render(synthesizeInput)).not.toContain('## Space guidance')
+  test('synthesize.v3 render without charter omits the Space guidance section', () => {
+    expect(synthesizeV3.render(synthesizeInput)).not.toContain('## Space guidance')
   })
   test('classify.v2 render with charter (Space guidance section)', () => {
     const rendered = classifyV2.render({ ...classifyInput, charter })
     expect(rendered).toContain('## Space guidance')
     expect(rendered).toMatchSnapshot()
   })
-  test('synthesize.v2 render with charter (Space guidance section)', () => {
-    const rendered = synthesizeV2.render({ ...synthesizeInput, charter })
+  test('synthesize.v3 render with charter (Space guidance section)', () => {
+    const rendered = synthesizeV3.render({ ...synthesizeInput, charter })
     expect(rendered).toContain('## Space guidance')
     expect(rendered).toMatchSnapshot()
   })
@@ -197,8 +227,8 @@ describe('render determinism', () => {
   // pure function of its input or hashes (and dedup) become nondeterministic.
   test('same input renders byte-identical output', () => {
     expect(classifyV2.render(classifyInput)).toBe(classifyV2.render(classifyInput))
-    expect(synthesizeV2.render(synthesizeInput)).toBe(synthesizeV2.render(synthesizeInput))
-    expect(synthesizeV2.render(synthesizeInputMeeting)).toBe(synthesizeV2.render(synthesizeInputMeeting))
+    expect(synthesizeV3.render(synthesizeInput)).toBe(synthesizeV3.render(synthesizeInput))
+    expect(decisionsV1.render(extractDecisionsInput)).toBe(decisionsV1.render(extractDecisionsInput))
     expect(answerV1.render(answerInput)).toBe(answerV1.render(answerInput))
     expect(adjudicateV1.render(adjudicateInput)).toBe(adjudicateV1.render(adjudicateInput))
   })

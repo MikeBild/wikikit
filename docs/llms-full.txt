@@ -787,6 +787,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_INGEST_CONCURRENCY` | parallel ingest workers (1–16) | `2` |
 | `WIKIKIT_INGEST_LEASE_MS` | worker lease before `worker_lost` reaping | `900000` |
 | `WIKIKIT_INGEST_HEARTBEAT_MS` | lease renewal cadence (< half the lease) | `30000` |
+| `WIKIKIT_INGEST_MAX_RUNTIME_MS` | wall-clock ceiling per job; over it → failed with `timeout` | `2700000` |
 | `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS` | per-delivery HTTP timeout | `10000` |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS` | retries before a delivery is dead | `10` |

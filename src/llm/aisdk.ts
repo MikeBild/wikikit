@@ -37,13 +37,15 @@ import {
   LlmRefusedError,
   type EmbedInput,
   type EmbedOutput,
+  type LlmCallOptions,
   type LlmProvider,
   type LlmResult,
   type LlmUsage,
 } from './provider.ts'
 import { PROMPT_VERSIONS } from './prompts/index.ts'
 import * as classifyV2 from './prompts/classify.v2.ts'
-import * as synthesizeV2 from './prompts/synthesize.v2.ts'
+import * as synthesizeV3 from './prompts/synthesize.v3.ts'
+import * as decisionsV1 from './prompts/decisions.v1.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
@@ -52,6 +54,7 @@ import {
   zAnswerOutput,
   zClassifyOutput,
   zDistillOutput,
+  zExtractDecisionsOutput,
   zSynthesizeOutput,
   type AdjudicateInput,
   type AdjudicateOutput,
@@ -61,6 +64,8 @@ import {
   type ClassifyOutput,
   type DistillInput,
   type DistillOutput,
+  type ExtractDecisionsInput,
+  type ExtractDecisionsOutput,
   type SynthesizeInput,
   type SynthesizeOutput,
 } from './schemas.ts'
@@ -68,7 +73,14 @@ import type { z } from 'zod'
 
 // Output ceilings per call kind (maxOutputTokens): classify emits tiny JSON;
 // synthesis carries a full page body; answers are a few paragraphs.
-const MAX_TOKENS = { classify: 2048, synthesize: 32_000, answer: 8192, distill: 4096, adjudicate: 1024 } as const
+const MAX_TOKENS = {
+  classify: 2048,
+  synthesize: 32_000,
+  extract_decisions: 8192,
+  answer: 8192,
+  distill: 4096,
+  adjudicate: 1024,
+} as const
 
 interface PromptModule<I> {
   system: string
@@ -158,12 +170,13 @@ export function createLlmProvider(
   }
 
   async function call<I, T>(args: {
-    kind: 'classify' | 'synthesize' | 'answer' | 'distill' | 'adjudicate'
+    kind: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'adjudicate'
     model: string
     promptVersion: string
     prompt: PromptModule<I>
     input: I
     schema: z.ZodType<T>
+    signal?: AbortSignal
   }): Promise<LlmResult<T>> {
     const p = provider()
     const rendered = args.prompt.render(args.input)
@@ -176,6 +189,9 @@ export function createLlmProvider(
         ...promptFields(p, args.prompt, rendered),
         maxOutputTokens: MAX_TOKENS[args.kind],
         maxRetries: 2,
+        // Cancels the request AND the SDK's retry loop — without it a stalled
+        // upstream call has no bound (fetch has no default timeout).
+        ...(args.signal ? { abortSignal: args.signal } : {}),
       })
     } catch (error) {
       deps.metrics?.llmCall(args.kind, args.model, {}, 'error', Date.now() - started)
@@ -284,8 +300,9 @@ export function createLlmProvider(
       deps.metrics?.llmCall('embed', run.model, run.usage, 'success', duration_ms)
       return { output: { embeddings: result.embeddings as number[][], dimensions: EMBEDDING_DIMENSIONS }, run }
     },
-    classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>> {
+    classify(input: ClassifyInput, opts?: LlmCallOptions): Promise<LlmResult<ClassifyOutput>> {
       return call({
+        ...(opts?.signal ? { signal: opts.signal } : {}),
         kind: 'classify',
         model: config.modelClassify,
         promptVersion: PROMPT_VERSIONS.classify,
@@ -294,14 +311,29 @@ export function createLlmProvider(
         schema: zClassifyOutput,
       })
     },
-    synthesize(input: SynthesizeInput): Promise<LlmResult<SynthesizeOutput>> {
+    synthesize(input: SynthesizeInput, opts?: LlmCallOptions): Promise<LlmResult<SynthesizeOutput>> {
       return call({
+        ...(opts?.signal ? { signal: opts.signal } : {}),
         kind: 'synthesize',
         model: config.modelSynthesis,
         promptVersion: PROMPT_VERSIONS.synthesize,
-        prompt: synthesizeV2,
+        prompt: synthesizeV3,
         input,
         schema: zSynthesizeOutput,
+      })
+    },
+    extractDecisions(input: ExtractDecisionsInput, opts?: LlmCallOptions): Promise<LlmResult<ExtractDecisionsOutput>> {
+      return call({
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+        // Judging whether two paraphrases are the same choice is the nuanced
+        // part of the pipeline — it rides the strong model, but only once per
+        // ingest instead of once per concept.
+        kind: 'extract_decisions',
+        model: config.modelSynthesis,
+        promptVersion: PROMPT_VERSIONS.decisions,
+        prompt: decisionsV1,
+        input,
+        schema: zExtractDecisionsOutput,
       })
     },
     answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>> {
@@ -314,8 +346,9 @@ export function createLlmProvider(
         schema: zAnswerOutput,
       })
     },
-    adjudicate(input: AdjudicateInput): Promise<LlmResult<AdjudicateOutput>> {
+    adjudicate(input: AdjudicateInput, opts?: LlmCallOptions): Promise<LlmResult<AdjudicateOutput>> {
       return call({
+        ...(opts?.signal ? { signal: opts.signal } : {}),
         // Filter-shaped like classify: cheap model, tiny structured verdict.
         kind: 'adjudicate',
         model: config.modelClassify,

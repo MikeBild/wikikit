@@ -107,7 +107,7 @@ describe('domain modules (integration)', () => {
     const created = await createProposal(db, space.id, {
       title: 'Introduce okf',
       summary: 'First knowledge about OKF',
-      input_hash: computeInputHash([source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([source.content_hash], 'synthesize.v3'),
       source_ids: [source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -153,7 +153,7 @@ describe('domain modules (integration)', () => {
     // Idempotent convergence on input_hash while pending.
     const duplicate = await createProposal(db, space.id, {
       title: 'Introduce okf again',
-      input_hash: computeInputHash([source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([source.content_hash], 'synthesize.v3'),
       source_ids: [source.id],
       agent_meta: AGENT_META,
       concepts: [{ slug: 'okf', title: 'x', summary: '', markdown: '# x', claims: [], relations: [] }],
@@ -206,7 +206,7 @@ describe('domain modules (integration)', () => {
     const sourceA = await createSource(db, space.id, { kind: 'text', raw: 'A says ready', markdown: 'A says ready' })
     const first = await createProposal(db, space.id, {
       title: 'A',
-      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v3'),
       source_ids: [sourceA.source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -233,7 +233,7 @@ describe('domain modules (integration)', () => {
     const sourceB = await createSource(db, space.id, { kind: 'text', raw: 'B says draft', markdown: 'B says draft' })
     const second = await createProposal(db, space.id, {
       title: 'B',
-      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v3'),
       source_ids: [sourceB.source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -313,7 +313,7 @@ describe('domain modules (integration)', () => {
     })
     const first = await createProposal(db, space.id, {
       title: 'A',
-      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([sourceA.source.content_hash], 'synthesize.v3'),
       source_ids: [sourceA.source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -340,7 +340,7 @@ describe('domain modules (integration)', () => {
     const sourceB = await createSource(db, space.id, { kind: 'text', raw: 'B: on redis', markdown: 'B: on redis' })
     const second = await createProposal(db, space.id, {
       title: 'B',
-      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v2'),
+      input_hash: computeInputHash([sourceB.source.content_hash], 'synthesize.v3'),
       source_ids: [sourceB.source.id],
       agent_meta: AGENT_META,
       concepts: [
@@ -688,7 +688,7 @@ describe('domain modules (integration)', () => {
     // The reviewer must see every row approval/rejection would act on before
     // making that irreversible choice.
     const pendingRejectedDetail = await getProposal(db, { id: rejected.proposal_id })
-    expect(pendingRejectedDetail.decisions).toEqual([decision])
+    expect(pendingRejectedDetail.decisions).toEqual([{ ...decision, supersedes_slug: null }])
     expect(renderProposalMarkdown(pendingRejectedDetail)).toContain(
       '## Decision `no-direct-mqtt` — No direct MQTT integration',
     )
@@ -699,7 +699,7 @@ describe('domain modules (integration)', () => {
     // The rejected proposal keeps its audit trail.
     const rejectedDetail = await getProposal(db, { id: rejected.proposal_id })
     expect(rejectedDetail).toMatchObject({ status: 'rejected', reviewer: 'mike', review_note: 'needs discussion' })
-    expect(rejectedDetail.decisions).toEqual([decision])
+    expect(rejectedDetail.decisions).toEqual([{ ...decision, supersedes_slug: null }])
 
     // Second attempt under a different slug (unique(space_id, slug) keeps the
     // rejected row as audit), approved this time.
@@ -712,12 +712,83 @@ describe('domain modules (integration)', () => {
       decisions: [{ ...decision, slug: 'no-direct-mqtt-v2' }],
     })
     const pendingApprovedDetail = await getProposal(db, { id: approved.proposal_id })
-    expect(pendingApprovedDetail.decisions).toEqual([{ ...decision, slug: 'no-direct-mqtt-v2' }])
+    expect(pendingApprovedDetail.decisions).toEqual([{ ...decision, slug: 'no-direct-mqtt-v2', supersedes_slug: null }])
     await approveProposal(db, { id: approved.proposal_id, reviewer: 'mike' })
     const visible = await getDecision(db, space.id, { slug: 'no-direct-mqtt-v2' })
     expect(visible).toMatchObject({ status: 'active', decision: 'Communicate over standard webhooks only' })
     expect(visible.alternatives).toEqual([{ option: 'direct MQTT', reason_rejected: 'tight coupling' }])
     expect((await listDecisions(db, space.id)).map((entry) => entry.slug)).toEqual(['no-direct-mqtt-v2'])
+  })
+
+  it('decisions: approving a superseding decision retires the one it replaces', async () => {
+    const space = await seedSpace('decision-supersede')
+    const source = await createSource(db, space.id, { kind: 'text', raw: 'adr', markdown: 'adr' })
+
+    // The decision on record.
+    const first = await createProposal(db, space.id, {
+      title: 'ADR',
+      input_hash: sha256Hex('supersede-1'),
+      source_ids: [source.source.id],
+      agent_meta: AGENT_META,
+      concepts: [],
+      decisions: [
+        {
+          slug: 'ship-on-friday',
+          title: 'Ship on Friday',
+          context: 'Release cadence.',
+          decision: 'Releases go out on Friday mornings.',
+          rationale: '',
+          alternatives: [],
+        },
+      ],
+    })
+    await approveProposal(db, { id: first.proposal_id, reviewer: 'mike' })
+    const original = await getDecision(db, space.id, { slug: 'ship-on-friday' })
+    expect(original.status).toBe('active')
+
+    // A later source changes it. Staging carries the pointer; only approval
+    // acts on it — the reviewer is deciding both halves at once.
+    const [originalRow] = await db.select<{ id: string }>('wk_decisions', {
+      space_id: `eq.${space.id}`,
+      slug: 'eq.ship-on-friday',
+      limit: 1,
+    })
+    const originalId = originalRow!.id
+    const second = await createProposal(db, space.id, {
+      title: 'ADR (revised)',
+      input_hash: sha256Hex('supersede-2'),
+      source_ids: [source.source.id],
+      agent_meta: AGENT_META,
+      concepts: [],
+      decisions: [
+        {
+          slug: 'ship-on-tuesday',
+          title: 'Ship on Tuesday',
+          context: 'Friday releases collided with the weekend.',
+          decision: 'Releases move to Tuesday mornings.',
+          rationale: 'Nobody is around to fix a Friday evening regression.',
+          alternatives: [],
+          supersedes_decision_id: originalId,
+        },
+      ],
+    })
+
+    // The reviewer is told, before deciding, that approval retires the old one.
+    const staged = await getProposal(db, { id: second.proposal_id })
+    expect(staged.decisions[0]!.supersedes_slug).toBe('ship-on-friday')
+    expect(renderProposalMarkdown(staged)).toContain('Supersedes decision `ship-on-friday`')
+    // Until then, nothing moved.
+    expect((await getDecision(db, space.id, { slug: 'ship-on-friday' })).status).toBe('active')
+
+    const result = await approveProposal(db, { id: second.proposal_id, reviewer: 'mike' })
+    expect(result).toMatchObject({ decisions_superseded: 1 })
+    expect((await getDecision(db, space.id, { slug: 'ship-on-friday' })).status).toBe('superseded')
+    expect((await getDecision(db, space.id, { slug: 'ship-on-tuesday' })).status).toBe('active')
+    // Both stay listed: an outdated decision plus its successor is the history.
+    expect((await listDecisions(db, space.id)).map((entry) => entry.slug).sort()).toEqual([
+      'ship-on-friday',
+      'ship-on-tuesday',
+    ])
   })
 
   it('lint: reports missing citations, orphans, empty concepts, pending proposals and dangling sources', async () => {

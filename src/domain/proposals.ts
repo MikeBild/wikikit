@@ -92,6 +92,8 @@ export interface DecisionDiff {
   decision: string
   rationale: string
   alternatives: unknown[]
+  /** Slug of the ACTIVE decision this one retires on approval, else null. */
+  supersedes_slug: string | null
 }
 
 export interface ProposalDetail {
@@ -244,6 +246,12 @@ export const zCreateProposalArgs = z
           decision: z.string().min(1),
           rationale: z.string().default(''),
           alternatives: z.array(z.unknown()).default([]),
+          /**
+           * The ACTIVE decision this one replaces. Approval flips that row to
+           * 'superseded' (wk_apply_proposal), so the log reads as a history of
+           * choices rather than a pile of contradicting ones.
+           */
+          supersedes_decision_id: z.uuid().optional(),
         }),
       )
       .default([]),
@@ -761,8 +769,8 @@ export async function createProposal(
         // pinned to a rejected proposal) or superseded one is re-staged with
         // this proposal's content and ownership, so approval can activate it.
         await tx.query(
-          `INSERT INTO wk_decisions (space_id, slug, title, context, decision, rationale, alternatives, status, proposal_id, agent_meta)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, 'proposed', $8, $9)
+          `INSERT INTO wk_decisions (space_id, slug, title, context, decision, rationale, alternatives, status, proposal_id, agent_meta, supersedes_decision_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'proposed', $8, $9, $10)
            ON CONFLICT (space_id, slug)
            DO UPDATE SET title = EXCLUDED.title,
                          context = EXCLUDED.context,
@@ -771,7 +779,8 @@ export async function createProposal(
                          alternatives = EXCLUDED.alternatives,
                          agent_meta = EXCLUDED.agent_meta,
                          status = 'proposed',
-                         proposal_id = EXCLUDED.proposal_id
+                         proposal_id = EXCLUDED.proposal_id,
+                         supersedes_decision_id = EXCLUDED.supersedes_decision_id
            WHERE wk_decisions.status <> 'active'`,
           [
             spaceId,
@@ -783,6 +792,7 @@ export async function createProposal(
             JSON.stringify(decision.alternatives),
             proposalId,
             JSON.stringify(input.agent_meta),
+            decision.supersedes_decision_id ?? null,
           ],
         )
       }
@@ -1014,10 +1024,12 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
   // must remain reviewable after the fact. Slug ordering keeps JSON/Markdown
   // stable across calls and transports.
   const decisions = await db.query<DecisionDiff>(
-    `SELECT slug, title, context, decision, rationale, alternatives
-       FROM wk_decisions
-      WHERE proposal_id = $1
-      ORDER BY slug ASC`,
+    `SELECT d.slug, d.title, d.context, d.decision, d.rationale, d.alternatives,
+            old.slug AS supersedes_slug
+       FROM wk_decisions d
+       LEFT JOIN wk_decisions old ON old.id = d.supersedes_decision_id
+      WHERE d.proposal_id = $1
+      ORDER BY d.slug ASC`,
     [args.id],
   )
 
@@ -1109,6 +1121,7 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
       decision: decision.decision,
       rationale: decision.rationale,
       alternatives: Array.isArray(decision.alternatives) ? decision.alternatives : [],
+      supersedes_slug: decision.supersedes_slug ?? null,
     })),
     relations_removed: relationsRemoved.rows.map((edge) => ({
       from_slug: edge.from_slug,
@@ -1258,6 +1271,10 @@ export function renderProposalMarkdown(detail: ProposalDetail): string {
     lines.push('')
     lines.push(`## Decision \`${decision.slug}\` — ${decision.title}`)
     lines.push('')
+    if (decision.supersedes_slug) {
+      lines.push(`Supersedes decision \`${decision.supersedes_slug}\` — approval marks that one superseded.`)
+      lines.push('')
+    }
     lines.push('### Context')
     lines.push('')
     lines.push(decision.context)

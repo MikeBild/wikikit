@@ -294,6 +294,24 @@ export const zIngestStatusResponse = z.object({
   proposal_id: z.uuid().nullable(),
   source_id: z.uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  // Progress reporting. A long ingest is normal (one synthesis call per
+  // affected concept, minutes each); what was missing is any way to tell a
+  // slow job from a stuck one. phase is advisory and open — treat a value you
+  // do not know as plain 'running'.
+  phase: z
+    .string()
+    .nullable()
+    .describe('Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose'),
+  progress: z
+    .object({ done: z.number().int(), total: z.number().int() })
+    .nullable()
+    .describe('Position inside a countable stage — during synthesis, concepts finished of total'),
+  started_at: z.string().nullable().describe('When a worker claimed the job (ISO 8601)'),
+  heartbeat_at: z
+    .string()
+    .nullable()
+    .describe('Last lease renewal — a recent value means the worker is alive (ISO 8601)'),
+  finished_at: z.string().nullable().describe('When the job reached a terminal state (ISO 8601)'),
 })
 
 // ---------------------------------------------------------------------------
@@ -749,6 +767,10 @@ export const zProposalDetailResponse = z.object({
       decision: z.string(),
       rationale: z.string(),
       alternatives: z.array(z.unknown()),
+      supersedes_slug: z
+        .string()
+        .nullable()
+        .describe('The active decision this one retires on approval — the reviewer is deciding both'),
     }),
   ),
   /** Edge-level removals staged by this proposal (top-level: removal-only proposals have no concepts). */

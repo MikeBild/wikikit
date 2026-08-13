@@ -127,6 +127,12 @@ export interface Config {
   readonly ingestLeaseMs: number
   /** Cadence at which a live worker extends its ingest lease. */
   readonly ingestHeartbeatMs: number
+  /**
+   * Wall-clock ceiling for ONE ingest job. The lease answers "is a worker
+   * alive"; a live worker renews it forever, so a job hung inside an LLM call
+   * had no bound at all. This is that bound.
+   */
+  readonly ingestMaxRuntimeMs: number
   readonly webhookPollMs: number
   readonly webhookTimeoutMs: number
   readonly webhookMaxAttempts: number
@@ -592,6 +598,13 @@ export function loadConfig(): Config {
   if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
     throw new Error('WIKIKIT_INGEST_HEARTBEAT_MS must be less than half of WIKIKIT_INGEST_LEASE_MS')
   }
+  // 45 minutes: the slowest legitimate production job observed took ~31, and a
+  // ceiling that trips on real work is worse than no ceiling — it would turn
+  // slow ingests into failures. Lower it where sources are small.
+  const ingestMaxRuntimeMs = integer('WIKIKIT_INGEST_MAX_RUNTIME_MS', 45 * 60 * 1000, {
+    min: 60_000,
+    max: 24 * 3600 * 1000,
+  })
   const oauthAllowedScopes = parseIdentityScopes(str('WIKIKIT_OAUTH_ALLOWED_SCOPES'), 'WIKIKIT_OAUTH_ALLOWED_SCOPES', [
     'knowledge:read',
     'knowledge:propose',
@@ -665,6 +678,7 @@ export function loadConfig(): Config {
     ingestConcurrency: integer('WIKIKIT_INGEST_CONCURRENCY', 2, { min: 1, max: 16 }),
     ingestLeaseMs,
     ingestHeartbeatMs,
+    ingestMaxRuntimeMs,
     webhookPollMs: integer('WIKIKIT_WEBHOOK_POLL_MS', 5000, { min: 250, max: 300_000 }),
     webhookTimeoutMs: integer('WIKIKIT_WEBHOOK_TIMEOUT_MS', 10_000, { min: 1000, max: 60_000 }),
     webhookMaxAttempts: integer('WIKIKIT_WEBHOOK_MAX_ATTEMPTS', 10, { min: 1, max: 20 }),

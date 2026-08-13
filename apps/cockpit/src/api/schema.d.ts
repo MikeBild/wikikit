@@ -1521,6 +1521,8 @@ export interface components {
              * @description When the content is "as of" (ISO 8601)
              */
             effective_at?: string;
+            /** @description Re-synthesize a source the archive already holds (bypasses the already_ingested guard) */
+            resynthesize?: boolean;
         };
         zIngestUnchangedResponse: {
             /** @constant */
@@ -1568,6 +1570,19 @@ export interface components {
                 code: string;
                 message: string;
             } | null;
+            /** @description Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose */
+            phase: string | null;
+            /** @description Position inside a countable stage — during synthesis, concepts finished of total */
+            progress: {
+                done: number;
+                total: number;
+            } | null;
+            /** @description When a worker claimed the job (ISO 8601) */
+            started_at: string | null;
+            /** @description Last lease renewal — a recent value means the worker is alive (ISO 8601) */
+            heartbeat_at: string | null;
+            /** @description When the job reached a terminal state (ISO 8601) */
+            finished_at: string | null;
         };
         zSourceListResponse: {
             items: {
@@ -1871,6 +1886,8 @@ export interface components {
                 rationale: string;
                 /** @default [] */
                 alternatives: unknown[];
+                /** Format: uuid */
+                supersedes_decision_id?: string;
             }[];
             /** @default [] */
             relations_removed: {
@@ -1970,6 +1987,8 @@ export interface components {
                 decision: string;
                 rationale: string;
                 alternatives: unknown[];
+                /** @description The active decision this one retires on approval — the reviewer is deciding both */
+                supersedes_slug: string | null;
             }[];
             relations_removed: {
                 from_slug: string;

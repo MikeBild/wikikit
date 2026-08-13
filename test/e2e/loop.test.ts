@@ -54,6 +54,7 @@ function e2eConfig(databaseUrl: string, stubUrl: string): Config {
     ingestConcurrency: 1,
     ingestLeaseMs: 15 * 60 * 1000,
     ingestHeartbeatMs: 30_000,
+    ingestMaxRuntimeMs: 45 * 60 * 1000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,
@@ -87,8 +88,8 @@ const RESPONSES: Record<string, unknown> = {
       },
     ],
     relations: [],
-    decisions: [],
   },
+  decisions: { decisions: [] },
   answer: {
     answer_markdown: 'OKF is a draft at v0.1 [open-knowledge-format].',
     cited_slugs: ['open-knowledge-format'],

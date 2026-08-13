@@ -30,11 +30,12 @@ export interface StubCall {
 }
 
 /** Which prompt is calling, keyed off the system prompt's opening line. */
-export type CallKind = 'classify' | 'synthesize' | 'answer' | 'distill' | 'unknown'
+export type CallKind = 'classify' | 'synthesize' | 'decisions' | 'answer' | 'distill' | 'unknown'
 
 export function callKind(system: string): CallKind {
   if (system.startsWith('You are the classification stage')) return 'classify'
   if (system.startsWith('You are the synthesis stage')) return 'synthesize'
+  if (system.startsWith('You are the decision-log stage')) return 'decisions'
   if (system.startsWith('You are the answer stage')) return 'answer'
   if (system.startsWith('You are the session-distillation stage')) return 'distill'
   return 'unknown'

@@ -281,17 +281,17 @@ grep -rn "function public.wk_split_proposal" src/db/migrations/*.sql | tail -1
 This is not an exception; it is how the directory works. As of 0032 these
 functions are declared more than once (run the grep for the current answer):
 
-| Function (signature)                          | Declared in       | Live body |
-| --------------------------------------------- | ----------------- | --------- |
-| `wk_search(uuid,text,text,int)`               | 0001, 0003, 0016  | **0016**  |
-| `wk_revision_search_vector()`                 | 0001, 0016        | **0016**  |
-| `wk_claim_search_vector()`                    | 0001, 0016        | **0016**  |
-| `wk_reindex_space(uuid)`                      | 0016, 0017        | **0017**  |
-| `wk_functional_predicates(uuid)`              | 0003, 0021        | **0021**  |
-| `wk_apply_proposal_core_0003(uuid,text,text)` | 0010†, 0014, 0022 | **0022**  |
-| `wk_apply_proposal(uuid,text,text,text)`      | 0010, 0027        | **0027**  |
-| `wk_reject_proposal(uuid,text,text,text)`     | 0010, 0027        | **0027**  |
-| `wk_split_proposal(uuid,text,text[],text)`    | 0020, 0027        | **0027**  |
+| Function (signature)                          | Declared in             | Live body |
+| --------------------------------------------- | ----------------------- | --------- |
+| `wk_search(uuid,text,text,int)`               | 0001, 0003, 0016        | **0016**  |
+| `wk_revision_search_vector()`                 | 0001, 0016              | **0016**  |
+| `wk_claim_search_vector()`                    | 0001, 0016              | **0016**  |
+| `wk_reindex_space(uuid)`                      | 0016, 0017              | **0017**  |
+| `wk_functional_predicates(uuid)`              | 0003, 0021              | **0021**  |
+| `wk_apply_proposal_core_0003(uuid,text,text)` | 0010†, 0014, 0022, 0034 | **0034**  |
+| `wk_apply_proposal(uuid,text,text,text)`      | 0010, 0027              | **0027**  |
+| `wk_reject_proposal(uuid,text,text,text)`     | 0010, 0027              | **0027**  |
+| `wk_split_proposal(uuid,text,text[],text)`    | 0020, 0027              | **0027**  |
 
 Every one of these is a same-signature `create or replace`, so exactly one body
 exists per function and the later file is authoritative. None of them created an

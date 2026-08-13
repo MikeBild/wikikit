@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.33.10",
+    "version": "0.34.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -3869,6 +3869,10 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "resynthesize": {
+            "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
+            "type": "boolean"
           }
         }
       },
@@ -3989,9 +3993,51 @@
               },
               { "type": "null" }
             ]
+          },
+          "phase": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "done": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  "total": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+                },
+                "required": ["done", "total"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ],
+            "description": "Position inside a countable stage — during synthesis, concepts finished of total"
+          },
+          "started_at": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "When a worker claimed the job (ISO 8601)"
+          },
+          "heartbeat_at": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "Last lease renewal — a recent value means the worker is alive (ISO 8601)"
+          },
+          "finished_at": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "When the job reached a terminal state (ISO 8601)"
           }
         },
-        "required": ["ingest_id", "status", "proposal_id", "source_id", "error"],
+        "required": [
+          "ingest_id",
+          "status",
+          "proposal_id",
+          "source_id",
+          "error",
+          "phase",
+          "progress",
+          "started_at",
+          "heartbeat_at",
+          "finished_at"
+        ],
         "additionalProperties": false
       },
       "zSourceListResponse": {
@@ -4751,7 +4797,12 @@
                 "context": { "type": "string", "minLength": 1 },
                 "decision": { "type": "string", "minLength": 1 },
                 "rationale": { "default": "", "type": "string" },
-                "alternatives": { "default": [], "type": "array", "items": {} }
+                "alternatives": { "default": [], "type": "array", "items": {} },
+                "supersedes_decision_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
               },
               "required": ["slug", "title", "context", "decision"]
             }
@@ -4980,9 +5031,13 @@
                 "context": { "type": "string" },
                 "decision": { "type": "string" },
                 "rationale": { "type": "string" },
-                "alternatives": { "type": "array", "items": {} }
+                "alternatives": { "type": "array", "items": {} },
+                "supersedes_slug": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "The active decision this one retires on approval — the reviewer is deciding both"
+                }
               },
-              "required": ["slug", "title", "context", "decision", "rationale", "alternatives"],
+              "required": ["slug", "title", "context", "decision", "rationale", "alternatives", "supersedes_slug"],
               "additionalProperties": false
             }
           },

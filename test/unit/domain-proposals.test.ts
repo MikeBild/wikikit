@@ -400,6 +400,7 @@ describe('getProposal — structured diff', () => {
         decision: 'Integrate through standard webhooks.',
         rationale: 'Keep consumers loosely coupled.',
         alternatives: [{ option: 'direct database access', reason_rejected: 'tight coupling' }],
+        supersedes_slug: null,
       },
     ])
   })
@@ -456,6 +457,7 @@ describe('renderProposalMarkdown', () => {
         decision: 'Integrate through standard webhooks.',
         rationale: 'Keep consumers loosely coupled.',
         alternatives: [{ option: 'direct database access', reason_rejected: 'tight coupling' }],
+        supersedes_slug: null,
       },
       {
         slug: 'no-rationale',
@@ -464,6 +466,9 @@ describe('renderProposalMarkdown', () => {
         decision: 'Keep the recorded choice.',
         rationale: '',
         alternatives: [],
+        // Replaces a decision already on record: the reviewer is deciding two
+        // things at once (adopt this, retire that) and must be told so.
+        supersedes_slug: 'older-choice',
       },
     ],
     relations_removed: [{ from_slug: 'okf', to_slug: 'legacy-store', kind: 'depends_on' }],

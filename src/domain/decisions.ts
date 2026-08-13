@@ -62,6 +62,37 @@ export async function listDecisions(
   }))
 }
 
+/** What the decision-extraction stage compares its finds against: the ACTIVE
+ * decisions of the space, id included so a supersede can point at the row.
+ *
+ * Deliberately not listDecisions: that one includes superseded rows (a reader
+ * wants the history) and omits the decision text (an index wants titles).
+ * Deduplication needs the opposite of both — only what currently holds, and
+ * the sentence a new find would duplicate. The decision text is truncated
+ * because it rides a prompt: a space with 200 decisions must not push the
+ * source out of the model's context.
+ */
+export async function listActiveDecisionsForDedupe(
+  db: Db,
+  spaceId: string,
+  args: { limit?: number; textChars?: number } = {},
+): Promise<{ id: string; slug: string; title: string; decision: string }[]> {
+  const limit = clampLimit(args.limit, 200, 200)
+  const textChars = args.textChars ?? 300
+  const rows = await db.select<{ id: string; slug: string; title: string; decision: string }>('wk_decisions', {
+    space_id: `eq.${spaceId}`,
+    status: 'eq.active',
+    order: 'created_at.desc',
+    limit,
+  })
+  return rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    decision: row.decision.length > textChars ? `${row.decision.slice(0, textChars)}…` : row.decision,
+  }))
+}
+
 /** Full decision by slug. A decision that only exists as 'proposed' is a 404
  * — indistinguishable from absence, same staging contract as concepts. */
 export async function getDecision(db: Db, spaceId: string, args: { slug: string }): Promise<Decision> {

@@ -46,6 +46,17 @@ export interface SynthesizeInput {
   charter?: string
 }
 
+/** One call per ingest: the whole source in, the choices it settles out.
+ *  `existingDecisions` are the space's ACTIVE decisions — the model marks a
+ *  find as a duplicate of, or an update to, one of them (see decisions.v1). */
+export interface ExtractDecisionsInput {
+  source: { title: string | null; markdown: string }
+  /** Optional source classification; 'meeting' is where decisions live. */
+  sourceKind?: SourceKind
+  charter?: string
+  existingDecisions: { slug: string; title: string; decision: string }[]
+}
+
 export interface AnswerEvidence {
   kind: 'concept' | 'claim' | 'source_chunk'
   slug: string | null
@@ -111,11 +122,19 @@ export const zSynthesizeOutput = z.object({
     }),
   ),
   relations: z.array(z.object({ to_slug: zSlug, kind: zRelationKind })),
-  // Decisions the source explicitly records (decision-log pattern). Empty for
-  // most sources; a 'meeting' source is where these actually appear. Each maps
-  // 1:1 to a proposed wk_decisions row (zCreateProposalArgs.decisions shape),
-  // so a human reviews it before it becomes an active decision — an agent
-  // never writes the decision log unattended.
+})
+export type SynthesizeOutput = z.infer<typeof zSynthesizeOutput>
+
+// Decisions the source explicitly records (decision-log pattern). Empty for
+// most sources; a 'meeting' source is where these actually appear. Each maps
+// 1:1 to a proposed wk_decisions row (zCreateProposalArgs.decisions shape),
+// so a human reviews it before it becomes an active decision — an agent
+// never writes the decision log unattended.
+//
+// `duplicate_of` / `updates` name an EXISTING active decision by slug (see
+// decisions.v1). They are advisory: the pipeline validates both against the
+// list it actually passed in and treats an unknown slug as "new decision".
+export const zExtractDecisionsOutput = z.object({
   decisions: z
     .array(
       z.object({
@@ -125,11 +144,13 @@ export const zSynthesizeOutput = z.object({
         decision: z.string().min(1),
         rationale: z.string(),
         alternatives: z.array(z.string()),
+        duplicate_of: zSlug.nullable().default(null),
+        updates: zSlug.nullable().default(null),
       }),
     )
     .default([]),
 })
-export type SynthesizeOutput = z.infer<typeof zSynthesizeOutput>
+export type ExtractDecisionsOutput = z.infer<typeof zExtractDecisionsOutput>
 
 export const zAnswerOutput = z.object({
   answer_markdown: z.string().min(1),

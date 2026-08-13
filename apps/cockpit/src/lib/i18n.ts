@@ -230,6 +230,32 @@ export const DE_PHRASES = {
   'About this build': 'Informationen zu diesem Build',
   'About use-when guidance': 'Informationen zur Verwendungsempfehlung',
   'About the derived overview': 'Informationen zur abgeleiteten Übersicht',
+  // Ingest phases — what a running job is doing, so a long wait is legible.
+  'Fetching the document': 'Dokument wird geladen',
+  'Archiving it verbatim before anything reads it.': 'Es wird wortgetreu archiviert, bevor es gelesen wird.',
+  'Sorting the document': 'Dokument wird eingeordnet',
+  'Working out which pages it touches.': 'Es wird ermittelt, welche Seiten betroffen sind.',
+  'Writing the pages': 'Seiten werden geschrieben',
+  'Quoting the document into pages, one page at a time.':
+    'Das Dokument wird Seite für Seite mit Zitaten in Seiten überführt.',
+  'Looking for decisions': 'Entscheidungen werden gesucht',
+  'Reading it for settled choices, and checking them against the ones this wiki already holds.':
+    'Es wird nach getroffenen Entscheidungen gelesen und mit den bereits erfassten abgeglichen.',
+  'Checking for contradictions': 'Widersprüche werden geprüft',
+  'Comparing the new claims against what is on record.':
+    'Die neuen Aussagen werden mit dem vorhandenen Bestand verglichen.',
+  'Preparing the change': 'Änderungsvorschlag wird erstellt',
+  'Staging everything for review.': 'Alles wird zur Prüfung vorbereitet.',
+  '{done} of {total} pages written': '{done} von {total} Seiten geschrieben',
+  'Reading the document': 'Dokument wird gelesen',
+  'Archiving it verbatim, then quoting it into pages.':
+    'Es wird wortgetreu archiviert und anschließend mit Zitaten in Seiten überführt.',
+  'Waiting for a worker to pick it up.': 'Wartet darauf, dass ein Worker es übernimmt.',
+  'Paused on a provider quota': 'Wegen Anbieterkontingent pausiert',
+  'Could not be added': 'Konnte nicht hinzugefügt werden',
+  'The worker did not say why.': 'Der Worker hat keinen Grund genannt.',
+  'Pages drafted': 'Seiten entworfen',
+  'Archived, with nothing to review': 'Archiviert, nichts zu prüfen',
   'About version history': 'Informationen zum Versionsverlauf',
   'About webhook addresses': 'Informationen zu Webhook-Adressen',
   'About webhook subscriptions': 'Informationen zu Webhook-Abonnements',

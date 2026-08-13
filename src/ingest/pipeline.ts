@@ -43,6 +43,7 @@ import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptIndex } from '../domain/concepts.ts'
 import { latestCharterMarkdown } from '../domain/charter.ts'
 import { findContradictions, getPredicateRegistry, type IncomingClaim } from '../domain/claims.ts'
+import { listActiveDecisionsForDedupe } from '../domain/decisions.ts'
 import { ConflictError, LlmNotConfiguredError } from '../domain/errors.ts'
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
 import { createSource, persistSourceChunks, sha256Hex } from '../domain/sources.ts'
@@ -104,6 +105,7 @@ const DEFAULT_PREDICATES = [
 
 const DEFAULT_LEASE_MS = 15 * 60 * 1000
 const DEFAULT_HEARTBEAT_MS = 30 * 1000
+const DEFAULT_MAX_RUNTIME_MS = 45 * 60 * 1000
 
 const DEFAULT_POLL_MS = 1000
 
@@ -117,6 +119,12 @@ const QUOTA_FALLBACK_RESUME_MS = 6 * 60 * 60 * 1000
 // Upper bound on adjudication calls per job: adjudication refines the
 // reviewer summary, it must never turn one ingest into an unbounded fan-out.
 const ADJUDICATION_CAP = 10
+
+// Upper bound on decisions staged per ingest. A source that genuinely settles
+// more than ten choices exists, but a list this long is far more often a model
+// splitting one decision into variants — and a proposal a human cannot review
+// in one sitting is a proposal that does not get reviewed.
+const DECISIONS_CAP = 10
 
 /** Anthropic's usage-limit message (and generic quota phrasing) — never model refusals or 5xx. */
 function isQuotaExhausted(message: string): boolean {
@@ -150,8 +158,15 @@ interface JobRow {
   lease_owner: string
 }
 
+/**
+ * The stages a running job walks through, in order. Advisory diagnostics: a
+ * reader that does not know a value treats the job as simply 'running', so
+ * adding a stage needs no migration and no client release.
+ */
+export type IngestPhase = 'acquire' | 'classify' | 'synthesize' | 'decisions' | 'adjudicate' | 'propose'
+
 interface AgentRunDraft {
-  kind: 'classify' | 'synthesize' | 'answer' | 'adjudicate'
+  kind: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'adjudicate'
   run: LlmRunMeta
 }
 
@@ -166,6 +181,8 @@ export interface CreateIngestPipelineOptions {
   leaseMs?: number
   /** Test/embedding override; production uses WIKIKIT_INGEST_HEARTBEAT_MS. */
   heartbeatMs?: number
+  /** Test/embedding override; production uses WIKIKIT_INGEST_MAX_RUNTIME_MS. */
+  maxRuntimeMs?: number
   /** Aggregate telemetry sink; never receives source/job/space identifiers. */
   metrics?: Pick<Metrics, 'ingestJob'>
 }
@@ -181,6 +198,7 @@ export function createIngestPipeline(
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS
   const leaseMs = options.leaseMs ?? config.ingestLeaseMs ?? DEFAULT_LEASE_MS
   const heartbeatMs = options.heartbeatMs ?? config.ingestHeartbeatMs ?? DEFAULT_HEARTBEAT_MS
+  const maxRuntimeMs = options.maxRuntimeMs ?? config.ingestMaxRuntimeMs ?? DEFAULT_MAX_RUNTIME_MS
 
   let running = false
   // Set when a claim hits provider quota exhaustion: no claims until it
@@ -357,6 +375,150 @@ export function createIngestPipeline(
   }
 
   /**
+   * Record which stage a running job is in, and where it stands inside it.
+   *
+   * Advisory by construction: guarded on the same (status, lease_owner) pair
+   * as the heartbeat so a job the reaper already took cannot be written back
+   * to, and a failed write is logged and swallowed — losing a progress update
+   * must never cost the ingest it was describing.
+   */
+  async function setPhase(job: JobRow, phase: IngestPhase, done?: number, total?: number): Promise<void> {
+    try {
+      await db.query(
+        `UPDATE wk_ingest_jobs
+            SET phase = $3, progress_done = $4, progress_total = $5
+          WHERE id = $1 AND status = 'running' AND lease_owner = $2`,
+        [job.id, job.lease_owner, phase, done ?? null, total ?? null],
+      )
+    } catch (error) {
+      logger.warn('ingest phase update failed (progress only, job unaffected)', {
+        ingest_id: job.id,
+        phase,
+        error: String(error),
+      })
+    }
+  }
+
+  /**
+   * Mine the source for settled choices, once, and reconcile them with the
+   * decisions the space already holds.
+   *
+   * The model marks its finds (duplicate_of / updates); this function decides.
+   * Every marker is validated against the list we actually sent — an unknown
+   * slug is a hallucination, and the safe reading of one is "a new decision a
+   * human will review", never a silent merge into an unrelated record.
+   */
+  async function extractDecisionsFor(
+    job: JobRow,
+    source: { title: string | null; markdown: string },
+    sourceKind: IngestInput['source_kind'],
+    charter: string,
+    runs: AgentRunDraft[],
+    usage: { input_tokens: number; output_tokens: number },
+    signal: AbortSignal,
+  ): Promise<{
+    decisions: NonNullable<CreateProposalArgs['decisions']>
+    duplicatesSuppressed: number
+    supersedeCount: number
+  }> {
+    const active = await listActiveDecisionsForDedupe(db, job.space_id)
+    const byslug = new Map(active.map((row) => [row.slug, row]))
+
+    const extracted = await llm.extractDecisions(
+      {
+        source,
+        ...(sourceKind ? { sourceKind } : {}),
+        ...(charter ? { charter } : {}),
+        existingDecisions: active.map(({ slug, title, decision }) => ({ slug, title, decision })),
+      },
+      { signal },
+    )
+    runs.push({ kind: 'extract_decisions', run: extracted.run })
+    usage.input_tokens += extracted.run.usage.input_tokens
+    usage.output_tokens += extracted.run.usage.output_tokens
+
+    const decisions: NonNullable<CreateProposalArgs['decisions']> = []
+    const staged = new Set<string>()
+    const seen = new Set<string>()
+    let duplicatesSuppressed = 0
+    let supersedeCount = 0
+    let capped = 0
+
+    for (const found of extracted.output.decisions) {
+      // One model, one list: an exact slug repeat is the model contradicting
+      // itself, and the first statement of it is the one we keep.
+      if (seen.has(found.slug)) continue
+      seen.add(found.slug)
+
+      const duplicateOf = found.duplicate_of ? byslug.get(found.duplicate_of) : undefined
+      const updates = found.updates ? byslug.get(found.updates) : undefined
+      if (found.duplicate_of && !duplicateOf) {
+        logger.info('decision marked as duplicate of an unknown slug — staging it as new', {
+          ingest_id: job.id,
+          slug: found.slug,
+          duplicate_of: found.duplicate_of,
+        })
+      }
+      if (found.updates && !updates) {
+        logger.info('decision marked as updating an unknown slug — staging it as new', {
+          ingest_id: job.id,
+          slug: found.slug,
+          updates: found.updates,
+        })
+      }
+
+      // Already recorded: nothing to stage. Counted, not dropped in silence —
+      // "we found this and it is already known" is a reviewer-relevant fact,
+      // and it is exactly what the staging upsert used to swallow.
+      if (duplicateOf && !updates) {
+        duplicatesSuppressed += 1
+        continue
+      }
+      // Same reading, without the marker: a slug that already names an active
+      // decision IS that decision.
+      if (!updates && byslug.has(found.slug)) {
+        duplicatesSuppressed += 1
+        continue
+      }
+
+      if (decisions.length >= DECISIONS_CAP) {
+        capped += 1
+        continue
+      }
+
+      // A supersede stages a NEW row beside the one it replaces, so it needs a
+      // slug of its own (both rows live under unique (space_id, slug)).
+      let slug = found.slug
+      if (updates) {
+        let suffix = 2
+        while (byslug.has(slug) || staged.has(slug)) slug = `${found.slug}-${suffix++}`
+      }
+      if (staged.has(slug)) continue
+      staged.add(slug)
+
+      decisions.push({
+        slug,
+        title: found.title,
+        context: found.context,
+        decision: found.decision,
+        rationale: found.rationale,
+        alternatives: found.alternatives,
+        ...(updates ? { supersedes_decision_id: updates.id } : {}),
+      })
+      if (updates) supersedeCount += 1
+    }
+
+    if (capped > 0) {
+      logger.info('decision cap reached — extra decisions dropped', {
+        ingest_id: job.id,
+        cap: DECISIONS_CAP,
+        dropped: capped,
+      })
+    }
+    return { decisions, duplicatesSuppressed, supersedeCount }
+  }
+
+  /**
    * The pipeline body for one claimed job. Returns the terminal write's
    * inputs instead of writing itself so claim/terminal handling stays in one
    * place (processClaimed) and every exit path persists the runs it recorded.
@@ -365,12 +527,14 @@ export function createIngestPipeline(
     job: JobRow,
     space: { slug: string; predicates: string[]; charter: string },
     runs: AgentRunDraft[],
+    signal: AbortSignal,
   ): Promise<{ sourceId: string | null; proposalId: string | null }> {
     // The worker re-validates the stored input — the row may predate this
     // binary's schema (see zIngestInput doc).
     const input = zIngestInput.parse(job.input)
 
     // 1. Acquire (the only stage that may touch the network besides the LLM).
+    await setPhase(job, 'acquire')
     const acquired = await acquirer.acquire(input)
 
     // 2. Archive + dedup gate. `created:false` means this exact content was
@@ -405,7 +569,7 @@ export function createIngestPipeline(
       })
       source = recorded.source
       created = recorded.created
-      if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
+      if (!created && !input.resynthesize && (await reingestBlocked(db, job.space_id, source.id))) {
         // Converge instead of 409: connectors retry blindly. The head already
         // advanced above; hand back whatever proposal the earlier work
         // produced (null when it was rejected/archived-only).
@@ -421,7 +585,7 @@ export function createIngestPipeline(
       const result = await createSource(db, job.space_id, sourceArgs)
       source = result.source
       created = result.created
-      if (!created && (await reingestBlocked(db, job.space_id, source.id))) {
+      if (!created && !input.resynthesize && (await reingestBlocked(db, job.space_id, source.id))) {
         throw new ConflictError('already_ingested', `content already ingested as source ${source.id}`, {
           details: { source_id: source.id },
         })
@@ -447,12 +611,16 @@ export function createIngestPipeline(
     }
 
     // 4. Classify: one cheap call over source + compact concept index.
+    await setPhase(job, 'classify')
     const index = await getConceptIndex(db, job.space_id)
-    const classified = await llm.classify({
-      source: { title: source.title, markdown: budget.markdown },
-      conceptIndex: index,
-      ...(space.charter ? { charter: space.charter } : {}),
-    })
+    const classified = await llm.classify(
+      {
+        source: { title: source.title, markdown: budget.markdown },
+        conceptIndex: index,
+        ...(space.charter ? { charter: space.charter } : {}),
+      },
+      { signal },
+    )
     runs.push({ kind: 'classify', run: classified.run })
 
     // The model's slugs are untrusted: 'affected' must actually exist in the
@@ -508,12 +676,6 @@ export function createIngestPipeline(
 
     const proposalConcepts: CreateProposalArgs['concepts'] = []
     const allTriples: IncomingClaim[] = []
-    // Decisions surface per synthesis call (a meeting touching two concepts can
-    // report the same decision twice); dedupe first-wins by slug because
-    // zCreateProposalArgs refuses duplicate decision slugs — two proposed rows
-    // for one decision would both flip active on approval.
-    const proposalDecisions: NonNullable<CreateProposalArgs['decisions']> = []
-    const decisionSlugs = new Set<string>()
     const usage = { input_tokens: 0, output_tokens: 0 }
 
     // Typed registry (0021): rendered into the synthesize vocabulary when the
@@ -521,15 +683,22 @@ export function createIngestPipeline(
     const registry = await getPredicateRegistry(db, job.space_id)
     const predicateDefs = [...registry.values()]
 
+    // The long pole: one call per concept, minutes each. Publishing the count
+    // BEFORE the loop is what makes "3 of 10" mean something at minute twelve.
+    await setPhase(job, 'synthesize', 0, conceptInputs.length)
+    let synthesizedCount = 0
     for (const target of conceptInputs) {
-      const synthesized = await llm.synthesize({
-        concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
-        source: { id: source.id, title: source.title, markdown: budget.markdown },
-        predicates: space.predicates,
-        ...(predicateDefs.length ? { predicateDefs } : {}),
-        sourceKind: input.source_kind,
-        ...(space.charter ? { charter: space.charter } : {}),
-      })
+      const synthesized = await llm.synthesize(
+        {
+          concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
+          source: { id: source.id, title: source.title, markdown: budget.markdown },
+          predicates: space.predicates,
+          ...(predicateDefs.length ? { predicateDefs } : {}),
+          sourceKind: input.source_kind,
+          ...(space.charter ? { charter: space.charter } : {}),
+        },
+        { signal },
+      )
       runs.push({ kind: 'synthesize', run: synthesized.run })
       usage.input_tokens += synthesized.run.usage.input_tokens
       usage.output_tokens += synthesized.run.usage.output_tokens
@@ -589,19 +758,40 @@ export function createIngestPipeline(
         claims,
         relations: synthesized.output.relations,
       })
-
-      for (const decision of synthesized.output.decisions) {
-        if (decisionSlugs.has(decision.slug)) continue
-        decisionSlugs.add(decision.slug)
-        proposalDecisions.push(decision)
-      }
+      await setPhase(job, 'synthesize', ++synthesizedCount, conceptInputs.length)
     }
+
+    // 5b. Decisions — ONE call for the whole source, against what the space
+    // already decided.
+    //
+    // WHY not inside the loop above: a decision is a fact of the SOURCE, but
+    // synthesis runs per concept. Every concept call read the same document,
+    // so every call re-emitted the same choice under its own slug and one
+    // decision entered the log five times (PROD: 26 rows, ~9 real decisions).
+    // Extraction sees the whole source and the space's active decisions at
+    // once, which is the only position from which "same choice, said twice"
+    // is even decidable.
+    await setPhase(job, 'decisions')
+    const {
+      decisions: proposalDecisions,
+      duplicatesSuppressed,
+      supersedeCount,
+    } = await extractDecisionsFor(
+      job,
+      { title: source.title, markdown: budget.markdown },
+      input.source_kind,
+      space.charter,
+      runs,
+      usage,
+      signal,
+    )
 
     // 6. Deterministic contradiction detection (frame + context + interval +
     // normalized object) — run here so the proposal SUMMARY warns the
     // reviewer up front. The staging tx re-runs the same matcher for the
     // event payload, and wk_apply_proposal applies the dispute flip at
     // approval; all three share one rule, so they can never disagree.
+    await setPhase(job, 'adjudicate')
     const contradictions = await findContradictions(db, job.space_id, { claims: allTriples })
 
     // 6b. Adjudication (adjudicate.v1): classify WHY the persisted-side pairs
@@ -632,18 +822,21 @@ export function createIngestPipeline(
       const staged = claimByTriple.get(`${pair.subject}\u0000${pair.predicate}\u0000${pair.proposed_object}`)
       let verdict: 'contradictory' | 'temporal' | 'complementary' = 'contradictory'
       try {
-        const result = await llm.adjudicate({
-          subject: pair.subject,
-          predicate: pair.predicate,
-          existing: { object: pair.existing_object, quote: pair.existing_quote },
-          incoming: {
-            object: pair.proposed_object,
-            quote: (() => {
-              const citation = staged?.citations?.[0]
-              return citation && 'quote' in citation ? citation.quote : null
-            })(),
+        const result = await llm.adjudicate(
+          {
+            subject: pair.subject,
+            predicate: pair.predicate,
+            existing: { object: pair.existing_object, quote: pair.existing_quote },
+            incoming: {
+              object: pair.proposed_object,
+              quote: (() => {
+                const citation = staged?.citations?.[0]
+                return citation && 'quote' in citation ? citation.quote : null
+              })(),
+            },
           },
-        })
+          { signal },
+        )
         runs.push({ kind: 'adjudicate', run: result.run })
         verdict = result.output.verdict
       } catch (error) {
@@ -683,10 +876,21 @@ export function createIngestPipeline(
     if (proposalDecisions.length > 0) {
       summaryParts.push(`${proposalDecisions.length} decision${proposalDecisions.length === 1 ? '' : 's'}`)
     }
+    // Suppressed duplicates stage nothing, so the summary is the only place a
+    // reviewer learns the source repeated decisions the space already holds.
+    if (duplicatesSuppressed > 0) {
+      summaryParts.push(
+        `${duplicatesSuppressed} decision${duplicatesSuppressed === 1 ? '' : 's'} already recorded (not re-staged)`,
+      )
+    }
+    if (supersedeCount > 0) {
+      summaryParts.push(`${supersedeCount} decision update${supersedeCount === 1 ? '' : 's'}`)
+    }
 
     // 7. Propose — the ONE staging transaction (createProposal owns it).
     // input_hash = f(source hashes, prompt version): re-ingesting the same
     // content under the same prompt converges on the same pending proposal.
+    await setPhase(job, 'propose')
     const inputHash = computeInputHash([source.content_hash], PROMPT_VERSIONS.synthesize)
     const synthesizeModel = runs.find((draft) => draft.kind === 'synthesize')?.run.model ?? 'unknown'
     const { proposal_id } = await createProposal(db, job.space_id, {
@@ -752,26 +956,38 @@ export function createIngestPipeline(
     }
   }
 
-  /** Wraps processJob with lease heartbeat and terminal state handling. */
+  /** Wraps processJob with lease heartbeat, runtime ceiling and terminal state handling. */
   async function processClaimed(job: JobRow): Promise<void> {
     const startedAt = Date.now()
     const stopHeartbeat = startHeartbeat(job)
     const runs: AgentRunDraft[] = []
+    // The runtime ceiling. The heartbeat proves a worker is ALIVE; a worker
+    // blocked forever inside an LLM call is alive and renews the lease
+    // indefinitely, which is how a job reached 23 minutes with nothing to
+    // distinguish it from a wedged one. Aborting the request is what actually
+    // stops the work — flipping the row alone would leave the call burning.
+    const controller = new AbortController()
+    const runtimeTimer = setTimeout(() => controller.abort(), maxRuntimeMs)
     let space: { slug: string; predicates: string[]; charter: string } | null = null
     let sourceId: string | null = null
     try {
       space = await loadSpace(job.space_id)
-      const result = await processJob(job, space, runs)
+      const result = await processJob(job, space, runs, controller.signal)
       sourceId = result.sourceId
       await finishJob(job, result, runs)
       options.metrics?.ingestJob('done', Date.now() - startedAt)
       logger.info('ingest job done', { ingest_id: job.id, proposal_id: result.proposalId, source_id: result.sourceId })
     } catch (error) {
-      const code = (error as { code?: string }).code ?? 'ingest_failed'
-      const message = error instanceof Error ? error.message : String(error)
+      const timedOut = controller.signal.aborted
+      const code = timedOut ? 'timeout' : ((error as { code?: string }).code ?? 'ingest_failed')
+      const message = timedOut
+        ? `ingest exceeded WIKIKIT_INGEST_MAX_RUNTIME_MS (${maxRuntimeMs}ms)`
+        : error instanceof Error
+          ? error.message
+          : String(error)
       const details = (error as { details?: { source_id?: string } }).details
       const failedSourceId = details?.source_id ?? sourceId
-      if (isQuotaExhausted(message)) {
+      if (!timedOut && isQuotaExhausted(message)) {
         // Quota exhaustion parks the job instead of failing it — the work is
         // intact and resumes automatically. ONE error line for the incident;
         // the paused claims that follow are silent by design.
@@ -792,13 +1008,14 @@ export function createIngestPipeline(
       logger.error('ingest job failed', { ingest_id: job.id, code, error: message })
       try {
         await failJob(job, space?.slug ?? '', { code, message }, failedSourceId ?? null, runs)
-        options.metrics?.ingestJob('failed', Date.now() - startedAt)
+        options.metrics?.ingestJob(timedOut ? 'timeout' : 'failed', Date.now() - startedAt)
       } catch (writeError) {
         // The failure write itself failed (DB down?): leave the job 'running'
         // for the reaper — flipping state is better done late than lost.
         logger.error('ingest failure could not be persisted', { ingest_id: job.id, error: String(writeError) })
       }
     } finally {
+      clearTimeout(runtimeTimer)
       await stopHeartbeat()
     }
   }
@@ -812,9 +1029,35 @@ export function createIngestPipeline(
    * consumers must learn about crash-orphaned jobs the same way.
    */
   async function reapStale(): Promise<void> {
-    const error = { code: 'worker_lost', message: 'worker lease expired before this job finished' }
+    await reapWith(
+      { code: 'worker_lost', message: 'worker lease expired before this job finished' },
+      `coalesce(j.lease_expires_at, j.started_at + ($2 || ' milliseconds')::interval) < now()`,
+      leaseMs,
+      'reaped orphaned ingest job as worker_lost',
+    )
+    // Backstop for the in-worker ceiling: a wedged worker (or one from a
+    // binary that predates the ceiling) still renews its lease, so liveness
+    // alone never catches it. The grace beyond the ceiling lets the worker's
+    // own abort path win the normal race and write the richer error; the
+    // terminal writes are guarded on (status='running', lease_owner), so a
+    // straggler that returns afterwards no-ops instead of resurrecting the row.
+    await reapWith(
+      { code: 'timeout', message: 'ingest exceeded its runtime ceiling and was reaped' },
+      `j.started_at < now() - (($2 || ' milliseconds')::interval)`,
+      maxRuntimeMs + 2 * heartbeatMs,
+      'reaped over-running ingest job as timeout',
+    )
+  }
+
+  /** One reap pass: flip matching running jobs to failed + emit their events. */
+  async function reapWith(
+    error: { code: string; message: string },
+    predicate: string,
+    intervalMs: number,
+    logMessage: string,
+  ): Promise<void> {
     await db.tx(async (tx) => {
-      const reaped = await tx.query<{ id: string; space_id: string; space_slug: string }>(
+      const reaped = await tx.query<{ id: string; space_id: string; space_slug: string; runtime_ms: number }>(
         `UPDATE wk_ingest_jobs j
             SET status = 'failed',
                 error = $1,
@@ -824,12 +1067,17 @@ export function createIngestPipeline(
            FROM wk_spaces s
           WHERE s.id = j.space_id
             AND j.status = 'running'
-            AND coalesce(j.lease_expires_at, j.started_at + ($2 || ' milliseconds')::interval) < now()
-        RETURNING j.id, j.space_id, s.slug AS space_slug`,
-        [JSON.stringify(error), String(leaseMs)],
+            AND ${predicate}
+        RETURNING j.id, j.space_id, s.slug AS space_slug,
+                  (extract(epoch from (now() - j.started_at)) * 1000)::bigint AS runtime_ms`,
+        [JSON.stringify(error), String(intervalMs)],
       )
       for (const job of reaped.rows) {
-        logger.warn('reaped orphaned ingest job as worker_lost', { ingest_id: job.id })
+        logger.warn(logMessage, { ingest_id: job.id })
+        // Reaped jobs were invisible in telemetry: a crash-orphaned or
+        // over-running job IS a terminal outcome, and one that never reaches
+        // the counter cannot be alerted on.
+        options.metrics?.ingestJob(error.code === 'timeout' ? 'timeout' : 'worker_lost', Number(job.runtime_ms) || 0)
         await tx.emitEvent(job.space_id, 'wikikit.ingest.failed', {
           ingest_id: job.id,
           space: job.space_slug,
@@ -873,7 +1121,10 @@ export function createIngestPipeline(
               started_at = now(),
               heartbeat_at = now(),
               lease_owner = $1,
-              lease_expires_at = now() + ($2 || ' milliseconds')::interval
+              lease_expires_at = now() + ($2 || ' milliseconds')::interval,
+              phase = null,
+              progress_done = null,
+              progress_total = null
         WHERE id = (
           SELECT id FROM wk_ingest_jobs
            WHERE status = 'queued'
@@ -918,7 +1169,7 @@ export function createIngestPipeline(
           // the source (then the re-push is the documented recovery path and
           // proceeds to a fresh job). The version-conflict check (same
           // marker, different bytes) lives inside recordStreamVersion.
-          if (existing && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
+          if (existing && !input.resynthesize && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
             const { stream, source } = await recordStreamVersion(enqueueDb, spaceId, {
               externalSourceId: input.external_source_id,
               sourceVersion: input.source_version ?? null,
@@ -935,7 +1186,7 @@ export function createIngestPipeline(
             })
             return { status: 'unchanged', source_id: source.id, stream_id: stream.id }
           }
-        } else if (existing && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
+        } else if (existing && !input.resynthesize && (await reingestBlocked(enqueueDb, spaceId, existing.id))) {
           // Synchronous dedup pre-check for direct bodies (§4.1): the content
           // is in hand, so the 409 must not cost the client an enqueue-poll
           // round trip. URL ingests defer to the worker — the body is unknown

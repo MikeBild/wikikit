@@ -217,7 +217,7 @@ describe('worker — happy path (new concept from a markdown source)', () => {
 
     // LLM call sequence: one classify over the compact index, one synthesize
     // for the single new concept the default classifier proposes.
-    expect(llm.calls.map((call) => call.method)).toEqual(['classify', 'synthesize'])
+    expect(llm.calls.map((call) => call.method)).toEqual(['classify', 'synthesize', 'extract_decisions'])
     const classifyInput = llm.calls[0]!.input as { source: { title: string | null }; conceptIndex: unknown[] }
     expect(classifyInput.source.title).toBe('OKF')
     expect(classifyInput.conceptIndex).toEqual([])
@@ -239,22 +239,24 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     // Proposal staged with the content-hash + prompt-version input hash and
     // §1.14-shaped agent_meta.
     const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
-    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v2'))
+    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v3'))
     expect(proposalInsert.values).toContain('Ingest: OKF')
     const meta = JSON.parse(proposalInsert.values.find((v) => String(v).includes('prompt_version')) as string)
-    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v2', source_ids: [SRC_ID] })
+    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v3', source_ids: [SRC_ID] })
 
     // Claim + citation with the supporting quote (FakeProvider quotes line 1).
     const citationInsert = calls.find((call) => call.sql.includes('"wk_citations"'))!
     expect(citationInsert.values).toContain('# OKF')
     expect(citationInsert.values).toContain(SRC_ID)
 
-    // Audit: classify + synthesize runs pinned to job AND proposal.
+    // Audit: classify + synthesize + decision extraction, each pinned to job
+    // AND proposal.
     const runsInsert = calls.find((call) => call.sql.includes('"wk_agent_runs"'))!
     expect(runsInsert.values).toContain('classify')
     expect(runsInsert.values).toContain('synthesize')
-    expect(runsInsert.values.filter((value) => value === 'job-1').length).toBe(2)
-    expect(runsInsert.values.filter((value) => value === 'prop-1').length).toBe(2)
+    expect(runsInsert.values).toContain('extract_decisions')
+    expect(runsInsert.values.filter((value) => value === 'job-1').length).toBe(3)
+    expect(runsInsert.values.filter((value) => value === 'prop-1').length).toBe(3)
 
     // Terminal: job done with source + proposal, atomically with the audit rows.
     const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
@@ -464,7 +466,7 @@ describe('worker — failure paths', () => {
     await pipeline.runOnce()
 
     // Pipeline ran end-to-end against the EXISTING source row.
-    expect(llm.calls.map((call) => call.method)).toEqual(['classify', 'synthesize'])
+    expect(llm.calls.map((call) => call.method)).toEqual(['classify', 'synthesize', 'extract_decisions'])
     expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_sources"'))).toBe(false)
     const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
     expect(jobUpdate.values).toContain('done')
@@ -752,5 +754,324 @@ describe('worker — adjudication (0021)', () => {
     expect(String(proposalInsert.values[2])).toContain('1 contradiction')
     const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
     expect(jobUpdate.values).toContain('done')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Decision extraction (decisions.v1) — one call per ingest, deduped against
+// the decisions the space already holds.
+//
+// The bug these cover: decisions used to come out of synthesis, which runs
+// once per affected concept. Each call read the same source and proposed the
+// same choice under its own slug, so one decision entered the log up to five
+// times. Extraction now happens once and compares against the active set.
+// ---------------------------------------------------------------------------
+
+/** Route table where the space already holds two active decisions. */
+function decisionRoutes(active: Rows = []): Route[] {
+  return [{ match: /SELECT \* FROM "public"\."wk_decisions"/, rows: active }, ...workerRoutes()]
+}
+
+const ACTIVE_DECISIONS: Rows = [
+  {
+    id: '8f2c1a44-1111-4111-8111-000000000001',
+    slug: 'ship-on-friday',
+    title: 'Ship on Friday',
+    decision: 'Releases go out on Friday mornings.',
+  },
+]
+
+/** One extracted decision, with the markers defaulted to "new". */
+function found(overrides: Record<string, unknown> = {}) {
+  return {
+    slug: 'ship-on-friday-2',
+    title: 'Ship on Friday',
+    context: 'Release cadence was on the table.',
+    decision: 'Releases go out on Friday mornings.',
+    rationale: '',
+    alternatives: [],
+    duplicate_of: null,
+    updates: null,
+    ...overrides,
+  }
+}
+
+describe('worker — decision extraction and dedupe', () => {
+  test('runs ONE extraction call for the whole source, not one per concept', async () => {
+    const { db } = fakeDb(
+      decisionRoutes().map((route) =>
+        route.match.source.includes('c\\.slug, r\\.title')
+          ? {
+              ...route,
+              rows: [
+                { slug: 'okf', title: 'OKF', summary: 's' },
+                { slug: 'wikikit', title: 'WikiKit', summary: 's' },
+              ],
+            }
+          : route,
+      ),
+    )
+    const llm = createFakeProvider({
+      classify: () => ({ affected: ['okf', 'wikikit'], new: [] }),
+      extractDecisions: () => ({ decisions: [found()] }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    // Two concepts synthesized, but decisions were mined exactly once — the
+    // whole point of moving them out of the per-concept loop.
+    expect(llm.calls.filter((call) => call.method === 'synthesize').length).toBe(2)
+    expect(llm.calls.filter((call) => call.method === 'extract_decisions').length).toBe(1)
+  })
+
+  test('a decision the space already holds is counted, not staged again', async () => {
+    const { db, calls } = fakeDb(decisionRoutes(ACTIVE_DECISIONS))
+    const llm = createFakeProvider({
+      extractDecisions: () => ({
+        decisions: [found({ duplicate_of: 'ship-on-friday' }), found({ slug: 'a-new-choice', duplicate_of: null })],
+      }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const staged = calls.filter((call) => call.sql.includes('INSERT INTO wk_decisions'))
+    expect(staged.length).toBe(1)
+    expect(staged[0]!.values).toContain('a-new-choice')
+    // The reviewer is told what was found and dropped; a silent skip would
+    // read as "the source recorded nothing".
+    const proposal = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposal.values[2])).toContain('1 decision already recorded (not re-staged)')
+  })
+
+  test('a slug that already names an active decision IS that decision, marker or not', async () => {
+    const { db, calls } = fakeDb(decisionRoutes(ACTIVE_DECISIONS))
+    const llm = createFakeProvider({
+      extractDecisions: () => ({ decisions: [found({ slug: 'ship-on-friday' })] }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    // Previously the staging upsert swallowed this collision without a word
+    // (ON CONFLICT ... WHERE status <> 'active'). Now it is reported.
+    expect(calls.filter((call) => call.sql.includes('INSERT INTO wk_decisions')).length).toBe(0)
+    const proposal = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposal.values[2])).toContain('1 decision already recorded')
+  })
+
+  test('a decision that CHANGES an active one is staged with the supersede pointer', async () => {
+    const { db, calls } = fakeDb(decisionRoutes(ACTIVE_DECISIONS))
+    const llm = createFakeProvider({
+      extractDecisions: () => ({
+        decisions: [
+          found({
+            slug: 'ship-on-friday',
+            decision: 'Releases move to Tuesday mornings.',
+            updates: 'ship-on-friday',
+          }),
+        ],
+      }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const staged = calls.find((call) => call.sql.includes('INSERT INTO wk_decisions'))!
+    expect(staged.values).toContain('8f2c1a44-1111-4111-8111-000000000001')
+    // Both rows must coexist under unique(space_id, slug) until approval
+    // retires the old one, so the successor gets a slug of its own.
+    expect(staged.values).toContain('ship-on-friday-2')
+    const proposal = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
+    expect(String(proposal.values[2])).toContain('1 decision update')
+  })
+
+  test('a marker naming a decision that does not exist is staged as new, never merged', async () => {
+    const { db, calls } = fakeDb(decisionRoutes(ACTIVE_DECISIONS))
+    const llm = createFakeProvider({
+      extractDecisions: () => ({ decisions: [found({ slug: 'invented', duplicate_of: 'no-such-decision' })] }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const staged = calls.filter((call) => call.sql.includes('INSERT INTO wk_decisions'))
+    expect(staged.length).toBe(1)
+    expect(staged[0]!.values).toContain('invented')
+  })
+
+  test('repeats of one slug within a single extraction collapse to the first', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    const llm = createFakeProvider({
+      extractDecisions: () => ({ decisions: [found({ title: 'First' }), found({ title: 'Second' })] }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const staged = calls.filter((call) => call.sql.includes('INSERT INTO wk_decisions'))
+    expect(staged.length).toBe(1)
+    expect(staged[0]!.values).toContain('First')
+  })
+
+  test('the per-ingest cap bounds how much decision work one proposal can carry', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    const llm = createFakeProvider({
+      extractDecisions: () => ({
+        decisions: Array.from({ length: 14 }, (_, index) => found({ slug: `choice-${index}` })),
+      }),
+    })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    expect(calls.filter((call) => call.sql.includes('INSERT INTO wk_decisions')).length).toBe(10)
+  })
+
+  test('synthesis output no longer carries decisions into the proposal', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    const llm = createFakeProvider({ extractDecisions: () => ({ decisions: [] }) })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    expect(calls.some((call) => call.sql.includes('INSERT INTO wk_decisions'))).toBe(false)
+    const extraction = llm.calls.find((call) => call.method === 'extract_decisions')!
+    // The extractor is given the active set — without it, "already recorded"
+    // is not a question it can answer.
+    expect(extraction.input).toHaveProperty('existingDecisions')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Progress and the runtime ceiling
+// ---------------------------------------------------------------------------
+
+describe('worker — phase, progress and the runtime ceiling', () => {
+  test('publishes the stage it is in, and its position inside the synthesis loop', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    const llm = createFakeProvider({ extractDecisions: () => ({ decisions: [] }) })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const phases = calls.filter((call) => call.sql.includes('SET phase')).map((call) => call.values[2])
+    expect(phases).toEqual(['acquire', 'classify', 'synthesize', 'synthesize', 'decisions', 'adjudicate', 'propose'])
+    // The total is published BEFORE the loop: "0 of 1" at minute one is what
+    // makes "1 of 1" at minute three mean something.
+    const synthesis = calls.filter((call) => call.sql.includes('SET phase') && call.values[2] === 'synthesize')
+    expect(synthesis.map((call) => [call.values[3], call.values[4]])).toEqual([
+      [0, 1],
+      [1, 1],
+    ])
+  })
+
+  test('a failed progress write never costs the ingest it describes', async () => {
+    const { db, calls } = fakeDb([
+      { match: /SET phase/, error: new Error('progress write exploded') },
+      ...decisionRoutes(),
+    ])
+    const llm = createFakeProvider({ extractDecisions: () => ({ decisions: [] }) })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(jobUpdate.values).toContain('done')
+  })
+
+  test('claiming a job clears the previous attempt’s progress', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    await createIngestPipeline(config, db, createFakeProvider(), logger).runOnce()
+    const claim = calls.find((call) => call.sql.includes('RETURNING id, space_id, input'))!
+    expect(claim.sql).toContain('phase = null')
+    expect(claim.sql).toContain('progress_done = null')
+  })
+
+  test('a job over the ceiling is aborted and fails with error.code=timeout', async () => {
+    const { db, calls } = fakeDb(decisionRoutes())
+    const outcomes: [string, number][] = []
+    const llm = {
+      ...createFakeProvider(),
+      // A call that never returns on its own — exactly the shape that made a
+      // live worker renew its lease forever.
+      synthesize: (_input: unknown, opts?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          opts?.signal?.addEventListener('abort', () => reject(new Error('aborted by the ceiling')))
+        }),
+    } as never
+    const pipeline = createIngestPipeline(config, db, llm, logger, {
+      maxRuntimeMs: 10,
+      metrics: { ingestJob: (status, ms) => outcomes.push([status, ms]) },
+    })
+    await pipeline.runOnce()
+
+    const jobUpdate = calls.find(
+      (call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"') && call.values.includes('failed'),
+    )!
+    expect(String(jobUpdate.values.find((value) => String(value).includes('code')))).toContain('timeout')
+    expect(outcomes.map(([status]) => status)).toEqual(['timeout'])
+  })
+
+  test('the reaper is the backstop for a worker that renews its lease but never finishes', async () => {
+    const reaped: unknown[][] = []
+    const outcomes: string[] = []
+    const { db } = fakeDb([
+      {
+        // The runtime pass — distinct from the lease pass below.
+        match: /j\.started_at < now\(\)/,
+        rows: (values) => {
+          reaped.push(values)
+          return [{ id: 'job-stuck', space_id: 'space-1', space_slug: 'dev', runtime_ms: 2_700_000 }]
+        },
+      },
+      { match: /j\.status = 'running'/, rows: [] },
+      { match: /RETURNING id, space_id, input/, rows: [] },
+      { match: /INSERT INTO "public"\."wk_outbox_events"/, rows: [] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger, {
+      maxRuntimeMs: 60_000,
+      metrics: { ingestJob: (status) => outcomes.push(status) },
+    })
+    await pipeline.runOnce()
+
+    expect(String(reaped[0]![0])).toContain('timeout')
+    expect(outcomes).toEqual(['timeout'])
+  })
+})
+
+describe('worker — re-synthesis of an archived source', () => {
+  test('resynthesize runs the current pipeline over content the archive already holds', async () => {
+    const { db, calls } = fakeDb(
+      decisionRoutes().map((route) =>
+        route.match.source === 'RETURNING id, space_id, input'
+          ? {
+              ...route,
+              rows: (values: unknown[], call: number) =>
+                call === 1
+                  ? [
+                      {
+                        id: 'job-1',
+                        space_id: 'space-1',
+                        input: { markdown: RAW, resynthesize: true },
+                        lease_owner: String(values[0]),
+                      },
+                    ]
+                  : [],
+            }
+          : route,
+      ),
+    )
+    // Both gates would refuse this content: it is archived AND an approved
+    // proposal references it.
+    const routes = calls
+    const llm = createFakeProvider({ extractDecisions: () => ({ decisions: [] }) })
+    await createIngestPipeline(config, db, llm, logger).runOnce()
+    void routes
+
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(jobUpdate.values).toContain('done')
+  })
+
+  test('without the flag, an archived source still refuses a second ingest', async () => {
+    const { db } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [{ id: SRC_ID }] },
+      { match: /SELECT 1 AS blocked/, rows: [{ blocked: 1 }] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await expect(pipeline.enqueue(db, 'space-1', { markdown: RAW })).rejects.toBeInstanceOf(ConflictError)
+  })
+
+  test('with the flag, enqueue accepts the same content again', async () => {
+    const { db } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [{ id: SRC_ID }] },
+      { match: /SELECT 1 AS blocked/, rows: [{ blocked: 1 }] },
+      { match: /INSERT INTO "public"\."wk_ingest_jobs"/, rows: [{ id: 'job-resynth' }] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    expect(await pipeline.enqueue(db, 'space-1', { markdown: RAW, resynthesize: true })).toEqual({
+      ingest_id: 'job-resynth',
+    })
   })
 })

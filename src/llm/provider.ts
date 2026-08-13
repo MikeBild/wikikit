@@ -20,6 +20,8 @@ import type {
   ClassifyOutput,
   DistillInput,
   DistillOutput,
+  ExtractDecisionsInput,
+  ExtractDecisionsOutput,
   SynthesizeInput,
   SynthesizeOutput,
 } from './schemas.ts'
@@ -54,6 +56,12 @@ export interface EmbedOutput {
   dimensions: number
 }
 
+/** Per-call knobs that are not prompt input (so they never touch input_hash). */
+export interface LlmCallOptions {
+  /** Aborts the in-flight request — the ingest worker's runtime ceiling. */
+  signal?: AbortSignal
+}
+
 export interface LlmProvider {
   /** False when the selected provider's key is unset — callers answer 503 llm_not_configured. FakeProvider: true. */
   readonly configured: boolean
@@ -64,9 +72,17 @@ export interface LlmProvider {
    */
   readonly apiKeyEnv: string
   /** Which existing concepts a source affects + which new concepts it warrants. Model: config.modelClassify. */
-  classify(input: ClassifyInput): Promise<LlmResult<ClassifyOutput>>
+  classify(input: ClassifyInput, opts?: LlmCallOptions): Promise<LlmResult<ClassifyOutput>>
   /** One call per affected concept: new revision + claims + relations. Model: config.modelSynthesis. */
-  synthesize(input: SynthesizeInput): Promise<LlmResult<SynthesizeOutput>>
+  synthesize(input: SynthesizeInput, opts?: LlmCallOptions): Promise<LlmResult<SynthesizeOutput>>
+  /**
+   * ONE call per ingest: the settled choices the source records, marked
+   * against the space's existing active decisions (duplicate_of / updates).
+   * Decisions are source-level facts — extracting them per concept, as
+   * synthesis once did, multiplied one choice into a slug variant per concept.
+   * Model: config.modelSynthesis.
+   */
+  extractDecisions(input: ExtractDecisionsInput, opts?: LlmCallOptions): Promise<LlmResult<ExtractDecisionsOutput>>
   /** Grounded Q&A over retrieved evidence with inline citations. Model: config.modelAnswer. */
   answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>>
   /**
@@ -81,7 +97,7 @@ export interface LlmProvider {
    * deterministic matcher — the pipeline falls back to 'contradictory' on
    * any failure. Model: config.modelClassify (cheap, tiny output).
    */
-  adjudicate(input: AdjudicateInput): Promise<LlmResult<AdjudicateOutput>>
+  adjudicate(input: AdjudicateInput, opts?: LlmCallOptions): Promise<LlmResult<AdjudicateOutput>>
   /**
    * False when no embedding provider is configured (WIKIKIT_EMBEDDING_PROVIDER
    * 'none' or missing key). Embeddings are an OPTIONAL ranker: consumers must

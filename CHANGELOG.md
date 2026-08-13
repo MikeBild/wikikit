@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.34.0 - 2026-08-13
+
+### Fixed
+
+- **A decision recorded once is proposed once.** Decisions used to be mined by
+  synthesis, which runs one call per affected concept; every call read the same
+  source and proposed the same choice under its own slug, so a single settled
+  decision could enter the log five times. Decisions now come from one
+  extraction call per ingest (`decisions.v1`) that sees the space's active
+  decisions and marks a find as already recorded, or as an update to one. The
+  proposal summary reports what it suppressed, and a decision that replaces
+  another retires it on approval — giving the long-declared `superseded` status
+  its first writer.
+- **A slow ingest no longer looks like a stuck one.** A running job publishes
+  the stage it is in (`acquire | classify | synthesize | decisions | adjudicate
+| propose`) and, during synthesis, how many concepts of the total it has
+  finished. `GET /v1/ingests/{id}` and `wikikit_ingest_status` return those
+  alongside `started_at`, `heartbeat_at` and `finished_at`, and the Cockpit says
+  which stage is running and how far along it is.
+
+### Added
+
+- **A wall-clock ceiling per ingest job** (`WIKIKIT_INGEST_MAX_RUNTIME_MS`,
+  default 45 minutes). The lease only proved a worker was alive — one blocked
+  inside an LLM call renewed it forever. The worker now aborts the request and
+  fails the job with `error.code=timeout`; the reaper flips over-running rows
+  the same way as a backstop, and both outcomes reach the metrics counter.
+- **`resynthesize` on ingest.** Re-runs the current pipeline over content the
+  archive already holds, which the `already_ingested` guard otherwise refuses —
+  the operator path for "the pipeline improved, read that source again".
+
 ## 0.33.10 - 2026-08-11
 
 ### Fixed

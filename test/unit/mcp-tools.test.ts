@@ -825,6 +825,13 @@ describe('execute — transport duties', () => {
       proposal_id: 'p-1',
       source_id: 's-1',
       error: null,
+      // Progress fields are null on a row written before progress reporting
+      // existed — the poller must degrade, not break, on an old job.
+      phase: null,
+      progress: null,
+      started_at: null,
+      heartbeat_at: null,
+      finished_at: null,
     })
 
     expect(

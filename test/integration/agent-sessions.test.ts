@@ -57,6 +57,7 @@ function integrationConfig(databaseUrl: string): Config {
     ingestConcurrency: 1,
     ingestLeaseMs: 15 * 60 * 1000,
     ingestHeartbeatMs: 30_000,
+    ingestMaxRuntimeMs: 45 * 60 * 1000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,

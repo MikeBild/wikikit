@@ -659,6 +659,10 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "resynthesize": {
+          "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
+          "type": "boolean",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -715,7 +719,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -997,6 +1001,11 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
               },
               "slug": {
                 "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "supersedes_decision_id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                 "type": "string",
               },
               "title": {
@@ -1752,6 +1761,10 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "resynthesize": {
+          "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
+          "type": "boolean",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -1808,7 +1821,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2090,6 +2103,11 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
               },
               "slug": {
                 "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "supersedes_decision_id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                 "type": "string",
               },
               "title": {
@@ -3009,6 +3027,10 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "resynthesize": {
+          "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
+          "type": "boolean",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -3065,7 +3087,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3347,6 +3369,11 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
               },
               "slug": {
                 "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "supersedes_decision_id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                 "type": "string",
               },
               "title": {
@@ -4261,6 +4288,10 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "resynthesize": {
+          "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
+          "type": "boolean",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -4317,7 +4348,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -4599,6 +4630,11 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
               },
               "slug": {
                 "pattern": "^[a-z0-9][a-z0-9-]{0,126}$",
+                "type": "string",
+              },
+              "supersedes_decision_id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                 "type": "string",
               },
               "title": {

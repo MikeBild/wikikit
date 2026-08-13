@@ -23,7 +23,8 @@ import {
 } from './provider.ts'
 import { PROMPT_VERSIONS } from './prompts/index.ts'
 import * as classifyV2 from './prompts/classify.v2.ts'
-import * as synthesizeV2 from './prompts/synthesize.v2.ts'
+import * as synthesizeV3 from './prompts/synthesize.v3.ts'
+import * as decisionsV1 from './prompts/decisions.v1.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
@@ -36,12 +37,14 @@ import type {
   ClassifyOutput,
   DistillInput,
   DistillOutput,
+  ExtractDecisionsInput,
+  ExtractDecisionsOutput,
   SynthesizeInput,
   SynthesizeOutput,
 } from './schemas.ts'
 
 export interface FakeCall {
-  method: 'classify' | 'synthesize' | 'answer' | 'distill' | 'embed' | 'adjudicate'
+  method: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'embed' | 'adjudicate'
   input: unknown
 }
 
@@ -73,6 +76,7 @@ function firstLine(markdown: string): string {
 export function createFakeProvider(overrides?: {
   classify?: (input: ClassifyInput) => ClassifyOutput
   synthesize?: (input: SynthesizeInput) => SynthesizeOutput
+  extractDecisions?: (input: ExtractDecisionsInput) => ExtractDecisionsOutput
   answer?: (input: AnswerInput) => AnswerOutput
   distill?: (input: DistillInput) => DistillOutput
   adjudicate?: (input: AdjudicateInput) => AdjudicateOutput
@@ -136,9 +140,8 @@ export function createFakeProvider(overrides?: {
       calls.push({ method: 'synthesize', input })
       const output =
         overrides?.synthesize?.(input) ??
-        // Default: echo the source markdown, one grounded claim. A meeting
-        // source additionally yields one decision, so the decision-mining path
-        // is exercised deterministically offline (pipeline/apply tests).
+        // Default: echo the source markdown, one grounded claim. Decisions
+        // are no longer synthesis output — they come from extractDecisions.
         ({
           title: input.concept.title,
           summary: firstLine(input.source.markdown),
@@ -156,21 +159,38 @@ export function createFakeProvider(overrides?: {
             },
           ],
           relations: [],
+        } satisfies SynthesizeOutput)
+      return { output, run: run(PROMPT_VERSIONS.synthesize, synthesizeV3.system, synthesizeV3.render(input)) }
+    },
+
+    async extractDecisions(input: ExtractDecisionsInput): Promise<LlmResult<ExtractDecisionsOutput>> {
+      calls.push({ method: 'extract_decisions', input })
+      const output =
+        overrides?.extractDecisions?.(input) ??
+        // Default: one decision for a meeting source (the kind that records
+        // them), none otherwise — so the decision path stays exercised offline
+        // without every ingest test growing a decision it did not ask for.
+        ({
           decisions:
             input.sourceKind === 'meeting'
               ? [
                   {
-                    slug: `${input.concept.slug}-decision`,
-                    title: `Decision on ${input.concept.title}`,
+                    slug: `${slugify(input.source.title)}-decision`,
+                    title: `Decision from ${input.source.title ?? 'the meeting'}`,
                     context: firstLine(input.source.markdown),
                     decision: firstLine(input.source.markdown),
                     rationale: '',
                     alternatives: [],
+                    duplicate_of: null,
+                    updates: null,
                   },
                 ]
               : [],
-        } satisfies SynthesizeOutput)
-      return { output, run: run(PROMPT_VERSIONS.synthesize, synthesizeV2.system, synthesizeV2.render(input)) }
+        } satisfies ExtractDecisionsOutput)
+      return {
+        output,
+        run: run(PROMPT_VERSIONS.decisions, decisionsV1.system, decisionsV1.render(input)),
+      }
     },
 
     async answer(input: AnswerInput): Promise<LlmResult<AnswerOutput>> {

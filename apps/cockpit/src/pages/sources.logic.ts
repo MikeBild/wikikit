@@ -127,6 +127,10 @@ export interface IngestJobView {
   status: string
   proposal_id: string | null
   error: { code: string; message: string } | null
+  /** Which stage a running job is in; null on older servers. */
+  phase?: string | null
+  progress?: { done: number; total: number } | null
+  started_at?: string | null
 }
 
 export interface IngestReport {
@@ -134,6 +138,41 @@ export interface IngestReport {
   detail: string
   /** True exactly when there is a change waiting for somebody to decide it. */
   reviewable: boolean
+  /** Passed through only while running, and only when the server counted it. */
+  progress?: { done: number; total: number } | null
+}
+
+/**
+ * What the stage a running job is in means, in the operator's terms.
+ *
+ * The stages exist because a long ingest used to be indistinguishable from a
+ * stuck one: one synthesis call per affected page, minutes each, and a status
+ * that said "running" the whole way. Naming the stage is what turns a wait into
+ * something you can decide about.
+ *
+ * An unrecognised phase (a server newer than this bundle) falls back to the
+ * generic sentence rather than showing a raw enum value.
+ */
+function runningReport(phase: string | null | undefined): { headline: string; detail: string } {
+  switch (phase) {
+    case 'acquire':
+      return { headline: 'Fetching the document', detail: 'Archiving it verbatim before anything reads it.' }
+    case 'classify':
+      return { headline: 'Sorting the document', detail: 'Working out which pages it touches.' }
+    case 'synthesize':
+      return { headline: 'Writing the pages', detail: 'Quoting the document into pages, one page at a time.' }
+    case 'decisions':
+      return {
+        headline: 'Looking for decisions',
+        detail: 'Reading it for settled choices, and checking them against the ones this wiki already holds.',
+      }
+    case 'adjudicate':
+      return { headline: 'Checking for contradictions', detail: 'Comparing the new claims against what is on record.' }
+    case 'propose':
+      return { headline: 'Preparing the change', detail: 'Staging everything for review.' }
+    default:
+      return { headline: 'Reading the document', detail: 'Archiving it verbatim, then quoting it into pages.' }
+  }
 }
 
 /**
@@ -162,11 +201,7 @@ export function describeIngest(job: IngestJobView): IngestReport {
     case 'queued':
       return { headline: 'Queued', detail: 'Waiting for a worker to pick it up.', reviewable: false }
     case 'running':
-      return {
-        headline: 'Reading the document',
-        detail: 'Archiving it verbatim, then quoting it into pages.',
-        reviewable: false,
-      }
+      return { ...runningReport(job.phase), reviewable: false, progress: job.progress ?? null }
     case 'quota_blocked':
       return {
         headline: 'Paused on a provider quota',

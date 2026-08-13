@@ -211,7 +211,10 @@ function render(detail, lint) {
   if (detail.summary) parts.push("<p>" + esc(detail.summary) + "</p>");
 
   for (const decision of detail.decisions ?? []) {
-    parts.push('<div class="card"><h3>Decision: ' + esc(decision.title) + '</h3><p class="muted">' + esc(decision.context) + "</p><p>" + esc(decision.decision) + "</p></div>");
+    const supersedes = decision.supersedes_slug
+      ? '<p class="muted">Supersedes <strong>' + esc(decision.supersedes_slug) + "</strong> — approval marks that decision superseded.</p>"
+      : "";
+    parts.push('<div class="card"><h3>Decision: ' + esc(decision.title) + '</h3><p class="muted">' + esc(decision.context) + "</p><p>" + esc(decision.decision) + "</p>" + supersedes + "</div>");
   }
 
   const deferable = pending && (detail.concepts ?? []).length > 1;

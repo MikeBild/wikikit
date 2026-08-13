@@ -67,6 +67,16 @@ export const zIngestInput = z
       .describe('Connector version marker (etag/revision); same id + same version + same content = no-op'),
     observed_at: z.iso.datetime().optional().describe('When the connector saw this content (ISO 8601)'),
     effective_at: z.iso.datetime().optional().describe('When the content is "as of" (ISO 8601)'),
+    // Re-run synthesis over content the archive already holds. Normally a
+    // second ingest of identical bytes is refused (already_ingested) — the
+    // first one produced a proposal, and re-running it would only stage the
+    // same knowledge twice. That refusal is wrong in exactly one case: the
+    // PIPELINE changed (a new prompt version, a new stage) and the operator
+    // wants the archived source read again by the current one.
+    resynthesize: z
+      .boolean()
+      .optional()
+      .describe('Re-synthesize a source the archive already holds (bypasses the already_ingested guard)'),
   })
   .refine((value) => [value.markdown, value.text, value.url].filter(Boolean).length === 1, {
     message: 'exactly one of markdown|text|url is required',

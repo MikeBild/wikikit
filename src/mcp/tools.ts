@@ -724,8 +724,10 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_ingest_status',
     description:
       'Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional ' +
-      'proposal_id; null means no review work) or failed (carries error.code/message). quota_blocked ' +
-      'means the provider quota is exhausted; the job resumes on its own — keep polling.',
+      'proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" ' +
+      'means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the ' +
+      'job resumes on its own — keep polling. While running, phase and progress say which stage it is in ' +
+      'and how far along, and heartbeat_at shows the worker is alive.',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,
@@ -738,6 +740,12 @@ export const TOOLS: McpToolDef[] = [
         proposal_id: string | null
         source_id: string | null
         error: { code: string; message: string } | null
+        phase: string | null
+        progress_done: number | null
+        progress_total: number | null
+        started_at: Date | string | null
+        heartbeat_at: Date | string | null
+        finished_at: Date | string | null
       }>('wk_ingest_jobs', { id: `eq.${args.ingest_id}`, limit: 1 })
       if (!job) throw new NotFoundError(`ingest ${args.ingest_id} not found`)
       // Global-id lookup (⚠ per CONTRACTS §4): the transport enforces the
@@ -751,6 +759,14 @@ export const TOOLS: McpToolDef[] = [
         proposal_id: job.proposal_id,
         source_id: job.source_id,
         error: job.error,
+        phase: job.phase ?? null,
+        progress:
+          typeof job.progress_done === 'number' && typeof job.progress_total === 'number'
+            ? { done: job.progress_done, total: job.progress_total }
+            : null,
+        started_at: job.started_at ? isoString(job.started_at) : null,
+        heartbeat_at: job.heartbeat_at ? isoString(job.heartbeat_at) : null,
+        finished_at: job.finished_at ? isoString(job.finished_at) : null,
       }
     },
   },

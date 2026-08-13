@@ -43,6 +43,7 @@ function integrationConfig(databaseUrl: string): Config {
     ingestConcurrency: 1,
     ingestLeaseMs: 15 * 60 * 1000,
     ingestHeartbeatMs: 30_000,
+    ingestMaxRuntimeMs: 45 * 60 * 1000,
     webhookPollMs: 60_000,
     webhookTimeoutMs: 1000,
     webhookMaxAttempts: 1,
@@ -365,17 +366,19 @@ describe('http surface (integration)', () => {
         decision: string
         rationale: string
         alternatives: unknown[]
+        supersedes_slug: string | null
       }[]
     }
     expect(proposal.space_id).toBeUndefined()
     expect(proposal.decisions).toEqual([
       {
         slug: 'architecture-sync-decision',
-        title: 'Decision on Architecture sync',
+        title: 'Decision from Architecture sync',
         context: '# Sync',
         decision: '# Sync',
         rationale: '',
         alternatives: [],
+        supersedes_slug: null,
       },
     ])
 
@@ -384,7 +387,7 @@ describe('http surface (integration)', () => {
     })
     expect(proposalMarkdown.status).toBe(200)
     const markdown = await proposalMarkdown.text()
-    expect(markdown).toContain('## Decision `architecture-sync-decision` — Decision on Architecture sync')
+    expect(markdown).toContain('## Decision `architecture-sync-decision` — Decision from Architecture sync')
     expect(markdown).toContain('### Context\n\n# Sync')
     expect(markdown).toContain('### Decision\n\n# Sync')
     expect(markdown).toContain('### Rationale\n\n_None provided._')
