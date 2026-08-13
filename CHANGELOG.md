@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.34.1 - 2026-08-13
+
+### Changed
+
+- **The ingest runtime ceiling now sits well clear of real work** (90 minutes,
+  was 45). It bounds a hang, whose duration is unbounded — not slow work, whose
+  duration is one synthesis call per affected concept. A production job that
+  legitimately ran 31 concepts in 31 minutes showed the old default sitting
+  barely above real work, where a larger document would have been failed with
+  `timeout` mid-progress. Overshooting is cheap now that a running job publishes
+  phase and progress: a stall is visible within a heartbeat, long before any
+  ceiling.
+
 ## 0.34.0 - 2026-08-13
 
 ### Fixed
