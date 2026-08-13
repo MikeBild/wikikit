@@ -1896,7 +1896,7 @@ transaction — every failure path reaches the outbox.
 
 The lease answers only "is a worker alive". A worker blocked inside an LLM
 call renews it indefinitely, so a single job additionally carries a wall-clock
-ceiling (`WIKIKIT_INGEST_MAX_RUNTIME_MS`, default 45 min): the worker aborts
+ceiling (`WIKIKIT_INGEST_MAX_RUNTIME_MS`, default 90 min): the worker aborts
 the in-flight request and fails the job with `code: 'timeout'`, and the reaper
 flips any `running` row older than the ceiling (plus a heartbeat grace) the
 same way — the backstop for a wedged worker or one running an older binary.
@@ -1962,7 +1962,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_INGEST_CONCURRENCY`                     | `2`                                                                | 1–16                                                        |
 | `WIKIKIT_INGEST_LEASE_MS`                        | `900000`                                                           | 10 s–24 h                                                   |
 | `WIKIKIT_INGEST_HEARTBEAT_MS`                    | `30000`                                                            | 1 s–1 h; less than half the lease                           |
-| `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `2700000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)          |
+| `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `5400000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)          |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                             |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | `10000`                                                            |                                                             |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | `10`                                                               |                                                             |

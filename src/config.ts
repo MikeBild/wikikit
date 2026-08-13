@@ -598,10 +598,19 @@ export function loadConfig(): Config {
   if (ingestHeartbeatMs * 2 >= ingestLeaseMs) {
     throw new Error('WIKIKIT_INGEST_HEARTBEAT_MS must be less than half of WIKIKIT_INGEST_LEASE_MS')
   }
-  // 45 minutes: the slowest legitimate production job observed took ~31, and a
-  // ceiling that trips on real work is worse than no ceiling — it would turn
-  // slow ingests into failures. Lower it where sources are small.
-  const ingestMaxRuntimeMs = integer('WIKIKIT_INGEST_MAX_RUNTIME_MS', 45 * 60 * 1000, {
+  // 90 minutes. The ceiling exists to bound a HANG, whose duration is
+  // unbounded — not to bound slow work, whose duration is roughly one
+  // synthesis call per affected concept. The slowest legitimate production job
+  // observed ran 31 concepts in 31 minutes, so a 45-minute ceiling would sit
+  // barely above real work and would eventually kill an ingest that was
+  // progressing normally. That failure costs the whole run's LLM spend and
+  // hands the operator a `timeout` that means nothing was wrong.
+  //
+  // Overshooting costs far less now that a running job publishes phase and
+  // progress: a stalled job is visible within a heartbeat, long before the
+  // ceiling, and the ceiling is only the last resort that stops an
+  // indefinitely blocked call from holding a worker forever.
+  const ingestMaxRuntimeMs = integer('WIKIKIT_INGEST_MAX_RUNTIME_MS', 90 * 60 * 1000, {
     min: 60_000,
     max: 24 * 3600 * 1000,
   })

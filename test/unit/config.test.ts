@@ -31,6 +31,7 @@ const MANAGED = [
   'WIKIKIT_INGEST_CONCURRENCY',
   'WIKIKIT_INGEST_LEASE_MS',
   'WIKIKIT_INGEST_HEARTBEAT_MS',
+  'WIKIKIT_INGEST_MAX_RUNTIME_MS',
   'WIKIKIT_WEBHOOK_POLL_MS',
   'WIKIKIT_WEBHOOK_TIMEOUT_MS',
   'WIKIKIT_WEBHOOK_MAX_ATTEMPTS',
@@ -150,6 +151,17 @@ describe('validation', () => {
     process.env.WIKIKIT_INGEST_LEASE_MS = '10000'
     process.env.WIKIKIT_INGEST_HEARTBEAT_MS = '5000'
     expect(() => loadConfig()).toThrow(/HEARTBEAT_MS must be less than half/)
+  })
+
+  test('the ingest runtime ceiling sits well above real work, and is tunable', () => {
+    // It bounds a HANG, not slow work: the largest observed production job ran
+    // 31 concepts in 31 minutes, one synthesis call each. A ceiling near that
+    // would fail ingests that were progressing normally.
+    expect(loadConfig().ingestMaxRuntimeMs).toBe(90 * 60 * 1000)
+    process.env.WIKIKIT_INGEST_MAX_RUNTIME_MS = '600000'
+    expect(loadConfig().ingestMaxRuntimeMs).toBe(600_000)
+    process.env.WIKIKIT_INGEST_MAX_RUNTIME_MS = '1000'
+    expect(() => loadConfig()).toThrow(/WIKIKIT_INGEST_MAX_RUNTIME_MS/)
   })
 
   test('bool parsing accepts 1/true/yes/on', () => {

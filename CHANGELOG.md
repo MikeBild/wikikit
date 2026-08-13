@@ -29,7 +29,7 @@ and this project adheres to
 ### Added
 
 - **A wall-clock ceiling per ingest job** (`WIKIKIT_INGEST_MAX_RUNTIME_MS`,
-  default 45 minutes). The lease only proved a worker was alive — one blocked
+  default 90 minutes). The lease only proved a worker was alive — one blocked
   inside an LLM call renewed it forever. The worker now aborts the request and
   fails the job with `error.code=timeout`; the reaper flips over-running rows
   the same way as a backstop, and both outcomes reach the metrics counter.
