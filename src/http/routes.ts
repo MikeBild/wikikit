@@ -226,14 +226,15 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/spaces/{space}/ingest',
     scope: 'knowledge:propose',
-    summary: 'Ingest a source (markdown|text|url) — async; returns an ingest job to poll',
+    summary:
+      'Ingest a source (markdown|text|url) — async; returns an ingest job to poll. capture:true parks it instead',
     handler: 'createIngestHandler',
     request: { params: 'zSpaceParams', body: 'zIngestRequest' },
     responses: {
       200: {
-        schema: 'zIngestUnchangedResponse',
+        schema: 'zIngestSyncResponse',
         type: 'application/json',
-        desc: 'Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll',
+        desc: 'Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process)',
       },
       202: {
         schema: 'zIngestAcceptedResponse',
@@ -279,6 +280,39 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },
   },
   {
+    method: 'post',
+    path: '/v1/ingests/{id}/process',
+    scope: 'knowledge:propose',
+    // Global by-id like GET /v1/ingests/{id}: the row carries the space and
+    // the transport enforces the key/space match (§4 convention).
+    summary:
+      'Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here',
+    handler: 'processCaptureHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now queued' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
+      429: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked',
+      },
+      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured — the note stays parked' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/ingests/{id}/discard',
+    scope: 'knowledge:propose',
+    summary: 'Discard a captured note — terminal; the row stays in the job list for the record',
+    handler: 'discardCaptureHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now discarded' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
+    },
+  },
+  {
     method: 'get',
     path: '/v1/spaces/{space}/ingests',
     scope: 'knowledge:read',
@@ -287,7 +321,7 @@ export const ROUTES: RouteDef[] = [
     // refusing it the list of exactly those jobs would be a gap, not a guard.
     altScopes: ['knowledge:propose'],
     summary:
-      'List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves.',
+      'List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked|captured|discarded, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves; captured rows carry title + excerpt.',
     handler: 'listIngestsHandler',
     request: { params: 'zSpaceParams', query: 'zIngestListQuery' },
     responses: { 200: { schema: 'zIngestListResponse', type: 'application/json', desc: 'Ingest jobs page' } },
@@ -1487,6 +1521,23 @@ export const HANDLERS: Record<string, Handler> = {
     const job = await getIngestJob(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
     const { space_id: _spaceId, ...wire } = job
+    return { status: 200, body: wire }
+  },
+
+  async processCaptureHandler(deps, input) {
+    const job = await getIngestJob(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
+    await deps.ingest.processCapture(deps.db, job.ingest_id)
+    // Re-read rather than patch: the status shape has exactly one producer.
+    const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
+    return { status: 200, body: wire }
+  },
+
+  async discardCaptureHandler(deps, input) {
+    const job = await getIngestJob(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
+    await deps.ingest.discardCapture(deps.db, job.ingest_id)
+    const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
     return { status: 200, body: wire }
   },
 

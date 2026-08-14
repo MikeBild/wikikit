@@ -40,6 +40,7 @@ const CLAIM_ID = '44444444-4444-4444-8444-444444444444'
 const SOURCE_ID = '55555555-5555-4555-8555-555555555555'
 const PROPOSAL_ID = '66666666-6666-4666-8666-666666666666'
 const JOB_ID = '77777777-7777-4777-8777-777777777777'
+const CAPTURE_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 const ENDPOINT_ID = '88888888-8888-4888-8888-888888888888'
 const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const KEY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -534,6 +535,23 @@ function stubDb(): Db {
             if (q.input_hash !== undefined) return [] // staging dedup: no pending twin
             return [PROPOSAL_ROW]
           case 'wk_ingest_jobs':
+            // The parked note the capture actions operate on. The stub is
+            // stateless, so the post-flip re-read still answers 'captured' —
+            // which the widened status enum accepts.
+            if (q.id === `eq.${CAPTURE_ID}`) {
+              return [
+                {
+                  id: CAPTURE_ID,
+                  space_id: SPACE_ID,
+                  status: 'captured',
+                  proposal_id: null,
+                  source_id: null,
+                  error: null,
+                  input: { text: 'A raw thought, parked for later.', capture: true },
+                  created_at: NOW,
+                },
+              ]
+            }
             return [
               {
                 id: JOB_ID,
@@ -819,6 +837,20 @@ const CASES: RouteCase[] = [
     body: { transcript: 'human: fix the typo\nassistant: done' },
   },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
+  // Both act on the parked fixture; the stateless stub answers the re-read
+  // with the same captured row, which the widened status shape accepts.
+  {
+    template: '/v1/ingests/{id}/process',
+    method: 'post',
+    url: `/v1/ingests/${CAPTURE_ID}/process`,
+    status: 200,
+  },
+  {
+    template: '/v1/ingests/{id}/discard',
+    method: 'post',
+    url: `/v1/ingests/${CAPTURE_ID}/discard`,
+    status: 200,
+  },
   {
     // The inbox list. Rows are the SAME shape the single status read serves
     // (one producer, toJobStatus), which is what lets a row and a detail poll

@@ -9,12 +9,15 @@
 import { describe, expect, test } from 'bun:test'
 import { isTerminalStatus, TERMINAL_STATUSES } from '../../../apps/cockpit/src/lib/live.ts'
 import {
+  captureBody,
+  capturedDays,
   defaultSourceView,
   describeIngest,
   EMPTY_INGEST_DRAFT,
   ingestBody,
   ingestProblem,
   sourceLabel,
+  STALE_CAPTURE_DAYS,
   STREAM_CAP_NOTE,
   STREAM_CEILING,
 } from '../../../apps/cockpit/src/pages/sources.logic.ts'
@@ -30,6 +33,11 @@ describe('when to stop polling', () => {
     expect(isTerminalStatus('failed')).toBe(true)
     expect(isTerminalStatus('queued')).toBe(false)
     expect(isTerminalStatus('running')).toBe(false)
+    // Settled as far as POLLING goes: only a human's process/discard moves
+    // either, and that mutation invalidates the query itself — a poll would be
+    // waiting for an event that can only arrive through this console's buttons.
+    expect(isTerminalStatus('captured')).toBe(true)
+    expect(isTerminalStatus('discarded')).toBe(true)
   })
 
   test('quota_blocked is NOT terminal — the worker requeues it by itself', () => {
@@ -124,6 +132,34 @@ describe('what an ingest job is reported to have done', () => {
     for (const status of ['queued', 'running', 'quota_blocked', 'failed']) {
       expect(job({ status, proposal_id: 'p-1' }).reviewable, status).toBe(false)
     }
+  })
+
+  test('a parked note says it is waiting for a person, and a discarded one that it stays on record', () => {
+    const parked = job({ status: 'captured' })
+    expect(parked.headline).toBe('Parked')
+    expect(parked.detail).toMatch(/processes|discarded/i)
+    expect(parked.reviewable).toBe(false)
+    const dropped = job({ status: 'discarded' })
+    expect(dropped.headline).toBe('Discarded')
+    expect(dropped.detail).toMatch(/record/i)
+    expect(dropped.reviewable).toBe(false)
+  })
+})
+
+describe('the quick-capture card', () => {
+  test('captureBody travels the same seam as every ingest, plus the one flag', () => {
+    // Same trimming rule as ingestBody — the archive dedups on these bytes if
+    // the note is ever promoted.
+    expect(captureBody('  a raw thought\n')).toEqual({ text: 'a raw thought', capture: true })
+  })
+
+  test('capture ages are whole days, clock skew reads as zero, and the warning threshold is a month', () => {
+    const now = Date.parse('2026-08-14T12:00:00Z')
+    expect(capturedDays('2026-08-14T09:00:00Z', now)).toBe(0)
+    expect(capturedDays('2026-07-10T12:00:00Z', now)).toBe(35)
+    expect(capturedDays('2026-08-15T12:00:00Z', now)).toBe(0)
+    expect(capturedDays('not-a-date', now)).toBe(0)
+    expect(STALE_CAPTURE_DAYS).toBe(30)
   })
 })
 

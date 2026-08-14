@@ -21,8 +21,8 @@ import { NotFoundError } from '../domain/errors.ts'
 import { clampLimit, decodeCursor, encodeCursor, isoString } from '../domain/sources.ts'
 import type { IngestPhase } from '../ingest/pipeline.ts'
 
-/** The five terminal-or-not states of §9.1, spelled once for both queries. */
-export type IngestJobState = 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
+/** The §9.1 states, spelled once for both queries. */
+export type IngestJobState = 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked' | 'captured' | 'discarded'
 
 export interface IngestJobStatus {
   ingest_id: string
@@ -37,6 +37,15 @@ export interface IngestJobStatus {
   phase: IngestPhase | null
   /** Position inside a countable stage (synthesis: concepts done of total). */
   progress: { done: number; total: number } | null
+  /**
+   * Captured rows only, both null everywhere else. A parked note has no source
+   * yet, so nothing downstream can name it — and a list that deliberately
+   * never ships `input` (see listIngestJobs) would otherwise show bare ids.
+   * The excerpt is truncated server-side; the verbatim text stays in `input`
+   * and becomes the archived source if the row is ever promoted.
+   */
+  title: string | null
+  excerpt: string | null
   /**
    * When the job was ACCEPTED. Additive, and the list is why: an inbox row whose
    * only timestamps are started_at/finished_at has nothing to show for the state
@@ -60,6 +69,9 @@ export interface IngestJobStatus {
  */
 export type IngestJobWire = Omit<IngestJobStatus, 'space_id'>
 
+/** How much of a captured note the list carries — enough to recognise it, never the document. */
+const CAPTURE_EXCERPT_CHARS = 240
+
 interface JobRow {
   id: string
   space_id: string
@@ -74,6 +86,22 @@ interface JobRow {
   started_at: Date | string | null
   heartbeat_at: Date | string | null
   finished_at: Date | string | null
+  /** Present on the by-id select (whole row); the list computes the two aliases in SQL instead. */
+  input?: { title?: string; text?: string; markdown?: string; url?: string } | string | null
+  capture_title?: string | null
+  capture_excerpt?: string | null
+}
+
+/** Title + excerpt of a captured row, from whichever of the two reads supplied the raw material. */
+function captureFacts(row: JobRow): { title: string | null; excerpt: string | null } {
+  if (row.status !== 'captured') return { title: null, excerpt: null }
+  if (row.capture_title !== undefined || row.capture_excerpt !== undefined) {
+    return { title: row.capture_title ?? null, excerpt: row.capture_excerpt ?? null }
+  }
+  const input = typeof row.input === 'string' ? (JSON.parse(row.input) as JobRow['input']) : row.input
+  if (!input || typeof input === 'string') return { title: null, excerpt: null }
+  const body = input.text ?? input.markdown ?? input.url ?? ''
+  return { title: input.title ?? null, excerpt: body ? body.slice(0, CAPTURE_EXCERPT_CHARS) : null }
 }
 
 /** The ONE producer of the job status shape — see the module header. */
@@ -81,12 +109,15 @@ function toJobStatus(row: JobRow): IngestJobStatus {
   // pg parses jsonb to an object, but a stubbed pool (unit tests) may hand
   // back the string the worker inserted — normalize either way.
   const error = typeof row.error === 'string' ? (JSON.parse(row.error) as { code: string; message: string }) : row.error
+  const capture = captureFacts(row)
   return {
     ingest_id: row.id,
     status: row.status,
     proposal_id: row.proposal_id,
     source_id: row.source_id,
     error,
+    title: capture.title,
+    excerpt: capture.excerpt,
     phase: row.phase ?? null,
     // Both halves or nothing: "3 of null" is not a fraction, and a client that
     // has to guess the denominator will guess wrong.
@@ -126,7 +157,7 @@ export async function listIngestJobs(
   args: { status?: IngestJobState; limit?: number; before?: string } = {},
 ): Promise<{ items: IngestJobWire[]; next_before: string | null }> {
   const limit = clampLimit(args.limit, 50, 200)
-  const values: unknown[] = [spaceId]
+  const values: unknown[] = [spaceId, CAPTURE_EXCERPT_CHARS]
   let filter = ''
   if (args.status) {
     values.push(args.status)
@@ -142,9 +173,14 @@ export async function listIngestJobs(
   const { rows } = await db.query<JobRow>(
     // `input` is deliberately not selected: it holds the whole submitted
     // markdown, so a page of fifty jobs would be megabytes of content the
-    // archive already serves at /sources.
+    // archive already serves at /sources. Captured rows are the exception in
+    // miniature — they have no source to link to, so their identity (title +
+    // a truncated excerpt) is computed here, in SQL, without shipping the body.
     `SELECT id, space_id, status, proposal_id, source_id, error, phase,
-            progress_done, progress_total, created_at, started_at, heartbeat_at, finished_at
+            progress_done, progress_total, created_at, started_at, heartbeat_at, finished_at,
+            CASE WHEN status = 'captured' THEN input->>'title' END AS capture_title,
+            CASE WHEN status = 'captured'
+                 THEN left(coalesce(input->>'text', input->>'markdown', input->>'url'), $2) END AS capture_excerpt
        FROM wk_ingest_jobs
       WHERE space_id = $1${filter}${keyset}
       ORDER BY created_at DESC, id DESC

@@ -449,6 +449,82 @@ describe('http surface (integration)', () => {
     expect(source.markdown).toContain('concept identity')
   })
 
+  it('capture lifecycle: park → list with excerpt → discard terminal; process promotes into the pipeline', async () => {
+    // Park two thoughts: one to discard, one to process. 200, not 202 —
+    // nothing is running and nothing needs polling.
+    const park = async (text: string, title?: string) => {
+      const res = await fetch(`${base}/v1/spaces/demo/ingest`, {
+        method: 'POST',
+        headers: json(writerKey),
+        body: JSON.stringify({ text, title, capture: true }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { status: string; ingest_id: string }
+      expect(body.status).toBe('captured')
+      return body.ingest_id
+    }
+    const toDiscard = await park('A thought that turns out to be nothing.', 'Passing thought')
+    // Identical text parked twice is two rows — dedup is content-hash-on-archive
+    // and a capture archives nothing.
+    const twin = await park('A thought that turns out to be nothing.', 'Passing thought')
+    expect(twin).not.toBe(toDiscard)
+    const toProcess = await park('OKF bundles carry concept identity in frontmatter.')
+
+    // The parked strip: captured rows carry title + truncated excerpt; the
+    // worker never claims them.
+    const list = (await (
+      await fetch(`${base}/v1/spaces/demo/ingests?status=captured`, { headers: bearer(readerKey) })
+    ).json()) as { items: { ingest_id: string; title: string | null; excerpt: string | null }[] }
+    expect(list.items.length).toBe(3)
+    const parked = list.items.find((item) => item.ingest_id === toDiscard)!
+    expect(parked.title).toBe('Passing thought')
+    expect(parked.excerpt).toContain('turns out to be nothing')
+    expect(await app.ingest.runOnce()).toBe(false)
+
+    // Discard: terminal, the row stays for the record; a second discard 409s.
+    const discarded = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(discarded.status).toBe(200)
+    expect(((await discarded.json()) as { status: string }).status).toBe('discarded')
+    const again = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(again.status).toBe(409)
+    expect(((await again.json()) as { code: string }).code).toBe('ingest_not_captured')
+
+    // Process: the note joins the ordinary queue and the pipeline runs it.
+    const promoted = await fetch(`${base}/v1/ingests/${toProcess}/process`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(promoted.status).toBe(200)
+    expect(((await promoted.json()) as { status: string }).status).toBe('queued')
+    expect(await app.ingest.runOnce()).toBe(true)
+    const done = (await (await fetch(`${base}/v1/ingests/${toProcess}`, { headers: bearer(writerKey) })).json()) as {
+      status: string
+      source_id: string | null
+      title: string | null
+      excerpt: string | null
+    }
+    expect(done.status).toBe('done')
+    expect(done.source_id).not.toBeNull()
+    // The capture identity fields are captured-only; a processed job has a source.
+    expect(done.title).toBeNull()
+    expect(done.excerpt).toBeNull()
+
+    // The ingest volume statistics count the processed note (it entered the
+    // pipeline) but neither the discarded one nor its parked twin.
+    const stats = (await (
+      await fetch(`${base}/v1/spaces/demo/stats/ingests`, { headers: bearer(readerKey) })
+    ).json()) as { totals: { jobs: { created: number; done: number } } }
+    // Every job so far ran to done; the parked twin and the discarded note
+    // would break this equality if they counted as created.
+    expect(stats.totals.jobs.created).toBe(stats.totals.jobs.done)
+  })
+
   it('document upload: unknown extension → 415 unsupported_document', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/ingest/document?filename=archive.zip`, {
       method: 'POST',

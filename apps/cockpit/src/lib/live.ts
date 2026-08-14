@@ -44,6 +44,13 @@ export const TERMINAL_STATUSES: readonly string[] = [
   // operator staring at "blocked" on a job that quietly finished overnight.
   'done',
   'failed',
+  // `captured` and `discarded` are settled AS FAR AS POLLING GOES: nothing on
+  // the server moves either by itself — only a human's process/discard does,
+  // and that mutation invalidates the query it changes. A list of parked notes
+  // that re-asked every few seconds would be polling for an event that can
+  // only arrive through this console's own buttons.
+  'captured',
+  'discarded',
   // Change proposals: pending | approved | rejected | failed | split, of which
   // only `pending` still moves. A decided proposal is decided — nothing on the
   // server turns an approval back into a pending review, so a queue that kept

@@ -275,6 +275,17 @@ export const zIngestRequest = zIngestInput
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z.literal('queued') })
 
 /**
+ * Capture answer (200, not 202): the note is parked, nothing is running and
+ * nothing needs polling — the row waits for POST /v1/ingests/{id}/process or
+ * /discard. Distinct from the accepted ack on purpose: that one is
+ * literal-typed 'queued' and promises a job in flight.
+ */
+export const zIngestCapturedResponse = z.object({
+  status: z.literal('captured'),
+  ingest_id: z.uuid(),
+})
+
+/**
  * Sync fast-path answer (200, not 202): the pushed content is already
  * archived — the stream head advanced (or already pointed here), no job, no
  * LLM, nothing to poll. Connectors treat this as success.
@@ -284,6 +295,13 @@ export const zIngestUnchangedResponse = z.object({
   source_id: z.uuid(),
   stream_id: z.uuid(),
 })
+
+/**
+ * The two synchronous 200 answers of POST .../ingest, discriminated by
+ * `status`: `unchanged` (sync fast-path) and `captured` (the note was parked).
+ * One named union because a route declares exactly one schema per status code.
+ */
+export const zIngestSyncResponse = z.union([zIngestUnchangedResponse, zIngestCapturedResponse])
 
 // Document upload (raw bytes body): the filename gives the extension used to
 // pick the extractor (pdf/docx/xlsx/md/txt/csv).
@@ -309,7 +327,7 @@ export const zCaptureSessionResponse = z.object({
 // `before` keyset cursor every archive list in this API uses, echoed back as
 // next_before.
 export const zIngestListQuery = z.object({
-  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']).optional(),
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().max(500).optional(),
 })
@@ -317,11 +335,18 @@ export const zIngestListQuery = z.object({
 export const zIngestStatusResponse = z.object({
   ingest_id: z.uuid(),
   // quota_blocked = parked on provider quota exhaustion; the worker requeues
-  // it once the provider window reopens — no client action needed, keep polling.
-  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']),
+  // it once the provider window reopens — no client action needed, keep
+  // polling. captured = parked by a human (or a hook) until somebody promotes
+  // or discards it; discarded is terminal and the row stays for the record.
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded']),
   proposal_id: z.uuid().nullable(),
   source_id: z.uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  // ADDITIVE (0.38): the identity of a captured note. A parked row has no
+  // source yet and the list never ships `input`, so without these two the
+  // parked strip could show nothing but ids. Null on every other status.
+  title: z.string().nullable().describe('Captured rows only: the submitted title'),
+  excerpt: z.string().nullable().describe('Captured rows only: truncated text — the verbatim body stays in the job'),
   // Progress reporting. A long ingest is normal (one synthesis call per
   // affected concept, minutes each); what was missing is any way to tell a
   // slow job from a stuck one. phase is advisory and open — treat a value you
@@ -1634,6 +1659,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestRequest,
   zIngestDocumentQuery,
   zIngestAcceptedResponse,
+  zIngestCapturedResponse,
+  zIngestSyncResponse,
   zIngestUnchangedResponse,
   zIngestStatusResponse,
   zIngestListQuery,

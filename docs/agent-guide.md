@@ -60,6 +60,14 @@ that needs attention there, then call `wikikit_health` on that one space —
 chaining `wikikit_health` across every space answers the same question in ten
 calls.
 
+To park a thought without processing it, call `wikikit_ingest` with
+`capture: true`: the text is stored verbatim as a captured job — no LLM call,
+no queue slot, no dedup, and it works without an LLM key. Nothing runs until a
+human promotes the note (`POST /v1/ingests/{id}/process`) or discards it in
+the cockpit; promotion is deliberately not an MCP tool. This is the
+deterministic path for a session-end hook that wants to leave a note behind
+without making a decision.
+
 There is no primary/secondary-space ceiling. Any visible spaces can be active
 together. An explicit `manual_spaces` list always wins over automatic routing.
 For clients or hooks that accept natural prompt conventions, users may write

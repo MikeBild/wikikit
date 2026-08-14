@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.38.0 - 2026-08-14
+
+### Added
+
+- **A place to think: capture without processing.** Ingest was processing, not
+  an inbox — submitting anything demanded an LLM key, a slot under the
+  per-space queue ceiling, and started model work. `POST .../ingest` with
+  `capture: true` (and `wikikit_ingest` with the same flag, which now works
+  keyless) parks the text verbatim as a `wk_ingest_jobs` row in the new
+  `captured` status instead: no LLM call, no dedup, no queue slot, `200
+{status:"captured", ingest_id}`. Nothing runs until a human decides —
+  `POST /v1/ingests/{id}/process` promotes the note into the ordinary pipeline
+  and pays the guards capture skipped (LLM key, queue room) at that moment;
+  `POST /v1/ingests/{id}/discard` ends it (`discarded`, terminal, the row stays
+  for the record). Promotion is deliberately not an MCP tool: parking is
+  decision-free, un-parking is a human step. A promoted row keeps its
+  `created_at` and therefore jumps to the queue front; identical text parked
+  twice is two captured rows — both documented decisions.
+- **The inbox holds thoughts, not just documents.** The cockpit's Inbox gains a
+  quick-capture card — one textarea, one button, nothing to configure — and a
+  "Parked" strip listing the wiki's captured notes with title and excerpt
+  (served by the job list, which still never ships the body), their age with a
+  warning past 30 days, and Process/Discard behind confirmations that state
+  the exact effect.
+- **The numbers stay honest.** Captured and discarded rows are excluded from
+  the ingest volume statistics (a parked note never entered the pipeline) and
+  never count against the per-space queue ceiling — the ceiling meters work,
+  and it applies the moment a capture is promoted.
+
+### Rollback
+
+- The `0038_wk_capture` migration only widens the `wk_ingest_jobs` status
+  CHECK (strict superset) and adds a partial index; it is forward-only.
+  Rolling back the binary to 0.37.0 is safe with the migration in place:
+  0.37.0 tolerates rows in the new statuses — its worker claims only
+  `queued`, its queue cap counts only `queued`/`quota_blocked`, and its health
+  read filters explicitly — it merely cannot list or promote them. Never roll
+  back more than one release across this schema boundary.
+
 ## 0.37.0 - 2026-08-14
 
 ### Added

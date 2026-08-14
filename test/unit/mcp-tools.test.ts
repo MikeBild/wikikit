@@ -111,6 +111,8 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
     db: stubDb({ wk_spaces: [{ id: 'space-1', slug: 'main' }] }),
     ingest: {
       enqueue: async () => ({ ingest_id: '11111111-1111-4111-8111-111111111111' }),
+      processCapture: async () => {},
+      discardCapture: async () => {},
       start: () => {},
       stop: async () => {},
       runOnce: async () => false,
@@ -345,6 +347,18 @@ describe('execute — transport duties', () => {
       ingest_id: '11111111-1111-4111-8111-111111111111',
       poll_with: 'wikikit_ingest_status',
     })
+  })
+
+  test('wikikit_ingest with capture:true works keyless — the fast-fail moves to promotion', async () => {
+    const d = deps({ config: { llmConfigured: false, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS } as Config })
+    d.ingest.enqueue = async () => ({ status: 'captured', ingest_id: '22222222-2222-4222-8222-222222222222' })
+    const result = await byName.wikikit_ingest!.execute(d, principal(), {
+      space: 'main',
+      text: 'a raw thought',
+      capture: true,
+    })
+    // Terminal sync answer — nothing to poll, no poll_with.
+    expect(result).toEqual({ status: 'captured', ingest_id: '22222222-2222-4222-8222-222222222222' })
   })
 
   test('wikikit_review_proposal takes decision and note only from native elicitation', async () => {

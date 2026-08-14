@@ -728,7 +728,9 @@ export const TOOLS: McpToolDef[] = [
     description:
       'Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async ' +
       'handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait ' +
-      'in-band. The result is a pending ChangeProposal that a human approves over REST.',
+      'in-band. The result is a pending ChangeProposal that a human approves over REST. With ' +
+      'capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing ' +
+      'to poll — a human promotes or discards the note in the cockpit.',
     scope: 'knowledge:propose',
     inputSchema: zIngestToolInput,
     annotations: {
@@ -742,13 +744,15 @@ export const TOOLS: McpToolDef[] = [
       // Fail fast BEFORE queueing: a keyless deployment would otherwise accept
       // the job and fail it asynchronously — a worse loop for the agent than
       // one terminal llm_not_configured envelope (zero-config principle: the
-      // read tools keep working without an LLM key).
-      if (!deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
+      // read tools keep working without an LLM key). A capture asks for no
+      // model work at all, so it must succeed keyless — the guard moves to
+      // promotion, which is deliberately NOT an MCP tool.
+      if (!args.capture && !deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
       const space = await resolveSpace(deps.db, principal, args.space)
       const { space: _space, ...request } = args
       const enqueued = await deps.ingest.enqueue(deps.db, space.id, request)
-      // Sync fast-path (external_source_id + known content): terminal answer,
-      // nothing to poll — the stream head advanced.
+      // Terminal sync answers, nothing to poll: unchanged (the stream head
+      // advanced) or captured (the note is parked for a human).
       if ('status' in enqueued) return enqueued
       // Async-ack contract (§7.1): never block an MCP call on LLM latency.
       return { status: 'running' as const, ingest_id: enqueued.ingest_id, poll_with: 'wikikit_ingest_status' as const }
@@ -760,8 +764,9 @@ export const TOOLS: McpToolDef[] = [
       'Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional ' +
       'proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" ' +
       'means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the ' +
-      'job resumes on its own — keep polling. While running, phase and progress say which stage it is in ' +
-      'and how far along, and heartbeat_at shows the worker is alive.',
+      'job resumes on its own — keep polling. captured means the content is parked and nothing runs until ' +
+      'a human promotes or discards it; discarded is terminal. While running, phase and progress say which ' +
+      'stage it is in and how far along, and heartbeat_at shows the worker is alive.',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,
@@ -770,7 +775,7 @@ export const TOOLS: McpToolDef[] = [
       const [job] = await deps.db.select<{
         id: string
         space_id: string
-        status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
+        status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked' | 'captured' | 'discarded'
         proposal_id: string | null
         source_id: string | null
         error: { code: string; message: string } | null

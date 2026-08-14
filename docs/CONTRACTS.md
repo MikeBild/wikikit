@@ -363,7 +363,7 @@ CREATE INDEX wk_webhook_deliveries_due_idx ON wk_webhook_deliveries (next_attemp
 CREATE TABLE wk_ingest_jobs (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   space_id    uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
-  status      text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed','quota_blocked')),
+  status      text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','done','failed','quota_blocked','captured','discarded')),
   input       jsonb NOT NULL,                        -- validated IngestRequest, verbatim
   source_id   uuid REFERENCES wk_sources(id),
   proposal_id uuid REFERENCES wk_change_proposals(id),
@@ -1279,10 +1279,12 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}/charter/versions`         | knowledge:read                      | `charterVersionsHandler`       | params `zSpaceParams`                                                  | 200 `zCharterVersionsResponse`                                                                                                                                                                                   |
 | PUT    | `/v1/spaces/{space}/charter`                  | admin                               | `putCharterHandler`            | params `zSpaceParams`; raw body (JSON `{markdown}` or `text/markdown`) | 200 `zCharterWriteResponse`                                                                                                                                                                                      |
 | DELETE | `/v1/spaces/{space}/charter`                  | admin                               | `deleteCharterHandler`         | params `zSpaceParams`                                                  | 200 `zCharterResponse` (empty document; idempotent)                                                                                                                                                              |
-| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose                   | `createIngestHandler`          | body `zIngestRequest`                                                  | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}` (429 `ingest_queue_full` at the per-space ceiling)                                                                                                  |
+| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose                   | `createIngestHandler`          | body `zIngestRequest`                                                  | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}` (429 `ingest_queue_full` at the per-space ceiling); `capture:true` → 200 `zIngestSyncResponse` (`captured` — parked, no LLM, no queue slot)         |
 | POST   | `/v1/spaces/{space}/ingest/document`          | knowledge:propose                   | `ingestDocumentHandler`        | query `zIngestDocumentQuery`, raw body                                 | 202 `zIngestAcceptedResponse` (415 unsupported_document, 422 document_extraction_failed, 429 ingest_queue_full)                                                                                                  |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose                   | `captureSessionHandler`        | body `zCaptureSessionRequest`                                          | 200 `zCaptureSessionResponse` (503 llm_not_configured)                                                                                                                                                           |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose                   | `getIngestHandler`             | params `zIdParams`                                                     | 200 `zIngestStatusResponse`                                                                                                                                                                                      |
+| POST   | `/v1/ingests/{id}/process`                    | knowledge:propose                   | `processCaptureHandler`        | params `zIdParams`                                                     | 200 `zIngestStatusResponse` (409 `ingest_not_captured`, 429 `ingest_queue_full`, 503 `llm_not_configured` — the guards capture skipped are paid at promotion; the note stays parked on refusal)                  |
+| POST   | `/v1/ingests/{id}/discard`                    | knowledge:propose                   | `discardCaptureHandler`        | params `zIdParams`                                                     | 200 `zIngestStatusResponse` (409 `ingest_not_captured`) — terminal, the row stays for the record                                                                                                                 |
 | GET    | `/v1/spaces/{space}/ingests`                  | knowledge:read \| knowledge:propose | `listIngestsHandler`           | params `zSpaceParams`; query `zIngestListQuery`                        | 200 `zIngestListResponse` (the inbox: rows are byte-identical to the single status read)                                                                                                                         |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read                      | `listSourcesHandler`           | query `zListQuery`                                                     | 200 `zSourceListResponse`                                                                                                                                                                                        |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read                      | `getSourceHandler`             | params `zSpaceIdParams`                                                | 200 `zSourceResponse`                                                                                                                                                                                            |
@@ -1428,7 +1430,10 @@ Notes binding all builders:
   worker's pace). The check sits AFTER the content-hash pre-check, so a
   re-submission still gets the precise `already_ingested` answer with its
   `source_id` rather than a vaguer refusal for a call that would never have
-  queued anything.
+  queued anything. `captured` rows are excluded too, in both directions: a
+  capture bypasses the ceiling entirely (a parked note is a claim on a human's
+  attention, not on the worker's), and parked rows never count against it —
+  the ceiling meters WORK. It applies the moment a capture is promoted.
 
 ### 5.3 HTTP zod schema module (`src/http/schemas.ts`) — layout contract
 
@@ -1452,7 +1457,7 @@ export const zIngestRequest = z
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.string().uuid(), status: z.literal('queued') })
 export const zIngestStatusResponse = z.object({
   ingest_id: z.string().uuid(),
-  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']),
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded']),
   proposal_id: z.string().uuid().nullable(),
   source_id: z.string().uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
@@ -2109,6 +2114,7 @@ export function toToolError(
 | `elicitation_failed` (client/transport failed before a valid human decision)                       | 502  | `ElicitationFailedError`          |
 | `body_too_large`                                                                                   | 413  | `PayloadTooLargeError`            |
 | `rate_limited`                                                                                     | 429  | `RateLimitError`                  |
+| `ingest_not_captured` (process/discard on a job that is not parked)                                | 409  | `ConflictError`                   |
 | `ingest_queue_full` (envelope carries `queued` + `limit`; nothing was queued)                      | 429  | `IngestQueueFullError`            |
 | `internal_error` (message NEVER leaks internals)                                                   | 500  | anything unrecognized             |
 | `llm_not_configured` (`next_best_actions: ["set <the selected provider's key> and restart", ...]`) | 503  | `LlmNotConfiguredError`           |
@@ -2133,12 +2139,21 @@ report "37 of your 50 files were accepted" without a second round trip.
 ### 9.1 Ingest job (`wk_ingest_jobs.status`)
 
 ```
-queued ──(worker claims, sets started_at)──▶ running ──▶ done    (proposal_id set; outbox wikikit.proposal.created)
-                                                   └────▶ failed  (error set;      outbox wikikit.ingest.failed)
-                                                   └────▶ quota_blocked ──(resume_at passes)──▶ queued
+captured ──(POST .../process — human)──▶ queued ──(worker claims, sets started_at)──▶ running ──▶ done    (proposal_id set; outbox wikikit.proposal.created)
+    └────(POST .../discard — human)──▶ discarded                                            └────▶ failed  (error set;      outbox wikikit.ingest.failed)
+                                                                                            └────▶ quota_blocked ──(resume_at passes)──▶ queued
 ```
 
-Terminal: `done`, `failed`. Terminal states never regress (the flips are
+Terminal: `done`, `failed`, `discarded`. `captured` is the park state a
+`capture:true` submission starts in: no LLM was consulted, nothing was
+archived, and the worker's claim query never sees it. Promotion pays the
+guards capture skipped (LLM key, queue room) and flips it to `queued`; the row
+keeps its `created_at`, so an old capture jumps to the queue front (the worker
+claims oldest-first) — a documented decision, not an accident. `discarded`
+emits no outbox event and keeps the row: a discarded thought is still part of
+the record. No dedup at capture time — dedup is content-hash-on-archive and a
+capture archives nothing, so identical text parked twice is two captured rows
+(accepted); the pre-check runs when the worker processes the promoted job. Terminal states never regress (the flips are
 guarded on `status='running'`). No retries in v0.1 — a failed job is
 re-submitted by the client (the archive is reused; see §4.1 dedup).
 `quota_blocked` is NOT terminal and emits no outbox event: provider quota

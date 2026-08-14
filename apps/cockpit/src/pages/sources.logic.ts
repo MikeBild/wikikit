@@ -122,6 +122,36 @@ export function ingestBody(draft: IngestDraft): Record<string, string> {
   return body
 }
 
+/**
+ * The quick-capture card's body, through the same seam as every other ingest.
+ *
+ * A capture IS an ingest with one flag on it, so the body goes through
+ * `ingestBody` — same trimming, same absent-not-empty rule — rather than a
+ * second serializer that could disagree about what a blank title means. Text
+ * transport always: the card takes a thought, not a document, and inventing
+ * markdown structure for it would fabricate content.
+ */
+export function captureBody(text: string): Record<string, unknown> {
+  return {
+    ...ingestBody({ transport: 'text', content: text, title: '', sourceKind: '', language: '' }),
+    capture: true,
+  }
+}
+
+/**
+ * A parked note older than this is worth a warning — old enough that "later"
+ * has demonstrably not happened. The age itself stays the reader's judgement;
+ * the badge only says the note has been waiting a month.
+ */
+export const STALE_CAPTURE_DAYS = 30
+
+/** Whole days a capture has been parked; never negative (clock skew reads as 0). */
+export function capturedDays(createdAt: string, now: number): number {
+  const created = Date.parse(createdAt)
+  if (Number.isNaN(created)) return 0
+  return Math.max(0, Math.floor((now - created) / 86_400_000))
+}
+
 /** The fields of an ingest job this surface reads. */
 export interface IngestJobView {
   status: string
@@ -200,6 +230,18 @@ export function describeIngest(job: IngestJobView): IngestReport {
   switch (job.status) {
     case 'queued':
       return { headline: 'Queued', detail: 'Waiting for a worker to pick it up.', reviewable: false }
+    case 'captured':
+      return {
+        headline: 'Parked',
+        detail: 'Held verbatim. Nothing reads it until somebody processes it — or it is discarded.',
+        reviewable: false,
+      }
+    case 'discarded':
+      return {
+        headline: 'Discarded',
+        detail: 'Never became knowledge. The row stays here for the record.',
+        reviewable: false,
+      }
     case 'running':
       return { ...runningReport(job.phase), reviewable: false, progress: job.progress ?? null }
     case 'quota_blocked':

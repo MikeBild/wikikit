@@ -109,11 +109,15 @@ export const NAV: readonly NavEntry[] = [
     // `/v1/ingests/{id}` is deliberately NOT here: the list carries `phase` and
     // `progress` for every row, so the page never reads a job by id, and a
     // declaration nothing calls is the answer a reviewer gets when they ask
-    // what this page touches.
+    // what this page touches. The two by-id ACTIONS are here — the parked
+    // strip's process/discard buttons are the one place a human un-parks a
+    // captured note.
     api: [
       '/v1/spaces/{space}/ingests',
       '/v1/spaces/{space}/ingest',
       '/v1/spaces/{space}/ingest/document',
+      '/v1/ingests/{id}/process',
+      '/v1/ingests/{id}/discard',
       '/v1/spaces/{space}/proposals',
     ],
   },

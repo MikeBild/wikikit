@@ -130,6 +130,14 @@ export const wk = {
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/ingests', { params: { path: { space }, query: query as never } })),
     job: (id: string) => unwrap(api.GET('/v1/ingests/{id}', { params: { path: { id } } })),
+    /**
+     * The two decisions a parked note waits for, global-by-id like `job` (the
+     * row carries the space; the transport enforces the key/space match).
+     * Process pays the guards capture skipped — LLM key and queue room — so a
+     * refusal here leaves the note parked, never lost.
+     */
+    process: (id: string) => unwrap(api.POST('/v1/ingests/{id}/process', { params: { path: { id } } })),
+    discard: (id: string) => unwrap(api.POST('/v1/ingests/{id}/discard', { params: { path: { id } } })),
   },
 
   /**

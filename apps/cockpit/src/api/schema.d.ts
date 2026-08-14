@@ -135,7 +135,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ingest a source (markdown|text|url) — async; returns an ingest job to poll */
+        /** Ingest a source (markdown|text|url) — async; returns an ingest job to poll. capture:true parks it instead */
         post: operations["createIngest"];
         delete?: never;
         options?: never;
@@ -177,6 +177,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ingests/{id}/process": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here */
+        post: operations["processCapture"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ingests/{id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discard a captured note — terminal; the row stays in the job list for the record */
+        post: operations["discardCapture"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/spaces/{space}/ingests": {
         parameters: {
             query?: never;
@@ -184,7 +218,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves. */
+        /** List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked|captured|discarded, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves; captured rows carry title + excerpt. */
         get: operations["listIngests"];
         put?: never;
         post?: never;
@@ -1664,16 +1698,23 @@ export interface components {
              * @description When the content is "as of" (ISO 8601)
              */
             effective_at?: string;
+            /** @description Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup */
+            capture?: boolean;
             /** @description Re-synthesize a source the archive already holds (bypasses the already_ingested guard) */
             resynthesize?: boolean;
         };
-        zIngestUnchangedResponse: {
+        zIngestSyncResponse: {
             /** @constant */
             status: "unchanged";
             /** Format: uuid */
             source_id: string;
             /** Format: uuid */
             stream_id: string;
+        } | {
+            /** @constant */
+            status: "captured";
+            /** Format: uuid */
+            ingest_id: string;
         };
         zIngestAcceptedResponse: {
             /** Format: uuid */
@@ -1706,13 +1747,17 @@ export interface components {
             /** Format: uuid */
             ingest_id: string;
             /** @enum {string} */
-            status: "queued" | "running" | "done" | "failed" | "quota_blocked";
+            status: "queued" | "running" | "done" | "failed" | "quota_blocked" | "captured" | "discarded";
             proposal_id: string | null;
             source_id: string | null;
             error: {
                 code: string;
                 message: string;
             } | null;
+            /** @description Captured rows only: the submitted title */
+            title: string | null;
+            /** @description Captured rows only: truncated text — the verbatim body stays in the job */
+            excerpt: string | null;
             /** @description Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose */
             phase: string | null;
             /** @description Position inside a countable stage — during synthesis, concepts finished of total */
@@ -1734,13 +1779,17 @@ export interface components {
                 /** Format: uuid */
                 ingest_id: string;
                 /** @enum {string} */
-                status: "queued" | "running" | "done" | "failed" | "quota_blocked";
+                status: "queued" | "running" | "done" | "failed" | "quota_blocked" | "captured" | "discarded";
                 proposal_id: string | null;
                 source_id: string | null;
                 error: {
                     code: string;
                     message: string;
                 } | null;
+                /** @description Captured rows only: the submitted title */
+                title: string | null;
+                /** @description Captured rows only: truncated text — the verbatim body stays in the job */
+                excerpt: string | null;
                 /** @description Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose */
                 phase: string | null;
                 /** @description Position inside a countable stage — during synthesis, concepts finished of total */
@@ -3938,13 +3987,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll */
+            /** @description Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["zIngestUnchangedResponse"];
+                    "application/json": components["schemas"]["zIngestSyncResponse"];
                 };
             };
             /** @description Queued; poll the Location header (/v1/ingests/{id}) */
@@ -4177,10 +4226,180 @@ export interface operations {
             };
         };
     };
+    processCapture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job, now queued */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestStatusResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_not_captured — the job is not parked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description llm_not_configured — the note stays parked */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    discardCapture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job, now discarded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestStatusResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_not_captured — the job is not parked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
     listIngests: {
         parameters: {
             query?: {
-                status?: "queued" | "running" | "done" | "failed" | "quota_blocked";
+                status?: "queued" | "running" | "done" | "failed" | "quota_blocked" | "captured" | "discarded";
                 limit?: number;
                 cursor?: string;
             };

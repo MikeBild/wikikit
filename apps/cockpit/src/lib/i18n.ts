@@ -282,6 +282,38 @@ export const DE_PHRASES = {
   'The worker did not say why.': 'Der Worker hat keinen Grund genannt.',
   'Pages drafted': 'Seiten entworfen',
   'Archived, with nothing to review': 'Archiviert, nichts zu prüfen',
+  // Capture — parking a thought, and the two ways out of the parked state.
+  'Hold a thought': 'Gedanken festhalten',
+  'Hold this thought': 'Diesen Gedanken festhalten',
+  'About holding thoughts': 'Informationen zum Festhalten von Gedanken',
+  'A parked thought is held verbatim and costs nothing: no model reads it, no queue slot is taken, and nothing happens until it is processed — then it travels the ordinary path and comes back as a change to review — or discarded.':
+    'Ein geparkter Gedanke wird wortgetreu aufbewahrt und kostet nichts: kein Modell liest ihn, kein Platz in der Warteschlange wird belegt, und nichts geschieht bis zur Verarbeitung — dann nimmt er den gewöhnlichen Weg und kommt als zu prüfende Änderung zurück — oder bis zum Verwerfen.',
+  'Park it verbatim — a title, a kind, a decision can all come later.':
+    'Wortgetreu parken — Titel, Art und Entscheidung können später kommen.',
+  'Whatever is in your head right now.': 'Was auch immer gerade im Kopf ist.',
+  'Write the thought first.': 'Zuerst den Gedanken aufschreiben.',
+  'Could not be parked': 'Konnte nicht geparkt werden',
+  'Nothing is parked': 'Nichts geparkt',
+  'A thought held here waits, verbatim and unread, until you process or discard it.':
+    'Ein hier festgehaltener Gedanke wartet wortgetreu und ungelesen auf Verarbeitung oder Verwerfen.',
+  Thought: 'Gedanke',
+  Parked: 'Geparkt',
+  'Parked thought': 'Geparkter Gedanke',
+  Process: 'Verarbeiten',
+  'Process this thought?': 'Diesen Gedanken verarbeiten?',
+  'It joins the ingest queue exactly like a submitted document.':
+    'Er reiht sich in die Verarbeitungswarteschlange ein wie jedes eingereichte Dokument.',
+  'The model archives it verbatim, quotes it into pages, and the result waits in Changes — nothing becomes visible knowledge until a person approves it.':
+    'Das Modell archiviert ihn wortgetreu, überführt ihn mit Zitaten in Seiten, und das Ergebnis wartet unter Änderungen — nichts wird sichtbares Wissen, bevor ein Mensch es freigibt.',
+  'Discard this thought?': 'Diesen Gedanken verwerfen?',
+  'It never becomes knowledge.': 'Er wird nie zu Wissen.',
+  'The note is marked discarded and stays in the job list for the record. Nothing was archived, so there is nothing else to remove.':
+    'Die Notiz wird als verworfen markiert und bleibt zur Nachvollziehbarkeit in der Auftragsliste. Es wurde nichts archiviert, also ist nichts weiter zu entfernen.',
+  'Held verbatim. Nothing reads it until somebody processes it — or it is discarded.':
+    'Wortgetreu aufbewahrt. Nichts liest sie, bis jemand sie verarbeitet — oder sie verworfen wird.',
+  Discarded: 'Verworfen',
+  'Never became knowledge. The row stays here for the record.':
+    'Wurde nie zu Wissen. Die Zeile bleibt zur Nachvollziehbarkeit erhalten.',
   'About version history': 'Informationen zum Versionsverlauf',
   'About webhook addresses': 'Informationen zu Webhook-Adressen',
   'About webhook subscriptions': 'Informationen zu Webhook-Abonnements',

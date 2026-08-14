@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.37.0",
+    "version": "0.38.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -429,12 +429,12 @@
     },
     "/v1/spaces/{space}/ingest": {
       "post": {
-        "summary": "Ingest a source (markdown|text|url) — async; returns an ingest job to poll",
+        "summary": "Ingest a source (markdown|text|url) — async; returns an ingest job to poll. capture:true parks it instead",
         "operationId": "createIngest",
         "responses": {
           "200": {
-            "description": "Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestUnchangedResponse" } } }
+            "description": "Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestSyncResponse" } } }
           },
           "202": {
             "description": "Queued; poll the Location header (/v1/ingests/{id})",
@@ -585,9 +585,117 @@
         "x-required-scope": "knowledge:propose"
       }
     },
+    "/v1/ingests/{id}/process": {
+      "post": {
+        "summary": "Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here",
+        "operationId": "processCapture",
+        "responses": {
+          "200": {
+            "description": "The job, now queued",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestStatusResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "ingest_not_captured — the job is not parked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "429": {
+            "description": "ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "503": {
+            "description": "llm_not_configured — the note stays parked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
+      }
+    },
+    "/v1/ingests/{id}/discard": {
+      "post": {
+        "summary": "Discard a captured note — terminal; the row stays in the job list for the record",
+        "operationId": "discardCapture",
+        "responses": {
+          "200": {
+            "description": "The job, now discarded",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestStatusResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "ingest_not_captured — the job is not parked",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
+      }
+    },
     "/v1/spaces/{space}/ingests": {
       "get": {
-        "summary": "List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves.",
+        "summary": "List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked|captured|discarded, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves; captured rows carry title + excerpt.",
         "operationId": "listIngests",
         "responses": {
           "200": {
@@ -626,7 +734,10 @@
             "name": "status",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["queued", "running", "done", "failed", "quota_blocked"] }
+            "schema": {
+              "type": "string",
+              "enum": ["queued", "running", "done", "failed", "quota_blocked", "captured", "discarded"]
+            }
           },
           {
             "name": "limit",
@@ -4360,29 +4471,50 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
           },
+          "capture": {
+            "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+            "type": "boolean"
+          },
           "resynthesize": {
             "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
             "type": "boolean"
           }
         }
       },
-      "zIngestUnchangedResponse": {
-        "type": "object",
-        "properties": {
-          "status": { "type": "string", "const": "unchanged" },
-          "source_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      "zIngestSyncResponse": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "const": "unchanged" },
+              "source_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "stream_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": ["status", "source_id", "stream_id"],
+            "additionalProperties": false
           },
-          "stream_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "const": "captured" },
+              "ingest_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": ["status", "ingest_id"],
+            "additionalProperties": false
           }
-        },
-        "required": ["status", "source_id", "stream_id"],
-        "additionalProperties": false
+        ]
       },
       "zIngestAcceptedResponse": {
         "type": "object",
@@ -4452,7 +4584,10 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "status": { "type": "string", "enum": ["queued", "running", "done", "failed", "quota_blocked"] },
+          "status": {
+            "type": "string",
+            "enum": ["queued", "running", "done", "failed", "quota_blocked", "captured", "discarded"]
+          },
           "proposal_id": {
             "anyOf": [
               {
@@ -4483,6 +4618,14 @@
               },
               { "type": "null" }
             ]
+          },
+          "title": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "Captured rows only: the submitted title"
+          },
+          "excerpt": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "Captured rows only: truncated text — the verbatim body stays in the job"
           },
           "phase": {
             "anyOf": [{ "type": "string" }, { "type": "null" }],
@@ -4523,6 +4666,8 @@
           "proposal_id",
           "source_id",
           "error",
+          "title",
+          "excerpt",
           "phase",
           "progress",
           "created_at",
@@ -4545,7 +4690,10 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "status": { "type": "string", "enum": ["queued", "running", "done", "failed", "quota_blocked"] },
+                "status": {
+                  "type": "string",
+                  "enum": ["queued", "running", "done", "failed", "quota_blocked", "captured", "discarded"]
+                },
                 "proposal_id": {
                   "anyOf": [
                     {
@@ -4576,6 +4724,14 @@
                     },
                     { "type": "null" }
                   ]
+                },
+                "title": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "Captured rows only: the submitted title"
+                },
+                "excerpt": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "Captured rows only: truncated text — the verbatim body stays in the job"
                 },
                 "phase": {
                   "anyOf": [{ "type": "string" }, { "type": "null" }],
@@ -4616,6 +4772,8 @@
                 "proposal_id",
                 "source_id",
                 "error",
+                "title",
+                "excerpt",
                 "phase",
                 "progress",
                 "created_at",

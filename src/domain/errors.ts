@@ -81,6 +81,7 @@ export type ConflictCode =
   | 'concept_deleted'
   | 'concept_not_readable'
   | 'concept_not_deleted'
+  | 'ingest_not_captured'
 
 export class ConflictError extends DomainError {
   constructor(

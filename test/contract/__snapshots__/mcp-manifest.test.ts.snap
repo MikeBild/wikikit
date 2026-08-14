@@ -758,10 +758,14 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -859,7 +863,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1906,10 +1910,14 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -2007,7 +2015,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3352,10 +3360,14 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -3453,7 +3465,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -4793,10 +4805,14 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -4894,7 +4910,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

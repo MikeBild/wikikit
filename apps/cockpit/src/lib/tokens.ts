@@ -137,14 +137,19 @@ export const STATUS_STATE: Record<string, DomainState> = {
   approved: 'succeeded',
   rejected: 'failed',
   split: 'unknown',
-  // ingest jobs: queued | running | done | failed | quota_blocked.
-  // `quota_blocked` is `blocked`, not `failed`: nothing went wrong, the job is
-  // parked until its resume_at and the worker puts it back in the queue.
+  // ingest jobs: queued | running | done | failed | quota_blocked | captured
+  // | discarded. `quota_blocked` is `blocked`, not `failed`: nothing went
+  // wrong, the job is parked until its resume_at and the worker puts it back
+  // in the queue. `captured` is `blocked` for the review-queue reason —
+  // stopped until a human acts. `discarded` is `unknown` like `split`:
+  // terminal and neither good nor bad.
   queued: 'unknown',
   running: 'running',
   done: 'succeeded',
   failed: 'failed',
   quota_blocked: 'blocked',
+  captured: 'blocked',
+  discarded: 'unknown',
   // claims — what a page asserts, and how well it is evidenced:
   // proposed | draft | verified | disputed | deprecated.
   verified: 'succeeded',

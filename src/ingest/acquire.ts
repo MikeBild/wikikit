@@ -90,6 +90,18 @@ export const zIngestInput = z
       .describe('Connector version marker (etag/revision); same id + same version + same content = no-op'),
     observed_at: z.iso.datetime().optional().describe('When the connector saw this content (ISO 8601)'),
     effective_at: z.iso.datetime().optional().describe('When the content is "as of" (ISO 8601)'),
+    // Park instead of process: the job row is inserted in status='captured'
+    // and nothing else happens — no LLM guard, no queue-room check, no dedup
+    // pre-check, no wk_sources row. The deterministic, decision-free path a
+    // SessionEnd hook (or the cockpit's quick-capture card) needs; a human
+    // later promotes the row into the ordinary pipeline or discards it. The
+    // flag lives in THIS schema for the same reason derived_from_output_id
+    // does: the worker re-parses the stored input, and by then the field is
+    // inert — a promoted capture is just a queued job.
+    capture: z
+      .boolean()
+      .optional()
+      .describe('Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup'),
     // Re-run synthesis over content the archive already holds. Normally a
     // second ingest of identical bytes is refused (already_ingested) — the
     // first one produced a proposal, and re-running it would only stage the

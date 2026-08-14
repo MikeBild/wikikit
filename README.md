@@ -100,6 +100,12 @@ curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
   -H "Authorization: Bearer $KEY" --data-binary @report.pdf
 ```
 
+Not ready to process it? Add `"capture": true` to the ingest body and the text
+is parked verbatim instead — no LLM call, no queue slot, works without an API
+key. It stays a parked note until somebody processes it
+(`POST /v1/ingests/{id}/process` — from there the ordinary loop runs) or
+discards it (`POST /v1/ingests/{id}/discard`).
+
 Example sources to ingest are in [`examples/`](examples/README.md).
 
 Product analytics are available at `/v1/spaces/{space}/stats/*`. Existing
