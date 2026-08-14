@@ -143,6 +143,53 @@ export const zScheduleSet = z
   )
 export type ScheduleSet = z.infer<typeof zScheduleSet>
 
+/**
+ * The briefing a NEW wiki starts with — `WIKIKIT_DEFAULT_BRIEFING`, parsed.
+ *
+ * WHY a default at all: a timetable nobody switched on reports nothing, and the
+ * one number this whole surface exists to publish — how long the oldest
+ * undecided change has been waiting — is exactly the number that goes unnoticed
+ * while it accrues. A wiki that has to be armed by hand is armed on the day
+ * somebody remembers, which is after it mattered.
+ *
+ * WHY one variable and not three: `07:00`, `07:00 Europe/Berlin` and `off` are
+ * the whole vocabulary. Splitting the time, the zone and the on/off switch into
+ * separate keys makes three things an operator has to keep consistent to
+ * express one intention.
+ *
+ * WHY UTC when no zone is given: the server has no other zone to know. A
+ * product that defaulted to its author's zone would be wrong for everybody
+ * else, and silently — so the default is the one zone that is never a guess,
+ * and the cockpit shows what was seeded so it can be corrected in one edit.
+ *
+ * Only a briefing is seeded, never a health report: the briefing is LLM-free
+ * and therefore free, while the weekly health report is a heavier document that
+ * an empty wiki has nothing to say in.
+ */
+export interface DefaultBriefing {
+  at_time: string
+  timezone: string
+}
+
+/**
+ * Parse `WIKIKIT_DEFAULT_BRIEFING`. Returns null for `off`/empty (seed nothing)
+ * and THROWS on anything else it cannot read — a typo in a schedule is a
+ * schedule that fires at a time nobody chose, so it refuses to boot rather than
+ * quietly falling back to a default the operator did not write.
+ */
+export function parseDefaultBriefing(raw: string): DefaultBriefing | null {
+  const value = raw.trim()
+  if (!value || value.toLowerCase() === 'off') return null
+  const [at_time, zone, ...rest] = value.split(/\s+/)
+  if (rest.length)
+    throw new Error(`WIKIKIT_DEFAULT_BRIEFING must be "HH:MM", "HH:MM <IANA zone>" or "off" (got "${raw}")`)
+  if (!AT_TIME.test(at_time ?? ''))
+    throw new Error(`WIKIKIT_DEFAULT_BRIEFING time must be HH:MM (24-hour), got "${at_time ?? ''}"`)
+  const timezone = zone ?? 'UTC'
+  if (!isTimeZone(timezone)) throw new Error(`WIKIKIT_DEFAULT_BRIEFING names an unknown IANA time zone: "${timezone}"`)
+  return { at_time: at_time!, timezone }
+}
+
 export interface ScheduleWire {
   kind: ScheduleKind
   at_time: string
@@ -356,6 +403,37 @@ export async function replaceSchedules(db: Db, spaceId: string, args: unknown): 
     }
     return listSchedules(tx, spaceId)
   })
+}
+
+/**
+ * Arm the default briefing on a wiki that was just created.
+ *
+ * BEST EFFORT ON PURPOSE, and outside the space's own insert: a wiki that
+ * exists without a timetable is a wiki somebody can arm in one edit, while a
+ * create that rolled back because a schedule row failed is a wiki that does not
+ * exist for a reason nobody asked about. Same discipline as the read counters in
+ * domain/coverage.ts — a failed convenience never fails the thing it decorates.
+ *
+ * It goes through replaceSchedules rather than its own INSERT so the seeded row
+ * is computed by the same code that computes an operator's row: one producer of
+ * next_run_at, and the upsert keeps this idempotent if a caller repeats it.
+ */
+export async function seedDefaultBriefing(
+  db: Db,
+  spaceId: string,
+  spec: DefaultBriefing | null,
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
+): Promise<boolean> {
+  if (!spec) return false
+  try {
+    await replaceSchedules(db, spaceId, {
+      schedules: [{ kind: 'briefing', at_time: spec.at_time, weekday: null, timezone: spec.timezone, enabled: true }],
+    })
+    return true
+  } catch (error) {
+    logger?.warn('could not seed the default briefing schedule', { space_id: spaceId, error: String(error) })
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------

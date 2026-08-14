@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.36.0 - 2026-08-14
+
+### Added
+
+- **A new wiki is armed with a daily briefing from the moment it exists.** The
+  scheduler shipped in 0.35.0 with nothing switched on, so a wiki reported
+  nothing until somebody remembered to give it a timetable — and the number the
+  briefing exists to publish (how long the oldest undecided change has been
+  waiting) is exactly the number that goes unnoticed while it accrues.
+  `WIKIKIT_DEFAULT_BRIEFING` seeds it at creation: `07:00`, `07:00 <IANA zone>`,
+  or `off`. UTC when no zone is given, because the server has no other zone to
+  know and defaulting to the author's would be wrong for every other deployment.
+  A malformed value refuses to start the binary rather than falling back to an
+  hour nobody chose. Only the briefing is seeded, never the weekly health report:
+  the briefing spends no model tokens, and an empty wiki has nothing to say in a
+  health document. Existing wikis are untouched — this is a create-time default,
+  not a migration, and the seeded row is an ordinary schedule the **Care** page
+  edits in one place.
+
 ## 0.35.0 - 2026-08-14
 
 ### Added

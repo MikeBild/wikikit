@@ -417,7 +417,12 @@ async function devBootstrap(app: App): Promise<void> {
   if (app.config.production) return
   const spaces = await app.database.db.select<{ id: string }>('wk_spaces', { limit: 1 })
   if (!spaces.length) {
-    await createSpace(app.database.db, { slug: 'default', name: 'Default Space' })
+    await createSpace(
+      app.database.db,
+      { slug: 'default', name: 'Default Space' },
+      app.config.defaultBriefing,
+      app.logger,
+    )
     app.logger.info('dev bootstrap: created default space', { slug: 'default' })
   }
   await app.auth.ensureDevBootstrapKey(app.logger)

@@ -875,6 +875,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` | waiting jobs (`queued` + `quota_blocked`) per space before enqueue answers 429 `ingest_queue_full` | `200` |
 | `WIKIKIT_OUTPUT_RETENTION_DAYS` | how long an UNPROMOTED output is kept (hourly sweep); `0` keeps forever, a promoted output is never collected | `365` |
 | `WIKIKIT_SCHEDULER_ENABLED` | run the in-process briefing/health worker; off leaves schedules saved and armed | `true` |
+| `WIKIKIT_DEFAULT_BRIEFING` | the briefing a newly created wiki is armed with — `HH:MM`, `HH:MM <IANA zone>`, or `off`; a malformed value refuses to boot | `07:00` (UTC) |
 | `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS` | per-delivery HTTP timeout | `10000` |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS` | retries before a delivery is dead | `10` |
