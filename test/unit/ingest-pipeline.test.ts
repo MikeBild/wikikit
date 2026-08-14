@@ -209,6 +209,112 @@ describe('enqueue', () => {
   })
 })
 
+describe('capture lifecycle', () => {
+  test('capture parks the row keyless — no LLM guard, no dedup, no queue-room count', async () => {
+    const { db, calls } = fakeDb([{ match: /INSERT INTO "public"\."wk_ingest_jobs"/, rows: [{ id: 'cap-1' }] }])
+    const unconfigured = { ...createFakeProvider(), configured: false }
+    const pipeline = createIngestPipeline(config, db, unconfigured, logger)
+    const result = await pipeline.enqueue(db, 'space-1', { text: RAW, capture: true })
+    expect(result).toEqual({ status: 'captured', ingest_id: 'cap-1' })
+    // The insert is the ONLY statement: no wk_sources hash pre-check, no
+    // waiting-jobs count — capture pays for nothing it does not use.
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.values).toContain('captured')
+    // The flag is persisted with the input, so a promoted job re-parses clean.
+    expect(
+      JSON.parse(calls[0]!.values.find((v) => typeof v === 'string' && String(v).startsWith('{')) as string),
+    ).toEqual({ text: RAW, capture: true })
+  })
+
+  test('the worker claim query never sees captured rows (queued only)', async () => {
+    const { db, calls } = fakeDb([])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.runOnce()
+    const claim = calls.find((call) => call.sql.includes('FOR UPDATE SKIP LOCKED'))!
+    expect(claim.sql).toContain(`WHERE status = 'queued'`)
+  })
+
+  test('processCapture promotes to queued, paying the LLM guard and the queue ceiling', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+      },
+      { match: /AS waiting/, rows: [{ waiting: 0 }] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.processCapture(db, 'cap-1')
+    const flip = calls.find((call) => call.sql.includes(`SET status = 'queued'`))!
+    // Guarded on 'captured': a racing discard wins or loses cleanly.
+    expect(flip.sql).toContain(`AND status = 'captured'`)
+    expect(calls.some((call) => call.sql.includes('AS waiting'))).toBe(true)
+  })
+
+  test('processCapture answers 503 at promotion when no key is set — the note stays parked', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+      },
+    ])
+    const unconfigured = { ...createFakeProvider(), configured: false }
+    const pipeline = createIngestPipeline(config, db, unconfigured, logger)
+    await expect(pipeline.processCapture(db, 'cap-1')).rejects.toBeInstanceOf(LlmNotConfiguredError)
+    expect(calls.some((call) => call.sql.includes(`SET status = 'queued'`))).toBe(false)
+  })
+
+  test('processCapture refuses a full queue — the guard capture skipped applies here', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+      },
+      { match: /AS waiting/, rows: [{ waiting: 50 }] },
+    ])
+    const pipeline = createIngestPipeline(
+      { ...config, ingestMaxQueuedPerSpace: 50 } as never,
+      db,
+      createFakeProvider(),
+      logger,
+    )
+    await expect(pipeline.processCapture(db, 'cap-1')).rejects.toThrow(/queue/)
+    expect(calls.some((call) => call.sql.includes(`SET status = 'queued'`))).toBe(false)
+  })
+
+  test('process and discard 409 ingest_not_captured on any other status', async () => {
+    const { db } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'job-1', space_id: 'space-1', status: 'done' }],
+      },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    for (const attempt of [() => pipeline.processCapture(db, 'job-1'), () => pipeline.discardCapture(db, 'job-1')]) {
+      const failure = attempt().then(
+        () => null,
+        (error: unknown) => error,
+      )
+      expect(await failure).toBeInstanceOf(ConflictError)
+      expect(((await failure) as ConflictError).code).toBe('ingest_not_captured')
+    }
+  })
+
+  test('discardCapture is terminal: discarded + finished_at, row kept', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+      },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.discardCapture(db, 'cap-1')
+    const flip = calls.find((call) => call.sql.includes(`SET status = 'discarded'`))!
+    expect(flip.sql).toContain('finished_at = now()')
+    expect(flip.sql).toContain(`AND status = 'captured'`)
+    expect(calls.some((call) => call.sql.includes('DELETE'))).toBe(false)
+  })
+})
+
 describe('worker — happy path (new concept from a markdown source)', () => {
   test('archives, classifies, synthesizes, proposes and audits in order', async () => {
     const { db, calls } = fakeDb(workerRoutes())

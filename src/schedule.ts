@@ -795,6 +795,15 @@ export function renderHealth(health: SpaceHealth, at: { timezone: string; instan
       `${queue.quota_blocked ? `, ${queue.quota_blocked} parked on a provider quota window` : ''}.`,
     '',
   )
+  // Parked thoughts get their own sentence, not a clause in the flight count:
+  // they are waiting for a decision, not for a worker, and the age is the fact
+  // the stale-captures rule turns into a warning at thirty days.
+  if (queue.captured) {
+    lines.push(
+      `${queue.captured} thought(s) parked${queue.oldest_captured_days == null ? '' : `; oldest ${queue.oldest_captured_days} day(s)`}.`,
+      '',
+    )
+  }
 
   return `${lines.join('\n').trimEnd()}\n`
 }
@@ -945,11 +954,13 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
     // No window argument: the report describes "now" and spaceHealth's own
     // thirty-day default is the one a maintenance report wants. Passing the
     // briefing's window instead would make two documents about the same wiki
-    // disagree about what "thin" means.
+    // disagree about what "thin" means. The tier IS stated, although deep is
+    // the default today: the persisted report is the full protocol by
+    // contract, and an overridable default must not be able to narrow it.
     const health = await spaceHealth(
       db,
       schedule.space_id,
-      {},
+      { tier: 'deep' },
       {
         scaffoldingKinds: config.scaffoldingKinds,
         gapTopicsEnabled: config.coverageGapTopicsEnabled === true,

@@ -108,7 +108,12 @@ export interface RoutableFinding {
  * list and letting them hunt is worse than a row that plainly does not move.
  */
 export type FindingTarget =
-  { kind: 'page'; slug: string } | { kind: 'change'; id: string } | { kind: 'source'; id: string } | null
+  | { kind: 'page'; slug: string }
+  | { kind: 'change'; id: string }
+  | { kind: 'source'; id: string }
+  | { kind: 'inbox' }
+  | { kind: 'charter' }
+  | null
 
 function textField(details: Readonly<Record<string, unknown>> | undefined, name: string): string | null {
   const value = details?.[name]
@@ -116,12 +121,98 @@ function textField(details: Readonly<Record<string, unknown>> | undefined, name:
 }
 
 export function findingTarget(finding: RoutableFinding): FindingTarget {
+  // The two rules whose fix happens on a PAGE of this console rather than on an
+  // object the finding names: a parked thought is processed or discarded in the
+  // Inbox, and the missing guidelines are written under Guidelines. Matched by
+  // rule before the field probes below, because a captured job's id is an
+  // ingest id and none of the detail routes would carry it anywhere.
+  if (finding.rule === 'stale-captures') return { kind: 'inbox' }
+  if (finding.rule === 'missing-charter') return { kind: 'charter' }
   if (finding.concept_slug?.trim()) return { kind: 'page', slug: finding.concept_slug }
   const proposal = textField(finding.details, 'proposal_id')
   if (proposal) return { kind: 'change', id: proposal }
   const source = textField(finding.details, 'source_id')
   if (source) return { kind: 'source', id: source }
   return null
+}
+
+/**
+ * Which findings the list RENDERS — the census counts stay untouched.
+ *
+ * `stale-proposals` and `unreviewed-proposals` deliberately overlap on the
+ * server: the info census names every waiting change, the warn rule names the
+ * ones a fortnight old. A list printing both rows for one change reads as two
+ * problems where there is one queue, so the census row of a change that also
+ * has a stale warning is folded into that warning here. The counts strip keeps
+ * the full census — it is a census, not a checklist — and `folded` says how
+ * many rows the fold absorbed so the page can state it instead of hiding it.
+ */
+export function displayFindings<T extends RoutableFinding>(
+  findings: readonly T[],
+): {
+  shown: T[]
+  folded: number
+} {
+  const stale = new Set<string>()
+  for (const finding of findings) {
+    if (finding.rule !== 'stale-proposals') continue
+    const id = textField(finding.details, 'proposal_id')
+    if (id) stale.add(id)
+  }
+  if (stale.size === 0) return { shown: [...findings], folded: 0 }
+  const shown: T[] = []
+  let folded = 0
+  for (const finding of findings) {
+    const id = finding.rule === 'unreviewed-proposals' ? textField(finding.details, 'proposal_id') : null
+    if (id && stale.has(id)) {
+      folded += 1
+      continue
+    }
+    shown.push(finding)
+  }
+  return { shown, folded }
+}
+
+/**
+ * Why a rule's finding counts — the middle of the three-part row (what the
+ * linter said, why it matters, where the fix happens). Static English phrases
+ * the translator maps, one per rule; a rule this console does not know yields
+ * `null` and the row simply has no help icon, because inventing a rationale
+ * for an unknown rule would be the console explaining something it cannot.
+ */
+const RULE_WHY: Readonly<Record<string, string>> = {
+  contradictions:
+    'Two visible claims assert different things about the same frame. Readers cannot tell which one the wiki means until a person deprecates one side.',
+  'missing-citations':
+    'A visible claim quotes no source, so nobody can check it. Verifiable quotes are the whole promise of this wiki.',
+  'broken-relations': 'A link points at a page that cannot be read. Whoever follows it lands nowhere.',
+  'stale-claims': 'The claim describes a window that has closed. It needs re-verification or retirement.',
+  'orphan-concepts':
+    'No link leads to or from this page, so graph navigation never finds it. Sometimes that is fine; usually a relation is missing.',
+  'unsourced-concepts':
+    'No archived document stands behind this page. Adding a source lets synthesis quote real evidence.',
+  'self-derived-only':
+    'Every source this page quotes came out of the wiki itself. Without outside evidence the wiki is confirming itself.',
+  'stub-concepts': 'The page is blank in every sense: no text, no claims, no links. Delete it or give it content.',
+  'scaffolded-claims':
+    'The page is marked as a reference target yet holds real claims. Until one of the two is fixed, its evidence is withheld from the index.',
+  'empty-concepts': 'The page states nothing checkable. Fine for a stub — worth knowing about.',
+  'unreviewed-proposals':
+    'A change is waiting for a decision. Nothing becomes visible knowledge until a person makes it.',
+  'dangling-sources': 'An archived document no claim quotes. Often just a change still waiting for review.',
+  'tombstoned-sources':
+    'The claim quotes a document deleted upstream. The archived copy remains valid evidence; whether the claim stays is a human call.',
+  'broken-cross-space-links':
+    'A link into another wiki reaches no readable page there. The link convention is documentation; fixing it keeps documents honest.',
+  'missing-charter':
+    'Nothing steers what belongs in this wiki. Guidelines are optional — this note makes their absence a choice, not an accident.',
+  'stale-proposals': 'This change has waited more than two weeks. Age is what turns a queue into a backlog.',
+  'stale-captures':
+    'This thought has been parked for over a month. An old inbox item is a signal, not an error — process it or discard it.',
+}
+
+export function ruleWhy(rule: string): string | null {
+  return RULE_WHY[rule] ?? null
 }
 
 // ---------------------------------------------------------------------------

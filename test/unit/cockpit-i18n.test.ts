@@ -139,6 +139,8 @@ describe('the typed English and German Cockpit catalogs', () => {
     expect(translateText('de', '9 submitted · 2 rejected')).toBe('9 eingereicht · 2 abgelehnt')
     expect(translateText('de', '3 of 9 pages')).toBe('3 von 9 Seiten')
     expect(translateText('de', '9 decided')).toBe('9 entschieden')
+    expect(translateText('de', '3 shared sources')).toBe('3 gemeinsame Quellen')
+    expect(translateText('de', '1 shared source')).toBe('1 gemeinsame Quelle')
     expect(translateText('de', '40 open now')).toBe('40 derzeit offen')
     expect(translateText('de', 'In the last 24 hours.')).toBe('In den letzten 24 Stunden.')
     expect(translateText('de', 'none open')).toBe('keine offen')

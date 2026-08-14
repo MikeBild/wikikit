@@ -9,6 +9,7 @@
     "/v1/spaces/{space}/deleted-concepts",
     "/v1/spaces/{space}/concepts/{slug}",
     "/v1/spaces/{space}/concepts/{slug}/history",
+    "/v1/spaces/{space}/concepts/{slug}/neighbors",
     "/v1/spaces/{space}/concepts/{slug}/restore",
     "/v1/spaces/{space}/proposals"
   ]

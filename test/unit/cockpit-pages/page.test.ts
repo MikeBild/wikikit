@@ -16,12 +16,16 @@ import {
   evidenceOf,
   evidenceRank,
   evidenceSummary,
+  neighborGroups,
+  neighborhoodEmpty,
   pageEvidence,
+  sharedSourcesLabel,
   proposalTitle,
   rendersAsDash,
   slugify,
   statusBadge,
   type EvidenceLevel,
+  type NeighborRelation,
 } from '../../../apps/cockpit/src/pages/page.logic.ts'
 
 describe('slugs', () => {
@@ -555,5 +559,31 @@ describe('claim status badges', () => {
     for (const status of ['verified', 'disputed', 'proposed', 'deprecated', 'draft']) {
       expect(statusBadge(status).label.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('the neighborhood', () => {
+  const relations: NeighborRelation[] = [
+    { slug: 'graph-store', title: 'Graph store', kind: 'depends_on', direction: 'out', space: null },
+    { slug: 'legacy-store', title: 'Legacy store', kind: 'supersedes', direction: 'in', space: null },
+    { slug: 'okf', title: 'Open Knowledge Format', kind: 'related', direction: 'out', space: 'platform' },
+  ]
+
+  test('direction decides the group, and nothing is dropped', () => {
+    const groups = neighborGroups(relations)
+    expect(groups.outgoing.map((relation) => relation.slug)).toEqual(['graph-store', 'okf'])
+    expect(groups.incoming.map((relation) => relation.slug)).toEqual(['legacy-store'])
+    expect(groups.outgoing.length + groups.incoming.length).toBe(relations.length)
+  })
+
+  test('empty means ALL groups are empty — shared-source-only is not empty', () => {
+    expect(neighborhoodEmpty({ relations: [], same_source: [] })).toBe(true)
+    expect(neighborhoodEmpty({ relations: [], same_source: [{ slug: 's' }] })).toBe(false)
+    expect(neighborhoodEmpty({ relations: [relations[0]!], same_source: [] })).toBe(false)
+  })
+
+  test('the shared-source hint carries the count and its number agrees with its noun', () => {
+    expect(sharedSourcesLabel(1)).toBe('1 shared source')
+    expect(sharedSourcesLabel(3)).toBe('3 shared sources')
   })
 })

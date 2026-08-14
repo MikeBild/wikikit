@@ -40,6 +40,7 @@ const CLAIM_ID = '44444444-4444-4444-8444-444444444444'
 const SOURCE_ID = '55555555-5555-4555-8555-555555555555'
 const PROPOSAL_ID = '66666666-6666-4666-8666-666666666666'
 const JOB_ID = '77777777-7777-4777-8777-777777777777'
+const CAPTURE_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 const ENDPOINT_ID = '88888888-8888-4888-8888-888888888888'
 const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const KEY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -258,6 +259,15 @@ function stubDb(): Db {
         if (text.includes('AS inbound_relations')) return [{ slug: 'wikikit', title: 'WikiKit', inbound_relations: 4 }]
         if (text.includes('FROM wk_coverage_gaps')) return [{ lexeme: 'sofa', count: 2 }]
 
+        // Cross-wiki overview (reviewOverview) — grouped per space, so the
+        // rows carry space_id. Matched BEFORE the space-health branch below:
+        // both statements alias a pending count. The concepts census reuses
+        // the same GROUP BY shape.
+        if (text.includes('AS pending_derived')) {
+          return [{ space_id: SPACE_ID, pending: 3, oldest_days: 21, created_7d: 2, pending_derived: 1 }]
+        }
+        if (text.includes('AS concepts')) return [{ space_id: SPACE_ID, concepts: 4 }]
+
         // Composed health (spaceHealth) — the two live queues it measures
         // itself. Both are populated so the nullable ages travel as numbers;
         // the null side of each pair is gated in the domain and asserted there.
@@ -336,6 +346,29 @@ function stubDb(): Db {
         // lint: cross-space-link scan over current revisions ----------------
         if (text.includes('SELECT c.slug, r.markdown')) {
           return [{ slug: 'wikikit', markdown: '# WikiKit\n\nBody.' }]
+        }
+
+        // conceptNeighbors: relations with endpoint titles resolved (matched
+        // before the bare active-relations branch below — both name
+        // wk_relations rel and status='active') ------------------------------
+        if (text.includes('AS from_title')) {
+          return [
+            {
+              id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+              from_slug: 'wikikit',
+              from_title: 'WikiKit',
+              to_slug: 'open-knowledge-format',
+              to_title: 'Open Knowledge Format',
+              kind: 'related',
+              from_concept_id: CONCEPT_ID,
+              space: null,
+              created_at: NOW,
+            },
+          ]
+        }
+        // conceptNeighbors: shared-source siblings ---------------------------
+        if (text.includes('AS shared_sources')) {
+          return [{ slug: 'graph-store', title: 'Graph store', shared_sources: 2 }]
         }
 
         // getConcept relations (active only) --------------------------------
@@ -525,6 +558,23 @@ function stubDb(): Db {
             if (q.input_hash !== undefined) return [] // staging dedup: no pending twin
             return [PROPOSAL_ROW]
           case 'wk_ingest_jobs':
+            // The parked note the capture actions operate on. The stub is
+            // stateless, so the post-flip re-read still answers 'captured' —
+            // which the widened status enum accepts.
+            if (q.id === `eq.${CAPTURE_ID}`) {
+              return [
+                {
+                  id: CAPTURE_ID,
+                  space_id: SPACE_ID,
+                  status: 'captured',
+                  proposal_id: null,
+                  source_id: null,
+                  error: null,
+                  input: { text: 'A raw thought, parked for later.', capture: true },
+                  created_at: NOW,
+                },
+              ]
+            }
             return [
               {
                 id: JOB_ID,
@@ -810,6 +860,20 @@ const CASES: RouteCase[] = [
     body: { transcript: 'human: fix the typo\nassistant: done' },
   },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
+  // Both act on the parked fixture; the stateless stub answers the re-read
+  // with the same captured row, which the widened status shape accepts.
+  {
+    template: '/v1/ingests/{id}/process',
+    method: 'post',
+    url: `/v1/ingests/${CAPTURE_ID}/process`,
+    status: 200,
+  },
+  {
+    template: '/v1/ingests/{id}/discard',
+    method: 'post',
+    url: `/v1/ingests/${CAPTURE_ID}/discard`,
+    status: 200,
+  },
   {
     // The inbox list. Rows are the SAME shape the single status read serves
     // (one producer, toJobStatus), which is what lets a row and a detail poll
@@ -859,6 +923,12 @@ const CASES: RouteCase[] = [
     status: 200,
   },
   {
+    template: '/v1/spaces/{space}/concepts/{slug}/neighbors',
+    method: 'get',
+    url: '/v1/spaces/demo/concepts/wikikit/neighbors',
+    status: 200,
+  },
+  {
     template: '/v1/spaces/{space}/deleted-concepts',
     method: 'get',
     url: '/v1/spaces/demo/deleted-concepts',
@@ -905,6 +975,7 @@ const CASES: RouteCase[] = [
   // The composed maintenance read: lint + coverage + the two live queues, with
   // no verdict on top. strictObject, so a field the handler invents fails here.
   { template: '/v1/spaces/{space}/health', method: 'get', url: '/v1/spaces/demo/health', status: 200 },
+  { template: '/v1/stats/overview', method: 'get', url: '/v1/stats/overview', status: 200 },
   { template: '/v1/spaces/{space}/schedules', method: 'get', url: '/v1/spaces/demo/schedules', status: 200 },
   {
     // PUT is a REPLACE and answers the same shape GET does: the complete set

@@ -378,6 +378,47 @@ describe('the schedule worker (integration)', () => {
     expect(rows[0]!.payload.findings).toMatchObject({ error: expect.any(Number), warn: expect.any(Number) })
   })
 
+  it('a CLEAN scheduled health run still persists its report — an empty report is information', async () => {
+    // The invariant, pinned: the report is the record that somebody looked,
+    // and a run that writes a row only when it finds something turns silence
+    // into ambiguity ("healthy" and "never ran" would look identical).
+    const created = await fetch(`${base}/v1/spaces`, {
+      method: 'POST',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({ slug: 'pristine', name: 'Pristine Space' }),
+    })
+    const pristineId = ((await created.json()) as { id: string }).id
+    // A current charter is the one thing a truly clean space must positively
+    // hold — without it the missing-charter note is a (correct) finding.
+    await db.insert('wk_charter_revisions', {
+      space_id: pristineId,
+      rev: 1,
+      status: 'current',
+      markdown: '# Charter\n\nNothing belongs here yet.',
+      created_by: 'scheduler-test',
+    })
+    const put = await fetch(`${base}/v1/spaces/pristine/schedules`, {
+      method: 'PUT',
+      headers: json(adminKey),
+      body: JSON.stringify({
+        schedules: [{ kind: 'health', at_time: '08:30', timezone: 'Europe/Berlin', enabled: true }],
+      }),
+    })
+    expect(put.status).toBe(200)
+    await db.query(
+      `UPDATE wk_schedules SET next_run_at = now() - interval '1 minute' WHERE space_id = $1 AND kind = 'health'`,
+      [pristineId],
+    )
+    expect(await instanceA.runOnce()).toBe(true)
+
+    const { rows } = await db.query<{ markdown: string }>(
+      `SELECT markdown FROM wk_outputs WHERE space_id = $1 AND kind = 'health'`,
+      [pristineId],
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.markdown).toContain('0 fault(s), 0 warning(s), 0 note(s) across 0 finding(s).')
+  })
+
   it('a weekly schedule lands on its weekday, in its own zone', async () => {
     // 1 = Monday, the convention Postgres extract(dow) and getUTCDay share.
     const { next_run_at: next } = await scheduleRow('health')

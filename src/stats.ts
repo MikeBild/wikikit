@@ -182,8 +182,12 @@ export async function getIngestStats(db: Db, spaceId: string, window: StatsWindo
             coalesce(avg(duration_seconds), 0)::double precision AS duration_avg,
             coalesce(max(duration_seconds), 0)::double precision AS duration_max
        FROM (
+         -- Parked rows are not ingest volume: a capture never entered the
+         -- pipeline and a discarded one never will. A promoted capture flips
+         -- to queued and counts from then on (in its created_at bucket — the
+         -- row keeps its accepted time).
          SELECT created_at AS occurred_at, 'created' AS event, NULL::double precision AS duration_seconds
-           FROM wk_ingest_jobs WHERE space_id = $1
+           FROM wk_ingest_jobs WHERE space_id = $1 AND status NOT IN ('captured', 'discarded')
          UNION ALL SELECT started_at, 'started', NULL::double precision
            FROM wk_ingest_jobs WHERE space_id = $1 AND started_at IS NOT NULL
          UNION ALL SELECT finished_at, status, extract(epoch FROM finished_at - started_at)

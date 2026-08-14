@@ -282,10 +282,51 @@ export const DE_PHRASES = {
   'The worker did not say why.': 'Der Worker hat keinen Grund genannt.',
   'Pages drafted': 'Seiten entworfen',
   'Archived, with nothing to review': 'Archiviert, nichts zu prüfen',
+  // Capture — parking a thought, and the two ways out of the parked state.
+  'Hold a thought': 'Gedanken festhalten',
+  'Hold this thought': 'Diesen Gedanken festhalten',
+  'About holding thoughts': 'Informationen zum Festhalten von Gedanken',
+  'A parked thought is held verbatim and costs nothing: no model reads it, no queue slot is taken, and nothing happens until it is processed — then it travels the ordinary path and comes back as a change to review — or discarded.':
+    'Ein geparkter Gedanke wird wortgetreu aufbewahrt und kostet nichts: kein Modell liest ihn, kein Platz in der Warteschlange wird belegt, und nichts geschieht bis zur Verarbeitung — dann nimmt er den gewöhnlichen Weg und kommt als zu prüfende Änderung zurück — oder bis zum Verwerfen.',
+  'Park it verbatim — a title, a kind, a decision can all come later.':
+    'Wortgetreu parken — Titel, Art und Entscheidung können später kommen.',
+  'Whatever is in your head right now.': 'Was auch immer gerade im Kopf ist.',
+  'Write the thought first.': 'Zuerst den Gedanken aufschreiben.',
+  'Could not be parked': 'Konnte nicht geparkt werden',
+  'Nothing is parked': 'Nichts geparkt',
+  'A thought held here waits, verbatim and unread, until you process or discard it.':
+    'Ein hier festgehaltener Gedanke wartet wortgetreu und ungelesen auf Verarbeitung oder Verwerfen.',
+  Thought: 'Gedanke',
+  Parked: 'Geparkt',
+  'Parked thought': 'Geparkter Gedanke',
+  Process: 'Verarbeiten',
+  'Process this thought?': 'Diesen Gedanken verarbeiten?',
+  'It joins the ingest queue exactly like a submitted document.':
+    'Er reiht sich in die Verarbeitungswarteschlange ein wie jedes eingereichte Dokument.',
+  'The model archives it verbatim, quotes it into pages, and the result waits in Changes — nothing becomes visible knowledge until a person approves it.':
+    'Das Modell archiviert ihn wortgetreu, überführt ihn mit Zitaten in Seiten, und das Ergebnis wartet unter Änderungen — nichts wird sichtbares Wissen, bevor ein Mensch es freigibt.',
+  'Discard this thought?': 'Diesen Gedanken verwerfen?',
+  'It never becomes knowledge.': 'Er wird nie zu Wissen.',
+  'The note is marked discarded and stays in the job list for the record. Nothing was archived, so there is nothing else to remove.':
+    'Die Notiz wird als verworfen markiert und bleibt zur Nachvollziehbarkeit in der Auftragsliste. Es wurde nichts archiviert, also ist nichts weiter zu entfernen.',
+  'Held verbatim. Nothing reads it until somebody processes it — or it is discarded.':
+    'Wortgetreu aufbewahrt. Nichts liest sie, bis jemand sie verarbeitet — oder sie verworfen wird.',
+  Discarded: 'Verworfen',
+  'Never became knowledge. The row stays here for the record.':
+    'Wurde nie zu Wissen. Die Zeile bleibt zur Nachvollziehbarkeit erhalten.',
   'About version history': 'Informationen zum Versionsverlauf',
   'About webhook addresses': 'Informationen zu Webhook-Adressen',
   'About webhook subscriptions': 'Informationen zu Webhook-Abonnements',
   'About wiki exchange formats': 'Informationen zu Wiki-Austauschformaten',
+  'About the cross-wiki overview': 'Informationen zur wikiübergreifenden Übersicht',
+  'Across every wiki': 'Über alle Wikis',
+  Oldest: 'Älteste',
+  'From generated reports': 'Aus generierten Berichten',
+  'from generated reports': 'aus generierten Berichten',
+  'Every wiki this key can see, summed: changes waiting for a decision, how long the oldest has waited, and how much arrived in the last 7 days.':
+    'Alle für diesen Zugang sichtbaren Wikis, aufsummiert: Änderungen, die auf eine Entscheidung warten, das Alter der ältesten und der Umfang der letzten 7 Tage.',
+  'counts the waiting changes whose every cited source came out of the wiki itself — promoted answers, briefings, care reports. That is provenance, not a verdict: it says where the evidence came from, so distilled human knowledge is not buried under machine-written backlog.':
+    'zählt die wartenden Änderungen, deren sämtliche zitierten Quellen aus dem Wiki selbst stammen — übernommene Antworten, Kurzberichte, Pflegeberichte. Das ist Herkunft, kein Urteil: Es zeigt, woher die Nachweise kommen, damit destilliertes menschliches Wissen nicht unter maschinell erzeugtem Rückstand verschwindet.',
   'About wiki keywords': 'Informationen zu Wiki-Schlüsselwörtern',
   'About wiki purpose': 'Informationen zum Wiki-Zweck',
   'About writing pages by hand': 'Informationen zum manuellen Verfassen von Seiten',
@@ -516,6 +557,13 @@ export const DE_PHRASES = {
   'A word or a phrase': 'Ein Wort oder eine Wortgruppe',
   'Alternatives turned down': 'Verworfene Alternativen',
   'Related pages': 'Verwandte Seiten',
+  // Neighborhood panel — the three groups around a page.
+  Outgoing: 'Ausgehend',
+  Incoming: 'Eingehend',
+  'Same sources': 'Gleiche Quellen',
+  'No neighbors yet': 'Noch keine Nachbarn',
+  'No reviewed relation touches this page, and no other page quotes the sources it quotes.':
+    'Keine geprüfte Verknüpfung berührt diese Seite, und keine andere Seite zitiert dieselben Quellen.',
   'Parent change': 'Übergeordnete Änderung',
   'Decided by': 'Entschieden von',
   'Review changes': 'Änderungen prüfen',
@@ -1237,6 +1285,55 @@ export const DE_PHRASES = {
   '{count} days': '{count} Tage',
   'under an hour': 'unter einer Stunde',
   '{count} h': '{count} Std.',
+  // Care — the maturing surfaces of 0.39.0: the parked-thoughts facts, the
+  // per-rule "why it counts" help, the fold of stale vs. census proposal rows
+  // and the kept-reports history.
+  'Parked thoughts': 'Geparkte Gedanken',
+  'oldest: {age}': 'älteste: {age}',
+  'A change waiting past two weeks appears once, as a warning ({count} folded).':
+    'Eine Änderung, die länger als zwei Wochen wartet, erscheint einmal — als Warnung ({count} zusammengefasst).',
+  'Why it counts': 'Warum es zählt',
+  'About kept reports': 'Informationen zu aufbewahrten Berichten',
+  'Every scheduled care run keeps its report here, under Answers — including a run that found nothing, because an empty report is information: it says somebody looked.':
+    'Jeder geplante Pflegelauf bewahrt seinen Bericht hier unter „Antworten“ auf — auch ein Lauf ohne Befund, denn ein leerer Bericht ist Information: Er sagt, dass jemand nachgesehen hat.',
+  'Kept care reports': 'Aufbewahrte Pflegeberichte',
+  'No report kept yet': 'Noch kein Bericht aufbewahrt',
+  'The first scheduled care run files its report here — switch one on in the timetable below.':
+    'Der erste geplante Pflegelauf legt seinen Bericht hier ab — einschaltbar im Zeitplan darunter.',
+  'Two visible claims assert different things about the same frame. Readers cannot tell which one the wiki means until a person deprecates one side.':
+    'Zwei sichtbare Aussagen behaupten Unterschiedliches über denselben Rahmen. Bis ein Mensch eine Seite zurückzieht, bleibt offen, was das Wiki meint.',
+  'A visible claim quotes no source, so nobody can check it. Verifiable quotes are the whole promise of this wiki.':
+    'Eine sichtbare Aussage zitiert keine Quelle und ist damit nicht nachprüfbar. Belegte Zitate sind das Versprechen dieses Wikis.',
+  'A link points at a page that cannot be read. Whoever follows it lands nowhere.':
+    'Ein Verweis zeigt auf eine Seite, die nicht lesbar ist. Wer ihm folgt, landet im Leeren.',
+  'The claim describes a window that has closed. It needs re-verification or retirement.':
+    'Die Aussage beschreibt ein abgelaufenes Zeitfenster und braucht eine neue Bestätigung oder den Ruhestand.',
+  'No link leads to or from this page, so graph navigation never finds it. Sometimes that is fine; usually a relation is missing.':
+    'Kein Verweis führt zu dieser Seite oder von ihr weg; die Graph-Navigation findet sie nie. Manchmal ist das in Ordnung, meist fehlt eine Beziehung.',
+  'No archived document stands behind this page. Adding a source lets synthesis quote real evidence.':
+    'Hinter dieser Seite steht kein archiviertes Dokument. Mit einer neuen Quelle kann die Synthese echte Belege zitieren.',
+  'Every source this page quotes came out of the wiki itself. Without outside evidence the wiki is confirming itself.':
+    'Jede Quelle dieser Seite stammt aus dem Wiki selbst. Ohne Belege von außen bestätigt sich das Wiki nur selbst.',
+  'The page is blank in every sense: no text, no claims, no links. Delete it or give it content.':
+    'Die Seite ist in jeder Hinsicht leer: kein Text, keine Aussagen, keine Verweise. Löschen oder füllen.',
+  'The page is marked as a reference target yet holds real claims. Until one of the two is fixed, its evidence is withheld from the index.':
+    'Die Seite ist als Referenzziel markiert und trägt trotzdem echte Aussagen. Bis eines von beiden korrigiert ist, fehlt ihr Nachweis im Index.',
+  'The page states nothing checkable. Fine for a stub — worth knowing about.':
+    'Die Seite enthält nichts Nachprüfbares. Für einen Platzhalter in Ordnung — aber gut zu wissen.',
+  'A change is waiting for a decision. Nothing becomes visible knowledge until a person makes it.':
+    'Eine Änderung wartet auf eine Entscheidung. Nichts wird sichtbares Wissen, bevor ein Mensch sie trifft.',
+  'An archived document no claim quotes. Often just a change still waiting for review.':
+    'Ein archiviertes Dokument, das keine Aussage zitiert. Oft nur eine Änderung, die noch auf ihre Freigabe wartet.',
+  'The claim quotes a document deleted upstream. The archived copy remains valid evidence; whether the claim stays is a human call.':
+    'Die Aussage zitiert ein Dokument, das am Ursprungsort gelöscht wurde. Die archivierte Kopie bleibt gültiger Beleg; ob die Aussage bleibt, entscheidet ein Mensch.',
+  'A link into another wiki reaches no readable page there. The link convention is documentation; fixing it keeps documents honest.':
+    'Ein Verweis in ein anderes Wiki erreicht dort keine lesbare Seite. Die Verweis-Konvention ist Dokumentation; die Korrektur hält Dokumente ehrlich.',
+  'Nothing steers what belongs in this wiki. Guidelines are optional — this note makes their absence a choice, not an accident.':
+    'Nichts steuert, was in dieses Wiki gehört. Leitlinien sind freiwillig — diese Notiz macht ihr Fehlen zu einer Entscheidung statt zu einem Zufall.',
+  'This change has waited more than two weeks. Age is what turns a queue into a backlog.':
+    'Diese Änderung wartet seit mehr als zwei Wochen. Erst das Alter macht aus einer Warteschlange einen Rückstand.',
+  'This thought has been parked for over a month. An old inbox item is a signal, not an error — process it or discard it.':
+    'Dieser Gedanke ist seit über einem Monat geparkt. Ein alter Eintrag im Eingang ist ein Signal, kein Fehler — verarbeiten oder verwerfen.',
   'About scheduled reports': 'Informationen zu geplanten Berichten',
   'WikiKit runs these itself, in its own process. Each one writes an entry under Answers; nothing is emailed, and a briefing costs no model tokens because it is an assembly of counts and titles.':
     'WikiKit führt diese im eigenen Prozess aus. Jeder Lauf erzeugt einen Eintrag unter „Antworten“; es wird nichts per E-Mail versendet, und ein Kurzbericht verbraucht keine Modell-Tokens, weil er nur aus Zahlen und Titeln besteht.',
@@ -1342,6 +1439,11 @@ export function translateText(
             ? 'Seite'
             : 'Seiten'
       return `${leading}${amount} ${noun}${trailing}`
+    }
+    const shared = phrase.match(/^(\d+) shared sources?$/)
+    if (shared) {
+      const amount = Number(shared[1])
+      return `${leading}${amount} ${amount === 1 ? 'gemeinsame Quelle' : 'gemeinsame Quellen'}${trailing}`
     }
     const uncited = phrase.match(/^(\d+) uncited$/)
     if (uncited) return `${leading}${uncited[1]} ohne Nachweis${trailing}`

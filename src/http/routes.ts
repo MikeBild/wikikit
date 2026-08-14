@@ -51,7 +51,8 @@ import {
   toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
-import { spaceHealth, type SpaceHealthArgs } from '../domain/health.ts'
+import { conceptNeighbors } from '../domain/relations.ts'
+import { spaceHealth, spacesOverview, type SpaceHealthArgs } from '../domain/health.ts'
 import {
   getOutput,
   listOutputs,
@@ -226,14 +227,15 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/spaces/{space}/ingest',
     scope: 'knowledge:propose',
-    summary: 'Ingest a source (markdown|text|url) — async; returns an ingest job to poll',
+    summary:
+      'Ingest a source (markdown|text|url) — async; returns an ingest job to poll. capture:true parks it instead',
     handler: 'createIngestHandler',
     request: { params: 'zSpaceParams', body: 'zIngestRequest' },
     responses: {
       200: {
-        schema: 'zIngestUnchangedResponse',
+        schema: 'zIngestSyncResponse',
         type: 'application/json',
-        desc: 'Sync fast-path (external_source_id): content already archived — head advanced, nothing to poll',
+        desc: 'Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process)',
       },
       202: {
         schema: 'zIngestAcceptedResponse',
@@ -279,6 +281,39 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },
   },
   {
+    method: 'post',
+    path: '/v1/ingests/{id}/process',
+    scope: 'knowledge:propose',
+    // Global by-id like GET /v1/ingests/{id}: the row carries the space and
+    // the transport enforces the key/space match (§4 convention).
+    summary:
+      'Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here',
+    handler: 'processCaptureHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now queued' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
+      429: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked',
+      },
+      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured — the note stays parked' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/ingests/{id}/discard',
+    scope: 'knowledge:propose',
+    summary: 'Discard a captured note — terminal; the row stays in the job list for the record',
+    handler: 'discardCaptureHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now discarded' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
+    },
+  },
+  {
     method: 'get',
     path: '/v1/spaces/{space}/ingests',
     scope: 'knowledge:read',
@@ -287,7 +322,7 @@ export const ROUTES: RouteDef[] = [
     // refusing it the list of exactly those jobs would be a gap, not a guard.
     altScopes: ['knowledge:propose'],
     summary:
-      'List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves.',
+      'List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked|captured|discarded, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves; captured rows carry title + excerpt.',
     handler: 'listIngestsHandler',
     request: { params: 'zSpaceParams', query: 'zIngestListQuery' },
     responses: { 200: { schema: 'zIngestListResponse', type: 'application/json', desc: 'Ingest jobs page' } },
@@ -404,6 +439,18 @@ export const ROUTES: RouteDef[] = [
   },
   {
     method: 'get',
+    path: '/v1/spaces/{space}/concepts/{slug}/neighbors',
+    scope: 'knowledge:read',
+    summary:
+      'The pages around this one: typed relations in BOTH directions (inbound is the backlink surface the concept read never had) plus same-space concepts quoting the same archived sources, ranked by shared-source count. LLM-free.',
+    handler: 'conceptNeighborsHandler',
+    request: { params: 'zConceptParams' },
+    responses: {
+      200: { schema: 'zConceptNeighborsResponse', type: 'application/json', desc: 'Concept neighborhood' },
+    },
+  },
+  {
+    method: 'get',
     path: '/v1/spaces/{space}/deleted-concepts',
     scope: 'knowledge:read',
     summary: 'List deleted concept tombstones for audit and restoration',
@@ -516,7 +563,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/spaces/{space}/health',
     scope: 'knowledge:read',
     summary:
-      'Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days).',
+      'Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest, parked thoughts included) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=, ?tier=quick|deep; window defaults to the last 30 days, tier to deep).',
     handler: 'spaceHealthHandler',
     request: { params: 'zSpaceParams', query: 'zSpaceHealthQuery' },
     responses: {
@@ -640,9 +687,10 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/lint',
     scope: 'knowledge:read',
-    summary: 'Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly',
+    summary:
+      'Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly. ?tier=quick runs only the queue/inbox/charter pulse rules; the default deep runs everything',
     handler: 'lintHandler',
-    request: { params: 'zSpaceParams' },
+    request: { params: 'zSpaceParams', query: 'zLintQuery' },
     responses: { 200: { schema: 'zLintResponse', type: 'application/json', desc: 'Findings + counts' } },
   },
   {
@@ -775,6 +823,22 @@ export const ROUTES: RouteDef[] = [
         type: 'application/json',
         desc: 'Effective knowledge-shaping configuration with per-value provenance',
       },
+    },
+  },
+  {
+    method: 'get',
+    // Global on purpose, and NEVER a literal under /v1/spaces/ (first-match
+    // routing would shadow the {space} segment). /v1/stats/mcp set the
+    // namespace precedent; this is deliberately its first knowledge:read
+    // route — an overview of the wikis a key may see is a read, not an
+    // admin act, and a space-scoped key gets its one-row overview.
+    path: '/v1/stats/overview',
+    scope: 'knowledge:read',
+    summary:
+      'Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict.',
+    handler: 'spacesOverviewHandler',
+    responses: {
+      200: { schema: 'zSpacesOverviewResponse', type: 'application/json', desc: 'Overview of every visible space' },
     },
   },
   {
@@ -1474,6 +1538,23 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: wire }
   },
 
+  async processCaptureHandler(deps, input) {
+    const job = await getIngestJob(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
+    await deps.ingest.processCapture(deps.db, job.ingest_id)
+    // Re-read rather than patch: the status shape has exactly one producer.
+    const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
+    return { status: 200, body: wire }
+  },
+
+  async discardCaptureHandler(deps, input) {
+    const job = await getIngestJob(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
+    await deps.ingest.discardCapture(deps.db, job.ingest_id)
+    const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
+    return { status: 200, body: wire }
+  },
+
   async listIngestsHandler(deps, input) {
     const space = await resolveSpace(deps, input, ['knowledge:read', 'knowledge:propose'])
     const query = input.query as { status?: IngestJobState; limit?: number; cursor?: string }
@@ -1570,6 +1651,14 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const revisions = await getConceptHistory(deps.db, space.id, { slug: input.params.slug! })
     return { status: 200, body: { slug: input.params.slug!, revisions } }
+  },
+
+  async conceptNeighborsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const neighbors = await conceptNeighbors(deps.db, space.id, { slug: input.params.slug! })
+    // schema_version stamped at the transport, as on spaceHealthHandler: the
+    // domain serves the numbers, the wire contract belongs to the route.
+    return { status: 200, body: { schema_version: 'wikikit.concept-neighbors.v1', ...neighbors } }
   },
 
   async listDeletedConceptsHandler(deps, input) {
@@ -1740,6 +1829,18 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: { schema_version: 'wikikit.space-health.v1', ...health } }
   },
 
+  async spacesOverviewHandler(deps, input) {
+    // The same visibility rule as listSpacesHandler: a space-scoped key gets a
+    // one-row overview of its own wiki, never an error — the overview of what
+    // a key may see is defined by what it may see.
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    const overview = await spacesOverview(deps.db, visible)
+    // schema_version stamped at the transport, as on spaceHealthHandler; the
+    // MCP tool stamps the same literal so the two shapes stay identical.
+    return { status: 200, body: { schema_version: 'wikikit.spaces-overview.v1', ...overview } }
+  },
+
   async getSchedulesHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'admin')
     return { status: 200, body: { schedules: await listSchedules(deps.db, space.id) } }
@@ -1862,7 +1963,8 @@ export const HANDLERS: Record<string, Handler> = {
 
   async lintHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const report = await lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
+    const { tier } = input.query as { tier: 'quick' | 'deep' }
+    const report = await lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds, tier })
     return { status: 200, body: report }
   },
 

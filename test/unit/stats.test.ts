@@ -66,6 +66,21 @@ describe('database-backed product stats', () => {
     expect(result.totals).toMatchObject({ jobs: { created: 2, done: 1 }, duration_seconds: { total: 4.5 } })
   })
 
+  test('captured and discarded rows are not ingest volume', async () => {
+    // A parked note never entered the pipeline; a discarded one never will.
+    // Without this filter every capture would inflate `created` (§B1 reader
+    // audit) — a promoted row flips to queued and counts from then on.
+    let sql = ''
+    const db = {
+      query: async (text: string) => {
+        sql = text
+        return { rows: [], rowCount: 0 }
+      },
+    } as unknown as Db
+    await getIngestStats(db, 'space-id', window)
+    expect(sql).toContain(`status NOT IN ('captured', 'discarded')`)
+  })
+
   test('knowledge events expose counts only and separate review outcomes', async () => {
     const result = await getKnowledgeStats(
       dbWith([

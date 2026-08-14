@@ -34,7 +34,7 @@ import {
   NotFoundError,
 } from '../domain/errors.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
-import { spaceHealth } from '../domain/health.ts'
+import { spaceHealth, spacesOverview } from '../domain/health.ts'
 import { lintSpace } from '../domain/lint.ts'
 import { getOutput, listOutputs, promoteOutput } from '../domain/outputs.ts'
 import {
@@ -173,6 +173,8 @@ export const zSearchToolInput = z.object({
 
 export const zSpacesToolInput = z.object({})
 
+export const zOverviewToolInput = z.object({})
+
 export const zGuideToolInput = z.object({})
 
 export const zBriefingToolInput = z.object({
@@ -219,7 +221,13 @@ export const zDecisionsToolInput = z.object({
 
 export const zHistoryToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
-export const zLintToolInput = z.object({ space: zSpaceSlug })
+export const zLintToolInput = z.object({
+  space: zSpaceSlug,
+  tier: z
+    .enum(['quick', 'deep'])
+    .optional()
+    .describe("'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule"),
+})
 
 /** No output_id → the newest page of outputs; output_id → that one output. */
 export const zOutputsToolInput = z.object({
@@ -238,6 +246,10 @@ export const zHealthToolInput = z.object({
   from: z.iso.datetime().optional().describe('Window start (ISO 8601); default 30 days before `to`'),
   to: z.iso.datetime().optional().describe('Window end (ISO 8601); default now'),
   top: z.number().int().min(1).max(25).optional().describe('How many hub pages and gap topics to list (default 5)'),
+  tier: z
+    .enum(['quick', 'deep'])
+    .optional()
+    .describe("Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything"),
 })
 
 /**
@@ -576,14 +588,15 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_lint',
     description:
       'Knowledge-base health findings: contradictions, missing citations, broken relations, stale ' +
-      'claims, orphans. LLM-free and CI-consumable.',
+      'claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. ' +
+      "tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     scope: 'knowledge:read',
     inputSchema: zLintToolInput,
     annotations: READ_ANNOTATIONS,
     async execute(deps, principal, input) {
       const args = zLintToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
-      return lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
+      return lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds, tier: args.tier ?? 'deep' })
     },
   },
   {
@@ -726,7 +739,9 @@ export const TOOLS: McpToolDef[] = [
     description:
       'Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async ' +
       'handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait ' +
-      'in-band. The result is a pending ChangeProposal that a human approves over REST.',
+      'in-band. The result is a pending ChangeProposal that a human approves over REST. With ' +
+      'capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing ' +
+      'to poll — a human promotes or discards the note in the cockpit.',
     scope: 'knowledge:propose',
     inputSchema: zIngestToolInput,
     annotations: {
@@ -740,13 +755,15 @@ export const TOOLS: McpToolDef[] = [
       // Fail fast BEFORE queueing: a keyless deployment would otherwise accept
       // the job and fail it asynchronously — a worse loop for the agent than
       // one terminal llm_not_configured envelope (zero-config principle: the
-      // read tools keep working without an LLM key).
-      if (!deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
+      // read tools keep working without an LLM key). A capture asks for no
+      // model work at all, so it must succeed keyless — the guard moves to
+      // promotion, which is deliberately NOT an MCP tool.
+      if (!args.capture && !deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
       const space = await resolveSpace(deps.db, principal, args.space)
       const { space: _space, ...request } = args
       const enqueued = await deps.ingest.enqueue(deps.db, space.id, request)
-      // Sync fast-path (external_source_id + known content): terminal answer,
-      // nothing to poll — the stream head advanced.
+      // Terminal sync answers, nothing to poll: unchanged (the stream head
+      // advanced) or captured (the note is parked for a human).
       if ('status' in enqueued) return enqueued
       // Async-ack contract (§7.1): never block an MCP call on LLM latency.
       return { status: 'running' as const, ingest_id: enqueued.ingest_id, poll_with: 'wikikit_ingest_status' as const }
@@ -758,8 +775,9 @@ export const TOOLS: McpToolDef[] = [
       'Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional ' +
       'proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" ' +
       'means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the ' +
-      'job resumes on its own — keep polling. While running, phase and progress say which stage it is in ' +
-      'and how far along, and heartbeat_at shows the worker is alive.',
+      'job resumes on its own — keep polling. captured means the content is parked and nothing runs until ' +
+      'a human promotes or discards it; discarded is terminal. While running, phase and progress say which ' +
+      'stage it is in and how far along, and heartbeat_at shows the worker is alive.',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,
@@ -768,7 +786,7 @@ export const TOOLS: McpToolDef[] = [
       const [job] = await deps.db.select<{
         id: string
         space_id: string
-        status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked'
+        status: 'queued' | 'running' | 'done' | 'failed' | 'quota_blocked' | 'captured' | 'discarded'
         proposal_id: string | null
         source_id: string | null
         error: { code: string; message: string } | null
@@ -1037,7 +1055,7 @@ export const TOOLS: McpToolDef[] = [
       return spaceHealth(
         deps.db,
         space.id,
-        { from: args.from, to: args.to, top: args.top },
+        { from: args.from, to: args.to, top: args.top, tier: args.tier },
         {
           scaffoldingKinds: deps.config.scaffoldingKinds,
           gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,
@@ -1081,6 +1099,35 @@ export const TOOLS: McpToolDef[] = [
       // Async-ack contract (§7.1): the pipeline runs LLM calls, so the tool
       // returns the handle and never waits.
       return { status: 'running' as const, ingest_id, poll_with: 'wikikit_ingest_status' as const }
+    },
+  },
+  {
+    name: 'wikikit_overview',
+    description:
+      'One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its ' +
+      'oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports ' +
+      '(provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — ' +
+      'plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the ' +
+      'space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports ' +
+      'numbers and never a verdict: how large a backlog is too large is the operator’s policy.',
+    scope: 'knowledge:read',
+    inputSchema: zOverviewToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      zOverviewToolInput.parse(input)
+      // The same visibility rule as wikikit_spaces and the REST handler: a
+      // space-scoped key gets its one-row overview, never an error.
+      const spaces = await deps.db.select<{
+        id: string
+        slug: string
+        name: string
+        settings: Record<string, unknown>
+      }>('wk_spaces', { order: 'slug.asc', limit: 500 })
+      const visible = spaces.filter((space) => !principal.spaceId || principal.spaceId === space.id)
+      const overview = await spacesOverview(deps.db, visible)
+      // The identical wire shape REST serves, version stamp included, so a
+      // client diffing the two surfaces sees one document.
+      return { schema_version: 'wikikit.spaces-overview.v1' as const, ...overview }
     },
   },
 ]

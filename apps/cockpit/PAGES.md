@@ -120,7 +120,7 @@ The real vocabularies, from the migrations — do not invent members:
 |                  |                                                                                                                         |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | change proposal  | `pending`, `approved`, `rejected`, `failed`, `split` — plus a `changes_requested` **boolean** on a still-pending change |
-| ingest job       | `queued`, `running`, `done`, `failed`, `quota_blocked`                                                                  |
+| ingest job       | `queued`, `running`, `done`, `failed`, `quota_blocked`, `captured` (parked for a human), `discarded` (terminal)         |
 | claim            | `proposed`, `draft`, `verified`, `disputed`, `deprecated`                                                               |
 | concept revision | `proposed`, `current`, `superseded`, `rejected`                                                                         |
 | decision         | `proposed`, `active`, `superseded` — an in-force decision is `active`, never `current`                                  |

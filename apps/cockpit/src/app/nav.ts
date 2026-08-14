@@ -109,11 +109,15 @@ export const NAV: readonly NavEntry[] = [
     // `/v1/ingests/{id}` is deliberately NOT here: the list carries `phase` and
     // `progress` for every row, so the page never reads a job by id, and a
     // declaration nothing calls is the answer a reviewer gets when they ask
-    // what this page touches.
+    // what this page touches. The two by-id ACTIONS are here — the parked
+    // strip's process/discard buttons are the one place a human un-parks a
+    // captured note.
     api: [
       '/v1/spaces/{space}/ingests',
       '/v1/spaces/{space}/ingest',
       '/v1/spaces/{space}/ingest/document',
+      '/v1/ingests/{id}/process',
+      '/v1/ingests/{id}/discard',
       '/v1/spaces/{space}/proposals',
     ],
   },
@@ -131,6 +135,7 @@ export const NAV: readonly NavEntry[] = [
       '/v1/spaces/{space}/deleted-concepts',
       '/v1/spaces/{space}/concepts/{slug}',
       '/v1/spaces/{space}/concepts/{slug}/history',
+      '/v1/spaces/{space}/concepts/{slug}/neighbors',
       '/v1/spaces/{space}/concepts/{slug}/restore',
       '/v1/spaces/{space}/proposals',
     ],
@@ -170,8 +175,10 @@ export const NAV: readonly NavEntry[] = [
     group: 'wiki',
     // `knowledge:read` reveals it, and the schedule controls inside are admin.
     // Same reading as the changes queue: seeing what the wiki needs is not the
-    // same right as deciding when a report runs.
-    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules'],
+    // same right as deciding when a report runs. The outputs list feeds the
+    // kept-reports history (kind='health'); reading one whole report happens on
+    // the Answers page, which declares the by-id path.
+    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules', '/v1/spaces/{space}/outputs'],
   },
   {
     to: '/sources',
@@ -221,7 +228,13 @@ export const NAV: readonly NavEntry[] = [
     icon: FolderKanban,
     scope: 'knowledge:read',
     group: 'installation',
-    api: ['/v1/spaces', '/v1/spaces/{space}', '/v1/spaces/{space}/settings', '/v1/spaces/{space}/export'],
+    api: [
+      '/v1/spaces',
+      '/v1/spaces/{space}',
+      '/v1/spaces/{space}/settings',
+      '/v1/spaces/{space}/export',
+      '/v1/stats/overview',
+    ],
   },
   {
     to: '/api-keys',

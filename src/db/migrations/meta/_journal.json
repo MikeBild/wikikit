@@ -229,6 +229,12 @@
       "tag": "0037_wk_schedules",
       "when": 1785042000000,
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "tag": "0038_wk_capture",
+      "when": 1785045600000,
+      "breakpoints": true
     }
   ]
 }

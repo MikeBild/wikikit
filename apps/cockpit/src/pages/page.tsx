@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { PencilLine, Trash2 } from 'lucide-react'
 import Markdown from 'react-markdown'
@@ -19,7 +20,16 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
-import { claimSentence, evidenceOf, evidenceSummary, statusBadge } from '@/pages/page.logic'
+import {
+  claimSentence,
+  evidenceOf,
+  evidenceSummary,
+  neighborGroups,
+  neighborhoodEmpty,
+  sharedSourcesLabel,
+  statusBadge,
+  type NeighborRelation,
+} from '@/pages/page.logic'
 
 /**
  * One page of the wiki, read as a document.
@@ -183,7 +193,7 @@ export function PageDetailPage() {
 
                 <ClaimsPanel claims={data.claims} />
 
-                {data.relations.length > 0 ? <RelationsPanel relations={data.relations} /> : null}
+                <NeighborsPanel space={space} slug={slug} />
 
                 <p className="text-muted-foreground text-xs">
                   Revision {data.rev}, last changed <RelativeTime value={data.updated_at} data-testid="page-updated" />.
@@ -322,46 +332,146 @@ function ClaimRow({ claim, index: claimIndex }: { claim: Claim; index: number })
   )
 }
 
-/* -------------------------------------------------------------- the relations */
+/* ------------------------------------------------------------ the neighborhood */
 
-type Relation = { to_slug: string; kind: string; space: string | null }
-
-function RelationsPanel({ relations }: { relations: readonly Relation[] }) {
+/**
+ * The pages around this one, from its own read: relations both directions
+ * (incoming is the backlink surface the concept response never carried) and
+ * the pages quoting the same archived sources, where the shared count is the
+ * whole argument for the suggestion.
+ *
+ * Its own query and its own DataState on purpose — the neighborhood is a
+ * second, heavier read, and a slow or failing one must never blank the
+ * document above it. An empty neighborhood renders as a statement, not as a
+ * panel that silently is not there.
+ */
+function NeighborsPanel({ space, slug }: { space: string; slug: string }) {
+  const neighbors = useQuery({
+    queryKey: keys.conceptNeighbors(space, slug),
+    queryFn: () => wk.concepts.neighbors(space, slug),
+    enabled: slug !== '',
+  })
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="page-relations-heading">
-      <h2 id="page-relations-heading" className="text-sm font-semibold tracking-tight">
+    <section className="flex flex-col gap-3" aria-labelledby="page-neighbors-heading">
+      <h2 id="page-neighbors-heading" className="text-sm font-semibold tracking-tight">
         Related pages
       </h2>
-      <ul className="flex flex-wrap gap-2" data-testid="page-relations">
-        {relations.map((relation) => (
-          <li
-            key={`${relation.space ?? ''}:${relation.to_slug}:${relation.kind}`}
-            className="border-border flex items-center gap-2 rounded-lg border px-2 py-1 text-xs"
-          >
-            <span className="text-muted-foreground">{relation.kind.replace(/_/g, ' ')}</span>
-            {/* A relation into another wiki names a page this console cannot
-                address from here — `/pages/$slug` is scoped to the wiki in the
-                URL — so it is printed with its wiki rather than linked to a
-                page that would resolve to the wrong one. */}
-            {relation.space ? (
-              <span className="font-mono">
-                {relation.space}:{relation.to_slug}
-              </span>
-            ) : (
-              <Link
-                to="/pages/$slug"
-                params={{ slug: relation.to_slug }}
-                search={KEEP_SEARCH}
-                data-testid={`page-relation-${relation.to_slug}`}
-                className="font-mono underline underline-offset-2"
-              >
-                {relation.to_slug}
-              </Link>
-            )}
-          </li>
-        ))}
-      </ul>
+      <DataState
+        testId="page-neighbors"
+        query={neighbors}
+        skeleton={<NeighborsSkeleton />}
+        isEmpty={neighborhoodEmpty}
+        empty={
+          <EmptyState
+            title="No neighbors yet"
+            description="No reviewed relation touches this page, and no other page quotes the sources it quotes."
+            data-testid="page-neighbors-empty"
+          />
+        }
+      >
+        {(data) => {
+          const groups = neighborGroups(data.relations)
+          return (
+            <div className="flex flex-col gap-4">
+              {groups.outgoing.length > 0 ? (
+                <NeighborGroup group="out" label="Outgoing">
+                  {groups.outgoing.map((relation) => (
+                    <NeighborChip
+                      key={`${relation.space ?? ''}:${relation.slug}:${relation.kind}`}
+                      group="out"
+                      relation={relation}
+                    />
+                  ))}
+                </NeighborGroup>
+              ) : null}
+              {groups.incoming.length > 0 ? (
+                <NeighborGroup group="in" label="Incoming">
+                  {groups.incoming.map((relation) => (
+                    <NeighborChip key={`${relation.slug}:${relation.kind}`} group="in" relation={relation} />
+                  ))}
+                </NeighborGroup>
+              ) : null}
+              {data.same_source.length > 0 ? (
+                <NeighborGroup group="sources" label="Same sources">
+                  {data.same_source.map((sibling) => (
+                    <li
+                      key={sibling.slug}
+                      className="border-border flex items-center gap-2 rounded-lg border px-2 py-1 text-xs"
+                    >
+                      <Link
+                        to="/pages/$slug"
+                        params={{ slug: sibling.slug }}
+                        search={KEEP_SEARCH}
+                        data-testid={`page-neighbor-sources-${sibling.slug}`}
+                        className="underline underline-offset-2"
+                      >
+                        {sibling.title}
+                      </Link>
+                      {/* The ranking, said out loud: why THIS page is suggested. */}
+                      <span className="text-muted-foreground">{sharedSourcesLabel(sibling.shared_sources)}</span>
+                    </li>
+                  ))}
+                </NeighborGroup>
+              ) : null}
+            </div>
+          )
+        }}
+      </DataState>
     </section>
+  )
+}
+
+function NeighborGroup({ group, label, children }: { group: string; label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 id={`page-neighbors-${group}-heading`} className="text-muted-foreground text-xs font-medium tracking-tight">
+        {label}
+      </h3>
+      <ul
+        className="flex flex-wrap gap-2"
+        aria-labelledby={`page-neighbors-${group}-heading`}
+        data-testid={`page-neighbors-${group}`}
+      >
+        {children}
+      </ul>
+    </div>
+  )
+}
+
+function NeighborChip({ group, relation }: { group: string; relation: NeighborRelation }) {
+  return (
+    <li className="border-border flex items-center gap-2 rounded-lg border px-2 py-1 text-xs">
+      <span className="text-muted-foreground">{relation.kind.replace(/_/g, ' ')}</span>
+      {/* A relation into another wiki names a page this console cannot
+          address from here — `/pages/$slug` is scoped to the wiki in the
+          URL — so it is printed with its wiki rather than linked to a
+          page that would resolve to the wrong one. */}
+      {relation.space ? (
+        <span className="font-mono">
+          {relation.space}:{relation.slug}
+        </span>
+      ) : (
+        <Link
+          to="/pages/$slug"
+          params={{ slug: relation.slug }}
+          search={KEEP_SEARCH}
+          data-testid={`page-neighbor-${group}-${relation.slug}`}
+          className="font-mono underline underline-offset-2"
+        >
+          {relation.slug}
+        </Link>
+      )}
+    </li>
+  )
+}
+
+function NeighborsSkeleton() {
+  return (
+    <div className="flex flex-wrap gap-2" aria-busy="true" aria-label="Loading">
+      <Skeleton className="h-6 w-40" />
+      <Skeleton className="h-6 w-32" />
+      <Skeleton className="h-6 w-36" />
+    </div>
   )
 }
 

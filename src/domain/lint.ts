@@ -3,15 +3,23 @@
 //
 // The severity mapping is FIXED by contract (do not tune it per space):
 //   error: contradictions, missing-citations, broken-relations
-//   warn:  stale-claims, orphan-concepts, unsourced-concepts, stub-concepts,
-//          scaffolded-claims
-//   info:  empty-concepts, unreviewed-proposals, dangling-sources
+//   warn:  stale-claims, orphan-concepts, unsourced-concepts,
+//          self-derived-only, stub-concepts, scaffolded-claims,
+//          tombstoned-sources, broken-cross-space-links, stale-proposals,
+//          stale-captures
+//   info:  empty-concepts, unreviewed-proposals, dangling-sources,
+//          missing-charter
+//
+// Rules also carry a FIXED tier (RULE_TIERS): 'quick' is the queue-and-inbox
+// pulse an operator can run every day, 'deep' is the full knowledge scan, and
+// deep is a strict superset of quick — a deep run never skips a quick rule, so
+// the rhythms nest instead of forking.
 //
 // Every rule is one space-scoped query over the READER-VISIBLE state (current
 // revisions, verified/disputed/deprecated claims, active relations) — lint
 // judges the knowledge base users actually see, never the staging area. The
-// one deliberate exception is unreviewed-proposals, whose whole point is to
-// surface the staging backlog.
+// deliberate exceptions are the quick-tier rules, whose whole point is to
+// surface the staging backlog, the parked inbox and the steering document.
 import type { Db } from '../db/postgres.ts'
 import { getFunctionalPredicates, VISIBLE_CLAIM_STATUSES } from './claims.ts'
 import { EVIDENCE_LATERAL, notScaffolding, type ScaffoldingOptions } from './concepts.ts'
@@ -68,6 +76,9 @@ export type LintRule =
   | 'dangling-sources'
   | 'tombstoned-sources'
   | 'broken-cross-space-links'
+  | 'missing-charter'
+  | 'stale-proposals'
+  | 'stale-captures'
 
 export type LintSeverity = 'error' | 'warn' | 'info'
 
@@ -101,6 +112,44 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
   'dangling-sources': 'info',
   'tombstoned-sources': 'warn',
   'broken-cross-space-links': 'warn',
+  // info, not warn: a wiki without a charter is a legitimate wiki — the finding
+  // says the steering document is absent, not that anything is wrong.
+  'missing-charter': 'info',
+  // warn beside the info census unreviewed-proposals keeps: the census names
+  // every waiting change, this rule names the ones a fortnight old — the age is
+  // what turns a queue into a backlog, and a surface grouping the two must not
+  // read them as a double report.
+  'stale-proposals': 'warn',
+  'stale-captures': 'warn',
+}
+
+export type LintTier = 'quick' | 'deep'
+
+/**
+ * The contract's fixed rule → tier table, exported for the drift tests exactly
+ * like LINT_SEVERITY. 'quick' is the daily pulse over the queues, the parked
+ * inbox and the steering document — cheap counts an operator can run on every
+ * visit. 'deep' marks the rules only the full knowledge scan runs. A deep run
+ * executes EVERY rule (deep ⊇ quick); the tiers nest, they never fork.
+ */
+export const RULE_TIERS: Record<LintRule, LintTier> = {
+  contradictions: 'deep',
+  'missing-citations': 'deep',
+  'broken-relations': 'deep',
+  'stale-claims': 'deep',
+  'orphan-concepts': 'deep',
+  'unsourced-concepts': 'deep',
+  'self-derived-only': 'deep',
+  'stub-concepts': 'deep',
+  'scaffolded-claims': 'deep',
+  'empty-concepts': 'deep',
+  'unreviewed-proposals': 'quick',
+  'dangling-sources': 'quick',
+  'tombstoned-sources': 'deep',
+  'broken-cross-space-links': 'deep',
+  'missing-charter': 'quick',
+  'stale-proposals': 'quick',
+  'stale-captures': 'quick',
 }
 
 // One finding per contradictory frame (not per claim): the reviewer resolves
@@ -764,6 +813,79 @@ async function unreviewedProposals(db: Db, spaceId: string): Promise<LintFinding
   }))
 }
 
+// Pending proposals older than fourteen days. The census above names every
+// waiting change; this rule names the ones whose AGE says the queue stopped
+// moving — the production finding behind the whole care surface was hundreds of
+// pending changes whose oldest sat three weeks with every surface reporting
+// health. Fourteen days is a fixed threshold on purpose (a per-space policy is
+// a follow-up, not a default), and warn because something is expected of
+// somebody: decide, or say why not.
+async function staleProposals(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ id: string; title: string; days_open: number }>(
+    `SELECT id, title,
+            floor(extract(epoch FROM now() - created_at) / 86400)::int AS days_open
+       FROM wk_change_proposals
+      WHERE space_id = $1 AND status = 'pending'
+        AND created_at < now() - interval '14 days'
+      ORDER BY created_at ASC`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'stale-proposals' as const,
+    severity: LINT_SEVERITY['stale-proposals'],
+    message: `proposal "${row.title}" has waited ${row.days_open} days for a review`,
+    details: { proposal_id: row.id, title: row.title, days_open: row.days_open },
+  }))
+}
+
+// Captured thoughts parked longer than thirty days. Capture is deliberately
+// free of every gate (no LLM, no queue room, no dedup), so nothing else in the
+// product ever pushes back on a growing inbox — this rule is the pressure
+// valve. Warn, not error, and the message says so in as many words: an old
+// inbox item is a signal, not an error.
+async function staleCaptures(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ id: string; title: string | null; days_parked: number }>(
+    // The same title fallback the jobs list computes for a captured row: the
+    // explicit title when the capture carried one, else the head of the text —
+    // the body itself never leaves the database through a lint finding.
+    `SELECT id,
+            coalesce(input->>'title', left(coalesce(input->>'text', input->>'markdown', input->>'url'), 80)) AS title,
+            floor(extract(epoch FROM now() - created_at) / 86400)::int AS days_parked
+       FROM wk_ingest_jobs
+      WHERE space_id = $1 AND status = 'captured'
+        AND created_at < now() - interval '30 days'
+      ORDER BY created_at ASC`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'stale-captures' as const,
+    severity: LINT_SEVERITY['stale-captures'],
+    message: `captured thought "${row.title ?? row.id}" has been parked ${row.days_parked} days — an old inbox item is a signal, not an error: process it or discard it`,
+    details: { ingest_id: row.id, days_parked: row.days_parked },
+  }))
+}
+
+// No current charter revision: nothing steers synthesis and nothing tells an
+// agent what belongs in this wiki. info, because an absent charter is a
+// legitimate state (the partial unique index from 0031 guarantees at most one
+// current row, so existence is the whole question) — the finding exists so the
+// absence is a visible choice rather than an accident.
+async function missingCharter(db: Db, spaceId: string): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ found: number }>(
+    `SELECT 1 AS found FROM wk_charter_revisions WHERE space_id = $1 AND status = 'current' LIMIT 1`,
+    [spaceId],
+  )
+  if (rows.length) return []
+  return [
+    {
+      rule: 'missing-charter' as const,
+      severity: LINT_SEVERITY['missing-charter'],
+      message:
+        'this space has no charter: nothing steers synthesis or tells an agent what belongs here — write one when the wiki has a purpose worth stating',
+    },
+  ]
+}
+
 // Archived sources no claim cites: paid for (storage, maybe LLM calls) but
 // contributing nothing citable. Often just "ingested but proposal still
 // pending/rejected" — info severity on purpose.
@@ -1086,30 +1208,48 @@ export async function lintProposal(
 }
 
 /**
- * Run every check. Findings are ordered error → warn → info so the first line
- * of output is always the worst problem; counts let CI gate with a single
- * jq expression (plan §13.F).
+ * Run the checks of the requested tier — deep (the default, and a strict
+ * superset of quick) runs every rule. Findings are ordered error → warn → info
+ * so the first line of output is always the worst problem; counts let CI gate
+ * with a single jq expression (plan §13.F).
  */
-export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOptions): Promise<LintReport> {
+export async function lintSpace(
+  db: Db,
+  spaceId: string,
+  options: ScaffoldingOptions & { tier?: LintTier },
+): Promise<LintReport> {
   const kinds = options.scaffoldingKinds
-  // Sequential on purpose: lint runs on demand over one pool — eight parallel
-  // queries would hog connections for a diagnostics endpoint.
-  const findings: LintFinding[] = [
-    ...(await contradictions(db, spaceId)),
-    ...(await missingCitations(db, spaceId)),
-    ...(await brokenRelations(db, spaceId)),
-    ...(await staleClaims(db, spaceId)),
-    ...(await orphanConcepts(db, spaceId, kinds)),
-    ...(await unsourcedConcepts(db, spaceId, kinds)),
-    ...(await selfDerivedOnly(db, spaceId, kinds)),
-    ...(await tombstonedSources(db, spaceId)),
-    ...(await brokenCrossSpaceLinks(db, spaceId)),
-    ...(await stubConcepts(db, spaceId)),
-    ...(await scaffoldedClaims(db, spaceId, kinds)),
-    ...(await emptyConcepts(db, spaceId, kinds)),
-    ...(await unreviewedProposals(db, spaceId)),
-    ...(await danglingSources(db, spaceId)),
+  // Deep by default: a caller that says nothing gets the whole report, and only
+  // an explicit 'quick' narrows to the pulse rules. The rule list is keyed by
+  // name so the gate is RULE_TIERS itself — a rule added without a tier is a
+  // compile error, not a rule one rhythm silently misses.
+  const tier = options.tier ?? 'deep'
+  const rules: readonly [LintRule, () => Promise<LintFinding[]>][] = [
+    ['contradictions', () => contradictions(db, spaceId)],
+    ['missing-citations', () => missingCitations(db, spaceId)],
+    ['broken-relations', () => brokenRelations(db, spaceId)],
+    ['stale-claims', () => staleClaims(db, spaceId)],
+    ['orphan-concepts', () => orphanConcepts(db, spaceId, kinds)],
+    ['unsourced-concepts', () => unsourcedConcepts(db, spaceId, kinds)],
+    ['self-derived-only', () => selfDerivedOnly(db, spaceId, kinds)],
+    ['tombstoned-sources', () => tombstonedSources(db, spaceId)],
+    ['broken-cross-space-links', () => brokenCrossSpaceLinks(db, spaceId)],
+    ['stub-concepts', () => stubConcepts(db, spaceId)],
+    ['scaffolded-claims', () => scaffoldedClaims(db, spaceId, kinds)],
+    ['stale-proposals', () => staleProposals(db, spaceId)],
+    ['stale-captures', () => staleCaptures(db, spaceId)],
+    ['empty-concepts', () => emptyConcepts(db, spaceId, kinds)],
+    ['unreviewed-proposals', () => unreviewedProposals(db, spaceId)],
+    ['dangling-sources', () => danglingSources(db, spaceId)],
+    ['missing-charter', () => missingCharter(db, spaceId)],
   ]
+  // Sequential on purpose: lint runs on demand over one pool — a fistful of
+  // parallel queries would hog connections for a diagnostics endpoint.
+  const findings: LintFinding[] = []
+  for (const [rule, run] of rules) {
+    if (tier === 'quick' && RULE_TIERS[rule] !== 'quick') continue
+    findings.push(...(await run()))
+  }
   const counts = { error: 0, warn: 0, info: 0 }
   for (const finding of findings) counts[finding.severity] += 1
   return { findings, counts }

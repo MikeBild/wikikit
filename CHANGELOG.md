@@ -6,6 +6,123 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.37.0 - 2026-08-14
+
+### Added
+
+- **The number that counts now lives in one place.** With nine wikis, the only
+  figure that decides an operator's morning — how many changes are waiting, and
+  how long the oldest has waited — was scattered across eight per-space pages.
+  `GET /v1/stats/overview` and `wikikit_overview` answer it in one LLM-free
+  read: per visible space the review backlog with the age of its oldest change,
+  proposal activity over the last 7 days and the visible page count, with
+  totals summed server-side and a one-row answer for a space-scoped key. Each
+  backlog also says how much of it is **derived** — pending changes whose every
+  cited source is stamped `derived_from_output_id`, the mark promotion leaves on
+  an answer filed back in. That split is provenance, never a quality verdict:
+  distilled human knowledge hiding behind a stack of machine reports is exactly
+  what the overview exists to make visible. No verdict anywhere, and every
+  absent age is `null`, never `0` — the same discipline as the health read.
+- **The Wikis page carries the numbers, not just the names.** The cockpit's
+  cross-wiki list gains sortable columns for the open backlog (linked straight
+  to the filtered changes queue of that wiki), the age of its oldest change,
+  the 7-day pulse and the page count, with a totals strip above the table and
+  attention order — oldest wait first — as the default. Identity renders
+  before numbers; an overview read that fails leaves dashes, never a blanked
+  table.
+- **The session briefing states the backlog.** `GET /v1/agent/briefing` (and
+  `/v1/agent/context`, which inherits the field) now carries
+  `pending_changes: { total, oldest_days, spaces }` and prints the same two
+  lines the scheduled briefing already uses — "N change(s) pending review." /
+  "Oldest: D day(s) old." — per briefed space, with a sum line across several.
+  A space with nothing pending gets no line, and the token-budget trim removes
+  pinned concepts only, never these fact lines.
+- **A place to think: capture without processing.** Ingest was processing, not
+  an inbox — submitting anything demanded an LLM key, a slot under the
+  per-space queue ceiling, and started model work. `POST .../ingest` with
+  `capture: true` (and `wikikit_ingest` with the same flag, which now works
+  keyless) parks the text verbatim as a `wk_ingest_jobs` row in the new
+  `captured` status instead: no LLM call, no dedup, no queue slot, `200
+{status:"captured", ingest_id}`. Nothing runs until a human decides —
+  `POST /v1/ingests/{id}/process` promotes the note into the ordinary pipeline
+  and pays the guards capture skipped (LLM key, queue room) at that moment;
+  `POST /v1/ingests/{id}/discard` ends it (`discarded`, terminal, the row stays
+  for the record). Promotion is deliberately not an MCP tool: parking is
+  decision-free, un-parking is a human step. A promoted row keeps its
+  `created_at` and therefore jumps to the queue front; identical text parked
+  twice is two captured rows — both documented decisions.
+- **The inbox holds thoughts, not just documents.** The cockpit's Inbox gains a
+  quick-capture card — one textarea, one button, nothing to configure — and a
+  "Parked" strip listing the wiki's captured notes with title and excerpt
+  (served by the job list, which still never ships the body), their age with a
+  warning past 30 days, and Process/Discard behind confirmations that state
+  the exact effect.
+- **The numbers stay honest.** Captured and discarded rows are excluded from
+  the ingest volume statistics (a parked note never entered the pipeline) and
+  never count against the per-space queue ceiling — the ceiling meters work,
+  and it applies the moment a capture is promoted.
+- **Lint learns rhythm and three new rules.** Every rule now carries a fixed
+  tier beside its fixed severity: `?tier=quick` (also on `wikikit_lint` and
+  `wikikit_health`) runs only the queue/inbox/charter pulse — cheap counts an
+  operator can ask for on every visit — while the default `deep` runs the full
+  knowledge scan and is a strict superset, so the rhythms nest instead of
+  forking. Scheduled health runs pass `deep` explicitly: the persisted report
+  is the full protocol even if the default ever becomes overridable. The new
+  rules: `stale-proposals` (warn) names the pending changes older than 14 days
+  with `{proposal_id, title, days_open}` — the age is what turns a queue into a
+  backlog, and the `unreviewed-proposals` census stays beside it;
+  `stale-captures` (warn) names thoughts parked past 30 days, because capture
+  deliberately bypasses every gate and needs a pressure valve — an old inbox
+  item is a signal, not an error; `missing-charter` (info) fires when no
+  current charter revision exists, so the absence of a steering document is a
+  visible choice rather than an accident.
+- **Health counts the parked thoughts.** The composed health read's ingest
+  queue gains `captured` and `oldest_captured_days` (null when nothing is
+  parked, days because the wait that matters is the thirty-day one) — beside
+  `depth`, never inside it, exactly like `quota_blocked`: a parked thought
+  waits for a decision, not for a worker. The scheduled health report renders
+  the same facts.
+- **Care findings become three-part rows, and the reports get a shelf.** Every
+  finding on the cockpit's Care page now answers all three questions: what the
+  linter said, why it counts (a per-rule explanation behind a help icon, in
+  both languages), and where the fix happens — stale changes route to the
+  change, parked thoughts to the Inbox, the missing charter to Guidelines. A
+  change that also has a stale warning appears once, as the warning, with the
+  folded census rows stated rather than hidden. The ingest-queue card shows the
+  parked count with its oldest age, and a new "Kept care reports" section lists
+  the persisted health reports — including the empty ones, because an empty
+  report is information: it says somebody looked.
+- **Every page knows its neighborhood.** New LLM-free read
+  `GET /v1/spaces/{space}/concepts/{slug}/neighbors`
+  (`wikikit.concept-neighbors.v1`): the reviewed relations folded to their far
+  endpoint in BOTH directions — inbound is the backlink surface the concept
+  read never carried, same-space only — each with the resolved page title, plus
+  `same_source`: the same-space concepts whose verified/disputed claims quote
+  the same archived sources, ranked by how many distinct sources the two pages
+  share. The count travels because it IS the argument for the suggestion; pages
+  already related and the page itself are excluded, because the list exists to
+  surface what the relations do not already show. No embeddings — relations and
+  shared citations first. `zConceptResponse` is untouched: agents pin that
+  shape, and the neighborhood is a second, independently-loading read.
+- **The cockpit's Related pages panel becomes the neighborhood.** Three groups
+  — Outgoing, Incoming, and Same sources with its "n shared sources" hint — on
+  a query of their own, so a slow or failing neighborhood read never blanks the
+  document above it. Cross-wiki targets stay inert text (this console cannot
+  address another wiki's page), and an empty neighborhood renders as a
+  statement rather than a panel that silently is not there.
+
+### Rollback
+
+- The `0038_wk_capture` migration only widens the `wk_ingest_jobs` status
+  CHECK (strict superset) and adds a partial index; it is forward-only.
+  Rolling back the binary to 0.36.0 is safe with the migration in place:
+  0.36.0 tolerates rows in the new statuses — its worker claims only
+  `queued`, its queue cap counts only `queued`/`quota_blocked`, and its health
+  read filters explicitly — but it can neither list nor promote them, so
+  clear the Parked strip (process or discard) before rolling back if the
+  Inbox must stay usable. Never roll back across this schema boundary and
+  then further.
+
 ## 0.36.0 - 2026-08-14
 
 ### Added

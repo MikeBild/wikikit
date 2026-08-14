@@ -401,13 +401,21 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -617,6 +625,14 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
           "type": "string",
         },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
+          "type": "string",
+        },
         "to": {
           "description": "Window end (ISO 8601); default now",
           "format": "date-time",
@@ -645,6 +661,30 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       },
     },
     "name": "wikikit_health",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_overview",
   },
 ]
 `;
@@ -734,10 +774,14 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -835,7 +879,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1664,13 +1708,21 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -1882,10 +1934,14 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -1983,7 +2039,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -2449,6 +2505,14 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
           "type": "string",
         },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
+          "type": "string",
+        },
         "to": {
           "description": "Window end (ISO 8601); default now",
           "format": "date-time",
@@ -2517,6 +2581,30 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       },
     },
     "name": "wikikit_promote_output",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_overview",
   },
 ]
 `;
@@ -3016,13 +3104,21 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -3304,10 +3400,14 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -3405,7 +3505,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3960,6 +4060,14 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
           "type": "string",
         },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
+          "type": "string",
+        },
         "to": {
           "description": "Window end (ISO 8601); default now",
           "format": "date-time",
@@ -4028,6 +4136,30 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       },
     },
     "name": "wikikit_promote_output",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_overview",
   },
 ]
 `;
@@ -4433,13 +4565,21 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -4721,10 +4861,14 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "capture": {
+          "description": "Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup",
+          "type": "boolean",
+        },
         "derived_from_output_id": {
           "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
           "format": "uuid",
@@ -4822,7 +4966,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -5377,6 +5521,14 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
           "type": "string",
         },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
+          "type": "string",
+        },
         "to": {
           "description": "Window end (ISO 8601); default now",
           "format": "date-time",
@@ -5445,6 +5597,30 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
     },
     "name": "wikikit_promote_output",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_overview",
   },
 ]
 `;

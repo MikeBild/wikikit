@@ -186,6 +186,7 @@ describe('createMcpMount', () => {
       'wikikit_deleted_concepts',
       'wikikit_outputs',
       'wikikit_health',
+      'wikikit_overview',
     ])
 
     const proposeSession = await initialize(mount, 'proposer')
@@ -426,7 +427,7 @@ describe('toNodeRawHandler (the app.mountRawHandler bridge)', () => {
       })
       expect(list.status).toBe(200)
       const tools = (await readMcpJson<{ result: { tools: { name: string }[] } }>(list)).result.tools
-      expect(tools).toHaveLength(15) // knowledge:read palette (incl. lifecycle inventory, outputs, health)
+      expect(tools).toHaveLength(16) // knowledge:read palette (incl. lifecycle inventory, outputs, health, overview)
     } finally {
       mount.stop()
       await new Promise<void>((resolve) => server.close(() => resolve()))

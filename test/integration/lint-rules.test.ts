@@ -692,7 +692,8 @@ describe('lint rules (integration)', () => {
     for (const rule of ['orphan-concepts', 'unsourced-concepts', 'empty-concepts', 'stub-concepts']) {
       expect(byRule.has(rule as never), rule).toBe(false)
     }
-    expect(report.counts).toEqual({ error: 1, warn: 1, info: 0 })
+    // The one info is missing-charter: no space seeded here writes guidelines.
+    expect(report.counts).toEqual({ error: 1, warn: 1, info: 1 })
   })
 
   it('stub-concepts: warn in the counts census, overlapping empty-concepts on purpose', async () => {
@@ -711,6 +712,89 @@ describe('lint rules (integration)', () => {
     expect(byRule.get('orphan-concepts')).toBe('warn')
     expect(byRule.get('unsourced-concepts')).toBe('warn')
     expect(byRule.get('empty-concepts')).toBe('info')
-    expect(report.counts).toEqual({ error: 0, warn: 3, info: 1 })
+    // info counts the page's empty-concepts line plus the space's missing charter.
+    expect(report.counts).toEqual({ error: 0, warn: 3, info: 2 })
+  })
+
+  // ------------------------------------------------- maturity rules (0.39.0)
+  //
+  // The quick-tier rules read queues and configuration rather than pages, and
+  // every claim below is about what real SQL selects: an age threshold on a
+  // real timestamp, a status only the capture path writes, a partial unique
+  // index deciding whether a charter is current.
+
+  it('stale-proposals: fires past 14 days with the age in the details, silent before', async () => {
+    const spaceId = await seedSpace('stale-proposals-space', {})
+    const fresh = await stage(spaceId, 'fresh-page', [])
+    const old = await stage(spaceId, 'old-page', [])
+    await db.query(`UPDATE wk_change_proposals SET created_at = now() - interval '21 days' WHERE id = $1`, [old])
+
+    const report = await lintSpace(db, spaceId, BUILT_IN_ONLY)
+    const stale = report.findings.filter((finding) => finding.rule === 'stale-proposals')
+    expect(stale).toHaveLength(1)
+    expect(stale[0]!.severity).toBe('warn')
+    expect(stale[0]!.details).toMatchObject({ proposal_id: old, days_open: 21 })
+    // The census still names BOTH — the overlap is the contract, the grouping
+    // is the care page's job.
+    const census = report.findings.filter((finding) => finding.rule === 'unreviewed-proposals')
+    expect(census.map((finding) => finding.details!.proposal_id).sort()).toEqual([fresh, old].sort())
+  })
+
+  it('stale-captures: a thought parked past 30 days is a signal, not an error', async () => {
+    const spaceId = await seedSpace('stale-captures-space', {})
+    const [oldJob] = await db.insert<{ id: string }>('wk_ingest_jobs', {
+      space_id: spaceId,
+      status: 'captured',
+      input: JSON.stringify({ text: 'an old thought worth keeping or killing' }),
+    })
+    await db.query(`UPDATE wk_ingest_jobs SET created_at = now() - interval '31 days' WHERE id = $1`, [oldJob!.id])
+    await db.insert('wk_ingest_jobs', {
+      space_id: spaceId,
+      status: 'captured',
+      input: JSON.stringify({ text: 'a fresh thought' }),
+    })
+
+    const report = await lintSpace(db, spaceId, BUILT_IN_ONLY)
+    const stale = report.findings.filter((finding) => finding.rule === 'stale-captures')
+    expect(stale).toHaveLength(1)
+    expect(stale[0]!.severity).toBe('warn')
+    expect(stale[0]!.message).toContain('a signal, not an error')
+    expect(stale[0]!.details).toMatchObject({ ingest_id: oldJob!.id, days_parked: 31 })
+  })
+
+  it('missing-charter: info until a current revision exists, silent after', async () => {
+    const spaceId = await seedSpace('missing-charter-space', {})
+    const before = await lintSpace(db, spaceId, BUILT_IN_ONLY)
+    expect(before.findings.filter((finding) => finding.rule === 'missing-charter')).toHaveLength(1)
+    expect(before.findings.find((finding) => finding.rule === 'missing-charter')!.severity).toBe('info')
+
+    await db.insert('wk_charter_revisions', {
+      space_id: spaceId,
+      rev: 1,
+      status: 'current',
+      markdown: '# Charter\n\nWhat belongs here.',
+      created_by: 'lint-rules-test',
+    })
+    const after = await lintSpace(db, spaceId, BUILT_IN_ONLY)
+    expect(after.findings.filter((finding) => finding.rule === 'missing-charter')).toHaveLength(0)
+  })
+
+  it('tier quick is a strict subset of deep, and quick never pays for a page scan', async () => {
+    const spaceId = await seedSpace('tier-space', {})
+    // One deep-only finding (an approved page with an uncited claim) and one
+    // quick finding (its pending sibling) so both tiers have something to say.
+    await stageAndApprove(spaceId, 'cited-nothing', [{ subject: 'okf', predicate: 'is', object: 'asserted' }])
+    await stage(spaceId, 'still-waiting', [])
+
+    const deep = await lintSpace(db, spaceId, BUILT_IN_ONLY)
+    const quick = await lintSpace(db, spaceId, { ...BUILT_IN_ONLY, tier: 'quick' })
+
+    const deepRules = new Set(deep.findings.map((finding) => finding.rule))
+    for (const finding of quick.findings) expect(deepRules.has(finding.rule)).toBe(true)
+    expect(quick.findings.some((finding) => finding.rule === 'unreviewed-proposals')).toBe(true)
+    expect(quick.findings.some((finding) => finding.rule === 'missing-charter')).toBe(true)
+    // The page-level fault exists and only deep reports it.
+    expect(deepRules.has('missing-citations')).toBe(true)
+    expect(quick.findings.some((finding) => finding.rule === 'missing-citations')).toBe(false)
   })
 })

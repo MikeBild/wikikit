@@ -12,9 +12,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
   backlogStanding,
+  displayFindings,
   draftsFrom,
   findingTarget,
   isTimeZoneName,
+  ruleWhy,
   scheduleBody,
   scheduleProblem,
   SCHEDULE_KINDS,
@@ -23,6 +25,7 @@ import {
   WEEKDAYS,
   type ScheduleDraft,
 } from '../../../apps/cockpit/src/pages/care.logic.ts'
+import { LINT_SEVERITY } from '../../../src/domain/lint.ts'
 
 describe('the review queue: two states, not a scale', () => {
   test('an empty queue is GOOD NEWS and reads as such', () => {
@@ -104,6 +107,55 @@ describe('every finding has to lead somewhere', () => {
     expect(findingTarget({ rule: 'unreviewed-proposals', details: { proposal_id: '  ' } })).toBeNull()
     expect(findingTarget({ rule: 'dangling-sources', details: { source_id: 42 } })).toBeNull()
     expect(findingTarget({ rule: 'orphan-concepts', concept_slug: '' })).toBeNull()
+  })
+
+  test('the two findings whose fix happens on a PAGE of this console go to that page', () => {
+    // A parked thought is processed or discarded in the Inbox; the missing
+    // guidelines are written under Guidelines. Neither carries an id any detail
+    // route could resolve, so the rule decides before the field probes run.
+    expect(findingTarget({ rule: 'stale-captures', details: { ingest_id: 'job-1', days_parked: 45 } })).toEqual({
+      kind: 'inbox',
+    })
+    expect(findingTarget({ rule: 'missing-charter' })).toEqual({ kind: 'charter' })
+    // The stale change goes to THE change, like its census sibling.
+    expect(
+      findingTarget({ rule: 'stale-proposals', details: { proposal_id: 'prop-2', title: 'Old', days_open: 21 } }),
+    ).toEqual({ kind: 'change', id: 'prop-2' })
+  })
+
+  test('every rule the server ships carries a "why it counts" sentence', () => {
+    // The three-part finding: what the linter said, why it matters, where the
+    // fix happens. The map is keyed by the server's own rule union, so a rule
+    // added there without a rationale here is a failing test, not a silent
+    // help icon that never appears.
+    for (const rule of Object.keys(LINT_SEVERITY)) {
+      expect(ruleWhy(rule), `${rule} has no why-it-counts text`).toBeTruthy()
+    }
+    expect(ruleWhy('some-future-rule')).toBeNull()
+  })
+})
+
+describe('one queue, one row: stale vs. census proposal findings', () => {
+  const census = (id: string) => ({ rule: 'unreviewed-proposals', details: { proposal_id: id } })
+  const stale = (id: string) => ({ rule: 'stale-proposals', details: { proposal_id: id, days_open: 21 } })
+
+  test('the census note of a change that also has a stale warning is folded into it', () => {
+    const { shown, folded } = displayFindings([stale('a'), census('a'), census('b')])
+    expect(shown.map((finding) => finding.rule)).toEqual(['stale-proposals', 'unreviewed-proposals'])
+    expect(shown.at(-1)!.details!.proposal_id).toBe('b')
+    expect(folded).toBe(1)
+  })
+
+  test('without a stale warning nothing is folded and nothing is copied', () => {
+    const findings = [census('a'), census('b')]
+    expect(displayFindings(findings)).toEqual({ shown: findings, folded: 0 })
+  })
+
+  test('every other rule passes through untouched', () => {
+    const other = { rule: 'missing-citations', concept_slug: 'wikikit' }
+    const { shown, folded } = displayFindings([stale('a'), other])
+    expect(shown).toEqual([stale('a'), other])
+    expect(folded).toBe(0)
   })
 })
 

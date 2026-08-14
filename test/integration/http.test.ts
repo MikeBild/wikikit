@@ -284,6 +284,26 @@ describe('http surface (integration)', () => {
     expect(body.revisions[0]!.agent_meta.model).toBe('fake')
   })
 
+  it('neighbors: a leaf page answers with empty groups, a bogus slug is a clean 404', async () => {
+    // A page with no relations and no co-cited sources has a VALID empty
+    // neighborhood — the empty arrays are the statement, not an error.
+    const res = await fetch(`${base}/v1/spaces/demo/concepts/okf-notes/neighbors`, { headers: bearer(readerKey) })
+    expect(res.status).toBe(200)
+    const neighbors = (await res.json()) as {
+      schema_version: string
+      relations: unknown[]
+      same_source: unknown[]
+    }
+    expect(neighbors.schema_version).toBe('wikikit.concept-neighbors.v1')
+    expect(Array.isArray(neighbors.relations)).toBe(true)
+    expect(Array.isArray(neighbors.same_source)).toBe(true)
+
+    const missing = await fetch(`${base}/v1/spaces/demo/concepts/ghost-concept/neighbors`, {
+      headers: bearer(readerKey),
+    })
+    expect(missing.status).toBe(404)
+  })
+
   it('concept list: ETag = approved epoch, 304 on If-None-Match', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/concepts`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)
@@ -449,6 +469,82 @@ describe('http surface (integration)', () => {
     expect(source.markdown).toContain('concept identity')
   })
 
+  it('capture lifecycle: park → list with excerpt → discard terminal; process promotes into the pipeline', async () => {
+    // Park two thoughts: one to discard, one to process. 200, not 202 —
+    // nothing is running and nothing needs polling.
+    const park = async (text: string, title?: string) => {
+      const res = await fetch(`${base}/v1/spaces/demo/ingest`, {
+        method: 'POST',
+        headers: json(writerKey),
+        body: JSON.stringify({ text, title, capture: true }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { status: string; ingest_id: string }
+      expect(body.status).toBe('captured')
+      return body.ingest_id
+    }
+    const toDiscard = await park('A thought that turns out to be nothing.', 'Passing thought')
+    // Identical text parked twice is two rows — dedup is content-hash-on-archive
+    // and a capture archives nothing.
+    const twin = await park('A thought that turns out to be nothing.', 'Passing thought')
+    expect(twin).not.toBe(toDiscard)
+    const toProcess = await park('OKF bundles carry concept identity in frontmatter.')
+
+    // The parked strip: captured rows carry title + truncated excerpt; the
+    // worker never claims them.
+    const list = (await (
+      await fetch(`${base}/v1/spaces/demo/ingests?status=captured`, { headers: bearer(readerKey) })
+    ).json()) as { items: { ingest_id: string; title: string | null; excerpt: string | null }[] }
+    expect(list.items.length).toBe(3)
+    const parked = list.items.find((item) => item.ingest_id === toDiscard)!
+    expect(parked.title).toBe('Passing thought')
+    expect(parked.excerpt).toContain('turns out to be nothing')
+    expect(await app.ingest.runOnce()).toBe(false)
+
+    // Discard: terminal, the row stays for the record; a second discard 409s.
+    const discarded = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(discarded.status).toBe(200)
+    expect(((await discarded.json()) as { status: string }).status).toBe('discarded')
+    const again = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(again.status).toBe(409)
+    expect(((await again.json()) as { code: string }).code).toBe('ingest_not_captured')
+
+    // Process: the note joins the ordinary queue and the pipeline runs it.
+    const promoted = await fetch(`${base}/v1/ingests/${toProcess}/process`, {
+      method: 'POST',
+      headers: bearer(writerKey),
+    })
+    expect(promoted.status).toBe(200)
+    expect(((await promoted.json()) as { status: string }).status).toBe('queued')
+    expect(await app.ingest.runOnce()).toBe(true)
+    const done = (await (await fetch(`${base}/v1/ingests/${toProcess}`, { headers: bearer(writerKey) })).json()) as {
+      status: string
+      source_id: string | null
+      title: string | null
+      excerpt: string | null
+    }
+    expect(done.status).toBe('done')
+    expect(done.source_id).not.toBeNull()
+    // The capture identity fields are captured-only; a processed job has a source.
+    expect(done.title).toBeNull()
+    expect(done.excerpt).toBeNull()
+
+    // The ingest volume statistics count the processed note (it entered the
+    // pipeline) but neither the discarded one nor its parked twin.
+    const stats = (await (
+      await fetch(`${base}/v1/spaces/demo/stats/ingests`, { headers: bearer(readerKey) })
+    ).json()) as { totals: { jobs: { created: number; done: number } } }
+    // Every job so far ran to done; the parked twin and the discarded note
+    // would break this equality if they counted as created.
+    expect(stats.totals.jobs.created).toBe(stats.totals.jobs.done)
+  })
+
   it('document upload: unknown extension → 415 unsupported_document', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/ingest/document?filename=archive.zip`, {
       method: 'POST',
@@ -464,6 +560,41 @@ describe('http surface (integration)', () => {
     expect(res.status).toBe(200)
     const report = (await res.json()) as { findings: { severity: string }[]; counts: { error: number } }
     expect(report.counts.error).toBe(0)
+  })
+
+  it('health counts parked thoughts beside the queue, and ?tier=quick narrows lint', async () => {
+    // The capture lifecycle above left exactly one parked twin behind.
+    const health = (await (await fetch(`${base}/v1/spaces/demo/health`, { headers: bearer(readerKey) })).json()) as {
+      ingest_queue: { depth: number; captured: number; oldest_captured_days: number | null }
+      lint: { findings: { rule: string }[] }
+    }
+    expect(health.ingest_queue.captured).toBe(1)
+    // Parked today: a measured zero age, not a null — null is reserved for an
+    // empty parking lot.
+    expect(health.ingest_queue.oldest_captured_days).toBe(0)
+    // Beside the depth, never inside it: the parked row waits for a decision,
+    // not for a worker.
+    expect(health.ingest_queue.depth).toBe(0)
+
+    const QUICK_RULES = [
+      'unreviewed-proposals',
+      'dangling-sources',
+      'missing-charter',
+      'stale-proposals',
+      'stale-captures',
+    ]
+    const quick = (await (
+      await fetch(`${base}/v1/spaces/demo/lint?tier=quick`, { headers: bearer(readerKey) })
+    ).json()) as { findings: { rule: string }[] }
+    const deep = (await (await fetch(`${base}/v1/spaces/demo/lint`, { headers: bearer(readerKey) })).json()) as {
+      findings: { rule: string }[]
+    }
+    for (const finding of quick.findings) expect(QUICK_RULES).toContain(finding.rule)
+    // Quick ⊂ deep: every quick finding also appears in the full scan.
+    const deepRules = new Set(deep.findings.map((finding) => finding.rule))
+    for (const finding of quick.findings) expect(deepRules.has(finding.rule)).toBe(true)
+    // The demo space writes no charter, so the pulse has at least one finding.
+    expect(quick.findings.some((finding) => finding.rule === 'missing-charter')).toBe(true)
   })
 
   // Regression guard: /mcp must be mounted by the REAL createApp composition

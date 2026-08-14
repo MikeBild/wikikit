@@ -85,7 +85,7 @@ export interface SpaceHealth {
    * own defaults is a caption that eventually contradicts the numbers under it.
    */
   window: { from: string; to: string }
-  /** The 14 rules, whole, with the severity census — see src/domain/lint.ts. */
+  /** The requested lint tier, whole, with the severity census — see src/domain/lint.ts. */
   lint: LintReport
   coverage: SpaceHealthCoverage
   /**
@@ -104,6 +104,13 @@ export interface SpaceHealth {
    * that silently omitted it would report an idle queue to an operator whose
    * ingest has stopped moving. `oldest_queued_hours` is null when nothing is
    * queued.
+   *
+   * `captured` counts the parked thoughts — also beside `depth`, never inside
+   * it: a captured row is not work in flight, it is a note waiting for a human
+   * to decide whether it becomes work at all. `oldest_captured_days` is null
+   * when nothing is parked, and in DAYS rather than hours because a parked
+   * thought waiting since this morning is fine and one waiting a month is the
+   * stale-captures signal.
    */
   ingest_queue: {
     depth: number
@@ -111,6 +118,8 @@ export interface SpaceHealth {
     running: number
     quota_blocked: number
     oldest_queued_hours: number | null
+    captured: number
+    oldest_captured_days: number | null
   }
 }
 
@@ -126,6 +135,9 @@ const zSpaceHealthArgs = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   top: z.coerce.number().int().min(1).max(25).default(5),
+  // Threaded to lintSpace, whose default is already deep — restated here so the
+  // three transports validate the same vocabulary once.
+  tier: z.enum(['quick', 'deep']).optional(),
 })
 
 export type SpaceHealthArgs = z.input<typeof zSpaceHealthArgs>
@@ -174,7 +186,10 @@ export async function spaceHealth(
   if (to <= from) throw new ValidationError("'to' must be after 'from'")
   const window = { from: from.toISOString(), to: to.toISOString() }
 
-  const lint = await lintSpace(db, spaceId, { scaffoldingKinds: deps.scaffoldingKinds })
+  const lint = await lintSpace(db, spaceId, {
+    scaffoldingKinds: deps.scaffoldingKinds,
+    tier: input.tier ?? 'deep',
+  })
   const coverage = await getCoverageStats(db, spaceId, { ...window, top: input.top })
 
   // Deliberately the same query shape coverage.ts uses for open disputes:
@@ -204,20 +219,29 @@ export async function spaceHealth(
   // it is healthy, so a queue stuck since this morning would print "0 days" —
   // a number that reads like reassurance. One decimal, matching
   // coverage.review_latency.median_hours.
+  // Captured rows are counted in the same statement but never in `depth`: a
+  // parked thought is not in flight, and its age is read in DAYS off the same
+  // min() FILTER shape — the review queue's unit, because the wait that matters
+  // is the one stale-captures warns about at thirty days.
   const [ingest] = (
     await db.query<{
       queued: number
       running: number
       quota_blocked: number
       oldest_queued_hours: number | null
+      captured: number
+      oldest_captured_days: number | null
     }>(
       `SELECT count(*) FILTER (WHERE status = 'queued')::int AS queued,
               count(*) FILTER (WHERE status = 'running')::int AS running,
               count(*) FILTER (WHERE status = 'quota_blocked')::int AS quota_blocked,
               round((extract(epoch FROM now() - min(created_at) FILTER (WHERE status = 'queued')) / 3600)::numeric, 1)::float
-                AS oldest_queued_hours
+                AS oldest_queued_hours,
+              count(*) FILTER (WHERE status = 'captured')::int AS captured,
+              floor(extract(epoch FROM now() - min(created_at) FILTER (WHERE status = 'captured')) / 86400)::int
+                AS oldest_captured_days
          FROM wk_ingest_jobs
-        WHERE space_id = $1 AND status IN ('queued', 'running', 'quota_blocked')`,
+        WHERE space_id = $1 AND status IN ('queued', 'running', 'quota_blocked', 'captured')`,
       [spaceId],
     )
   ).rows
@@ -225,6 +249,7 @@ export async function spaceHealth(
   const pending = review?.pending ?? 0
   const queued = ingest?.queued ?? 0
   const running = ingest?.running ?? 0
+  const captured = ingest?.captured ?? 0
   return {
     window,
     lint,
@@ -247,6 +272,170 @@ export async function spaceHealth(
       running,
       quota_blocked: ingest?.quota_blocked ?? 0,
       oldest_queued_hours: queued ? (ingest?.oldest_queued_hours ?? null) : null,
+      captured,
+      oldest_captured_days: captured ? (ingest?.oldest_captured_days ?? null) : null,
     },
   }
+}
+
+/**
+ * One wiki's numbers in the cross-wiki overview. The same null discipline as
+ * SpaceHealth: `oldest_days` is null exactly when `pending` is 0.
+ *
+ * `pending_derived` counts the pending proposals whose EVERY cited source
+ * carries the `derived_from_output_id` stamp (the mark promotion puts on an
+ * answer filed back in — see the self-derived-only lint rule). It is
+ * provenance, never a quality verdict: a proposal citing one outside source
+ * beside three derived ones does not count, because the stamp says where
+ * evidence came from, not what it is worth.
+ */
+export interface OverviewRow {
+  pending: number
+  oldest_days: number | null
+  /** Proposals created in the last 7 days — the activity pulse, any status. */
+  created_7d: number
+  pending_derived: number
+  /** Visible pages: concepts whose current_revision_id is set. */
+  concepts: number
+}
+
+/**
+ * The per-space review numbers for MANY spaces at once — the measurement the
+ * cross-wiki overview, the MCP overview tool and the agent briefing share, so
+ * three surfaces cannot disagree about one backlog. LLM-free, two GROUP BY
+ * statements total, sequential over one pool like everything in this file.
+ *
+ * A space with no proposal rows is still an answer: `{pending: 0, oldest_days:
+ * null, …}` — a measured zero, with no age because there is no queue. The Map
+ * carries every requested id, and an empty request is an empty Map with no
+ * query issued.
+ */
+export async function reviewOverview(db: Db, spaceIds: readonly string[]): Promise<Map<string, OverviewRow>> {
+  const overview = new Map<string, OverviewRow>()
+  if (spaceIds.length === 0) return overview
+  for (const id of spaceIds) {
+    overview.set(id, { pending: 0, oldest_days: null, created_7d: 0, pending_derived: 0, concepts: 0 })
+  }
+
+  // One statement over wk_change_proposals, aggregated per space. The derived
+  // check needs a per-row LATERAL because an aggregate FILTER clause may not
+  // contain a subquery: bool_and over the cited sources is null for a proposal
+  // citing nothing, so such a proposal never counts as derived.
+  const proposals = await db.query<{
+    space_id: string
+    pending: number
+    oldest_days: number | null
+    created_7d: number
+    pending_derived: number
+  }>(
+    `SELECT p.space_id,
+            count(*) FILTER (WHERE p.status = 'pending')::int AS pending,
+            floor(extract(epoch FROM now() - min(p.created_at) FILTER (WHERE p.status = 'pending')) / 86400)::int
+              AS oldest_days,
+            count(*) FILTER (WHERE p.created_at > now() - interval '7 days')::int AS created_7d,
+            count(*) FILTER (WHERE p.status = 'pending' AND d.all_derived)::int AS pending_derived
+       FROM wk_change_proposals p
+       CROSS JOIN LATERAL (
+         SELECT bool_and(jsonb_exists(s.metadata, 'derived_from_output_id')) AS all_derived
+           FROM wk_sources s
+          WHERE s.id = ANY(p.source_ids)
+       ) d
+      WHERE p.space_id = ANY($1::uuid[])
+      GROUP BY p.space_id`,
+    [spaceIds],
+  )
+  for (const row of proposals.rows) {
+    const entry = overview.get(row.space_id)
+    if (!entry) continue
+    entry.pending = row.pending
+    entry.oldest_days = row.pending ? row.oldest_days : null
+    entry.created_7d = row.created_7d
+    entry.pending_derived = row.pending_derived
+  }
+
+  // Visible pages only (current_revision_id set) — the same definition the
+  // baseline gives readers, which 0033 extends to tombstones: a page that was
+  // deleted still has a current revision and still counts as a page.
+  const concepts = await db.query<{ space_id: string; concepts: number }>(
+    `SELECT space_id, count(*)::int AS concepts
+       FROM wk_concepts
+      WHERE space_id = ANY($1::uuid[]) AND current_revision_id IS NOT NULL
+      GROUP BY space_id`,
+    [spaceIds],
+  )
+  for (const row of concepts.rows) {
+    const entry = overview.get(row.space_id)
+    if (entry) entry.concepts = row.concepts
+  }
+
+  return overview
+}
+
+/** What the overview needs to know about a wiki — the slug/name/settings slice of a space row. */
+export interface OverviewSpace {
+  id: string
+  slug: string
+  name: string
+  settings: Record<string, unknown>
+}
+
+export interface SpacesOverview {
+  generated_at: string
+  totals: { pending: number; pending_derived: number; created_7d: number; oldest_days: number | null }
+  items: {
+    space: string
+    name: string
+    purpose: string | null
+    review_queue: { pending: number; oldest_days: number | null; pending_derived: number }
+    created_7d: number
+    concepts: number
+  }[]
+}
+
+/**
+ * The whole cross-wiki overview, composed once for GET /v1/stats/overview and
+ * the wikikit_overview MCP tool — one producer, one set of numbers, exactly
+ * like spaceHealth above. The caller passes the spaces the KEY may see; this
+ * function invents no visibility of its own.
+ *
+ * Totals are computed here rather than by each client, because eight rows
+ * summed in three renderers is three chances to disagree. `totals.oldest_days`
+ * is the max over the rows — the wait a human should clear first — and null
+ * exactly when nothing anywhere is pending. No verdict, no percentages, for
+ * the reasons the module header argues.
+ */
+export async function spacesOverview(db: Db, spaces: readonly OverviewSpace[]): Promise<SpacesOverview> {
+  const rows = await reviewOverview(
+    db,
+    spaces.map((space) => space.id),
+  )
+  const items = spaces.map((space) => {
+    const row = rows.get(space.id) ?? { pending: 0, oldest_days: null, created_7d: 0, pending_derived: 0, concepts: 0 }
+    // The same fallback the cockpit's wiki list renders: both keys feed context
+    // selection, and a wiki configured with only `description` should not read
+    // as purposeless here while the server happily ranks on it.
+    const settings = space.settings ?? {}
+    const purpose = settings.purpose ?? settings.description
+    return {
+      space: space.slug,
+      name: space.name,
+      purpose: typeof purpose === 'string' && purpose.length > 0 ? purpose : null,
+      review_queue: { pending: row.pending, oldest_days: row.oldest_days, pending_derived: row.pending_derived },
+      created_7d: row.created_7d,
+      concepts: row.concepts,
+    }
+  })
+  const totals = items.reduce(
+    (sum, item) => ({
+      pending: sum.pending + item.review_queue.pending,
+      pending_derived: sum.pending_derived + item.review_queue.pending_derived,
+      created_7d: sum.created_7d + item.created_7d,
+      oldest_days:
+        item.review_queue.oldest_days === null
+          ? sum.oldest_days
+          : Math.max(sum.oldest_days ?? 0, item.review_queue.oldest_days),
+    }),
+    { pending: 0, pending_derived: 0, created_7d: 0, oldest_days: null as number | null },
+  )
+  return { generated_at: new Date().toISOString(), totals, items }
 }

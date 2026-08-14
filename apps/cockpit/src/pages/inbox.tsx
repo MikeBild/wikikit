@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck, FileUp, Inbox, Link2, Upload } from 'lucide-react'
+import { CircleCheck, FileUp, Inbox, Link2, NotebookPen, Upload } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
@@ -42,7 +42,16 @@ import {
   tally,
   type Submission,
 } from '@/pages/inbox.logic'
-import { describeIngest, ingestBody, type IngestDraft } from '@/pages/sources.logic'
+import { Confirm } from '@/components/confirm'
+import { waitedDays } from '@/pages/care.logic'
+import {
+  captureBody,
+  capturedDays,
+  describeIngest,
+  ingestBody,
+  STALE_CAPTURE_DAYS,
+  type IngestDraft,
+} from '@/pages/sources.logic'
 
 /**
  * Everything lands here.
@@ -73,7 +82,7 @@ const PENDING_SHOWN = 5
 const PENDING_QUERY = { status: 'pending', limit: PENDING_SHOWN } as const
 
 /** The server's own alphabet (`zIngestListQuery`), plus the neutral value. */
-const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'quota_blocked'] as const
+const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded'] as const
 
 const JOB_FILTERS: readonly FilterSpec[] = [{ key: 'status', values: JOB_STATUSES, fallback: 'all' }]
 
@@ -84,7 +93,12 @@ const JOB_STATUS_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'done', label: 'Finished' },
   { value: 'failed', label: 'Failed' },
   { value: 'quota_blocked', label: 'Paused on a quota' },
+  { value: 'captured', label: 'Parked' },
+  { value: 'discarded', label: 'Discarded' },
 ]
+
+/** One screenful of parked notes; the strip caps rather than paginates — the fix for a full strip is deciding, not scrolling. */
+const PARKED_QUERY = { status: 'captured', limit: 50 } as const
 
 /**
  * The five domain states as badge tones. `satisfies` makes a state nobody
@@ -143,6 +157,18 @@ export function InboxPage() {
     queryKey: keys.changes(space, PENDING_QUERY),
     queryFn: () => wk.changes.list(space, PENDING_QUERY),
   })
+
+  // No liveReadOptions here: `captured` only moves through this console's own
+  // buttons, and those invalidate the whole space subtree themselves.
+  const parked = useQuery({
+    queryKey: keys.ingestJobs(space, PARKED_QUERY),
+    queryFn: () => wk.ingest.list(space, PARKED_QUERY),
+  })
+
+  const refresh = useCallback(
+    () => void queryClient.invalidateQueries({ queryKey: keys.space(space) }),
+    [queryClient, space],
+  )
 
   /**
    * The run, one item at a time and in order.
@@ -248,6 +274,26 @@ export function InboxPage() {
       }
     >
       <div className="flex flex-col gap-8">
+        <section className="flex flex-col gap-4" aria-labelledby="inbox-capture-heading">
+          <SectionHeading
+            id="inbox-capture-heading"
+            helpTitle="About holding thoughts"
+            help={
+              <p>
+                A parked thought is held verbatim and costs nothing: no model reads it, no queue slot is taken, and
+                nothing happens until it is processed — then it travels the ordinary path and comes back as a change to
+                review — or discarded.
+              </p>
+            }
+            testId="inbox-capture-help"
+          >
+            Hold a thought
+          </SectionHeading>
+
+          <CaptureCard space={space} allowed={mayAdd} onCaptured={refresh} />
+          <ParkedStrip query={parked} allowed={mayAdd} onDecided={refresh} />
+        </section>
+
         <section className="flex flex-col gap-4" aria-labelledby="inbox-add-heading">
           <SectionHeading
             id="inbox-add-heading"
@@ -432,8 +478,10 @@ function JobCell({ row, index }: { row: IngestJobRow; index: number }) {
   const fraction = fractionOf(report.progress?.done, report.progress?.total)
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid={`inbox-job-${index + 1}-what`}>
-      <span className="text-sm font-medium">{text(report.headline)}</span>
-      <span className="text-muted-foreground line-clamp-2 text-xs">{text(report.detail)}</span>
+      {/* A captured row is the one kind that carries its own name: the server
+          sends title + excerpt because a parked note has no source to link to. */}
+      <span className="text-sm font-medium">{row.title ?? text(report.headline)}</span>
+      <span className="text-muted-foreground line-clamp-2 text-xs">{row.excerpt ?? text(report.detail)}</span>
       {report.progress ? (
         <span className="text-muted-foreground text-xs tabular-nums">
           {text('{done} of {total} pages written', { done: report.progress.done, total: report.progress.total })}
@@ -843,6 +891,224 @@ function RunReport({
         ))}
       </ul>
     </div>
+  )
+}
+
+/**
+ * One textarea, one button — deliberately nothing else.
+ *
+ * Capture is the place NOT to think: no title field, no kind, no language.
+ * Every option this card could offer is a decision it would demand at exactly
+ * the moment the whole point is to not make one; whatever the thought needs,
+ * it gets when somebody processes it. The submit is not behind a `Confirm`
+ * either — parking has no consequence to restate, and the two consequential
+ * moves (process, discard) carry the dialogs instead.
+ */
+function CaptureCard({ space, allowed, onCaptured }: { space: string; allowed: boolean; onCaptured: () => void }) {
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const reason = !allowed ? 'Needs knowledge:propose' : note.trim() ? null : 'Write the thought first.'
+
+  const park = async () => {
+    setSaving(true)
+    setRefusal(null)
+    try {
+      await wk.ingest.submit(space, captureBody(note))
+      setNote('')
+      onCaptured()
+    } catch (error) {
+      // The server's own words, never rewritten (CUI-LOAD-2).
+      setRefusal(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="border-border flex flex-col gap-2 rounded-lg border p-4">
+      <Label htmlFor="inbox-capture">Park it verbatim — a title, a kind, a decision can all come later.</Label>
+      <Textarea
+        id="inbox-capture"
+        data-testid="inbox-capture"
+        rows={3}
+        className="max-h-40"
+        placeholder="Whatever is in your head right now."
+        value={note}
+        disabled={!allowed || saving}
+        onChange={(event) => setNote(event.target.value)}
+      />
+      {refusal ? (
+        <Alert tone="danger" title="Could not be parked" data-testid="inbox-capture-refused">
+          {refusal}
+        </Alert>
+      ) : null}
+      <DisabledReason reason={reason} data-testid="inbox-capture-reason">
+        <Button
+          size="sm"
+          className="w-fit"
+          data-testid="inbox-capture-submit"
+          disabled={reason !== null || saving}
+          aria-busy={saving}
+          onClick={() => void park()}
+        >
+          {saving ? <Spinner data-icon="inline-start" /> : <NotebookPen data-icon="inline-start" />}
+          Hold this thought
+        </Button>
+      </DisabledReason>
+    </div>
+  )
+}
+
+/**
+ * The parked notes, oldest wait made visible, each with its two ways out.
+ *
+ * A capped whole read rather than a cursor: fifty undecided thoughts is not a
+ * list to browse, it is a backlog to clear, and the cap note says so when it
+ * fills. The warning badge starts at `STALE_CAPTURE_DAYS` — an old parked note
+ * is a signal, not an error.
+ */
+function ParkedStrip({
+  query,
+  allowed,
+  onDecided,
+}: {
+  query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof wk.ingest.list>>>>
+  allowed: boolean
+  onDecided: () => void
+}) {
+  const { text } = useI18n()
+  const [page, setPage] = useState<CursorPage>(firstPage)
+
+  const columns = useMemo<readonly DataColumn<IngestJobRow>[]>(
+    () => [
+      {
+        id: 'what',
+        label: 'Thought',
+        required: true,
+        className: 'max-w-96 whitespace-normal',
+        cell: (row, index) => (
+          <div className="flex min-w-0 flex-col gap-0.5" data-testid={`inbox-parked-${index + 1}-what`}>
+            <span className="text-sm font-medium">{semanticLabel([row.title], 'Parked thought')}</span>
+            {row.excerpt ? <span className="text-muted-foreground line-clamp-2 text-xs">{row.excerpt}</span> : null}
+          </div>
+        ),
+      },
+      {
+        id: 'parked',
+        label: 'Parked',
+        priority: 'secondary',
+        cell: (row, index) => {
+          const days = capturedDays(row.created_at, Date.now())
+          const waited = waitedDays(days)
+          return (
+            <span className="flex items-center gap-2">
+              <RelativeTime value={row.created_at} data-testid={`inbox-parked-${index + 1}-since`} />
+              {days >= STALE_CAPTURE_DAYS && waited.phrase ? (
+                <Badge tone="warning" data-testid={`inbox-parked-${index + 1}-stale`}>
+                  {text(waited.phrase, waited.values)}
+                </Badge>
+              ) : null}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'decision',
+        label: 'Decision',
+        required: true,
+        className: 'text-right',
+        cell: (row, index) => (
+          <span className="flex items-center justify-end gap-2">
+            <Confirm
+              title="Process this thought?"
+              description="It joins the ingest queue exactly like a submitted document."
+              details="The model archives it verbatim, quotes it into pages, and the result waits in Changes — nothing becomes visible knowledge until a person approves it."
+              confirmLabel="Process"
+              onConfirm={async () => {
+                await wk.ingest.process(row.ingest_id)
+                onDecided()
+              }}
+            >
+              {(open) => (
+                <DisabledReason
+                  reason={allowed ? null : 'Needs knowledge:propose'}
+                  data-testid={`inbox-parked-${index + 1}-process-reason`}
+                >
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid={`inbox-parked-${index + 1}-process`}
+                    disabled={!allowed}
+                    onClick={open}
+                  >
+                    Process
+                  </Button>
+                </DisabledReason>
+              )}
+            </Confirm>
+            <Confirm
+              title="Discard this thought?"
+              description="It never becomes knowledge."
+              details="The note is marked discarded and stays in the job list for the record. Nothing was archived, so there is nothing else to remove."
+              confirmLabel="Discard"
+              destructive
+              onConfirm={async () => {
+                await wk.ingest.discard(row.ingest_id)
+                onDecided()
+              }}
+            >
+              {(open) => (
+                <DisabledReason
+                  reason={allowed ? null : 'Needs knowledge:propose'}
+                  data-testid={`inbox-parked-${index + 1}-discard-reason`}
+                >
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`inbox-parked-${index + 1}-discard`}
+                    disabled={!allowed}
+                    onClick={open}
+                  >
+                    Discard
+                  </Button>
+                </DisabledReason>
+              )}
+            </Confirm>
+          </span>
+        ),
+      },
+    ],
+    [allowed, onDecided, text],
+  )
+
+  const view = useTableView('inbox-parked', columns)
+
+  return (
+    <DataTable
+      testId="inbox-parked"
+      columns={columns}
+      rows={query.data?.items ?? []}
+      rowKey={(row) => row.ingest_id}
+      rowTestId={(_row, index) => `inbox-parked-${index + 1}`}
+      query={query}
+      view={view.view}
+      onViewChange={view.setView}
+      page={page}
+      onPageChange={setPage}
+      unit="items"
+      cap={PARKED_QUERY.limit}
+      tableClassName="w-full table-fixed"
+      empty={
+        <EmptyState
+          icon={NotebookPen}
+          framed={false}
+          title="Nothing is parked"
+          description="A thought held here waits, verbatim and unread, until you process or discard it."
+          data-testid="inbox-parked-none"
+        />
+      }
+    />
   )
 }
 

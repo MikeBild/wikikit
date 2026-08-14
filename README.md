@@ -100,6 +100,12 @@ curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
   -H "Authorization: Bearer $KEY" --data-binary @report.pdf
 ```
 
+Not ready to process it? Add `"capture": true` to the ingest body and the text
+is parked verbatim instead — no LLM call, no queue slot, works without an API
+key. It stays a parked note until somebody processes it
+(`POST /v1/ingests/{id}/process` — from there the ordinary loop runs) or
+discards it (`POST /v1/ingests/{id}/discard`).
+
 Example sources to ingest are in [`examples/`](examples/README.md).
 
 Product analytics are available at `/v1/spaces/{space}/stats/*`. Existing
@@ -251,9 +257,10 @@ tool change or a scope change, rescan or reconnect. Existing OAuth tokens
 retain their original, narrower scopes.
 
 The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
-`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_health`, `wikikit_outputs`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
+`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_health`, `wikikit_overview`, `wikikit_outputs`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_promote_output`, `wikikit_proposals` and
-`wikikit_review_proposal`. `wikikit_health` answers "check this space for
+`wikikit_review_proposal`. `wikikit_overview` says in one call where attention
+is owed across every visible wiki; `wikikit_health` answers "check this space for
 contradictions and gaps" in one call instead of chaining tools;
 `wikikit_promote_output` files a good answer back into the wiki, and it too
 lands as a change somebody approves. The two review tools are visible only with
@@ -322,7 +329,8 @@ object` with a confidence, citations (verbatim quote + locator) and a
   moved and what is waiting, and a health report; delivery is the output plus a
   `wikikit.health.reported` webhook, because a single binary has no SMTP.
 - **LLM-free core:** full-text search, lint (contradictions, missing
-  citations, stale claims — CI-friendly), the composed health read,
+  citations, stale claims, stale changes, parked thoughts — CI-friendly, with
+  a quick pulse tier and a deep full-scan tier), the composed health read,
   export/import all work without any LLM configured.
 - **Any of three LLM providers:** Anthropic, OpenAI or Google — one config
   value (`WIKIKIT_LLM_PROVIDER`), no code change, via the Vercel AI SDK.

@@ -28,6 +28,8 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/spaces/{space}/ingest/document', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/agent/sessions', 'knowledge:propose'],
   ['get', '/v1/ingests/{id}', 'knowledge:propose'],
+  ['post', '/v1/ingests/{id}/process', 'knowledge:propose'],
+  ['post', '/v1/ingests/{id}/discard', 'knowledge:propose'],
   // The inbox list. knowledge:read is the declared scope and propose satisfies
   // it too (altScopes): a contributor key can already poll any single job of
   // its own, so refusing it the list of exactly those jobs would be a gap.
@@ -42,6 +44,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/spaces/{space}/deleted-concepts', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}/history', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/concepts/{slug}/neighbors', 'knowledge:read'],
   ['delete', '/v1/spaces/{space}/concepts/{slug}', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/concepts/{slug}/restore', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/search', 'knowledge:read'],
@@ -79,6 +82,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['put', '/v1/identities/{provider}/{subject}', 'admin'],
   ['delete', '/v1/identities/{provider}/{subject}', 'admin'],
   ['get', '/v1/installation/knowledge-config', 'admin'],
+  ['get', '/v1/stats/overview', 'knowledge:read'],
   ['get', '/v1/stats/mcp', 'admin'],
   ['get', '/v1/spaces/{space}/stats/http', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/usage', 'knowledge:read'],

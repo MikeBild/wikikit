@@ -49,6 +49,8 @@ const READ_TOOLS = [
   // asked "check for contradictions and gaps" does not chain two tools.
   'wikikit_outputs',
   'wikikit_health',
+  // The cross-wiki read: where is attention owed, before opening one wiki.
+  'wikikit_overview',
 ]
 // Charter mutations are admin-scoped (human-owned configuration, not knowledge).
 const ADMIN_TOOLS = ['wikikit_charter_set', 'wikikit_charter_delete']
@@ -109,6 +111,8 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
     db: stubDb({ wk_spaces: [{ id: 'space-1', slug: 'main' }] }),
     ingest: {
       enqueue: async () => ({ ingest_id: '11111111-1111-4111-8111-111111111111' }),
+      processCapture: async () => {},
+      discardCapture: async () => {},
       start: () => {},
       stop: async () => {},
       runOnce: async () => false,
@@ -188,12 +192,12 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(21)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(22)
     expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     // admin implies knowledge scopes (§5.2) AND is the direct scope of the charter mutations.
-    expect(visibleTools(['admin'])).toHaveLength(25)
-    expect(visibleTools(['*'])).toHaveLength(25)
+    expect(visibleTools(['admin'])).toHaveLength(26)
+    expect(visibleTools(['*'])).toHaveLength(26)
     expect(visibleTools([])).toHaveLength(0)
   })
 
@@ -343,6 +347,18 @@ describe('execute — transport duties', () => {
       ingest_id: '11111111-1111-4111-8111-111111111111',
       poll_with: 'wikikit_ingest_status',
     })
+  })
+
+  test('wikikit_ingest with capture:true works keyless — the fast-fail moves to promotion', async () => {
+    const d = deps({ config: { llmConfigured: false, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS } as Config })
+    d.ingest.enqueue = async () => ({ status: 'captured', ingest_id: '22222222-2222-4222-8222-222222222222' })
+    const result = await byName.wikikit_ingest!.execute(d, principal(), {
+      space: 'main',
+      text: 'a raw thought',
+      capture: true,
+    })
+    // Terminal sync answer — nothing to poll, no poll_with.
+    expect(result).toEqual({ status: 'captured', ingest_id: '22222222-2222-4222-8222-222222222222' })
   })
 
   test('wikikit_review_proposal takes decision and note only from native elicitation', async () => {

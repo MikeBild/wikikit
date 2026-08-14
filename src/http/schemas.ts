@@ -229,6 +229,24 @@ export const zAgentBriefingResponse = z.object({
   used_tokens: z.number().int(),
   concepts_included: z.array(z.string()),
   concepts_omitted: z.number().int(),
+  /**
+   * The review backlog of the briefed spaces, structured beside the markdown
+   * lines that state it. `oldest_days` is null exactly when `total` is 0, and
+   * per space exactly when that space's `pending` is 0 — the same null-not-zero
+   * discipline as the health surfaces. These are FACT lines: the budget trim
+   * removes pinned concepts, never these.
+   */
+  pending_changes: z.object({
+    total: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+    spaces: z.array(
+      z.object({
+        space: z.string(),
+        pending: z.number().int().nonnegative(),
+        oldest_days: z.number().int().nullable(),
+      }),
+    ),
+  }),
 })
 
 export const zAgentContextResponse = zAgentBriefingResponse.extend({
@@ -257,6 +275,17 @@ export const zIngestRequest = zIngestInput
 export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z.literal('queued') })
 
 /**
+ * Capture answer (200, not 202): the note is parked, nothing is running and
+ * nothing needs polling — the row waits for POST /v1/ingests/{id}/process or
+ * /discard. Distinct from the accepted ack on purpose: that one is
+ * literal-typed 'queued' and promises a job in flight.
+ */
+export const zIngestCapturedResponse = z.object({
+  status: z.literal('captured'),
+  ingest_id: z.uuid(),
+})
+
+/**
  * Sync fast-path answer (200, not 202): the pushed content is already
  * archived — the stream head advanced (or already pointed here), no job, no
  * LLM, nothing to poll. Connectors treat this as success.
@@ -266,6 +295,13 @@ export const zIngestUnchangedResponse = z.object({
   source_id: z.uuid(),
   stream_id: z.uuid(),
 })
+
+/**
+ * The two synchronous 200 answers of POST .../ingest, discriminated by
+ * `status`: `unchanged` (sync fast-path) and `captured` (the note was parked).
+ * One named union because a route declares exactly one schema per status code.
+ */
+export const zIngestSyncResponse = z.union([zIngestUnchangedResponse, zIngestCapturedResponse])
 
 // Document upload (raw bytes body): the filename gives the extension used to
 // pick the extractor (pdf/docx/xlsx/md/txt/csv).
@@ -291,7 +327,7 @@ export const zCaptureSessionResponse = z.object({
 // `before` keyset cursor every archive list in this API uses, echoed back as
 // next_before.
 export const zIngestListQuery = z.object({
-  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']).optional(),
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().max(500).optional(),
 })
@@ -299,11 +335,18 @@ export const zIngestListQuery = z.object({
 export const zIngestStatusResponse = z.object({
   ingest_id: z.uuid(),
   // quota_blocked = parked on provider quota exhaustion; the worker requeues
-  // it once the provider window reopens — no client action needed, keep polling.
-  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']),
+  // it once the provider window reopens — no client action needed, keep
+  // polling. captured = parked by a human (or a hook) until somebody promotes
+  // or discards it; discarded is terminal and the row stays for the record.
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded']),
   proposal_id: z.uuid().nullable(),
   source_id: z.uuid().nullable(),
   error: z.object({ code: z.string(), message: z.string() }).nullable(),
+  // ADDITIVE (0.38): the identity of a captured note. A parked row has no
+  // source yet and the list never ships `input`, so without these two the
+  // parked strip could show nothing but ids. Null on every other status.
+  title: z.string().nullable().describe('Captured rows only: the submitted title'),
+  excerpt: z.string().nullable().describe('Captured rows only: truncated text — the verbatim body stays in the job'),
   // Progress reporting. A long ingest is normal (one synthesis call per
   // affected concept, minutes each); what was missing is any way to tell a
   // slow job from a stuck one. phase is advisory and open — treat a value you
@@ -579,6 +622,41 @@ export const zConceptResponse = z.object({
   ),
   relations: z.array(z.object({ to_slug: z.string(), kind: zRelationKind, space: z.string().nullable() })),
   agent_meta: z.record(z.string(), z.unknown()),
+})
+
+/**
+ * The pages around one page — served by GET .../concepts/{slug}/neighbors and
+ * deliberately NOT folded into zConceptResponse: agents pin that shape, and
+ * the neighborhood is a second, independently-loading read in the console.
+ *
+ * `relations` rows are folded to the FAR endpoint (the page a reader would go
+ * to), both directions — `direction:'in'` is the backlink surface the concept
+ * read never had. `space` is non-null only on an outgoing cross-wiki link;
+ * inbound is same-space by construction (a foreign wiki's relations are its
+ * own knowledge). `same_source` names concepts quoting the same archived
+ * sources, ranked by `shared_sources` — the count is the whole argument, so it
+ * travels. LLM-free on principle: relations and shared citations before any
+ * embedding neighbor.
+ */
+export const zConceptNeighborsResponse = z.strictObject({
+  schema_version: z.literal('wikikit.concept-neighbors.v1'),
+  relations: z.array(
+    z.strictObject({
+      slug: z.string(),
+      title: z.string(),
+      kind: zRelationKind,
+      direction: z.enum(['out', 'in']),
+      space: z.string().nullable(),
+    }),
+  ),
+  same_source: z.array(
+    z.strictObject({
+      slug: z.string(),
+      title: z.string(),
+      /** Distinct shared sources — always ≥1, or the row would not exist. */
+      shared_sources: z.number().int().positive(),
+    }),
+  ),
 })
 
 export const zConceptHistoryResponse = z.object({
@@ -967,6 +1045,13 @@ const zLintFinding = z.object({
     'dangling-sources',
     'tombstoned-sources',
     'broken-cross-space-links',
+    // The quick-tier maturity rules (0.39.0): the absent steering document, the
+    // pending changes a fortnight old beside the unreviewed-proposals census,
+    // and the parked thoughts a month old — the pressure valve capture needs
+    // because nothing else ever pushes back on the inbox.
+    'missing-charter',
+    'stale-proposals',
+    'stale-captures',
   ]),
   severity: z.enum(['error', 'warn', 'info']),
   message: z.string(),
@@ -977,6 +1062,14 @@ const zLintFinding = z.object({
 
 /** The severity census — a count per level, never a verdict. */
 const zLintCounts = z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() })
+
+/**
+ * `tier` picks the lint rhythm: 'quick' runs only the queue-and-inbox pulse
+ * rules (RULE_TIERS in src/domain/lint.ts), 'deep' — the default, and a strict
+ * superset — runs everything. The counts are a census of the rules that RAN,
+ * so a quick report saying zero is not a deep report saying zero.
+ */
+export const zLintQuery = z.object({ tier: z.enum(['quick', 'deep']).default('deep') })
 
 export const zLintResponse = z.object({
   findings: z.array(zLintFinding),
@@ -1498,6 +1591,8 @@ export const zSpaceHealthQuery = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   top: z.coerce.number().int().min(1).max(25).default(5),
+  /** The lint rhythm the embedded report runs at — see zLintQuery. Default deep. */
+  tier: z.enum(['quick', 'deep']).optional(),
 })
 
 /**
@@ -1544,7 +1639,53 @@ export const zSpaceHealthResponse = z.strictObject({
     running: z.number().int().nonnegative(),
     quota_blocked: z.number().int().nonnegative(),
     oldest_queued_hours: z.number().nullable(),
+    /**
+     * Parked thoughts, beside `depth` like `quota_blocked`: a captured row is
+     * not work in flight. `oldest_captured_days` is null iff `captured` is 0 —
+     * and in DAYS, because the wait that matters is the thirty-day one the
+     * stale-captures rule warns about.
+     */
+    captured: z.number().int().nonnegative(),
+    oldest_captured_days: z.number().int().nullable(),
   }),
+})
+
+/**
+ * The cross-wiki overview (§4 src/domain/health.ts spacesOverview): one row per
+ * space the key may see, with the review backlog, its age, the derived share,
+ * the 7-day pulse and the visible page count — plus server-side totals so no
+ * client sums eight rows its own way. Same refusals as zSpaceHealthResponse:
+ * no verdict, no percentages, and every absent age is null, never 0.
+ */
+export const zSpacesOverviewResponse = z.strictObject({
+  schema_version: z.literal('wikikit.spaces-overview.v1'),
+  generated_at: z.iso.datetime(),
+  /** `oldest_days` is the max over the rows — null exactly when nothing anywhere is pending. */
+  totals: z.strictObject({
+    pending: z.number().int().nonnegative(),
+    pending_derived: z.number().int().nonnegative(),
+    created_7d: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+  }),
+  items: z.array(
+    z.strictObject({
+      space: z.string(),
+      name: z.string(),
+      /** `settings.purpose || settings.description || null` — what the wiki says it is for. */
+      purpose: z.string().nullable(),
+      /**
+       * `pending_derived` = pending proposals whose EVERY cited source is
+       * stamped `derived_from_output_id`. Provenance, never a quality verdict.
+       */
+      review_queue: z.strictObject({
+        pending: z.number().int().nonnegative(),
+        oldest_days: z.number().int().nullable(),
+        pending_derived: z.number().int().nonnegative(),
+      }),
+      created_7d: z.number().int().nonnegative(),
+      concepts: z.number().int().nonnegative(),
+    }),
+  ),
 })
 
 // ---------------------------------------------------------------------------
@@ -1578,6 +1719,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestRequest,
   zIngestDocumentQuery,
   zIngestAcceptedResponse,
+  zIngestCapturedResponse,
+  zIngestSyncResponse,
   zIngestUnchangedResponse,
   zIngestStatusResponse,
   zIngestListQuery,
@@ -1595,6 +1738,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zDecisionResponse,
   zConceptListResponse,
   zConceptResponse,
+  zConceptNeighborsResponse,
   zConceptHistoryResponse,
   zDeletedConceptListResponse,
   zConceptLifecycleResponse,
@@ -1616,9 +1760,11 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zRequestChangesRequest,
   zRequestChangesResponse,
   zProposalLintResponse,
+  zLintQuery,
   zLintResponse,
   zSpaceHealthQuery,
   zSpaceHealthResponse,
+  zSpacesOverviewResponse,
   zScheduleSetRequest,
   zScheduleResponse,
   zScheduleListResponse,

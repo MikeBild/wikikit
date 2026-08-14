@@ -30,6 +30,8 @@ export const wk = {
       unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}', { params: { path: { space, slug } } })),
     history: (space: string, slug: string) =>
       unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}/history', { params: { path: { space, slug } } })),
+    neighbors: (space: string, slug: string) =>
+      unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}/neighbors', { params: { path: { space, slug } } })),
     deleted: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/deleted-concepts', { params: { path: { space }, query: query as never } })),
     remove: (space: string, slug: string) =>
@@ -130,6 +132,14 @@ export const wk = {
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/ingests', { params: { path: { space }, query: query as never } })),
     job: (id: string) => unwrap(api.GET('/v1/ingests/{id}', { params: { path: { id } } })),
+    /**
+     * The two decisions a parked note waits for, global-by-id like `job` (the
+     * row carries the space; the transport enforces the key/space match).
+     * Process pays the guards capture skipped — LLM key and queue room — so a
+     * refusal here leaves the note parked, never lost.
+     */
+    process: (id: string) => unwrap(api.POST('/v1/ingests/{id}/process', { params: { path: { id } } })),
+    discard: (id: string) => unwrap(api.POST('/v1/ingests/{id}/discard', { params: { path: { id } } })),
   },
 
   /**
@@ -152,6 +162,16 @@ export const wk = {
      */
     promote: (id: string) =>
       unwrapAs<{ ingest_id: string }>(api.POST('/v1/outputs/{id}/promote', { params: { path: { id } } })),
+  },
+
+  /**
+   * The cross-wiki overview: per visible wiki the review backlog with the age
+   * of its oldest change, the derived share, the 7-day pulse and the page
+   * count, with totals summed server-side. Space-less on purpose — it is the
+   * one read about ALL the wikis, and a space-scoped key gets one row.
+   */
+  overview: {
+    get: () => unwrap(api.GET('/v1/stats/overview')),
   },
 
   /**
@@ -264,6 +284,7 @@ export const keys = {
   concepts: (space: string, query?: unknown) => ['spaces', space, 'concepts', query ?? null] as const,
   concept: (space: string, slug: string) => ['spaces', space, 'concepts', slug] as const,
   conceptHistory: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'history'] as const,
+  conceptNeighbors: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'neighbors'] as const,
   deletedConcepts: (space: string, query?: unknown) => ['spaces', space, 'deleted-concepts', query ?? null] as const,
   decisions: (space: string, query?: unknown) => ['spaces', space, 'decisions', query ?? null] as const,
   decision: (space: string, slug: string) => ['spaces', space, 'decisions', slug] as const,
@@ -297,6 +318,9 @@ export const keys = {
   identities: () => ['identities'] as const,
   stats: (space: string, kind: string) => ['spaces', space, 'stats', kind] as const,
   mcpStats: () => ['stats', 'mcp'] as const,
+  // No space in it, like mcpStats: switching wiki must not invalidate the one
+  // answer that is about all of them.
+  overview: () => ['stats', 'overview'] as const,
   // No space in it, and that is the point: switching wiki must not invalidate
   // an answer that was never about a wiki.
   knowledgeConfig: () => ['installation', 'knowledge-config'] as const,
