@@ -44,6 +44,7 @@ const ENDPOINT_ID = '88888888-8888-4888-8888-888888888888'
 const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const KEY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const DELIVERY_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const OUTPUT_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 const BOOTSTRAP = 'wk_response-schema-contract-bootstrap-key'
 const NOW = new Date('2026-07-15T12:00:00Z')
@@ -130,6 +131,69 @@ const PROPOSAL_ROW = {
   created_at: NOW,
 }
 
+// An UNPROMOTED answer: one row serves both the read and the promote case, and
+// unpromoted is the state that exercises the promote path — a promoted row
+// short-circuits to its stored ingest id without touching the pipeline.
+const OUTPUT_ROW = {
+  id: OUTPUT_ID,
+  space_id: SPACE_ID,
+  kind: 'answer' as const,
+  title: 'What is WikiKit?',
+  question: 'What is WikiKit?',
+  markdown: '# What is WikiKit?\n\nA headless knowledge system.',
+  citations: [{ slug: 'wikikit', title: 'WikiKit' }],
+  not_in_knowledge_base: false,
+  agent_run_id: RUN_ID,
+  promoted_ingest_id: null,
+  promoted_at: null,
+  created_at: NOW,
+}
+
+// A queued job with no start and no finish — the state the inbox spends most of
+// its life showing, and the one `created_at` was added for.
+const JOB_ROW = {
+  id: JOB_ID,
+  space_id: SPACE_ID,
+  status: 'running' as const,
+  proposal_id: null,
+  source_id: SOURCE_ID,
+  error: null,
+  phase: 'synthesize' as const,
+  progress_done: 2,
+  progress_total: 5,
+  created_at: NOW,
+  started_at: NOW,
+  heartbeat_at: NOW,
+  finished_at: null,
+}
+
+// One armed schedule per kind: a daily briefing and a weekly care report, so
+// both the null weekday (daily) and a real one travel through the wire shape.
+const SCHEDULE_ROWS = [
+  {
+    id: 'ffffffff-ffff-4fff-8fff-000000000001',
+    space_id: SPACE_ID,
+    kind: 'briefing' as const,
+    at_time: '07:00:00',
+    weekday: null,
+    timezone: 'Europe/Berlin',
+    enabled: true,
+    last_run_at: NOW,
+    next_run_at: NOW,
+  },
+  {
+    id: 'ffffffff-ffff-4fff-8fff-000000000002',
+    space_id: SPACE_ID,
+    kind: 'health' as const,
+    at_time: '08:30:00',
+    weekday: 1,
+    timezone: 'Europe/Berlin',
+    enabled: true,
+    last_run_at: null,
+    next_run_at: NOW,
+  },
+]
+
 // ---------------------------------------------------------------------------
 // Stub Db. select()/insert() dispatch on table + filters; query() dispatches
 // on distinctive substrings of the exact SQL the domain modules issue (the
@@ -193,6 +257,20 @@ function stubDb(): Db {
         if (text.includes('FROM wk_concept_reads')) return [{ slug: 'wikikit', title: 'WikiKit', reads: 12 }]
         if (text.includes('AS inbound_relations')) return [{ slug: 'wikikit', title: 'WikiKit', inbound_relations: 4 }]
         if (text.includes('FROM wk_coverage_gaps')) return [{ lexeme: 'sofa', count: 2 }]
+
+        // Composed health (spaceHealth) — the two live queues it measures
+        // itself. Both are populated so the nullable ages travel as numbers;
+        // the null side of each pair is gated in the domain and asserted there.
+        if (text.includes('AS pending')) return [{ pending: 3, oldest_days: 21 }]
+        if (text.includes('AS oldest_queued_hours')) {
+          return [{ queued: 2, running: 1, quota_blocked: 0, oldest_queued_hours: 4.5 }]
+        }
+
+        // Outputs archive and the space-scoped ingest list (the inbox). Matched
+        // on a column list rather than the table name: enqueue's queue-cap
+        // count and health's queue census both name wk_ingest_jobs too.
+        if (text.includes('FROM wk_outputs')) return [OUTPUT_ROW]
+        if (text.includes('progress_done, progress_total, created_at')) return [JOB_ROW]
 
         // getProposal claim/citation/source companions -----------------------
         if (text.includes('SELECT ci.claim_id, ci.source_id, ci.quote')) {
@@ -455,8 +533,14 @@ function stubDb(): Db {
                 proposal_id: PROPOSAL_ID,
                 source_id: SOURCE_ID,
                 error: null,
+                created_at: NOW,
               },
             ]
+          case 'wk_outputs':
+            if (q.id !== undefined) return q.id === `eq.${OUTPUT_ID}` ? [OUTPUT_ROW] : []
+            return [OUTPUT_ROW]
+          case 'wk_schedules':
+            return SCHEDULE_ROWS
           case 'wk_decisions':
             // A missing slug (getDecision) still returns the row here — the
             // representative case only reads the happy path; visibility rules
@@ -726,6 +810,15 @@ const CASES: RouteCase[] = [
     body: { transcript: 'human: fix the typo\nassistant: done' },
   },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
+  {
+    // The inbox list. Rows are the SAME shape the single status read serves
+    // (one producer, toJobStatus), which is what lets a row and a detail poll
+    // be rendered by the same code.
+    template: '/v1/spaces/{space}/ingests',
+    method: 'get',
+    url: '/v1/spaces/demo/ingests?status=running&limit=10',
+    status: 200,
+  },
   { template: '/v1/spaces/{space}/sources', method: 'get', url: '/v1/spaces/demo/sources', status: 200 },
   {
     template: '/v1/spaces/{space}/sources/{id}',
@@ -790,6 +883,42 @@ const CASES: RouteCase[] = [
     url: '/v1/spaces/demo/query',
     status: 200,
     body: { question: 'What is WikiKit?' },
+  },
+  // Outputs — the fourth place, and the door back into the wiki.
+  {
+    template: '/v1/spaces/{space}/outputs',
+    method: 'get',
+    url: '/v1/spaces/demo/outputs?kind=answer&limit=10',
+    status: 200,
+  },
+  { template: '/v1/outputs/{id}', method: 'get', url: `/v1/outputs/${OUTPUT_ID}`, status: 200 },
+  {
+    // 202, not 200: promotion opens an ordinary ingest job and a human still
+    // reviews the proposal it stages. The body is only the job id, deliberately
+    // NOT the queued-ack shape — a second promote returns the FIRST job, which
+    // may long since be done.
+    template: '/v1/outputs/{id}/promote',
+    method: 'post',
+    url: `/v1/outputs/${OUTPUT_ID}/promote`,
+    status: 202,
+  },
+  // The composed maintenance read: lint + coverage + the two live queues, with
+  // no verdict on top. strictObject, so a field the handler invents fails here.
+  { template: '/v1/spaces/{space}/health', method: 'get', url: '/v1/spaces/demo/health', status: 200 },
+  { template: '/v1/spaces/{space}/schedules', method: 'get', url: '/v1/spaces/demo/schedules', status: 200 },
+  {
+    // PUT is a REPLACE and answers the same shape GET does: the complete set
+    // after the write, so a client never has to re-read to learn what it now has.
+    template: '/v1/spaces/{space}/schedules',
+    method: 'put',
+    url: '/v1/spaces/demo/schedules',
+    status: 200,
+    body: {
+      schedules: [
+        { kind: 'briefing', at_time: '07:00', timezone: 'Europe/Berlin', enabled: true },
+        { kind: 'health', at_time: '08:30', weekday: 1, timezone: 'Europe/Berlin', enabled: true },
+      ],
+    },
   },
   { template: '/v1/spaces/{space}/proposals', method: 'get', url: '/v1/spaces/demo/proposals', status: 200 },
   {

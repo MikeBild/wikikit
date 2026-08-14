@@ -6,6 +6,96 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.35.0 - 2026-08-14
+
+### Added
+
+- **A good answer can now be kept — and filed back into the wiki.** Until now a
+  `/query` answer existed only in the chat window that asked for it; the sole
+  trace was an audit row saying a model call happened, not what it said. Every
+  answer is now an **output** (`GET /v1/spaces/{space}/outputs`,
+  `GET /v1/outputs/{id}`, `wikikit_outputs`), re-readable and shareable, and
+  `POST /v1/outputs/{id}/promote` / `wikikit_promote_output` archives one as a
+  source and stages a change. Promotion runs the ORDINARY pipeline — content
+  hash, grounding guard, contradiction detection, one proposal a human approves
+  — and never writes knowledge directly. Filing answers back automatically,
+  which is how the folder-based versions of this idea work, would leave the wiki
+  quoting itself as evidence: every claim would still carry a verbatim quote
+  from an archived document, and the document would be the wiki. The promoted
+  source is marked as derived, and the new `self-derived-only` lint rule (warn)
+  reports a page whose visible claims rest on nothing else — the one risk this
+  loop introduces ships with the rule that finds it.
+- **The inbox is a place, and it takes a whole folder at once.** The console's
+  new **Inbox** drops many files, pastes many URLs one per line, and takes typed
+  notes, then shows what arrived — every job with its stage and progress — next
+  to the changes still waiting for a decision, because "what came in" and "what
+  of it needs me" is one question. `GET /v1/spaces/{space}/ingests` is the list
+  behind it; per-space job history was previously unaddressable. A bulk drop is
+  N independent jobs and never one batch: each source keeps its own content
+  hash, its own change and its own review, and a single change holding forty
+  documents is a change nobody can decide.
+- **One read now answers "how is this wiki doing".**
+  `GET /v1/spaces/{space}/health` and `wikikit_health` compose the lint report,
+  the coverage block and the two live queues — changes waiting for a human WITH
+  the age of the oldest, and ingest work still in flight — in one LLM-free
+  request. The age is the point: a count of pending changes reads the same on
+  the day a backlog appears as it does a month later. The console's new **Care**
+  page is that report, every line linking to the page or change it is about, and
+  System's lint card now points there: System is installation diagnosis, not
+  knowledge maintenance. There is deliberately no overall verdict — every
+  threshold that would produce one is your policy, not WikiKit's.
+- **Maintenance can run without anybody remembering to look.** An optional
+  per-wiki schedule (`GET|PUT /v1/spaces/{space}/schedules`, scope `admin`, or
+  the Care page) writes a daily or weekly **briefing** — what was approved, what
+  is waiting and for how long, where the wiki is thin — and a **health report**,
+  which also emits the new `wikikit.health.reported` webhook. Both are assembled
+  from counts, titles and slugs and spend no model tokens, because a daily job
+  that costs money is a daily job somebody switches off. The vocabulary is a
+  closed set (daily at HH:MM, or weekly on a weekday, in an IANA timezone) and
+  not a cron expression: nobody can verify `*/7 3 * * 1-5` by reading it, and
+  what is actually wanted is "every morning" — the operator's morning, which is
+  what the timezone is for. WikiKit still sends no e-mail; delivery is the
+  output plus the webhook.
+- **`WIKIKIT_OUTPUT_RETENTION_DAYS`** (default 365, `0` keeps forever) expires
+  unpromoted outputs hourly; a promoted one is never collected, since its text
+  already lives on as a source. **`WIKIKIT_SCHEDULER_ENABLED`** (default `true`)
+  switches the worker off for a deployment that wants one binary of several
+  producing reports — though it need not, since due rows are claimed with
+  `FOR UPDATE SKIP LOCKED` and N instances already produce one report per
+  window.
+
+### Changed
+
+- **The sidebar is the loop, in the order the work happens.** Inbox → Pages →
+  Changes → Answers → Care; everything that is a way into one of those rather
+  than a step of it — Sources, Decisions, Guidelines, Search — moved into a
+  collapsed **Archive & control** block. Nine open entries is a menu; five is a
+  model, and an operator who reads the sidebar downwards has read the product.
+  **Changes stays visible** although folding it into the Inbox would have
+  reached a tidier four: it is the one queue whose neglect does real damage, and
+  a hidden backlog never says so. Home is the same loop, with the next sensible
+  step on each stage.
+- **The charter is called Guidelines on screen** (German: Leitlinien). "Charter"
+  reads as a legal document; what it is, is house style for a wiki. The rename
+  stops at the label — the route, the `wikikit_charter*` tools, the table and
+  every doc anchor keep the name, because renaming an API breaks contracts for
+  nothing. A wiki with no guidelines yet is now offered a six-field starter
+  (purpose, what belongs in, what does not, page types, emphasis, voice) that
+  seeds the ordinary editor, so the write still passes the same confirmation.
+- **Ingest refuses instead of queueing without limit.** Above
+  `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` waiting jobs (default 200) enqueue
+  answers `429 ingest_queue_full` with the queue depth and the limit, and
+  nothing is queued. Dropping fifty files costs fifty classification calls plus
+  a synthesis call per affected page and produces fifty changes to review; a
+  queue that silently accepts all of it looks exactly like one that is keeping
+  up, right until the backlog is unclearable. The refusal is a distinct code
+  from `rate_limited` on purpose — the pacing was fine, and retrying in a loop
+  learns nothing.
+- **Ingest job status carries `created_at`.** A queued job had neither a start
+  nor a finish time, so the state it spends most of its life in could not be
+  aged — "waiting since when" was unanswerable, on the single read as well as in
+  the new list.
+
 ## 0.34.1 - 2026-08-13
 
 ### Changed

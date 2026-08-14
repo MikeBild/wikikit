@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.34.1",
+    "version": "0.35.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -460,6 +460,10 @@
             "description": "already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
+          "429": {
+            "description": "ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE jobs waiting (envelope carries queued + limit); nothing was queued",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
           "500": {
             "description": "internal_error",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
@@ -581,6 +585,62 @@
         "x-required-scope": "knowledge:propose"
       }
     },
+    "/v1/spaces/{space}/ingests": {
+      "get": {
+        "summary": "List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves.",
+        "operationId": "listIngests",
+        "responses": {
+          "200": {
+            "description": "Ingest jobs page",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["queued", "running", "done", "failed", "quota_blocked"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read",
+        "x-accepted-scopes": ["knowledge:read", "knowledge:propose"]
+      }
+    },
     "/v1/spaces/{space}/ingest/document": {
       "post": {
         "summary": "Upload a document (pdf|docx|xlsx|md|txt|csv, raw body) — extracted to Markdown then ingested; async",
@@ -612,6 +672,10 @@
           },
           "422": {
             "description": "document_extraction_failed (no text layer)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "429": {
+            "description": "ingest_queue_full — the queue is at its per-space ceiling; the extraction ran but nothing was queued",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "500": {
@@ -1374,6 +1438,319 @@
         },
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/outputs": {
+      "get": {
+        "summary": "List produced outputs newest-first — answers, scheduled briefings and health reports (?kind=answer|briefing|health, ?limit=, ?cursor=). Rows carry the full markdown.",
+        "operationId": "listOutputs",
+        "responses": {
+          "200": {
+            "description": "Outputs page",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zOutputListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["answer", "briefing", "health"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/outputs/{id}": {
+      "get": {
+        "summary": "Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages.",
+        "operationId": "getOutput",
+        "responses": {
+          "200": {
+            "description": "Output (or text/markdown via Accept)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zOutputResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/outputs/{id}/promote": {
+      "post": {
+        "summary": "Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job.",
+        "operationId": "promoteOutput",
+        "responses": {
+          "202": {
+            "description": "Queued (or the job an earlier promote of this row created); poll /v1/ingests/{id}",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zOutputPromotedResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "429": {
+            "description": "ingest_queue_full — the queue is at its per-space ceiling; nothing was queued and the output stays unpromoted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "503": {
+            "description": "llm_not_configured",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
+      }
+    },
+    "/v1/spaces/{space}/health": {
+      "get": {
+        "summary": "Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days).",
+        "operationId": "spaceHealth",
+        "responses": {
+          "200": {
+            "description": "Space health",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpaceHealthResponse" } } }
+          },
+          "400": {
+            "description": "Invalid window (to must be after from)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": { "default": 5, "type": "integer", "minimum": 1, "maximum": 25 }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/schedules": {
+      "get": {
+        "summary": "Read the recurring briefing/health schedules of this space (at most one per kind)",
+        "operationId": "getSchedules",
+        "responses": {
+          "200": {
+            "description": "Schedules",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zScheduleListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
+      },
+      "put": {
+        "summary": "Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out of the body is removed — hence no DELETE route. Idempotent.",
+        "operationId": "putSchedules",
+        "responses": {
+          "200": {
+            "description": "Schedules after the write",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zScheduleListResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zScheduleSetRequest" } } }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
       }
     },
     "/v1/spaces/{space}/proposals": {
@@ -3841,6 +4218,12 @@
             "type": "string",
             "enum": ["meeting", "article", "note"]
           },
+          "derived_from_output_id": {
+            "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "language": {
             "description": "Language of this source's content for the retrieval index; defaults to the space language",
             "type": "string",
@@ -4013,6 +4396,7 @@
             ],
             "description": "Position inside a countable stage — during synthesis, concepts finished of total"
           },
+          "created_at": { "type": "string", "description": "When the job was accepted (ISO 8601)" },
           "started_at": {
             "anyOf": [{ "type": "string" }, { "type": "null" }],
             "description": "When a worker claimed the job (ISO 8601)"
@@ -4034,10 +4418,110 @@
           "error",
           "phase",
           "progress",
+          "created_at",
           "started_at",
           "heartbeat_at",
           "finished_at"
         ],
+        "additionalProperties": false
+      },
+      "zIngestListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ingest_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "status": { "type": "string", "enum": ["queued", "running", "done", "failed", "quota_blocked"] },
+                "proposal_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "source_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": { "code": { "type": "string" }, "message": { "type": "string" } },
+                      "required": ["code", "message"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "phase": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose"
+                },
+                "progress": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "done": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                        "total": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+                      },
+                      "required": ["done", "total"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Position inside a countable stage — during synthesis, concepts finished of total"
+                },
+                "created_at": { "type": "string", "description": "When the job was accepted (ISO 8601)" },
+                "started_at": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "When a worker claimed the job (ISO 8601)"
+                },
+                "heartbeat_at": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "Last lease renewal — a recent value means the worker is alive (ISO 8601)"
+                },
+                "finished_at": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "When the job reached a terminal state (ISO 8601)"
+                }
+              },
+              "required": [
+                "ingest_id",
+                "status",
+                "proposal_id",
+                "source_id",
+                "error",
+                "phase",
+                "progress",
+                "created_at",
+                "started_at",
+                "heartbeat_at",
+                "finished_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_before": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "next_before"],
         "additionalProperties": false
       },
       "zSourceListResponse": {
@@ -4581,10 +5065,418 @@
               "required": ["source_id", "chunk_id", "title"],
               "additionalProperties": false
             }
+          },
+          "output_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
           }
         },
-        "required": ["answer_markdown", "citations", "not_in_knowledge_base", "agent_run_id", "source_citations"],
+        "required": [
+          "answer_markdown",
+          "citations",
+          "not_in_knowledge_base",
+          "agent_run_id",
+          "source_citations",
+          "output_id"
+        ],
         "additionalProperties": false
+      },
+      "zOutputListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "space_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "kind": { "type": "string", "enum": ["answer", "briefing", "health"] },
+                "title": { "type": "string" },
+                "question": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "markdown": { "type": "string" },
+                "citations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": { "slug": { "type": "string" }, "title": { "type": "string" } },
+                    "required": ["slug", "title"],
+                    "additionalProperties": false
+                  }
+                },
+                "not_in_knowledge_base": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+                "agent_run_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "promoted_ingest_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "promoted_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "created_at": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "space_id",
+                "kind",
+                "title",
+                "question",
+                "markdown",
+                "citations",
+                "not_in_knowledge_base",
+                "agent_run_id",
+                "promoted_ingest_id",
+                "promoted_at",
+                "created_at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_before": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "next_before"],
+        "additionalProperties": false
+      },
+      "zOutputResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "space_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "kind": { "type": "string", "enum": ["answer", "briefing", "health"] },
+          "title": { "type": "string" },
+          "question": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "markdown": { "type": "string" },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": { "slug": { "type": "string" }, "title": { "type": "string" } },
+              "required": ["slug", "title"],
+              "additionalProperties": false
+            }
+          },
+          "not_in_knowledge_base": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] },
+          "agent_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "promoted_ingest_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "promoted_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "created_at": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "space_id",
+          "kind",
+          "title",
+          "question",
+          "markdown",
+          "citations",
+          "not_in_knowledge_base",
+          "agent_run_id",
+          "promoted_ingest_id",
+          "promoted_at",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "zOutputPromotedResponse": {
+        "type": "object",
+        "properties": {
+          "ingest_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["ingest_id"],
+        "additionalProperties": false
+      },
+      "zSpaceHealthResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": { "type": "string", "const": "wikikit.space-health.v1" },
+          "window": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              }
+            },
+            "required": ["from", "to"],
+            "additionalProperties": false
+          },
+          "lint": {
+            "type": "object",
+            "properties": {
+              "findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "string",
+                      "enum": [
+                        "contradictions",
+                        "missing-citations",
+                        "broken-relations",
+                        "stale-claims",
+                        "orphan-concepts",
+                        "unsourced-concepts",
+                        "self-derived-only",
+                        "stub-concepts",
+                        "scaffolded-claims",
+                        "empty-concepts",
+                        "unreviewed-proposals",
+                        "dangling-sources",
+                        "tombstoned-sources",
+                        "broken-cross-space-links"
+                      ]
+                    },
+                    "severity": { "type": "string", "enum": ["error", "warn", "info"] },
+                    "message": { "type": "string" },
+                    "concept_slug": { "type": "string" },
+                    "claim_id": { "type": "string" },
+                    "details": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
+                  },
+                  "required": ["rule", "severity", "message"],
+                  "additionalProperties": false
+                }
+              },
+              "counts": {
+                "type": "object",
+                "properties": {
+                  "error": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  "warn": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  "info": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+                },
+                "required": ["error", "warn", "info"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["findings", "counts"],
+            "additionalProperties": false
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "disputed": {
+                "type": "object",
+                "properties": {
+                  "open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "oldest_days": { "anyOf": [{ "type": "number" }, { "type": "null" }] }
+                },
+                "required": ["open", "oldest_days"],
+                "additionalProperties": false
+              },
+              "review_latency": {
+                "type": "object",
+                "properties": {
+                  "decided": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "approved": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "rejected": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "median_hours": { "anyOf": [{ "type": "number" }, { "type": "null" }] }
+                },
+                "required": ["decided", "approved", "rejected", "median_hours"],
+                "additionalProperties": false
+              },
+              "freshness": {
+                "type": "object",
+                "properties": {
+                  "concepts": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "stale_over_90d": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["concepts", "stale_over_90d"],
+                "additionalProperties": false
+              },
+              "top_read_concepts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slug": { "type": "string" },
+                    "title": { "type": "string" },
+                    "reads": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["slug", "title", "reads"],
+                  "additionalProperties": false
+                }
+              },
+              "top_linked_concepts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "slug": { "type": "string" },
+                    "title": { "type": "string" },
+                    "inbound_relations": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["slug", "title", "inbound_relations"],
+                  "additionalProperties": false
+                }
+              },
+              "gap_topics": {
+                "type": "object",
+                "properties": {
+                  "enabled": { "type": "boolean" },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "lexeme": { "type": "string" },
+                        "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["lexeme", "count"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["enabled", "items"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "disputed",
+              "review_latency",
+              "freshness",
+              "top_read_concepts",
+              "top_linked_concepts",
+              "gap_topics"
+            ],
+            "additionalProperties": false
+          },
+          "review_queue": {
+            "type": "object",
+            "properties": {
+              "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": ["pending", "oldest_days"],
+            "additionalProperties": false
+          },
+          "ingest_queue": {
+            "type": "object",
+            "properties": {
+              "depth": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "queued": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "running": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "quota_blocked": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_queued_hours": { "anyOf": [{ "type": "number" }, { "type": "null" }] }
+            },
+            "required": ["depth", "queued", "running", "quota_blocked", "oldest_queued_hours"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["schema_version", "window", "lint", "coverage", "review_queue", "ingest_queue"],
+        "additionalProperties": false
+      },
+      "zScheduleListResponse": {
+        "type": "object",
+        "properties": {
+          "schedules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["briefing", "health"] },
+                "at_time": { "type": "string" },
+                "weekday": { "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 6 }, { "type": "null" }] },
+                "timezone": { "type": "string" },
+                "enabled": { "type": "boolean" },
+                "last_run_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "next_run_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+              },
+              "required": ["kind", "at_time", "weekday", "timezone", "enabled", "last_run_at", "next_run_at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["schedules"],
+        "additionalProperties": false
+      },
+      "zScheduleSetRequest": {
+        "type": "object",
+        "properties": {
+          "schedules": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["briefing", "health"] },
+                "at_time": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+                "weekday": { "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 6 }, { "type": "null" }] },
+                "timezone": { "type": "string" },
+                "enabled": { "type": "boolean" }
+              },
+              "required": ["kind", "at_time", "timezone"]
+            }
+          }
+        },
+        "required": ["schedules"]
       },
       "zProposalListResponse": {
         "type": "object",
@@ -5258,6 +6150,7 @@
                     "stale-claims",
                     "orphan-concepts",
                     "unsourced-concepts",
+                    "self-derived-only",
                     "stub-concepts",
                     "scaffolded-claims",
                     "empty-concepts",
@@ -5337,7 +6230,8 @@
                 "wikikit.ingest.failed",
                 "wikikit.source.tombstoned",
                 "wikikit.proposal.split",
-                "wikikit.proposal.changes_requested"
+                "wikikit.proposal.changes_requested",
+                "wikikit.health.reported"
               ]
             }
           }

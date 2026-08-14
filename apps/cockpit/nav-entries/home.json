@@ -9,7 +9,7 @@
     "/v1/spaces/{space}/stats/knowledge",
     "/v1/spaces/{space}/stats/reviews",
     "/v1/spaces/{space}/stats/ingests",
-    "/v1/spaces/{space}/stats/coverage",
+    "/v1/spaces/{space}/health",
     "/v1/spaces/{space}/proposals"
   ]
 }

@@ -38,6 +38,9 @@ instead of producing a half-configured server.
 | `WIKIKIT_INGEST_LEASE_MS`                        | Worker lease duration; an expired running job is reaped as `worker_lost` (10 s–24 h)                               | `900000` (15 min)                                                  |
 | `WIKIKIT_INGEST_HEARTBEAT_MS`                    | Lease renewal cadence; must be less than half the lease duration (1 s–1 h)                                         | `30000`                                                            |
 | `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | Wall-clock ceiling for one ingest job; over it the run is aborted and fails with `error.code=timeout` (1 min–24 h) | `5400000`                                                          |
+| `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`            | Ingest jobs one space may have waiting before enqueue refuses with `429 ingest_queue_full` (1–100 000)             | `200`                                                              |
+| `WIKIKIT_OUTPUT_RETENTION_DAYS`                  | How long an unpromoted output (answer, briefing, health report) is kept; `0` keeps them forever (0–3650)           | `365`                                                              |
+| `WIKIKIT_SCHEDULER_ENABLED`                      | Run the in-process briefing/health worker (schedules stay armed either way)                                        | `true`                                                             |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | Outbox poll interval (ms)                                                                                          | `5000` (`.env.defaults`: `1000`)                                   |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | Per-delivery HTTP timeout (ms)                                                                                     | `10000`                                                            |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | Delivery attempts (exponential backoff + jitter) before a delivery is `dead`                                       | `10`                                                               |
@@ -258,6 +261,63 @@ comma-separated, surface-specific `group_by` dimensions. Each response is
 `wikikit.usage-stats.v1`, reports exact full-window actor/session uniques,
 keeps ratio numerator/denominator evidence, distinguishes zero from missing,
 declares `sampled:false`, and never returns raw events.
+
+## Backpressure on the inbox (`WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`)
+
+Dropping fifty files into a wiki costs fifty classification calls plus one
+synthesis call per affected page, and produces fifty separate changes somebody
+has to review. A queue that silently accepts all of it looks exactly like one
+that is keeping up — right until the review backlog is unclearable. So above
+this many WAITING jobs in one space, enqueue refuses with
+`429 ingest_queue_full` and says how many are queued and what the limit is; the
+person doing the dropping is the only one who can decide to stop.
+
+Waiting means `queued` plus `quota_blocked`. Jobs parked on a provider quota
+window are work that was accepted and is not done, so leaving them out would let
+a space accumulate unbounded work behind a cap reading zero. `running` jobs are
+not counted: at most `WIKIKIT_INGEST_CONCURRENCY` of them exist and they are
+draining now.
+
+The default of 200 is roughly a working week of review at a rate a human
+sustains — high enough that an ordinary bulk drop goes straight through, low
+enough that a misconfigured automatic feeder is stopped while somebody can still
+read the queue. There is no value meaning "unlimited": the floor is 1, because a
+deployment that wants more work in flight should say how much more. Raise it
+only if a human really is going to review that much at once.
+
+## Produced outputs and their retention (`WIKIKIT_OUTPUT_RETENTION_DAYS`)
+
+Every grounded answer is kept as an output, alongside the briefings and health
+reports the scheduler writes. They are derived artifacts, not knowledge and not
+evidence, and they are regenerable — so unpromoted ones expire after this many
+days, swept hourly. A year is long enough that "what did we ask last quarter" is
+answerable and bounded enough that a busy `/query` surface does not grow a table
+forever.
+
+`0` keeps them forever; it is the operator's opt-out, and it can never be read
+as "delete everything" because the sweep refuses to compute a zero-day window.
+A **promoted** output is never collected at any setting: its markdown already
+lives on as an archived source, and the row is the link from that source back to
+the answer it came from.
+
+## Scheduled maintenance (`WIKIKIT_SCHEDULER_ENABLED`)
+
+The in-process worker that writes the daily briefing and the health report. It
+polls for due schedules and runs nothing until a wiki has one
+(`PUT /v1/spaces/{space}/schedules`, scope `admin`, or the console's **Care**
+page), so leaving it on costs a cheap query.
+
+Turning it off is for the deployment that wants exactly one of several binaries
+producing reports — although it does not need to: due rows are claimed with
+`FOR UPDATE SKIP LOCKED`, so N instances against one database already produce
+one report per window. Switched off, schedules stay saved and armed; nothing
+runs. The jobs spend no model tokens — both documents are an assembly of counts,
+titles and slugs — because a daily job that costs money is a daily job somebody
+switches off, and the moment it is off the wiki goes quiet again in exactly the
+way the scheduler exists to prevent.
+
+WikiKit sends no e-mail and has no SMTP configuration. Delivery is the output
+row plus the `wikikit.health.reported` webhook; wire a mail step onto that.
 
 ## Reference-target pages (`WIKIKIT_SCAFFOLDING_KINDS`)
 

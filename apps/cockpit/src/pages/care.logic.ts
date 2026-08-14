@@ -1,0 +1,275 @@
+import { toneFor, type Tone } from '@/pages/home.logic'
+
+/**
+ * The Care page's rules, with no DOM under them.
+ *
+ * This page exists because of a measured failure rather than a feature request:
+ * a production wiki was sitting on hundreds of change proposals whose oldest
+ * had not been touched in three weeks, and every surface in the product
+ * reported the installation as healthy the whole time. Nothing was broken.
+ * Nothing said anything. A count alone would not have helped either — "436
+ * waiting" looks the same on the day it appears as it does a month later, and
+ * it is the AGE that turns a queue into a backlog.
+ *
+ * So the rules here are mostly about not lying with a number:
+ *
+ *  - **`oldest_days` is null exactly when nothing is waiting**, and null is an
+ *    em dash, never "0 days" (CUI-SEV-2). "The oldest change has waited zero
+ *    days" is a sentence about nothing.
+ *  - **No threshold, no verdict.** The server refuses to say whether a queue is
+ *    too long, because how many pending changes is too many is policy and
+ *    belongs to whoever owns the wiki. The console does not get to invent one
+ *    either, so the only tone distinction drawn here is the honest one:
+ *    something is waiting, or nothing is.
+ *  - **Every finding has to lead somewhere.** A report you cannot act from is a
+ *    report nobody opens twice, so `findingTarget` answers where a row goes,
+ *    and it answers `null` rather than guessing when a finding names nothing.
+ *
+ * The severity vocabulary is NOT restated here: `system.logic.ts` already owns
+ * the `warn` → `warning` translation and the worst-first grouping, and a second
+ * reading of the linter's words is how one page ends up calling a warning a
+ * note.
+ */
+
+export interface Standing {
+  label: string
+  tone: Tone
+}
+
+/**
+ * Whether anybody has to do something about the review queue.
+ *
+ * Two states, not a scale. An empty queue is GOOD NEWS and reads as such
+ * (CUI-LOAD-4); a queue with anything in it is `blocked` — stopped until a
+ * human acts — which is exactly what a pending change is, whether there is one
+ * of them or four hundred. The four hundred is said by the number beside it,
+ * and how bad four hundred is remains the reader's judgement.
+ */
+export function backlogStanding(pending: number): Standing {
+  return pending === 0
+    ? { label: 'Nothing is waiting', tone: toneFor('succeeded') }
+    : { label: 'Waiting for a decision', tone: toneFor('blocked') }
+}
+
+/**
+ * A whole-day wait, in the words a person would use — or the em dash for a wait
+ * that does not exist.
+ *
+ * Returns the SOURCE phrases rather than formatted German: the caller runs them
+ * through the translator, and `{count} days` is interpolated there so the
+ * number never has to survive a round trip through a lookup table.
+ */
+export interface Waited {
+  /** A phrase for the translator; `null` when there is nothing to say. */
+  phrase: string | null
+  values?: Readonly<Record<string, number>>
+}
+
+export function waitedDays(days: number | null | undefined): Waited {
+  if (days === null || days === undefined || !Number.isFinite(days) || days < 0) return { phrase: null }
+  const whole = Math.floor(days)
+  if (whole === 0) return { phrase: 'today' }
+  if (whole === 1) return { phrase: '1 day' }
+  return { phrase: '{count} days', values: { count: whole } }
+}
+
+/**
+ * The same for the ingest queue, in HOURS.
+ *
+ * Hours rather than days, and that is the point of a second function: a healthy
+ * ingest queue drains in minutes, so "0 days" would read like reassurance about
+ * a queue that has been stuck since lunchtime.
+ */
+export function waitedHours(hours: number | null | undefined): Waited {
+  if (hours === null || hours === undefined || !Number.isFinite(hours) || hours < 0) return { phrase: null }
+  if (hours < 1) return { phrase: 'under an hour' }
+  return { phrase: '{count} h', values: { count: Math.round(hours) } }
+}
+
+/** The fields of a lint finding this page routes on. The response carries more. */
+export interface RoutableFinding {
+  rule: string
+  concept_slug?: string
+  details?: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Where a finding goes when somebody clicks it.
+ *
+ * The page wins over everything else where a finding names one, because the
+ * page is where the fix happens: a tombstoned source names both the source and
+ * the page whose claims quote it, and the reader's decision — deprecate the
+ * claim or not — is made on the page. Findings with no page at all are the two
+ * that are about the queues rather than about knowledge: an unreviewed proposal
+ * goes to the change, a source nothing cites goes to the source.
+ *
+ * `null` is a real answer and not a fallback to somewhere plausible. A finding
+ * this console cannot route is still worth showing; sending the reader to a
+ * list and letting them hunt is worse than a row that plainly does not move.
+ */
+export type FindingTarget =
+  { kind: 'page'; slug: string } | { kind: 'change'; id: string } | { kind: 'source'; id: string } | null
+
+function textField(details: Readonly<Record<string, unknown>> | undefined, name: string): string | null {
+  const value = details?.[name]
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+export function findingTarget(finding: RoutableFinding): FindingTarget {
+  if (finding.concept_slug?.trim()) return { kind: 'page', slug: finding.concept_slug }
+  const proposal = textField(finding.details, 'proposal_id')
+  if (proposal) return { kind: 'change', id: proposal }
+  const source = textField(finding.details, 'source_id')
+  if (source) return { kind: 'source', id: source }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Schedules
+// ---------------------------------------------------------------------------
+
+/**
+ * The two things the in-process worker can be told to do, restated for the
+ * browser exactly like the ingest formats in `inbox.logic.ts`: this module
+ * compiles for a browser and does not reach into `src/schedule.ts`.
+ */
+export const SCHEDULE_KINDS: readonly string[] = ['briefing', 'health']
+
+/** 0 = Sunday … 6 = Saturday, matching Postgres' `extract(dow)` and the wire. */
+export const WEEKDAYS: readonly { value: number; label: string }[] = [
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+  { value: 0, label: 'Sunday' },
+]
+
+/**
+ * One row of the schedule form.
+ *
+ * `frequency` is a separate field from `weekday` rather than "weekday === null
+ * means daily", because a form has to remember which weekday the operator
+ * picked while they look at what daily would mean. The wire keeps the server's
+ * shape — null weekday IS daily — and `scheduleBody` is the one place the two
+ * are reconciled.
+ */
+export interface ScheduleDraft {
+  kind: string
+  enabled: boolean
+  frequency: 'daily' | 'weekly'
+  /** HH:MM, 24-hour: what `<input type="time">` produces and what the server accepts. */
+  atTime: string
+  weekday: number
+  /** An IANA zone name — "every morning" has to mean the operator's morning. */
+  timezone: string
+}
+
+/** The wire rows this form reads. */
+export interface ScheduleWire {
+  kind: string
+  at_time: string
+  weekday: number | null
+  timezone: string
+  enabled: boolean
+}
+
+/**
+ * Every kind as a row, whether the server has one or not.
+ *
+ * A kind with no row on the server is NOT missing from this form: it is a
+ * schedule that is switched off, and a form that only shows what exists gives
+ * an operator no way to switch one on. The defaults are deliberately dull —
+ * seven in the morning, in whatever zone the browser is in — because a
+ * suggested time somebody has to think about is a form they close.
+ */
+export function draftsFrom(schedules: readonly ScheduleWire[], fallbackZone: string): ScheduleDraft[] {
+  return SCHEDULE_KINDS.map((kind) => {
+    const found = schedules.find((entry) => entry.kind === kind)
+    if (!found) {
+      return {
+        kind,
+        enabled: false,
+        frequency: kind === 'health' ? 'weekly' : 'daily',
+        atTime: '07:00',
+        weekday: 1,
+        timezone: fallbackZone,
+      }
+    }
+    return {
+      kind,
+      enabled: found.enabled,
+      frequency: found.weekday === null ? 'daily' : 'weekly',
+      // Postgres hands back `07:00:00`; the form and the wire speak HH:MM.
+      atTime: found.at_time.slice(0, 5),
+      weekday: found.weekday ?? 1,
+      timezone: found.timezone,
+    }
+  })
+}
+
+/**
+ * The PUT body: the COMPLETE set, with the switched-off kinds included.
+ *
+ * Leaving a kind out would also switch it off — the route is a replace — but it
+ * would DELETE the row, and with it `last_run_at`, which is the only record
+ * that the schedule ever ran. Sending `enabled: false` keeps that telemetry for
+ * an operator who switches a report off for a fortnight and then wonders when
+ * it last went out.
+ */
+export function scheduleBody(drafts: readonly ScheduleDraft[]): {
+  schedules: { kind: string; at_time: string; weekday: number | null; timezone: string; enabled: boolean }[]
+} {
+  return {
+    schedules: drafts.map((draft) => ({
+      kind: draft.kind,
+      at_time: draft.atTime,
+      weekday: draft.frequency === 'weekly' ? draft.weekday : null,
+      timezone: draft.timezone,
+      enabled: draft.enabled,
+    })),
+  }
+}
+
+/** HH:MM, 24-hour. Seconds are not offered: a report that fires at 07:00:30 is one nobody meant to write. */
+const AT_TIME = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/**
+ * Whether the runtime's zone database knows this name.
+ *
+ * Asked of `Intl` rather than matched against a pattern, for the same reason
+ * the server asks its runtime: `Europe/Berlin` and `Europe/Berlyn` are
+ * indistinguishable to any regex, and the second one would otherwise only fail
+ * later, inside a tick, on a row nobody is looking at.
+ */
+export function isTimeZoneName(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * What stops this form from being saved, in the operator's words, or `null`.
+ *
+ * Said before the request rather than after it: the server's refusal is a 400
+ * naming one field, and an operator who mistyped a zone should not have to
+ * spend a round trip to learn which of two rows it was in. The server's check
+ * remains the real one; this is the courtesy copy.
+ *
+ * A switched-off row is not checked at all. Its time and zone still travel, but
+ * nothing fires on them, and refusing to save a working briefing because the
+ * care report somebody disabled last month has an empty zone would be the form
+ * blocking on a field that does nothing.
+ */
+export function scheduleProblem(drafts: readonly ScheduleDraft[]): string | null {
+  for (const draft of drafts) {
+    if (!draft.enabled) continue
+    if (!AT_TIME.test(draft.atTime)) return 'A time has to read HH:MM, in 24 hours.'
+    if (!isTimeZoneName(draft.timezone)) return 'That is not a time zone this browser knows.'
+  }
+  return null
+}

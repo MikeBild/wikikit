@@ -17,6 +17,7 @@ import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
 import { useCan } from '@/lib/session'
@@ -24,6 +25,14 @@ import { useSpace } from '@/lib/space'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
 import { toast } from '@/lib/toast'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
+import { useI18n } from '@/lib/i18n-context'
+import {
+  composeGuidelines,
+  EMPTY_GUIDELINES,
+  guidelinesStarted,
+  type GuidelinesDraft,
+  type GuidelinesField,
+} from '@/pages/charter.logic'
 
 /**
  * ┌──────────────────────────────────────────────────────────────────────────┐
@@ -175,7 +184,7 @@ export function CharterPage() {
     mutationFn: (markdown: string) => wk.charter.put(space, { markdown }),
     onSuccess: async () => {
       setDraft(null)
-      toast({ tone: 'success', title: `Charter written for ${space}` })
+      toast({ tone: 'success', title: `Guidelines written for ${space}` })
       await refresh()
     },
     // No `onError` toast: this runs inside `Confirm`, which keeps the dialog
@@ -188,7 +197,7 @@ export function CharterPage() {
     mutationFn: () => wk.charter.remove(space),
     onSuccess: async () => {
       setDraft(null)
-      toast({ tone: 'info', title: `Charter deleted — ${space} has none until one is written` })
+      toast({ tone: 'info', title: `Guidelines deleted — ${space} has none until new ones are written` })
       await refresh()
     },
   })
@@ -200,14 +209,14 @@ export function CharterPage() {
   const unchanged = draft !== null && doc !== undefined && draft === doc.markdown
 
   const submitReason = overLimit
-    ? `A charter may be at most ${CHARTER_MAX_CHARS.toLocaleString()} characters — the server refuses a longer one.`
+    ? `Guidelines may be at most ${CHARTER_MAX_CHARS.toLocaleString()} characters — the server refuses longer ones.`
     : unchanged
       ? 'Nothing has changed.'
       : null
 
   return (
     <Page
-      title="Charter"
+      title="Guidelines"
       description="The governing document for this wiki: what it is for, what belongs in it, and how synthesis should read it."
       actions={
         doc === undefined ? null : editing ? (
@@ -221,8 +230,8 @@ export function CharterPage() {
               Cancel
             </Button>
             <Confirm
-              title="Write the charter"
-              description={`Replace the charter of ${space} with the text you have written.`}
+              title="Write the guidelines"
+              description={`Replace the guidelines of ${space} with the text you have written.`}
               /*
                 The exact effect, and the part that is unlike everything else in
                 this console. An operator who has spent the day submitting
@@ -233,8 +242,8 @@ export function CharterPage() {
               details={
                 <div className="flex flex-col gap-2">
                   <p>
-                    <strong>This takes effect immediately.</strong> The charter is not reviewed: it is configuration an
-                    admin owns, so no change proposal is created and nobody approves it.
+                    <strong>This takes effect immediately.</strong> The guidelines are not reviewed: they are
+                    configuration an admin owns, so no change proposal is created and nobody approves them.
                   </p>
                   <p>
                     Revision {(doc.rev ?? 0) + 1} becomes current the moment you confirm, and revision {doc.rev ?? '—'}{' '}
@@ -244,7 +253,7 @@ export function CharterPage() {
                   </p>
                 </div>
               }
-              confirmLabel="Write charter"
+              confirmLabel="Write guidelines"
               ids={{
                 dialog: 'charter-save-dialog',
                 accept: 'charter-save-confirm',
@@ -270,22 +279,22 @@ export function CharterPage() {
           <>
             {written ? (
               <Confirm
-                title="Delete the charter"
-                description={`Remove the charter of ${space}.`}
+                title="Delete the guidelines"
+                description={`Remove the guidelines of ${space}.`}
                 details={
                   <div className="flex flex-col gap-2">
                     <p>
                       Revision {doc.rev} is superseded and <span className="font-mono">{space}</span> is left with no
-                      charter. Every revision stays readable in the history below — this deletes what is in force, not
-                      the record of it.
+                      guidelines. Every revision stays readable in the history below — this deletes what is in force,
+                      not the record of it.
                     </p>
                     <p>
-                      Until a new charter is written, nothing steers classification and synthesis for this wiki: they
+                      Until new guidelines are written, nothing steers classification and synthesis for this wiki: they
                       fall back to their defaults. Pages already written are unaffected.
                     </p>
                   </div>
                 }
-                confirmLabel="Delete charter"
+                confirmLabel="Delete guidelines"
                 destructive
                 ids={{
                   dialog: 'charter-delete-dialog',
@@ -297,7 +306,7 @@ export function CharterPage() {
               >
                 {(open) => (
                   <DisabledReason
-                    reason={admin ? null : 'Needs admin — the charter is configuration, not reviewed knowledge.'}
+                    reason={admin ? null : 'Needs admin — the guidelines are configuration, not reviewed knowledge.'}
                     data-testid="charter-delete-reason"
                   >
                     <Button
@@ -314,7 +323,7 @@ export function CharterPage() {
               </Confirm>
             ) : null}
             <DisabledReason
-              reason={admin ? null : 'Needs admin — the charter is configuration, not reviewed knowledge.'}
+              reason={admin ? null : 'Needs admin — the guidelines are configuration, not reviewed knowledge.'}
               data-testid={written ? 'charter-edit-reason' : 'charter-write-reason'}
             >
               <Button
@@ -323,7 +332,7 @@ export function CharterPage() {
                 onClick={() => setDraft(doc.markdown)}
               >
                 {written ? <Pencil data-icon="inline-start" /> : <ScrollText data-icon="inline-start" />}
-                {written ? 'Edit' : 'Write the charter'}
+                {written ? 'Edit' : 'Write the guidelines'}
               </Button>
             </DisabledReason>
           </>
@@ -346,13 +355,22 @@ export function CharterPage() {
           }
         </DataState>
 
+        {/*
+          The starter, and only where it can do any good: a wiki that has none
+          yet, with nobody mid-edit. Once there is a document it would be a
+          second, worse editor beside the real one.
+        */}
+        {doc !== undefined && !written && draft === null ? (
+          <GuidelinesStarter allowed={admin} onUse={setDraft} />
+        ) : null}
+
         <section className="flex flex-col gap-3">
           <SectionHeading
             helpTitle="About version history"
             help={
               <p>
-                Every charter written for this wiki, newest first. Writing supersedes the current revision rather than
-                overwriting it.
+                Every version of the guidelines written for this wiki, newest first. Writing supersedes the current
+                revision rather than overwriting it.
               </p>
             }
             testId="charter-history-help"
@@ -371,11 +389,128 @@ export function CharterPage() {
             page={versionPage}
             onPageChange={setVersionPage}
             unit="revisions"
-            empty="No charter has ever been written for this wiki."
+            empty="No guidelines have ever been written for this wiki."
           />
         </section>
       </div>
     </Page>
+  )
+}
+
+/**
+ * Six questions instead of an empty box.
+ *
+ * This is the most practical lever a new wiki has and the one nobody pulls.
+ * Every classification and synthesis job reads the guidelines, so they decide
+ * what gets written and how it reads — and "write the rules that guide
+ * synthesis" is an instruction somebody closes the tab on. Six named questions
+ * are answerable in five minutes, and the answers compose into the ordinary
+ * Markdown document; nothing here is stored, read back or round-tripped.
+ *
+ * `Use this as a start` hands the composed text to the ordinary editor rather
+ * than saving it. The write is still one deliberate act behind the confirmation
+ * that says it takes effect immediately, which is the sentence this page exists
+ * to say out loud — a form that saved on its own would take that away.
+ */
+const STARTER_FIELDS: readonly { key: GuidelinesField; heading: string; example: string }[] = [
+  {
+    key: 'purpose',
+    heading: 'Purpose',
+    example: 'Answering questions about how we deploy, who is on call, and what to do when something breaks.',
+  },
+  {
+    key: 'belongs',
+    heading: 'What belongs in this wiki',
+    example: 'Runbooks, post-mortems, architecture decisions, on-call handovers.',
+  },
+  {
+    key: 'excluded',
+    heading: 'What does not',
+    example: 'Customer data, meeting small talk, anything that belongs in a ticket.',
+  },
+  {
+    key: 'pageTypes',
+    heading: 'Page types',
+    example: 'One page per service, one per recurring incident, one per decision.',
+  },
+  {
+    key: 'emphasis',
+    heading: 'What to emphasise',
+    example: 'Why a thing is done this way, and what was tried before it.',
+  },
+  { key: 'voice', heading: 'Voice', example: 'Short sentences. Present tense. No marketing words.' },
+]
+
+function GuidelinesStarter({ allowed, onUse }: { allowed: boolean; onUse: (markdown: string) => void }) {
+  const { text } = useI18n()
+  const [answers, setAnswers] = useState<GuidelinesDraft>(EMPTY_GUIDELINES)
+  const started = guidelinesStarted(answers)
+  const reason = !allowed
+    ? 'Needs admin — the guidelines are configuration, not reviewed knowledge.'
+    : started
+      ? null
+      : 'Answer at least one question first.'
+
+  return (
+    <I18nText>
+      <section
+        className="border-border flex flex-col gap-4 rounded-lg border p-4"
+        aria-labelledby="charter-starter-heading"
+      >
+        <div className="flex flex-col gap-1">
+          <h2 id="charter-starter-heading" className="text-sm font-semibold">
+            Start from six questions
+          </h2>
+          <p className="text-muted-foreground text-sm">
+            Answer what you can and leave the rest. What you write becomes an ordinary Markdown document you can edit
+            before it is saved — an unanswered question is left out rather than left empty.
+          </p>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {STARTER_FIELDS.map((field) => (
+            <div key={field.key} className="flex min-w-0 flex-col gap-1">
+              <Label htmlFor={`charter-starter-${field.key}`} className="text-xs">
+                {field.heading}
+              </Label>
+              <Textarea
+                id={`charter-starter-${field.key}`}
+                data-testid={`charter-starter-${field.key}`}
+                rows={3}
+                className="max-h-32 text-xs"
+                placeholder={text(field.example)}
+                value={answers[field.key]}
+                disabled={!allowed}
+                onChange={(event) => setAnswers({ ...answers, [field.key]: event.target.value })}
+              />
+            </div>
+          ))}
+        </div>
+        <DisabledReason reason={reason} data-testid="charter-starter-reason">
+          <Button
+            variant="outline"
+            className="w-fit"
+            data-testid="charter-starter-use"
+            disabled={reason !== null}
+            onClick={() =>
+              onUse(
+                composeGuidelines(
+                  answers,
+                  // The headings are localized here rather than in the composer:
+                  // the document a German wiki keeps should read as German.
+                  Object.fromEntries(STARTER_FIELDS.map((entry) => [entry.key, text(entry.heading)])) as Record<
+                    GuidelinesField,
+                    string
+                  >,
+                ),
+              )
+            }
+          >
+            <ScrollText data-icon="inline-start" />
+            Use this as a start
+          </Button>
+        </DisabledReason>
+      </section>
+    </I18nText>
   )
 }
 
@@ -404,7 +539,7 @@ function ReadingView({
         */
         <EmptyState
           icon={ScrollText}
-          title="No charter yet"
+          title="No guidelines yet"
           description="Write the rules that guide classification and synthesis for this wiki."
           data-testid="charter-empty"
         />
@@ -464,8 +599,8 @@ function OverviewPanel({ overview }: { overview: { concepts: number; decisions: 
           <h2 className="text-sm font-semibold">Derived overview</h2>
           <ContextHelp title="About the derived overview" testId="charter-overview-help">
             <p>
-              Derived from current knowledge and appended to the charter automatically, together with an index of every
-              page in this wiki. It is not part of the text above and cannot be edited here.
+              Derived from current knowledge and appended to the guidelines automatically, together with an index of
+              every page in this wiki. It is not part of the text above and cannot be edited here.
             </p>
           </ContextHelp>
         </div>
@@ -505,7 +640,7 @@ function EditingView({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <FieldLabel
             htmlFor="charter-body"
-            helpTitle="About charter Markdown"
+            helpTitle="About guidelines Markdown"
             help={
               <p>
                 Every classification and synthesis job reads this text. Write the scope, vocabulary and boundaries a
@@ -514,7 +649,7 @@ function EditingView({
             }
             testId="charter-body-help"
           >
-            Charter (Markdown)
+            Guidelines (Markdown)
           </FieldLabel>
           <span
             data-testid="charter-length"

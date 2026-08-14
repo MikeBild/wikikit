@@ -118,7 +118,10 @@ product-local HMACs, anonymous HTTP is never fingerprinted, raw events expire
 after `WIKIKIT_USAGE_RETENTION_DAYS` (default 90), and the collector can mark
 authenticated canaries with `X-WikiKit-Traffic-Class: synthetic`. See
 [Configuration](docs/CONFIGURATION.md) for the privacy and query contract.
-`GET /v1/spaces/{space}/lint` remains the current data-quality surface.
+`GET /v1/spaces/{space}/lint` remains the current data-quality surface, and
+`GET /v1/spaces/{space}/health` composes it with coverage and the two live
+queues — the lint findings, what is waiting for a review and for how long, and
+what is still in the ingest queue — in one LLM-free read.
 
 ### Troubleshooting
 
@@ -142,6 +145,10 @@ authenticated canaries with `X-WikiKit-Traffic-Class: synthetic`. See
   confidence and a verbatim quote from a source.
 - **ChangeProposal** — staged changes awaiting review. Invisible to readers
   until approved; the only way anything becomes knowledge.
+- **Output** — something the wiki produced: a grounded answer, a scheduled
+  briefing, a health report. Kept so it can be re-read and handed on, and — for
+  an answer worth keeping — promoted back in as a source. Never evidence on its
+  own: promotion goes through the same review gate as everything else.
 - **Revision** — one approved version of a concept. The history carries which
   model, prompt version and sources produced it.
 - **OKF** — [Open Knowledge Format](docs/okf-v0.1.md), the portable bundle
@@ -244,9 +251,12 @@ tool change or a scope change, rescan or reconnect. Existing OAuth tokens
 retain their original, narrower scopes.
 
 The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
-`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
-`wikikit_ingest_status`, `wikikit_propose`, `wikikit_proposals` and
-`wikikit_review_proposal`. The two review tools are visible only with
+`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_health`, `wikikit_outputs`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
+`wikikit_ingest_status`, `wikikit_propose`, `wikikit_promote_output`, `wikikit_proposals` and
+`wikikit_review_proposal`. `wikikit_health` answers "check this space for
+contradictions and gaps" in one call instead of chaining tools;
+`wikikit_promote_output` files a good answer back into the wiki, and it too
+lands as a change somebody approves. The two review tools are visible only with
 `knowledge:review` (implied by `knowledge:approve`); the final decision is
 collected with native form elicitation inside the tool call, while the REST
 approve/reject endpoints still require `knowledge:approve` — mint agent keys
@@ -304,9 +314,16 @@ object` with a confidence, citations (verbatim quote + locator) and a
   Written directly under `admin` (human-owned config, no review gate); an edited
   overview block routes back through the review gate. `wikikit_charter*` tools /
   `GET|PUT|DELETE /v1/spaces/{space}/charter`.
+- **Answers that can come back:** every grounded answer is kept as an output;
+  promoting one archives it as a source and stages a change a human approves —
+  the loop closes without the wiki becoming its own evidence.
+- **Maintenance that runs itself:** an optional per-wiki schedule (daily or
+  weekly, in your timezone — not a cron expression) writes a briefing of what
+  moved and what is waiting, and a health report; delivery is the output plus a
+  `wikikit.health.reported` webhook, because a single binary has no SMTP.
 - **LLM-free core:** full-text search, lint (contradictions, missing
-  citations, stale claims — CI-friendly), export/import all work without any
-  LLM configured.
+  citations, stale claims — CI-friendly), the composed health read,
+  export/import all work without any LLM configured.
 - **Any of three LLM providers:** Anthropic, OpenAI or Google — one config
   value (`WIKIKIT_LLM_PROVIDER`), no code change, via the Vercel AI SDK.
 - **Feeds on real documents:** Markdown, text, a URL, or a PDF/DOCX/XLSX/CSV
@@ -343,10 +360,29 @@ URL and becomes a citable source.
 ## How it works
 
 ```
-source ─▶ archive (sha256 dedup) ─▶ classify ─▶ synthesize per concept
+inbox  ─▶ archive (sha256 dedup) ─▶ classify ─▶ synthesize per concept
        ─▶ detect contradictions ─▶ ONE pending ChangeProposal
        ─▶ human review ─▶ atomic apply ─▶ signed webhooks
+                                      │
+                                      ▼
+                                    wiki ─▶ search / cited answer
+                                                    │
+                                       an answer worth keeping
+                                                    │
+                                                    ▼
+                                    output ─▶ promote (a human act)
+                                                    │
+                                       back through the SAME pipeline
 ```
+
+The loop closes deliberately at the review gate and not before it. Answers,
+scheduled briefings and health reports are kept as **outputs**; promoting one
+archives its text as an ordinary source and stages an ordinary change. Filing
+good answers back automatically would leave the wiki quoting itself as evidence
+— every claim still carrying a verbatim quote from an archived document, and the
+document being the wiki. The promoted source is marked as derived, so the
+`self-derived-only` lint rule reports a page that has ended up resting on
+nothing else.
 
 PostgreSQL is the source of truth; proposal content is staged as real rows
 that are structurally invisible to readers until an atomic status flip makes

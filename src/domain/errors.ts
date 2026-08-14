@@ -106,6 +106,49 @@ export class RateLimitError extends DomainError {
   }
 }
 
+/**
+ * 429 ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE
+ * jobs waiting, so enqueue refuses instead of accepting work nobody will see
+ * finish.
+ *
+ * WHY a REFUSAL and not a longer queue. Dropping fifty files into the inbox
+ * costs fifty classify calls plus one synthesis call per affected page, i.e.
+ * real money and hours of wall clock, and every one of them lands as a separate
+ * proposal a human has to review. A queue that silently accepts all of it looks
+ * identical to one that is keeping up — right up to the point where the review
+ * backlog is unclearable (the production finding this cap exists for). The
+ * person doing the dropping is the only one who can decide to stop, so they are
+ * told.
+ *
+ * WHY it is NOT `rate_limited`, which is the neighbouring 429. Rate limiting is
+ * about request FREQUENCY and its remedy is "wait and retry the same call".
+ * Here the request was perfectly paced; what is full is the work queue, and the
+ * remedy is different in kind — let the queue drain, or clear the review backlog
+ * that is holding it. A client that treats this as a rate limit retries in a
+ * loop and learns nothing, which is exactly why it gets its own code.
+ *
+ * `queued` and `limit` ride in the envelope so a bulk uploader can report "37 of
+ * your 50 files were accepted, the queue is at its 200-job ceiling" without a
+ * second round trip.
+ */
+export class IngestQueueFullError extends DomainError {
+  constructor(queued: number, limit: number) {
+    super(
+      'ingest_queue_full',
+      `this space already has ${queued} ingest jobs waiting (limit ${limit}) — nothing was queued`,
+      429,
+      {
+        details: { queued, limit },
+        nextBestActions: [
+          'wait for the queue to drain and submit the rest — GET /v1/spaces/{space}/ingests?status=queued shows the backlog',
+          'review the pending proposals the earlier jobs produced; a full queue usually means the review gate, not the worker, is the bottleneck',
+          'raise WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE only if a human really is going to review that much at once',
+        ],
+      },
+    )
+  }
+}
+
 /** 409 — the connected MCP client cannot present the required native form.
  *  Backstop only: the review tool detects the missing capability up front and
  *  returns a human_review_required hand-off; this fires when the capability

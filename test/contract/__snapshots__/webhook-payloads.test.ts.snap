@@ -12,6 +12,7 @@ exports[`webhook payload schema snapshots event type list is frozen 1`] = `
   "wikikit.source.tombstoned",
   "wikikit.proposal.split",
   "wikikit.proposal.changes_requested",
+  "wikikit.health.reported",
 ]
 `;
 
@@ -622,6 +623,90 @@ exports[`webhook payload schema snapshots envelope schema 1`] = `
       ],
       "type": "object",
     },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "findings": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+                "info": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+                "warn": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+              },
+              "required": [
+                "error",
+                "warn",
+                "info",
+              ],
+              "type": "object",
+            },
+            "oldest_pending_days": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "output_id": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            "pending_proposals": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer",
+            },
+            "space": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "space",
+            "output_id",
+            "findings",
+            "pending_proposals",
+            "oldest_pending_days",
+          ],
+          "type": "object",
+        },
+        "timestamp": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "type": {
+          "const": "wikikit.health.reported",
+          "type": "string",
+        },
+      },
+      "required": [
+        "type",
+        "timestamp",
+        "data",
+      ],
+      "type": "object",
+    },
   ],
   "~standard": {
     "jsonSchema": {
@@ -1154,6 +1239,83 @@ exports[`webhook payload schema snapshots data schema: wikikit.proposal.changes_
     "note",
     "review_channel",
     "changes_requested",
+  ],
+  "type": "object",
+  "~standard": {
+    "jsonSchema": {
+      "input": [Function],
+      "output": [Function],
+    },
+    "validate": [Function],
+    "vendor": "zod",
+    "version": 1,
+  },
+}
+`;
+
+exports[`webhook payload schema snapshots data schema: wikikit.health.reported 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        "info": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        "warn": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "error",
+        "warn",
+        "info",
+      ],
+      "type": "object",
+    },
+    "oldest_pending_days": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer",
+        },
+        {
+          "type": "null",
+        },
+      ],
+    },
+    "output_id": {
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+      "type": "string",
+    },
+    "pending_proposals": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer",
+    },
+    "space": {
+      "type": "string",
+    },
+  },
+  "required": [
+    "space",
+    "output_id",
+    "findings",
+    "pending_proposals",
+    "oldest_pending_days",
   ],
   "type": "object",
   "~standard": {

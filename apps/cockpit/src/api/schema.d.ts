@@ -177,6 +177,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/spaces/{space}/ingests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves. */
+        get: operations["listIngests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/spaces/{space}/ingest/document": {
         parameters: {
             query?: never;
@@ -410,6 +427,92 @@ export interface paths {
         put?: never;
         /** Grounded Q&A with inline citations (LLM; 503 llm_not_configured without a key) */
         post: operations["query"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/outputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List produced outputs newest-first — answers, scheduled briefings and health reports (?kind=answer|briefing|health, ?limit=, ?cursor=). Rows carry the full markdown. */
+        get: operations["listOutputs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/outputs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages. */
+        get: operations["getOutput"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/outputs/{id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job. */
+        post: operations["promoteOutput"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days). */
+        get: operations["spaceHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the recurring briefing/health schedules of this space (at most one per kind) */
+        get: operations["getSchedules"];
+        /** Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out of the body is removed — hence no DELETE route. Idempotent. */
+        put: operations["putSchedules"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1503,6 +1606,11 @@ export interface components {
              */
             source_kind?: "meeting" | "article" | "note";
             /**
+             * Format: uuid
+             * @description The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself
+             */
+            derived_from_output_id?: string;
+            /**
              * @description Language of this source's content for the retrieval index; defaults to the space language
              * @enum {string}
              */
@@ -1577,12 +1685,44 @@ export interface components {
                 done: number;
                 total: number;
             } | null;
+            /** @description When the job was accepted (ISO 8601) */
+            created_at: string;
             /** @description When a worker claimed the job (ISO 8601) */
             started_at: string | null;
             /** @description Last lease renewal — a recent value means the worker is alive (ISO 8601) */
             heartbeat_at: string | null;
             /** @description When the job reached a terminal state (ISO 8601) */
             finished_at: string | null;
+        };
+        zIngestListResponse: {
+            items: {
+                /** Format: uuid */
+                ingest_id: string;
+                /** @enum {string} */
+                status: "queued" | "running" | "done" | "failed" | "quota_blocked";
+                proposal_id: string | null;
+                source_id: string | null;
+                error: {
+                    code: string;
+                    message: string;
+                } | null;
+                /** @description Stage of a running job: acquire | classify | synthesize | decisions | adjudicate | propose */
+                phase: string | null;
+                /** @description Position inside a countable stage — during synthesis, concepts finished of total */
+                progress: {
+                    done: number;
+                    total: number;
+                } | null;
+                /** @description When the job was accepted (ISO 8601) */
+                created_at: string;
+                /** @description When a worker claimed the job (ISO 8601) */
+                started_at: string | null;
+                /** @description Last lease renewal — a recent value means the worker is alive (ISO 8601) */
+                heartbeat_at: string | null;
+                /** @description When the job reached a terminal state (ISO 8601) */
+                finished_at: string | null;
+            }[];
+            next_before: string | null;
         };
         zSourceListResponse: {
             items: {
@@ -1805,6 +1945,149 @@ export interface components {
                 /** Format: uuid */
                 chunk_id: string;
                 title: string | null;
+            }[];
+            output_id: string | null;
+        };
+        zOutputListResponse: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                space_id: string;
+                /** @enum {string} */
+                kind: "answer" | "briefing" | "health";
+                title: string;
+                question: string | null;
+                markdown: string;
+                citations: {
+                    slug: string;
+                    title: string;
+                }[];
+                not_in_knowledge_base: boolean | null;
+                agent_run_id: string | null;
+                promoted_ingest_id: string | null;
+                promoted_at: string | null;
+                created_at: string;
+            }[];
+            next_before: string | null;
+        };
+        zOutputResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            space_id: string;
+            /** @enum {string} */
+            kind: "answer" | "briefing" | "health";
+            title: string;
+            question: string | null;
+            markdown: string;
+            citations: {
+                slug: string;
+                title: string;
+            }[];
+            not_in_knowledge_base: boolean | null;
+            agent_run_id: string | null;
+            promoted_ingest_id: string | null;
+            promoted_at: string | null;
+            created_at: string;
+        };
+        zOutputPromotedResponse: {
+            /** Format: uuid */
+            ingest_id: string;
+        };
+        zSpaceHealthResponse: {
+            /** @constant */
+            schema_version: "wikikit.space-health.v1";
+            window: {
+                /** Format: date-time */
+                from: string;
+                /** Format: date-time */
+                to: string;
+            };
+            lint: {
+                findings: {
+                    /** @enum {string} */
+                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                    /** @enum {string} */
+                    severity: "error" | "warn" | "info";
+                    message: string;
+                    concept_slug?: string;
+                    claim_id?: string;
+                    details?: {
+                        [key: string]: unknown;
+                    };
+                }[];
+                counts: {
+                    error: number;
+                    warn: number;
+                    info: number;
+                };
+            };
+            coverage: {
+                disputed: {
+                    open: number;
+                    oldest_days: number | null;
+                };
+                review_latency: {
+                    decided: number;
+                    approved: number;
+                    rejected: number;
+                    median_hours: number | null;
+                };
+                freshness: {
+                    concepts: number;
+                    stale_over_90d: number;
+                };
+                top_read_concepts: {
+                    slug: string;
+                    title: string;
+                    reads: number;
+                }[];
+                top_linked_concepts: {
+                    slug: string;
+                    title: string;
+                    inbound_relations: number;
+                }[];
+                gap_topics: {
+                    enabled: boolean;
+                    items: {
+                        lexeme: string;
+                        count: number;
+                    }[];
+                };
+            };
+            review_queue: {
+                pending: number;
+                oldest_days: number | null;
+            };
+            ingest_queue: {
+                depth: number;
+                queued: number;
+                running: number;
+                quota_blocked: number;
+                oldest_queued_hours: number | null;
+            };
+        };
+        zScheduleListResponse: {
+            schedules: {
+                /** @enum {string} */
+                kind: "briefing" | "health";
+                at_time: string;
+                weekday: number | null;
+                timezone: string;
+                enabled: boolean;
+                last_run_at: string | null;
+                next_run_at: string | null;
+            }[];
+        };
+        zScheduleSetRequest: {
+            schedules: {
+                /** @enum {string} */
+                kind: "briefing" | "health";
+                at_time: string;
+                weekday?: number | null;
+                timezone: string;
+                enabled?: boolean;
             }[];
         };
         zProposalListResponse: {
@@ -2077,7 +2360,7 @@ export interface components {
         zLintResponse: {
             findings: {
                 /** @enum {string} */
-                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
                 message: string;
@@ -2108,7 +2391,7 @@ export interface components {
         zCreateWebhookRequest: {
             /** Format: uri */
             url: string;
-            events?: ("wikikit.proposal.created" | "wikikit.proposal.approved" | "wikikit.proposal.rejected" | "wikikit.concept.updated" | "wikikit.concept.deleted" | "wikikit.concept.restored" | "wikikit.ingest.failed" | "wikikit.source.tombstoned" | "wikikit.proposal.split" | "wikikit.proposal.changes_requested")[];
+            events?: ("wikikit.proposal.created" | "wikikit.proposal.approved" | "wikikit.proposal.rejected" | "wikikit.concept.updated" | "wikikit.concept.deleted" | "wikikit.concept.restored" | "wikikit.ingest.failed" | "wikikit.source.tombstoned" | "wikikit.proposal.split" | "wikikit.proposal.changes_requested" | "wikikit.health.reported")[];
         };
         zWebhookResponse: {
             /** Format: uuid */
@@ -3659,6 +3942,15 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
+            /** @description ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE jobs waiting (envelope carries queued + limit); nothing was queued */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
             /** @description internal_error */
             500: {
                 headers: {
@@ -3826,6 +4118,77 @@ export interface operations {
             };
         };
     };
+    listIngests: {
+        parameters: {
+            query?: {
+                status?: "queued" | "running" | "done" | "failed" | "quota_blocked";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ingest jobs page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestListResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
     ingestDocument: {
         parameters: {
             query: {
@@ -3900,6 +4263,15 @@ export interface operations {
             };
             /** @description document_extraction_failed (no text layer) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_queue_full — the queue is at its per-space ceiling; the extraction ran but nothing was queued */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4902,6 +5274,447 @@ export interface operations {
             };
             /** @description llm_not_configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listOutputs: {
+        parameters: {
+            query?: {
+                kind?: "answer" | "briefing" | "health";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Outputs page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zOutputListResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getOutput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Output (or text/markdown via Accept) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zOutputResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    promoteOutput: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued (or the job an earlier promote of this row created); poll /v1/ingests/{id} */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zOutputPromotedResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_queue_full — the queue is at its per-space ceiling; nothing was queued and the output stays unpromoted */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description llm_not_configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    spaceHealth: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                top?: number;
+            };
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Space health */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zSpaceHealthResponse"];
+                };
+            };
+            /** @description Invalid window (to must be after from) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Schedules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zScheduleListResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    putSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["zScheduleSetRequest"];
+            };
+        };
+        responses: {
+            /** @description Schedules after the write */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zScheduleListResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

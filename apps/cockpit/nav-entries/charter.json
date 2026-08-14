@@ -1,8 +1,8 @@
 {
   "to": "/charter",
-  "label": "Charter",
+  "label": "Guidelines",
   "icon": "ScrollText",
   "scope": "knowledge:read",
-  "group": "wiki",
+  "group": "archive",
   "api": ["/v1/spaces/{space}/charter", "/v1/spaces/{space}/charter/versions"]
 }

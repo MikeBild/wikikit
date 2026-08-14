@@ -68,6 +68,13 @@ const PAGE_ROUTES: Record<string, string> = {
   'decision.tsx': '/decisions',
   'search.tsx': '/search',
   'charter.tsx': '/charter',
+  // The four places the loop closes in: what came in, what the wiki produced,
+  // and how it is holding up. `answer.tsx` is the detail of `/answers`, the
+  // same list/detail pairing `page.tsx` has with `/pages`.
+  'inbox.tsx': '/inbox',
+  'answers.tsx': '/answers',
+  'answer.tsx': '/answers',
+  'care.tsx': '/care',
   'spaces.tsx': '/spaces',
   'api-keys.tsx': '/api-keys',
   'identities.tsx': '/identities',

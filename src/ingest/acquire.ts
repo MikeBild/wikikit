@@ -43,6 +43,29 @@ export const zIngestInput = z
       .enum(['meeting', 'article', 'note'])
       .optional()
       .describe("What the source is: 'meeting' sources are mined for explicit decision statements"),
+    // Provenance for the ONE loop that feeds the wiki its own output: the
+    // source being archived is the rendering of wk_outputs row <id> (see
+    // promoteOutput in src/domain/outputs.ts). Persisted onto
+    // wk_sources.metadata, where the `self-derived-only` lint rule reads it and
+    // reports pages whose visible claims rest on nothing but WikiKit's own
+    // answers.
+    //
+    // WHY it lives in THIS schema rather than travelling beside it as loose
+    // metadata: the worker re-parses the stored job input with exactly this
+    // schema (see the doc above), so a field the schema does not know is
+    // silently dropped between enqueue and the archive write — the marker would
+    // vanish precisely on the path that needs it.
+    //
+    // WHY being public in OpenAPI is acceptable: zIngestRequest IS this schema,
+    // so a client can set the flag. That is self-limiting in the same way
+    // `source_kind` is — a caller can only mark ITS OWN source as derived, which
+    // makes the linter stricter about that source's pages, never laxer. Nothing
+    // reads the id as an authorization or a join key; the rule tests for the
+    // key's presence, not for a row it points at.
+    derived_from_output_id: z
+      .uuid()
+      .optional()
+      .describe('The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself'),
     // Per-source retrieval-language override; absent → the space's
     // settings.language decides how this source's chunks are stemmed.
     language: z

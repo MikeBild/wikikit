@@ -536,6 +536,116 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
     },
     "name": "wikikit_deleted_concepts",
   },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single output whole. Reach for this before asking a question the wiki may already have answered, to see whether a good answer is already waiting to be filed back into the knowledge base, and to find the output_id wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts as evidence only once a human has approved its promotion.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "Opaque next_before cursor from a previous page",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "kind": {
+          "description": "Restrict the list to one kind of output (ignored when output_id is set)",
+          "enum": [
+            "answer",
+            "briefing",
+            "health",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max outputs when output_id is omitted (default 25)",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "output_id": {
+          "description": "Output id — omit to list this space’s outputs newest-first",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_outputs",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read answering "how is this wiki doing": every lint finding (contradictions, uncited claims, stale claims, orphans, pages resting only on the wiki’s own answers) with a severity census, the coverage block (open disputes, review latency, freshness, most-read and most-linked pages, unanswered-question topics), and the two live queues — changes waiting for a human WITH the age of the oldest, and ingest work still in flight. Use this when asked to check a space for contradictions and gaps, or before a maintenance pass, instead of chaining wikikit_lint with the stats routes. It reports numbers and never a verdict: what counts as too many pending changes is the operator’s policy, not WikiKit’s.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Window start (ISO 8601); default 30 days before \`to\`",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "to": {
+          "description": "Window end (ISO 8601); default now",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "top": {
+          "description": "How many hub pages and gap topics to list (default 5)",
+          "maximum": 25,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_health",
+  },
 ]
 `;
 
@@ -628,6 +738,12 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "derived_from_output_id": {
+          "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "effective_at": {
           "description": "When the content is "as of" (ISO 8601)",
           "format": "date-time",
@@ -1103,6 +1219,46 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       },
     },
     "name": "wikikit_propose",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct and worth keeping; do not promote routinely or in bulk, because every promotion creates review work, and an answer that only cites the wiki adds no outside evidence (the self-derived-only lint rule reports pages that end up resting on nothing else). Promoting the same output twice is safe: it returns the first job.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "description": "Output to promote — from wikikit_outputs",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "output_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_promote_output",
   },
 ]
 `;
@@ -1730,6 +1886,12 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "derived_from_output_id": {
+          "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "effective_at": {
           "description": "When the content is "as of" (ISO 8601)",
           "format": "date-time",
@@ -2205,6 +2367,156 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       },
     },
     "name": "wikikit_propose",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single output whole. Reach for this before asking a question the wiki may already have answered, to see whether a good answer is already waiting to be filed back into the knowledge base, and to find the output_id wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts as evidence only once a human has approved its promotion.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "Opaque next_before cursor from a previous page",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "kind": {
+          "description": "Restrict the list to one kind of output (ignored when output_id is set)",
+          "enum": [
+            "answer",
+            "briefing",
+            "health",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max outputs when output_id is omitted (default 25)",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "output_id": {
+          "description": "Output id — omit to list this space’s outputs newest-first",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_outputs",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read answering "how is this wiki doing": every lint finding (contradictions, uncited claims, stale claims, orphans, pages resting only on the wiki’s own answers) with a severity census, the coverage block (open disputes, review latency, freshness, most-read and most-linked pages, unanswered-question topics), and the two live queues — changes waiting for a human WITH the age of the oldest, and ingest work still in flight. Use this when asked to check a space for contradictions and gaps, or before a maintenance pass, instead of chaining wikikit_lint with the stats routes. It reports numbers and never a verdict: what counts as too many pending changes is the operator’s policy, not WikiKit’s.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Window start (ISO 8601); default 30 days before \`to\`",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "to": {
+          "description": "Window end (ISO 8601); default now",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "top": {
+          "description": "How many hub pages and gap topics to list (default 5)",
+          "maximum": 25,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_health",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct and worth keeping; do not promote routinely or in bulk, because every promotion creates review work, and an answer that only cites the wiki adds no outside evidence (the self-derived-only lint rule reports pages that end up resting on nothing else). Promoting the same output twice is safe: it returns the first job.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "description": "Output to promote — from wikikit_outputs",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "output_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_promote_output",
   },
 ]
 `;
@@ -2996,6 +3308,12 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "derived_from_output_id": {
+          "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "effective_at": {
           "description": "When the content is "as of" (ISO 8601)",
           "format": "date-time",
@@ -3560,6 +3878,156 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       },
     },
     "name": "wikikit_review_proposal",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single output whole. Reach for this before asking a question the wiki may already have answered, to see whether a good answer is already waiting to be filed back into the knowledge base, and to find the output_id wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts as evidence only once a human has approved its promotion.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "Opaque next_before cursor from a previous page",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "kind": {
+          "description": "Restrict the list to one kind of output (ignored when output_id is set)",
+          "enum": [
+            "answer",
+            "briefing",
+            "health",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max outputs when output_id is omitted (default 25)",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "output_id": {
+          "description": "Output id — omit to list this space’s outputs newest-first",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_outputs",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read answering "how is this wiki doing": every lint finding (contradictions, uncited claims, stale claims, orphans, pages resting only on the wiki’s own answers) with a severity census, the coverage block (open disputes, review latency, freshness, most-read and most-linked pages, unanswered-question topics), and the two live queues — changes waiting for a human WITH the age of the oldest, and ingest work still in flight. Use this when asked to check a space for contradictions and gaps, or before a maintenance pass, instead of chaining wikikit_lint with the stats routes. It reports numbers and never a verdict: what counts as too many pending changes is the operator’s policy, not WikiKit’s.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Window start (ISO 8601); default 30 days before \`to\`",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "to": {
+          "description": "Window end (ISO 8601); default now",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "top": {
+          "description": "How many hub pages and gap topics to list (default 5)",
+          "maximum": 25,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_health",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct and worth keeping; do not promote routinely or in bulk, because every promotion creates review work, and an answer that only cites the wiki adds no outside evidence (the self-derived-only lint rule reports pages that end up resting on nothing else). Promoting the same output twice is safe: it returns the first job.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "description": "Output to promote — from wikikit_outputs",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "output_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_promote_output",
   },
 ]
 `;
@@ -4257,6 +4725,12 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "derived_from_output_id": {
+          "description": "The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "effective_at": {
           "description": "When the content is "as of" (ISO 8601)",
           "format": "date-time",
@@ -4821,6 +5295,156 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       },
     },
     "name": "wikikit_review_proposal",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single output whole. Reach for this before asking a question the wiki may already have answered, to see whether a good answer is already waiting to be filed back into the knowledge base, and to find the output_id wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts as evidence only once a human has approved its promotion.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "description": "Opaque next_before cursor from a previous page",
+          "maxLength": 500,
+          "type": "string",
+        },
+        "kind": {
+          "description": "Restrict the list to one kind of output (ignored when output_id is set)",
+          "enum": [
+            "answer",
+            "briefing",
+            "health",
+          ],
+          "type": "string",
+        },
+        "limit": {
+          "description": "Max outputs when output_id is omitted (default 25)",
+          "maximum": 100,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "output_id": {
+          "description": "Output id — omit to list this space’s outputs newest-first",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_outputs",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "One LLM-free read answering "how is this wiki doing": every lint finding (contradictions, uncited claims, stale claims, orphans, pages resting only on the wiki’s own answers) with a severity census, the coverage block (open disputes, review latency, freshness, most-read and most-linked pages, unanswered-question topics), and the two live queues — changes waiting for a human WITH the age of the oldest, and ingest work still in flight. Use this when asked to check a space for contradictions and gaps, or before a maintenance pass, instead of chaining wikikit_lint with the stats routes. It reports numbers and never a verdict: what counts as too many pending changes is the operator’s policy, not WikiKit’s.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Window start (ISO 8601); default 30 days before \`to\`",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "to": {
+          "description": "Window end (ISO 8601); default now",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+          "type": "string",
+        },
+        "top": {
+          "description": "How many hub pages and gap topics to list (default 5)",
+          "maximum": 25,
+          "minimum": 1,
+          "type": "integer",
+        },
+      },
+      "required": [
+        "space",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_health",
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+    },
+    "description": "File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct and worth keeping; do not promote routinely or in bulk, because every promotion creates review work, and an answer that only cites the wiki adds no outside evidence (the self-derived-only lint rule reports pages that end up resting on nothing else). Promoting the same output twice is safe: it returns the first job.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "description": "Output to promote — from wikikit_outputs",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "space": {
+          "description": "Space slug the key is working in",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "space",
+        "output_id",
+      ],
+      "type": "object",
+      "~standard": {
+        "jsonSchema": {
+          "input": [Function],
+          "output": [Function],
+        },
+        "validate": [Function],
+        "vendor": "zod",
+        "version": 1,
+      },
+    },
+    "name": "wikikit_promote_output",
   },
 ]
 `;

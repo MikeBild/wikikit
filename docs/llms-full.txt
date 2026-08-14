@@ -40,6 +40,11 @@ source (markdown | text | url)
   ──▶ human reviews the structured diff and approves/rejects over REST
   ──▶ atomic apply: revision → current, claims → verified/disputed,
       space epoch bump, signed webhooks
+
+question ──POST /v1/spaces/{space}/query──▶ grounded answer, kept as an Output
+  ──▶ a human judges it worth keeping
+  ──POST /v1/outputs/{id}/promote──▶ its markdown archived as a source marked
+      derived_from_output_id ──▶ THE SAME pipeline above, ending in a proposal
 ```
 
 Key invariants:
@@ -53,6 +58,14 @@ Key invariants:
 - **Every LLM call is audited.** Model, prompt version, input hash and token
   usage land in an agent-run ledger and in the `agent_meta` of every generated
   row — revision history answers "which model wrote this, from which source?".
+- **An answer never becomes evidence on its own.** Outputs are kept so they can
+  be re-read, handed on and promoted, but nothing promotes them automatically.
+  Filing good answers back without a human would leave the wiki quoting itself:
+  every claim would still carry a verbatim quote from an archived document, and
+  the document would be the wiki. Promotion is an explicit act, it runs the
+  ordinary pipeline, and the source it creates is marked as derived so the
+  `self-derived-only` lint rule can report a page that has ended up resting on
+  nothing else.
 - **Classification is a revisable claim, not a schema.** Relations and
   categorizations are claims with a source, a status and a lifecycle — they
   can be disputed and deprecated like any other statement.
@@ -90,6 +103,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
+| GET    | `/v1/spaces/{space}/ingests`                  | knowledge:read \| knowledge:propose | This space's ingest jobs newest-first — the inbox (`?status=queued\|running\|done\|failed\|quota_blocked`, `?limit=`, `?cursor=`); rows are the same shape the single status read serves |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
 | GET    | `/v1/spaces/{space}/source-streams`           | knowledge:read    | List connector source streams (sync contract): head pointer, latest version, tombstone state |
@@ -103,7 +117,13 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | DELETE | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:propose | Stage page deletion for human review; history retained |
 | POST   | `/v1/spaces/{space}/concepts/{slug}/restore`  | knowledge:propose | Stage restoration of the last visible revision for review |
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list |
-| POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key) |
+| POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key). The answer is kept as an output; the response additively carries `output_id` (null only if the row could not be written) |
+| GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read    | What this wiki produced, newest-first: answers, scheduled briefings, health reports (`?kind=answer\|briefing\|health`, `?limit=`, `?cursor=`); rows carry the full markdown |
+| GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
+| POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | File an output back into the wiki: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Idempotent — a second promote returns the first job |
+| GET    | `/v1/spaces/{space}/health`                   | knowledge:read    | Composed maintenance report in one LLM-free read: lint findings + severity census, coverage, the review queue with the age of its oldest change, the live ingest queue. No verdict — the counts are the answer |
+| GET    | `/v1/spaces/{space}/schedules`                | admin             | The recurring briefing/health schedules of this space (at most one per kind) |
+| PUT    | `/v1/spaces/{space}/schedules`                | admin             | Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out is removed — hence no DELETE route. Idempotent |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
 | POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose | Stage a manual change proposal, incl. `relations_removed` (same review gate) |
 | GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | Structured proposal diff incl. relations added/removed; `text/markdown` via Accept header |
@@ -191,7 +211,8 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   `span_id` and `parent_span_id`.
 - **Pagination is keyset:** `?limit=&after=` (opaque cursor); responses carry
   `next_after: string | null` (sources paginate backwards with `?before=` and
-  `next_before`).
+  `next_before`; the inbox and the output archive walk the same direction and
+  spell the parameter `?cursor=`, answering `next_before`).
 - **Caching:** concept lists carry `ETag: "<space-epoch>"`; the epoch bumps on
   every approved proposal, so `If-None-Match` gives cheap 304s on any read of
   approved knowledge.
@@ -290,6 +311,21 @@ curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/query" \
   -d '{"question":"Is OKF production ready?"}'
 ```
 
+Keep a good answer — the loop's second half. `/query` returns `output_id`;
+promoting it stages a change somebody still has to approve:
+
+```bash
+OUT=$(curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/query" \
+  -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" \
+  -d '{"question":"Is OKF production ready?"}' | jq -r .output_id)
+
+curl -s "$WIKIKIT_URL/v1/outputs/$OUT" -H "Accept: text/markdown" \
+  -H "Authorization: Bearer wk_..."   # exactly what promotion would archive
+
+curl -s -X POST "$WIKIKIT_URL/v1/outputs/$OUT/promote" -H "Authorization: Bearer wk_..."
+# → 202 {"ingest_id":"..."} + Location: /v1/ingests/{id}   — poll it like any ingest
+```
+
 Lint as a CI gate:
 
 ```bash
@@ -373,6 +409,8 @@ every session it minted.
 | ChangeProposal | The review gate: staged rows in the target tables (never a JSON diff blob) that flip atomically on approve |
 | Ingest job | Async pipeline run: `queued → running → done\|failed\|quota_blocked` |
 | Agent run | LLM audit ledger entry: kind, model, prompt_version, input_hash, usage, duration |
+| Output | Something the base PRODUCED: an answer (`/query`), a scheduled `briefing` or a `health` report. A derived artifact — never knowledge, never evidence, never read by synthesis. Promotion archives its markdown as an ordinary source and stages an ordinary proposal |
+| Schedule | At most one `briefing` and one `health` entry per space: daily at HH:MM, or weekly on a weekday, in an IANA timezone — a closed set, deliberately not a cron expression |
 
 Contradiction handling is deterministic and cardinality-aware: only predicates
 listed in a space's `settings.functional_predicates` treat different objects
@@ -453,6 +491,7 @@ actionable envelope — never a bare string:
 | `elicitation_failed` | 502 | client or transport failed before a valid human decision; proposal is unchanged |
 | `body_too_large` | 413 | body exceeds `WIKIKIT_MAX_BODY_BYTES` |
 | `rate_limited` | 429 | slow down |
+| `ingest_queue_full` | 429 | this space already has `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` jobs waiting; envelope carries `queued` and `limit`, and nothing was queued. NOT a rate limit: the pacing was fine, the work queue is full — let it drain or clear the review backlog holding it up, do not retry in a loop |
 | `internal_error` | 500 | unexpected failure (message never leaks internals) |
 | `llm_not_configured` | 503 | set the key for the configured `WIKIKIT_LLM_PROVIDER` to enable ingest/query (the error names it) |
 | `draining` | 503 | graceful shutdown in progress |
@@ -600,6 +639,9 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_decisions` | knowledge:read | Decision log: one decision by slug, or list all active/superseded | true | false | true | false |
 | `wikikit_history` | knowledge:read | Revisions incl. agent_meta (model, prompt version) | true | false | true | false |
 | `wikikit_lint` | knowledge:read | Knowledge health findings | true | false | true | false |
+| `wikikit_health` | knowledge:read | One LLM-free read of how a wiki is doing: every lint finding with a severity census, the coverage block, the review queue WITH the age of its oldest change, and the live ingest queue. Reports numbers, never a verdict | true | false | true | false |
+| `wikikit_outputs` | knowledge:read | What the wiki produced: past grounded answers plus scheduled briefings and health reports; omit `output_id` to list (`kind` narrows), pass it to read one whole. NOT knowledge — derived artifacts | true | false | true | false |
+| `wikikit_promote_output` | knowledge:propose | File an output back in as a source marked derived from the wiki itself; runs the ORDINARY pipeline (dedup, grounding guard, contradiction detection) and ends in one proposal a HUMAN approves → `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | false |
 | `wikikit_charter` | knowledge:read | Read the space charter — virtual document (authored steering markdown + derived KB overview); `rev` for a version | true | false | true | false |
 | `wikikit_charter_history` | knowledge:read | List charter revisions (newest first) — the document version history | true | false | true | false |
 | `wikikit_charter_set` | admin | Write the charter: authored text versions directly, an edited overview routes through the review gate → `{rev, ingest_ids}` | false | true | false | false |
@@ -617,7 +659,18 @@ Annotation rationale (fixed): writes are `destructiveHint: true` even though
 they only stage content — an honest write is a write. `idempotentHint: true`
 on the writes because content-hash dedup (ingest) and the pending input-hash
 unique index (propose) make identical retries converge. `openWorldHint: true`
-only on `wikikit_ingest` (a `url` input fetches an external host).
+only on `wikikit_ingest` (a `url` input fetches an external host);
+`wikikit_promote_output` is the contrast — it writes and creates review work,
+but the markdown is already in the database, so no host is contacted.
+
+Do not promote routinely or in bulk: every promotion creates review work, and
+an answer that only cites the wiki adds no outside evidence (the
+`self-derived-only` lint rule reports pages that end up resting on nothing
+else). There are deliberately no schedule tools — recurring maintenance is
+installation configuration, driven over `PUT /v1/spaces/{space}/schedules` with
+an `admin` credential, exactly as api-keys, webhooks and space administration
+are. MCP hosts cache the scanned tool contract: after a release that adds tools,
+rescan or reconnect.
 
 Connect any MCP host over Streamable HTTP at `https://<host>/mcp`, using OAuth
 or a narrow Bearer `wk_` key with the required knowledge scopes.
@@ -651,7 +704,16 @@ wikikit.proposal.approved   {proposal_id, space, reviewer, note, review_channel,
 wikikit.proposal.rejected   {proposal_id, space, reviewer, note, review_channel}
 wikikit.concept.updated     {space, slug, rev, proposal_id}
 wikikit.ingest.failed       {ingest_id, space, error: {code, message}}
+wikikit.health.reported     {space, output_id, findings: {error, warn, info}, pending_proposals, oldest_pending_days}
 ```
+
+`wikikit.health.reported` fires when a scheduled health run commits — the output
+row and the event are written in one transaction, so no consumer is told about a
+report that is not there to read. It carries the summary an alerting rule
+branches on and not the report itself, which is behind `output_id`.
+`oldest_pending_days` is null exactly when `pending_proposals` is 0.
+**WikiKit sends no e-mail** — there is no SMTP in a single binary — so delivery
+of a briefing or a health report is the output plus this webhook.
 
 Envelope: HTTP POST `application/json` with Standard Webhooks headers —
 `webhook-id` (`evt_<n>`), `webhook-timestamp` (unix seconds),
@@ -710,6 +772,7 @@ history does not travel.
 | `stale-claims` | warn |
 | `orphan-concepts` | warn |
 | `unsourced-concepts` | warn |
+| `self-derived-only` | warn |
 | `stub-concepts` | warn |
 | `scaffolded-claims` | warn |
 | `tombstoned-sources` | warn |
@@ -724,6 +787,27 @@ behind it. It is a warn and not an error because a hand-written page is a
 legitimate thing to have, and the finding names the fix (ingest a source and let
 synthesis quote it). A page with no claims at all is reported by both this rule
 and `empty-concepts`; `counts` is a census of findings, not of pages.
+
+`self-derived-only` is the provenance rule, and the counterweight to promoting
+answers back into the wiki: a readable page whose visible claims quote at least
+one source marked `derived_from_output_id` and no source without one — knowledge
+with no evidence from outside the wiki. Every neighbouring rule is correctly
+silent about such a page (the sources exist, are archived verbatim, and are
+quoted with real quotes); they all ask whether evidence is present, and this is
+the one that asks where it came from. The review gate cannot see it either, since
+each individual promotion looked right to the reviewer who approved it and only
+the state at the end of the chain is circular. Warn, not error: a page resting on
+a promoted answer is legitimate, and the finding disappears the moment one claim
+cites one outside source. Its message names the fix as ingesting a source from
+OUTSIDE the wiki — deliberately not what `unsourced-concepts` says, because an
+operator reading "ingest a source" here would reasonably promote another answer,
+which is the state rather than the cure.
+
+The composed read `GET /v1/spaces/{space}/health` (and `wikikit_health`) serves
+this whole report unchanged, plus the coverage block and the two live queues —
+changes waiting for a human with the age of the oldest, and ingest work still in
+flight. It is the same `lintSpace()` call, never a second count, so the two
+surfaces cannot disagree about one space.
 
 `stub-concepts` is the page-level emptiness rule: a readable page with no body
 text, no visible claims, and no active relation in either direction — titled, in
@@ -788,6 +872,9 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_INGEST_LEASE_MS` | worker lease before `worker_lost` reaping | `900000` |
 | `WIKIKIT_INGEST_HEARTBEAT_MS` | lease renewal cadence (< half the lease) | `30000` |
 | `WIKIKIT_INGEST_MAX_RUNTIME_MS` | wall-clock ceiling per job; over it → failed with `timeout` | `5400000` |
+| `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` | waiting jobs (`queued` + `quota_blocked`) per space before enqueue answers 429 `ingest_queue_full` | `200` |
+| `WIKIKIT_OUTPUT_RETENTION_DAYS` | how long an UNPROMOTED output is kept (hourly sweep); `0` keeps forever, a promoted output is never collected | `365` |
+| `WIKIKIT_SCHEDULER_ENABLED` | run the in-process briefing/health worker; off leaves schedules saved and armed | `true` |
 | `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS` | per-delivery HTTP timeout | `10000` |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS` | retries before a delivery is dead | `10` |
@@ -906,6 +993,11 @@ becomes a citable source.
   pipeline is idempotent by design.
 - **409 stale_base on approve** — the concept changed since the proposal was
   created; re-ingest or re-propose against the current revision.
+- **429 ingest_queue_full** — this space already has
+  `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` jobs waiting and nothing was queued. Do
+  not retry in a loop: check `GET /v1/spaces/{space}/ingests?status=queued` and
+  clear the pending proposals the earlier jobs produced. A full queue usually
+  means the review gate, not the worker, is the bottleneck.
 - **503 llm_not_configured** — set the key the error names (the one for the
   configured `WIKIKIT_LLM_PROVIDER`); all LLM-free routes
   keep working meanwhile.

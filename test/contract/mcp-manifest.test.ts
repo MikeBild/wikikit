@@ -61,6 +61,12 @@ describe('MCP manifest contract', () => {
       'wikikit_propose',
       'wikikit_proposals',
       'wikikit_review_proposal',
+      // The output loop, appended rather than slotted in beside the reads: the
+      // palette order is what an MCP host lists, and moving an existing tool
+      // would be a visible change to every connected client for no gain.
+      'wikikit_outputs',
+      'wikikit_health',
+      'wikikit_promote_output',
     ])
   })
 

@@ -226,6 +226,59 @@ endpoints using a credential issued to that person; such reviews record
 `review_channel: "rest"` and the reviewer's key name. Do not launder an
 agent's key through these endpoints.
 
+## Sync a folder or vault
+
+There is no sync script, and there deliberately never will be one. The seam is
+already public: `external_source_id` plus `source_version` on an ordinary ingest
+IS the idempotent, versioned re-sync, and it is five lines of shell or one loop
+in any agent. Shipping two platform scripts would mean product surface to
+maintain, document and support forever for a niche flow that the API already
+serves — and a one-off import is covered better by the console's Inbox or by
+`POST /v1/spaces/{space}/import` (a zip becomes ONE change to review).
+
+Give each file a stable id and a content-derived version:
+
+```bash
+REL="notes/architecture.md"                       # path relative to the vault root
+VER=$(shasum -a 256 "$VAULT/$REL" | cut -d' ' -f1)
+
+jq -n --arg md "$(cat "$VAULT/$REL")" --arg t "$REL" --arg id "vault:$REL" --arg v "$VER" \
+  '{markdown:$md, title:$t, external_source_id:$id, source_version:$v, source_kind:"note"}' \
+| curl -s -X POST "$WIKIKIT_URL/v1/spaces/default/ingest" \
+    -H "Authorization: Bearer wk_..." -H "Content-Type: application/json" --data-binary @-
+```
+
+What the three fields buy you:
+
+- `external_source_id` is the file's MUTABLE identity — `vault:<relative path>`,
+  never an absolute path (it would encode one machine) and never a title (it
+  changes). It is what makes the second push an update instead of a new source.
+- `source_version` is the content hash. Same id, same version, same content →
+  `200 {"status":"unchanged"}`: no job, no LLM call, no money. That is the whole
+  point of running the loop over a whole folder every night. Same version with
+  DIFFERENT content is `409 sync_version_conflict` — loudly, because it means
+  the version is not derived from the content and the sync is lying.
+- A new version with new content runs the ordinary pipeline and chains
+  `supersedes_source_id`, so the archive keeps every version and the wiki reads
+  the current one.
+
+Deleted upstream? Tombstone the stream — idempotent, and safe to call for every
+file that has disappeared since the last run:
+
+```bash
+curl -s -X DELETE \
+  "$WIKIKIT_URL/v1/spaces/default/source-streams/$(printf 'vault:%s' "$REL" | jq -sRr @uri)" \
+  -H "Authorization: Bearer wk_..."
+```
+
+The tombstone is a soft delete: cited sources are never removed, the
+`tombstoned-sources` lint rule surfaces the visible claims that now rest on a
+document nobody can open, and whether such a claim gets deprecated stays a human
+decision through a normal change. A later push of the same id resurrects the
+stream. Expect `429 ingest_queue_full` on a first run over a large vault — that
+is the server saying a human will not review that much at once; let the queue
+drain and continue.
+
 ## Space design and routing
 
 Create separate spaces for knowledge with a distinct purpose, audience,

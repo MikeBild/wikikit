@@ -7,7 +7,7 @@
 // handler and workers deterministically; start() adds the runtime concerns —
 // migrations, dev bootstrap, listen, worker start, signal-driven drain.
 import type { Server } from 'node:http'
-import { loadConfig, type Config } from './config.ts'
+import { DEFAULT_OUTPUT_RETENTION_DAYS, loadConfig, type Config } from './config.ts'
 import { createPostgres, type Database } from './db/postgres.ts'
 import { runMigrations } from './db/migrate.ts'
 import { createChunkBackfill, type ChunkBackfill } from './ingest/chunker.ts'
@@ -17,6 +17,9 @@ import { createLlmProvider } from './llm/aisdk.ts'
 import type { LlmProvider } from './llm/provider.ts'
 import { createLogger, type Logger } from './logger.ts'
 import { createMetrics, type Metrics } from './metrics.ts'
+import { cleanupOutputs } from './domain/outputs.ts'
+import { createScheduler, type Scheduler } from './schedule.ts'
+import type { Db } from './db/postgres.ts'
 import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
 import { createCockpit, COCKPIT_PREFIX } from './cockpit.ts'
 import { createAuth, type Auth } from './http/auth.ts'
@@ -38,6 +41,65 @@ export interface AppDeps {
   chunker: ChunkBackfill
   embedder: Embedder
   usage: UsageTelemetry
+  scheduler: Scheduler
+}
+
+/**
+ * The output retention sweep, on its own hourly timer.
+ *
+ * WHY NOT hung off the usage telemetry timer, which is the existing hourly
+ * sweeper: that one only exists when WIKIKIT_USAGE_TELEMETRY_ENABLED is on
+ * (start() returns immediately otherwise), and telemetry is off by default. An
+ * installation that never enabled it would have accumulated /query outputs
+ * forever while docs/CONFIGURATION.md promised a 365-day window — a retention
+ * promise conditional on an unrelated feature flag is not a retention promise.
+ *
+ * WHY it lives in the composition root rather than in src/domain/outputs.ts: the
+ * domain owns the DELETE (cleanupOutputs, global across spaces like
+ * cleanupCoverageGaps) and app.ts owns when anything runs. Failures are logged and
+ * swallowed the way usage.ts swallows its own — a sweep that cannot run must never
+ * take the timer, or the process, with it.
+ */
+interface RetentionSweeper {
+  start(): void
+  stop(): void
+  /** One sweep now; returns rows deleted. The deterministic handle for tests. */
+  sweep(): Promise<number>
+}
+
+function createRetentionSweeper(deps: { db: Db; logger: Logger; config: Config }): RetentionSweeper {
+  let timer: ReturnType<typeof setInterval> | undefined
+  // An absent field falls back to the shipped window, not to "keep everything":
+  // only an explicit 0 is the operator's opt-out (see Config.outputRetentionDays).
+  const retentionDays = deps.config.outputRetentionDays ?? DEFAULT_OUTPUT_RETENTION_DAYS
+  async function sweep(): Promise<number> {
+    try {
+      const deleted = await cleanupOutputs(deps.db, retentionDays)
+      if (deleted > 0) {
+        deps.logger.info('collected expired outputs', { deleted, retention_days: retentionDays })
+      }
+      return deleted
+    } catch (error) {
+      deps.logger.warn('output retention sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return 0
+    }
+  }
+  return {
+    sweep,
+    start() {
+      // 0 = keep forever: no timer at all rather than an hourly no-op.
+      if (timer || retentionDays <= 0) return
+      void sweep()
+      timer = setInterval(() => void sweep(), 60 * 60 * 1000)
+      timer.unref?.()
+    },
+    stop() {
+      if (timer) clearInterval(timer)
+      timer = undefined
+    },
+  }
 }
 
 export interface App {
@@ -49,6 +111,10 @@ export interface App {
   ingest: IngestPipeline
   chunker: ChunkBackfill
   embedder: Embedder
+  /** The briefing/health worker — self-guards on WIKIKIT_SCHEDULER_ENABLED. */
+  scheduler: Scheduler
+  /** Hourly wk_outputs retention sweep (see createRetentionSweeper). */
+  retention: RetentionSweeper
   database: Database
   auth: Auth
   logger: Logger
@@ -130,6 +196,11 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   const chunker = deps.chunker ?? createChunkBackfill(db, logger)
   const embedder = deps.embedder ?? createEmbedder(db, llm, config, logger)
   const usage = deps.usage ?? createUsageTelemetry(config, db, logger)
+  // Durable in Postgres like every other worker here: due rows are claimed with
+  // FOR UPDATE SKIP LOCKED, so N binaries produce exactly one report per window
+  // and a restart loses nothing but the poll it was in.
+  const scheduler = deps.scheduler ?? createScheduler({ db, logger }, config)
+  const retention = createRetentionSweeper({ db, logger, config })
   const state = { draining: false }
   // Filled by start() after migrations (createApp is inert and sync); until
   // probed, retrieval behaves lexically — the safe floor.
@@ -288,6 +359,8 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     ingest,
     chunker,
     embedder,
+    scheduler,
+    retention,
     database,
     auth,
     logger,
@@ -303,9 +376,14 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       oauth.stop()
       mcp.stop() // stop the session sweeper + close live MCP sessions
       usage.stop()
+      retention.stop()
       outbox.stop()
       chunker.stop()
       embedder.stop()
+      // Awaited beside the ingest worker, for the same reason: both may be inside
+      // a job, and stop() waits for the loop so the drain does not tear the pool
+      // out from under a half-written report.
+      await scheduler.stop()
       await ingest.stop()
       // Bounded drain: server.close() alone waits for keep-alive sockets
       // that client fetch pools may idle for minutes (and Bun's node:http
@@ -385,6 +463,11 @@ export async function start(config: Config = loadConfig()): Promise<App> {
   // pgvector schema objects to write into.
   if (config.embeddingConfigured && app.vector.available) app.embedder.start()
   app.usage.start()
+  // No config conditional on either: start() self-guards on
+  // WIKIKIT_SCHEDULER_ENABLED, and the sweeper skips its timer when retention is
+  // 0 — the decision belongs next to the flag it reads, not here.
+  app.scheduler.start()
+  app.retention.start()
   logger.info('wikikit listening', {
     url: `http://${config.host}:${config.port}`,
     version: config.version,
