@@ -155,18 +155,54 @@ export async function recordStreamVersion(
   })
 }
 
-/** Connector polling surface: streams by external id, newest-updated first. */
+/**
+ * Connector polling surface. Two modes:
+ *
+ *   * WITHOUT `after` — the original behavior, untouched for existing
+ *     clients: newest-updated first, `next_after` is null.
+ *   * WITH `after` — keyset pagination for full reconciliation walks
+ *     (lookahead pattern: listConcepts in ./concepts.ts): ordered
+ *     `external_source_id ASC`, `WHERE external_source_id > after`.
+ *
+ * WHY the cursor is the RAW external_source_id and not an opaque encoded one
+ * (the concepts/inbox cursors are opaque): the connector MINTED these ids, so
+ * they are already wire values of this endpoint, and a walk must be able to
+ * START — `after=''` (empty) begins at the lexicographic bottom, something an
+ * opaque cursor a client may never construct by hand cannot offer. An
+ * id-ordered keyset is also immune to rows moving mid-walk (a re-push bumps
+ * updated_at; it never renames the stream).
+ */
 export async function listStreams(
   db: Db,
   spaceId: string,
-  args: { external_source_id?: string; include_deleted?: boolean; limit?: number } = {},
-): Promise<{ items: SourceStream[] }> {
+  args: { external_source_id?: string; include_deleted?: boolean; limit?: number; after?: string } = {},
+): Promise<{ items: SourceStream[]; next_after: string | null }> {
   const limit = clampLimit(args.limit, 50, 200)
+  if (args.after !== undefined) {
+    const values: unknown[] = [spaceId, args.after]
+    let where = `space_id = $1 AND external_source_id > $2`
+    if (args.external_source_id) {
+      values.push(args.external_source_id)
+      where += ` AND external_source_id = $${values.length}`
+    }
+    if (!args.include_deleted) where += ` AND deleted_at IS NULL`
+    values.push(limit + 1)
+    const { rows } = await db.query<StreamRow>(
+      `SELECT * FROM wk_source_streams WHERE ${where} ORDER BY external_source_id ASC LIMIT $${values.length}`,
+      values,
+    )
+    const page = rows.slice(0, limit)
+    const last = page.at(-1)
+    return {
+      items: page.map(toStream),
+      next_after: rows.length > limit && last ? last.external_source_id : null,
+    }
+  }
   const filters: Record<string, unknown> = { space_id: `eq.${spaceId}`, order: 'updated_at.desc', limit }
   if (args.external_source_id) filters.external_source_id = `eq.${args.external_source_id}`
   if (!args.include_deleted) filters.deleted_at = 'is.null'
   const rows = await db.select<StreamRow>('wk_source_streams', filters)
-  return { items: rows.map(toStream) }
+  return { items: rows.map(toStream), next_after: null }
 }
 
 /**

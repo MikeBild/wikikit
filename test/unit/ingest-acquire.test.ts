@@ -95,6 +95,17 @@ describe('url acquisition', () => {
     expect(acquired.title).toBe('OKF Evaluation Note')
   })
 
+  test('fetched markdown carrying the wikikit: provenance marker is refused (loop-guard backstop)', async () => {
+    const mirrored = '---\nwikikit:\n  space: dev\n  kind: concept\n  slug: okf\n---\n\n# OKF\n\nMirrored body.\n'
+    const acquirer = createAcquirer(config, { fetchImpl: stubFetch(mirrored, { contentType: 'text/markdown' }) })
+    const attempt = acquirer.acquire({ url: 'https://example.com/mirror.md' })
+    await expect(attempt).rejects.toBeInstanceOf(AcquireError)
+    await attempt.catch((error) => expect((error as Error).message).toContain('export mirror'))
+    // Plain-text responses are covered by the same backstop.
+    const plain = createAcquirer(config, { fetchImpl: stubFetch(mirrored, { contentType: 'text/plain' }) })
+    await expect(plain.acquire({ url: 'https://example.com/mirror.txt' })).rejects.toBeInstanceOf(AcquireError)
+  })
+
   test('non-2xx responses fail with acquire_failed', async () => {
     const acquirer = createAcquirer(config, { fetchImpl: stubFetch('gone', { status: 404 }) })
     const attempt = acquirer.acquire({ url: 'https://example.com/missing' })

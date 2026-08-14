@@ -9,7 +9,7 @@ import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts
 import { runMigrations } from '../../src/db/migrate.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import { createIngestPipeline, type IngestPipeline } from '../../src/ingest/pipeline.ts'
-import { recordStreamVersion, tombstoneStream } from '../../src/domain/source-streams.ts'
+import { listStreams, recordStreamVersion, tombstoneStream } from '../../src/domain/source-streams.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { lintSpace } from '../../src/domain/lint.ts'
 import { ConflictError } from '../../src/domain/errors.ts'
@@ -29,6 +29,13 @@ let database: Database
 let db: Db
 let spaceId = ''
 let pipeline: IngestPipeline
+
+// File-level so BOTH describes below share the pool — a describe-scoped
+// afterAll would close it between the two.
+afterAll(async () => {
+  if (!integration) return
+  await database.close()
+})
 
 function push(markdown: string, version: string) {
   return pipeline.enqueue(db, spaceId, {
@@ -65,11 +72,6 @@ describe('source-sync contract (integration)', () => {
       createFakeProvider(),
       createLogger({ level: 'error' }),
     )
-  })
-
-  afterAll(async () => {
-    if (!integration) return
-    await database.close()
   })
 
   let firstSourceId = ''
@@ -180,5 +182,65 @@ describe('source-sync contract (integration)', () => {
     await expect(pipeline.enqueue(db, spaceId, { markdown: V1, title: 'No stream' })).rejects.toBeInstanceOf(
       ConflictError,
     )
+  })
+})
+
+describe('source-stream keyset pagination (integration)', () => {
+  // Its own space so the walk is exact: 55 streams, one more than a default
+  // page — the walk MUST need a second request and MUST terminate.
+  const TOTAL = 55
+  let walkSpaceId = ''
+
+  beforeAll(async () => {
+    if (!integration) return
+    const [space] = await db.insert<{ id: string }>('wk_spaces', { slug: 'walk-space', name: 'Walk' })
+    walkSpaceId = space!.id
+    for (let index = 0; index < TOTAL; index++) {
+      await db.insert('wk_source_streams', {
+        space_id: walkSpaceId,
+        external_source_id: `walk:${String(index).padStart(3, '0')}`,
+      })
+    }
+  })
+
+  it('without after: updated_at.desc order and next_after stays null (legacy shape)', async () => {
+    const page = await listStreams(db, walkSpaceId, {})
+    expect(page.items.length).toBe(50)
+    expect(page.next_after).toBeNull()
+  })
+
+  it('an empty after starts the ASC walk; the cursor covers every stream exactly once', async () => {
+    const seen: string[] = []
+    let after: string | undefined = ''
+    let requests = 0
+    while (after !== undefined) {
+      const page: Awaited<ReturnType<typeof listStreams>> = await listStreams(db, walkSpaceId, { after })
+      requests += 1
+      seen.push(...page.items.map((item) => item.external_source_id))
+      expect(requests).toBeLessThanOrEqual(3) // walk terminates
+      after = page.next_after ?? undefined
+      if (after !== undefined) expect(after).toBe(page.items.at(-1)!.external_source_id)
+    }
+    expect(requests).toBe(2) // 50 + 5
+    expect(seen.length).toBe(TOTAL)
+    expect(new Set(seen).size).toBe(TOTAL) // no repeats
+    expect(seen).toEqual([...seen].sort()) // external_source_id ASC throughout
+  })
+
+  it('resuming from a mid-range id returns only strictly greater ids', async () => {
+    const page = await listStreams(db, walkSpaceId, { after: 'walk:049', limit: 10 })
+    expect(page.items.map((item) => item.external_source_id)).toEqual(
+      Array.from({ length: 5 }, (_, index) => `walk:${String(50 + index).padStart(3, '0')}`),
+    )
+    expect(page.next_after).toBeNull() // fewer than limit rows — walk complete
+  })
+
+  it('tombstoned streams drop out of the walk unless include_deleted is set', async () => {
+    await tombstoneStream(db, walkSpaceId, { externalSourceId: 'walk:000' })
+    const page = await listStreams(db, walkSpaceId, { after: '', limit: 200 })
+    expect(page.items.length).toBe(TOTAL - 1)
+    expect(page.items[0]!.external_source_id).toBe('walk:001')
+    const all = await listStreams(db, walkSpaceId, { after: '', limit: 200, include_deleted: true })
+    expect(all.items.length).toBe(TOTAL)
   })
 })

@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.38.0 - 2026-08-14
+
+### Added
+
+- **An export format for markdown vaults.** `GET
+/v1/spaces/{space}/export?format=obsidian` renders a serialize-only bundle
+  made for note vaults: `index.md` with `[[slug]]` links, one file per concept
+  and decision, relations as a readable `## Related` link list — and no
+  `sources/`, no `log.md`, so a vault mirror never re-imports its own pushed
+  notes. Every file opens with a `wikikit:` frontmatter marker naming its
+  space, kind and slug. The bundle is a pure function of approved knowledge:
+  same knowledge, same bytes. Import refuses the format — it is a projection,
+  not a round-trip.
+- **The export answers conditional requests.** The export handler now stamps a
+  strong content-hash `ETag` and honors `If-None-Match` with `304 Not
+Modified`, so a sync client polling for changes pays nothing while the
+  knowledge stands still.
+- **Source streams can be walked to the end.** `GET
+/v1/spaces/{space}/source-streams` accepts an `after` cursor
+  (`external_source_id` ascending) and returns `next_after`, so a connector
+  reconciling more than one page no longer loses the tail. Without a cursor
+  the list keeps its newest-first order.
+- **Ingest refuses its own echo.** A document whose frontmatter carries the
+  top-level `wikikit:` marker is a WikiKit export mirror; pushing it back is
+  now a `422` — before the capture branch, so parked captures cannot smuggle
+  one in either — and URL acquisition fails the job when the fetched body
+  carries the marker. The review gate stays the only way knowledge changes;
+  this guard merely stops the feedback loop before it archives.
+
 ## 0.37.1 - 2026-08-14
 
 ### Fixed

@@ -6,6 +6,7 @@ import { ValidationError } from '../../src/domain/errors.ts'
 import {
   extractTitle,
   extractWikiLinks,
+  hasWikiKitProvenance,
   htmlToMarkdown,
   normalizeMarkdown,
   parseFrontmatter,
@@ -93,6 +94,35 @@ describe('htmlToMarkdown', () => {
     expect(markdown).toContain('- one')
     expect(markdown).not.toContain('alert(1)')
     expect(markdown).not.toContain('.x{}')
+  })
+})
+
+describe('hasWikiKitProvenance — export-mirror loop guard', () => {
+  test('detects the structured export marker', () => {
+    const mirrored = '---\nwikikit:\n  space: dev\n  kind: concept\n  slug: okf\n---\n\n# OKF\n\nMirrored body.\n'
+    expect(hasWikiKitProvenance(mirrored)).toBe(true)
+  })
+
+  test('the user opt-out `wikikit: ignore` counts as marked too', () => {
+    expect(hasWikiKitProvenance('---\nwikikit: ignore\n---\n\n# My note\n')).toBe(true)
+  })
+
+  test('a bare `wikikit:` key (null value) is still the marker', () => {
+    expect(hasWikiKitProvenance('---\nwikikit:\n---\nbody\n')).toBe(true)
+  })
+
+  test('documents without frontmatter are not marked', () => {
+    expect(hasWikiKitProvenance('# Just a heading\n\nwikikit: mentioned in prose\n')).toBe(false)
+  })
+
+  test('frontmatter without the key is not marked', () => {
+    expect(hasWikiKitProvenance('---\ntitle: OKF\ntags:\n  - spec\n---\n# Body\n')).toBe(false)
+  })
+
+  test('broken YAML answers false instead of throwing (the guard never blocks on malformed input)', () => {
+    expect(hasWikiKitProvenance('---\n"[broken\n---\nbody')).toBe(false)
+    expect(hasWikiKitProvenance('---\ntitle: x\nno terminator')).toBe(false)
+    expect(hasWikiKitProvenance('---\n- a\n- b\n---\nbody')).toBe(false)
   })
 })
 

@@ -10,6 +10,7 @@ import type { Config } from '../../src/config.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
+import { readZip } from '../../src/export/zip.ts'
 import { createLogger } from '../../src/logger.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
@@ -647,6 +648,50 @@ describe('http surface (integration)', () => {
     // The review gate holds: nothing readable in 'imported' before approval.
     const concepts = await fetch(`${base}/v1/spaces/imported/concepts`, { headers: bearer(readerKey) })
     expect(((await concepts.json()) as { items: unknown[] }).items).toHaveLength(0)
+  })
+
+  it('export carries a strong ETag with 304 on If-None-Match; obsidian mirror ships marked knowledge only', async () => {
+    const url = `${base}/v1/spaces/demo/export?format=obsidian`
+    const first = await fetch(url, { headers: bearer(readerKey) })
+    expect(first.status).toBe(200)
+    const etag = first.headers.get('etag')!
+    expect(etag).toMatch(/^"[0-9a-f]{64}"$/) // strong validator: sha256 over the zip bytes
+    const zip = new Uint8Array(await first.arrayBuffer())
+    expect([zip[0], zip[1]]).toEqual([0x50, 0x4b]) // 'PK'
+
+    // The mirror is approved knowledge only: no sources/, no log.md, and
+    // every entry opens with the provenance marker the ingest guard refuses.
+    const entries = readZip(zip)
+    const paths = entries.map((entry) => entry.path)
+    expect(paths).toContain('index.md')
+    expect(paths.some((path) => path.startsWith('sources/'))).toBe(false)
+    expect(paths).not.toContain('log.md')
+    const decoder = new TextDecoder()
+    for (const entry of entries) expect(decoder.decode(entry.data)).toStartWith('---\nwikikit:\n')
+
+    // Deterministic bytes → the ETag round-trips: exact match, list form with
+    // a weak-prefixed entry (RFC 9110 §13.1.2), and a miss re-serves 200.
+    const cached = await fetch(url, { headers: { ...bearer(readerKey), 'if-none-match': etag } })
+    expect(cached.status).toBe(304)
+    const weak = await fetch(url, { headers: { ...bearer(readerKey), 'if-none-match': `"nope", W/${etag}` } })
+    expect(weak.status).toBe(304)
+    const miss = await fetch(url, { headers: { ...bearer(readerKey), 'if-none-match': '"deadbeef"' } })
+    expect(miss.status).toBe(200)
+
+    // Every format gets the validator, and different formats never share one.
+    const md = await fetch(`${base}/v1/spaces/demo/export?format=md`, { headers: bearer(readerKey) })
+    const mdTag = md.headers.get('etag')!
+    expect(mdTag).toMatch(/^"[0-9a-f]{64}"$/)
+    expect(mdTag).not.toBe(etag)
+
+    // Import refuses the serialize-only format at the boundary (400, before
+    // any bundle machinery runs).
+    const refused = await fetch(`${base}/v1/spaces/demo/import?format=obsidian`, {
+      method: 'POST',
+      headers: { ...bearer(writerKey), 'content-type': 'application/zip' },
+      body: zip,
+    })
+    expect(refused.status).toBe(400)
   })
 
   it('webhook admin: register (secret shown once), list (no secret), deliveries', async () => {

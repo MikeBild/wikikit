@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
-import { ConflictError, LlmNotConfiguredError } from '../../src/domain/errors.ts'
+import { ConflictError, LlmNotConfiguredError, UnprocessableError } from '../../src/domain/errors.ts'
 import { computeInputHash } from '../../src/domain/proposals.ts'
 import { sha256Hex } from '../../src/domain/sources.ts'
 import { createIngestPipeline, parseQuotaResumeAt } from '../../src/ingest/pipeline.ts'
@@ -200,6 +200,20 @@ describe('enqueue', () => {
     expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_ingest_jobs"'))).toBe(true)
   })
 
+  test('a wikikit-marked body is refused 422 before any SQL (export-mirror loop guard)', async () => {
+    const { db, calls } = fakeDb([])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    const mirrored = '---\nwikikit:\n  space: dev\n  kind: concept\n  slug: okf\n---\n\n# OKF\n\nMirrored body.\n'
+    const attempt = pipeline.enqueue(db, 'space-1', { markdown: mirrored })
+    await expect(attempt).rejects.toBeInstanceOf(UnprocessableError)
+    await attempt.catch((error) => expect((error as UnprocessableError).code).toBe('unprocessable'))
+    // text bodies and the `wikikit: ignore` opt-out are refused the same way.
+    await expect(
+      pipeline.enqueue(db, 'space-1', { text: '---\nwikikit: ignore\n---\nmy note' }),
+    ).rejects.toBeInstanceOf(UnprocessableError)
+    expect(calls.length).toBe(0) // fail fast — nothing queued, nothing counted
+  })
+
   test('url ingests defer the dedup check to the worker (body unknown yet)', async () => {
     const { db, calls } = fakeDb([{ match: /INSERT INTO "public"\."wk_ingest_jobs"/, rows: [{ id: 'job-2' }] }])
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
@@ -224,6 +238,19 @@ describe('capture lifecycle', () => {
     expect(
       JSON.parse(calls[0]!.values.find((v) => typeof v === 'string' && String(v).startsWith('{')) as string),
     ).toEqual({ text: RAW, capture: true })
+  })
+
+  test('capture cannot park a wikikit-marked note — the loop guard outranks the capture branch', async () => {
+    const { db, calls } = fakeDb([])
+    // Keyless on purpose: the guard must fire even where capture skips the
+    // LLM guard — a parked mirror note would be synthesized at promotion.
+    const unconfigured = { ...createFakeProvider(), configured: false }
+    const pipeline = createIngestPipeline(config, db, unconfigured, logger)
+    const mirrored = '---\nwikikit:\n  space: dev\n  kind: concept\n  slug: okf\n---\n\n# OKF\n'
+    await expect(pipeline.enqueue(db, 'space-1', { text: mirrored, capture: true })).rejects.toBeInstanceOf(
+      UnprocessableError,
+    )
+    expect(calls.length).toBe(0) // nothing parked
   })
 
   test('the worker claim query never sees captured rows (queued only)', async () => {

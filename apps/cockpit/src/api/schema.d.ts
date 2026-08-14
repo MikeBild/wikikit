@@ -286,7 +286,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List connector source streams (sync contract): head pointer, latest version, tombstone state */
+        /** List connector source streams (sync contract): head pointer, latest version, tombstone state. With ?after= (raw external_source_id; empty starts the walk) the order is external_source_id ASC and next_after cursors the walk; without it the order stays updated_at.desc and next_after is null */
         get: operations["listSourceStreams"];
         put?: never;
         post?: never;
@@ -714,7 +714,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export the space as a zip bundle (?format=md|okf) */
+        /** Export the space as a zip bundle (?format=md|okf|obsidian; obsidian is a serialize-only vault mirror without sources/ or log.md) — strong ETag over the zip bytes, 304 on If-None-Match */
         get: operations["export"];
         put?: never;
         post?: never;
@@ -1874,6 +1874,7 @@ export interface components {
                 created_at: string;
                 updated_at: string;
             }[];
+            next_after: string | null;
         };
         zSourceStreamTombstoneResponse: {
             /** @constant */
@@ -4087,6 +4088,15 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
+            /** @description unprocessable — the content carries the top-level `wikikit:` provenance frontmatter, i.e. it IS an export mirror of this wiki; ingesting it would loop approved knowledge back through review (capture:true is refused too) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
             /** @description ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE jobs waiting (envelope carries queued + limit); nothing was queued */
             429: {
                 headers: {
@@ -4576,7 +4586,7 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
-            /** @description document_extraction_failed (no text layer) */
+            /** @description document_extraction_failed (no text layer) | unprocessable — the extracted markdown carries the top-level `wikikit:` provenance frontmatter (an export mirror of this wiki) and is never ingested */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -4750,6 +4760,7 @@ export interface operations {
                 external_source_id?: string;
                 include_deleted?: boolean;
                 limit?: number;
+                after?: string;
             };
             header?: never;
             path: {
@@ -6775,7 +6786,7 @@ export interface operations {
     export: {
         parameters: {
             query?: {
-                format?: "md" | "okf";
+                format?: "md" | "okf" | "obsidian";
             };
             header?: never;
             path: {
@@ -6785,8 +6796,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Zip stream (markdown tree or OKF bundle) */
+            /** @description Zip stream (markdown tree, OKF bundle or vault mirror; ETag: "<sha256 of the zip bytes>") */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            /** @description Not modified (If-None-Match matched the export bytes) */
+            304: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -38,7 +38,7 @@ import { isoString } from '../domain/sources.ts'
 import { extractTitle, parseFrontmatter, serializeFrontmatter } from '../markdown.ts'
 import { z } from 'zod'
 
-export type BundleFormat = 'md' | 'okf'
+export type BundleFormat = 'md' | 'okf' | 'obsidian'
 
 /** One file inside a bundle — path uses forward slashes, content is UTF-8. */
 export interface BundleFile {

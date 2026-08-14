@@ -102,7 +102,12 @@ export const zProposalListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 })
 
-export const zExportQuery = z.object({ format: z.enum(['md', 'okf']).default('md') })
+export const zExportQuery = z.object({ format: z.enum(['md', 'okf', 'obsidian']).default('md') })
+
+// Import takes only the round-trip formats — the vault-mirror export
+// (`obsidian`) is serialize-only, so the import route refuses it at the
+// boundary instead of deep in the bundle machinery.
+export const zImportQuery = z.object({ format: z.enum(['md', 'okf']).default('md') })
 
 export const zAgentBriefingQuery = z.object({
   spaces: z.string().min(1).max(640),
@@ -426,6 +431,10 @@ export const zSourceStreamListQuery = z.object({
   external_source_id: z.string().min(1).max(500).optional(),
   include_deleted: z.coerce.boolean().optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
+  // Keyset cursor for reconciliation walks: the raw external_source_id to
+  // resume after. Deliberately allows the EMPTY string — `?after=` starts the
+  // ASC walk at the lexicographic bottom (see listStreams).
+  after: z.string().max(500).optional(),
 })
 
 export const zSourceStreamResponse = z.object({
@@ -440,7 +449,13 @@ export const zSourceStreamResponse = z.object({
   updated_at: z.string(),
 })
 
-export const zSourceStreamListResponse = z.object({ items: z.array(zSourceStreamResponse) })
+export const zSourceStreamListResponse = z.object({
+  items: z.array(zSourceStreamResponse),
+  // Only ever non-null in cursor mode (?after=): the last external_source_id
+  // of the page, to be fed back as the next `after`. null = walk complete
+  // (or the request was not a cursor walk at all).
+  next_after: z.string().nullable(),
+})
 
 export const zSourceStreamTombstoneResponse = z.object({
   status: z.literal('tombstoned'),
@@ -1704,6 +1719,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zSearchQuery,
   zProposalListQuery,
   zExportQuery,
+  zImportQuery,
   zAgentBriefingQuery,
   zAgentContextRequest,
   zCreateSpaceRequest,

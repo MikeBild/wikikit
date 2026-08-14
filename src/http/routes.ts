@@ -61,7 +61,7 @@ import {
   renderOutputSource,
   type OutputKind,
 } from '../domain/outputs.ts'
-import { getSource, isoString, listSources } from '../domain/sources.ts'
+import { getSource, isoString, listSources, sha256Hex } from '../domain/sources.ts'
 import { listStreams, tombstoneStream } from '../domain/source-streams.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
 import { extractDocument } from '../ingest/extract.ts'
@@ -247,6 +247,11 @@ export const ROUTES: RouteDef[] = [
         type: 'application/json',
         desc: 'already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)',
       },
+      422: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'unprocessable — the content carries the top-level `wikikit:` provenance frontmatter, i.e. it IS an export mirror of this wiki; ingesting it would loop approved knowledge back through review (capture:true is refused too)',
+      },
       429: {
         schema: 'zErrorEnvelope',
         type: 'application/json',
@@ -342,7 +347,11 @@ export const ROUTES: RouteDef[] = [
         desc: 'Extracted + queued; poll /v1/ingests/{id}',
       },
       415: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'unsupported_document (unknown extension)' },
-      422: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'document_extraction_failed (no text layer)' },
+      422: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'document_extraction_failed (no text layer) | unprocessable — the extracted markdown carries the top-level `wikikit:` provenance frontmatter (an export mirror of this wiki) and is never ingested',
+      },
       429: {
         schema: 'zErrorEnvelope',
         type: 'application/json',
@@ -372,7 +381,8 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/source-streams',
     scope: 'knowledge:read',
-    summary: 'List connector source streams (sync contract): head pointer, latest version, tombstone state',
+    summary:
+      'List connector source streams (sync contract): head pointer, latest version, tombstone state. With ?after= (raw external_source_id; empty starts the walk) the order is external_source_id ASC and next_after cursors the walk; without it the order stays updated_at.desc and next_after is null',
     handler: 'listSourceStreamsHandler',
     request: { params: 'zSpaceParams', query: 'zSourceStreamListQuery' },
     responses: { 200: { schema: 'zSourceStreamListResponse', type: 'application/json', desc: 'Streams' } },
@@ -697,10 +707,17 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/export',
     scope: 'knowledge:read',
-    summary: 'Export the space as a zip bundle (?format=md|okf)',
+    summary:
+      'Export the space as a zip bundle (?format=md|okf|obsidian; obsidian is a serialize-only vault mirror without sources/ or log.md) — strong ETag over the zip bytes, 304 on If-None-Match',
     handler: 'exportHandler',
     request: { params: 'zSpaceParams', query: 'zExportQuery' },
-    responses: { 200: { type: 'application/zip', desc: 'Zip stream (markdown tree or OKF bundle)' } },
+    responses: {
+      200: {
+        type: 'application/zip',
+        desc: 'Zip stream (markdown tree, OKF bundle or vault mirror; ETag: "<sha256 of the zip bytes>")',
+      },
+      304: { type: 'application/zip', desc: 'Not modified (If-None-Match matched the export bytes)' },
+    },
   },
   {
     method: 'post',
@@ -708,7 +725,7 @@ export const ROUTES: RouteDef[] = [
     scope: 'knowledge:propose',
     summary: 'Import a bundle (zip, ?format=md|okf): sources archived directly, knowledge staged as ONE proposal',
     handler: 'importHandler',
-    request: { params: 'zSpaceParams', query: 'zExportQuery' },
+    request: { params: 'zSpaceParams', query: 'zImportQuery' },
     rawBody: true,
     responses: {
       202: { schema: 'zProposalCreatedResponse', type: 'application/json', desc: 'Proposal staged for review' },
@@ -1583,7 +1600,12 @@ export const HANDLERS: Record<string, Handler> = {
 
   async listSourceStreamsHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const query = input.query as { external_source_id?: string; include_deleted?: boolean; limit?: number }
+    const query = input.query as {
+      external_source_id?: string
+      include_deleted?: boolean
+      limit?: number
+      after?: string
+    }
     return { status: 200, body: await listStreams(deps.db, space.id, query) }
   },
 
@@ -1970,21 +1992,53 @@ export const HANDLERS: Record<string, Handler> = {
 
   async exportHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const format = (input.query as { format: 'md' | 'okf' }).format
+    const format = (input.query as { format: 'md' | 'okf' | 'obsidian' }).format
     const stream = await exportSpace(deps.db, space.id, { format })
-    input.res.writeHead(200, {
-      'content-type': 'application/zip',
-      'content-disposition': `attachment; filename="${space.slug}-${format}.zip"`,
-    })
-    // Manual pump instead of pipeTo: node:http ServerResponse is not a web
-    // WritableStream, and Readable.fromWeb churns across runtimes — a loop is
-    // portable and exactly as fast for the single-chunk stream export emits.
+    // Collect the bytes before any header goes out: exports are deterministic
+    // (identical knowledge → identical zip), so sha256 over the exact bytes is
+    // a STRONG validator — and unlike the space epoch it also tracks sources/
+    // content, which changes without an epoch bump. The stream is single-chunk
+    // by construction (see exportSpace), so collecting costs nothing extra;
+    // the manual pump stays because node:http ServerResponse is not a web
+    // WritableStream and Readable.fromWeb churns across runtimes.
+    const chunks: Uint8Array[] = []
+    let total = 0
     const reader = stream.getReader()
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
-      input.res.write(value)
+      chunks.push(value)
+      total += value.byteLength
     }
+    let bytes = chunks[0] ?? new Uint8Array(0)
+    if (chunks.length > 1) {
+      bytes = new Uint8Array(total)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+    }
+    const etag = `"${sha256Hex(bytes)}"`
+    // RFC 9110 §13.1.2 as in listConceptsHandler: If-None-Match may carry a
+    // comma-separated list of entity-tags or '*' — any member matching (weak
+    // comparison, so W/ prefixes are stripped per entry) means 304.
+    const inm = input.req.headers['if-none-match']
+    const candidates = String(inm ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    if (candidates.some((entry) => entry === '*' || entry.replace(/^W\//, '') === etag)) {
+      input.res.writeHead(304, { etag })
+      input.res.end()
+      return undefined
+    }
+    input.res.writeHead(200, {
+      'content-type': 'application/zip',
+      'content-disposition': `attachment; filename="${space.slug}-${format}.zip"`,
+      etag,
+    })
+    input.res.write(bytes)
     input.res.end()
     return undefined
   },

@@ -18,7 +18,7 @@
 // path runs deterministic and offline (same DI reasoning as the FakeProvider).
 import { z } from 'zod'
 import type { Config } from '../config.ts'
-import { extractTitle, htmlToMarkdown } from '../markdown.ts'
+import { extractTitle, hasWikiKitProvenance, htmlToMarkdown } from '../markdown.ts'
 import { assertDeliverableUrl } from '../secrets.ts'
 
 /**
@@ -242,6 +242,18 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
     const isHtml = contentType.includes('html') || (!contentType.includes('markdown') && !contentType.includes('plain'))
     const markdown = isHtml ? htmlToMarkdown(raw) : raw
     if (markdown.trim().length === 0) throw new AcquireError(`no readable content extracted from ${url}`)
+
+    // Provenance loop-guard backstop (URL leg): enqueue could not inspect the
+    // body, so a fetched markdown/plain document carrying the top-level
+    // `wikikit:` frontmatter — this wiki's own export mirror — is refused
+    // here. AcquireError, not a 4xx: the 202 already went out, so this lands
+    // as the job's acquire_failed error. HTML is exempt — the marker contract
+    // is a frontmatter key, and frontmatter only exists in markdown documents.
+    if (!isHtml && hasWikiKitProvenance(markdown)) {
+      throw new AcquireError(
+        `refusing to ingest ${url}: the content is a WikiKit export mirror (top-level \`wikikit:\` frontmatter)`,
+      )
+    }
 
     return {
       kind: 'url',

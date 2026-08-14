@@ -32,6 +32,7 @@ import {
   type BundleFormatAdapter,
   type ImportedBundle,
 } from './markdown.ts'
+import { obsidianBundleFormat } from './obsidian.ts'
 import { okfBundleFormat } from './okf.ts'
 import { createZip, readZip } from './zip.ts'
 
@@ -39,9 +40,14 @@ import { createZip, readZip } from './zip.ts'
 export const BUNDLE_FORMATS: Record<BundleFormat, BundleFormatAdapter> = {
   md: markdownBundleFormat,
   okf: okfBundleFormat,
+  obsidian: obsidianBundleFormat,
 }
 
+// Import accepts ONLY the round-trip formats. The vault mirror (`obsidian`)
+// is serialize-only — importBundle refuses it here, before any parse, so the
+// export-only adapter can never be fed bytes.
 const zFormat = z.enum(['md', 'okf'])
+const zExportFormat = z.enum(['md', 'okf', 'obsidian'])
 
 // agent_meta stamp for imported proposals (§1.14 shape). 'import' — not
 // 'manual' — because provenance must distinguish "a human typed this" from
@@ -70,7 +76,7 @@ export async function exportSpace(
   spaceId: string,
   args: { format: BundleFormat },
 ): Promise<ReadableStream<Uint8Array>> {
-  const format = zFormat.parse(args.format)
+  const format = zExportFormat.parse(args.format)
   const snapshot = await loadSpaceSnapshot(db, spaceId)
   const files = BUNDLE_FORMATS[format].serialize(snapshot)
   const archive = createZip(files.map((file) => ({ path: file.path, data: encoder.encode(file.content) })))

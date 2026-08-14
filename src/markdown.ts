@@ -117,6 +117,26 @@ export function htmlToMarkdown(html: string): string {
   return String(htmlPipeline.processSync(html)).trim()
 }
 
+/**
+ * Provenance loop-guard probe: does this document carry the top-level
+ * `wikikit:` frontmatter key? That key means "this file belongs to the
+ * WikiKit machinery" — the export writes `wikikit: {space, kind, slug}` onto
+ * every mirrored file, and a user opts a note out with `wikikit: ignore`.
+ * BOTH count as marked: any value (including null) under the key says
+ * "never ingest this".
+ *
+ * Parse failures answer false — the guard must never turn broken YAML into a
+ * refusal; malformed frontmatter goes on to fail wherever strict parsing is
+ * actually required.
+ */
+export function hasWikiKitProvenance(markdown: string): boolean {
+  try {
+    return parseFrontmatter(markdown).data.wikikit !== undefined
+  } catch {
+    return false
+  }
+}
+
 const WIKI_LINK_PATTERN = /\[\[([a-z0-9][a-z0-9-]{0,126})\]\]/g
 
 /**

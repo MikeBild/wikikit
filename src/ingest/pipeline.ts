@@ -44,11 +44,18 @@ import { getConcept, getConceptIndex } from '../domain/concepts.ts'
 import { latestCharterMarkdown } from '../domain/charter.ts'
 import { findContradictions, getPredicateRegistry, type IncomingClaim } from '../domain/claims.ts'
 import { listActiveDecisionsForDedupe } from '../domain/decisions.ts'
-import { ConflictError, IngestQueueFullError, LlmNotConfiguredError, NotFoundError } from '../domain/errors.ts'
+import {
+  ConflictError,
+  IngestQueueFullError,
+  LlmNotConfiguredError,
+  NotFoundError,
+  UnprocessableError,
+} from '../domain/errors.ts'
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
 import { createSource, persistSourceChunks, sha256Hex } from '../domain/sources.ts'
 import { recordStreamVersion } from '../domain/source-streams.ts'
 import type { LlmProvider, LlmRunMeta } from '../llm/provider.ts'
+import { hasWikiKitProvenance } from '../markdown.ts'
 import { PROMPT_VERSIONS } from '../llm/prompts/index.ts'
 import type { Logger } from '../logger.ts'
 import type { Metrics } from '../metrics.ts'
@@ -1211,6 +1218,24 @@ export function createIngestPipeline(
       args: IngestRequest,
     ): Promise<{ ingest_id: string } | IngestUnchanged | IngestCaptured> {
       const input = zIngestInput.parse(args)
+
+      // Provenance loop-guard, and the ONE guard that outranks the capture
+      // branch below: content carrying the top-level `wikikit:` frontmatter
+      // key IS this wiki's own export mirror, and ingesting it would loop
+      // approved knowledge back through review as if it were new evidence. It
+      // must sit BEFORE the capture fast-path — a parked mirror note would
+      // sail past every guard here and be synthesized later via
+      // processCapture, which re-checks LLM/queue-room but never re-reads the
+      // content. URL ingests are covered by the acquirer's backstop (the body
+      // is unknown at enqueue time). importBundle is deliberately NOT guarded:
+      // an md/okf roundtrip is legitimate re-import and goes through the
+      // review gate.
+      const directBody = input.markdown ?? input.text
+      if (directBody !== undefined && hasWikiKitProvenance(directBody)) {
+        throw new UnprocessableError(
+          'this content is a WikiKit export mirror (top-level `wikikit:` frontmatter) — mirrored knowledge is never ingested back',
+        )
+      }
 
       // Capture branches BEFORE every guard on purpose: parking a note asks
       // for no LLM and takes no queue slot, so neither the 503 nor the 429 may

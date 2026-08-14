@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.37.1",
+    "version": "0.38.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -460,6 +460,10 @@
             "description": "already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
+          "422": {
+            "description": "unprocessable — the content carries the top-level `wikikit:` provenance frontmatter, i.e. it IS an export mirror of this wiki; ingesting it would loop approved knowledge back through review (capture:true is refused too)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
           "429": {
             "description": "ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE jobs waiting (envelope carries queued + limit); nothing was queued",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
@@ -782,7 +786,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "422": {
-            "description": "document_extraction_failed (no text layer)",
+            "description": "document_extraction_failed (no text layer) | unprocessable — the extracted markdown carries the top-level `wikikit:` provenance frontmatter (an export mirror of this wiki) and is never ingested",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "429": {
@@ -931,7 +935,7 @@
     },
     "/v1/spaces/{space}/source-streams": {
       "get": {
-        "summary": "List connector source streams (sync contract): head pointer, latest version, tombstone state",
+        "summary": "List connector source streams (sync contract): head pointer, latest version, tombstone state. With ?after= (raw external_source_id; empty starts the walk) the order is external_source_id ASC and next_after cursors the walk; without it the order stays updated_at.desc and next_after is null",
         "operationId": "listSourceStreams",
         "responses": {
           "200": {
@@ -980,7 +984,8 @@
             "in": "query",
             "required": false,
             "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
-          }
+          },
+          { "name": "after", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
@@ -2379,10 +2384,17 @@
     },
     "/v1/spaces/{space}/export": {
       "get": {
-        "summary": "Export the space as a zip bundle (?format=md|okf)",
+        "summary": "Export the space as a zip bundle (?format=md|okf|obsidian; obsidian is a serialize-only vault mirror without sources/ or log.md) — strong ETag over the zip bytes, 304 on If-None-Match",
         "operationId": "export",
         "responses": {
-          "200": { "description": "Zip stream (markdown tree or OKF bundle)", "content": { "application/zip": {} } },
+          "200": {
+            "description": "Zip stream (markdown tree, OKF bundle or vault mirror; ETag: \"<sha256 of the zip bytes>\")",
+            "content": { "application/zip": {} }
+          },
+          "304": {
+            "description": "Not modified (If-None-Match matched the export bytes)",
+            "content": { "application/zip": {} }
+          },
           "400": {
             "description": "bad_request — request failed schema validation",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
@@ -2415,7 +2427,7 @@
             "name": "format",
             "in": "query",
             "required": false,
-            "schema": { "default": "md", "type": "string", "enum": ["md", "okf"] }
+            "schema": { "default": "md", "type": "string", "enum": ["md", "okf", "obsidian"] }
           }
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
@@ -4983,9 +4995,10 @@
               ],
               "additionalProperties": false
             }
-          }
+          },
+          "next_after": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
         },
-        "required": ["items"],
+        "required": ["items", "next_after"],
         "additionalProperties": false
       },
       "zSourceStreamTombstoneResponse": {
