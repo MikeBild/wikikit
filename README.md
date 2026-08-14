@@ -75,6 +75,8 @@ ING=$(curl -s -X POST "$WK/v1/spaces/default/ingest" \
 
 # 2. Poll until done (or failed). Done always carries source_id; proposal_id is
 #    nullable when classification finds no affected/new knowledge to review.
+#    With evidence:true in step 1 that outcome is guaranteed: the source is
+#    archived and searchable as citable evidence, and no model ever runs.
 #    → {"ingest_id":"...","status":"done","proposal_id":null,"source_id":"...","error":null}
 PROP=$(curl -s "$WK/v1/ingests/$ING" -H "Authorization: Bearer $KEY" | jq -r .proposal_id)
 

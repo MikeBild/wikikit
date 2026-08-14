@@ -244,3 +244,123 @@ describe('source-stream keyset pagination (integration)', () => {
     expect(all.items.length).toBe(TOTAL)
   })
 })
+
+describe('evidence sync stream (integration)', () => {
+  // The machine-report shape the flag exists for: a connector pushes versioned
+  // evidence, the full sync contract holds, and NOTHING ever reaches review.
+  const EV_ID = 'reporting:hourly'
+  const EV_V1 = '# Stundenbericht\n\nDer Kompressor meldete 42 Neustarts.'
+  const EV_V2 = '# Stundenbericht\n\nDer Kompressor meldete 7 Neustarts.'
+  let evSpaceId = ''
+
+  beforeAll(async () => {
+    if (!integration) return
+    const [space] = await db.insert<{ id: string }>('wk_spaces', { slug: 'evidence-space', name: 'Evidenz' })
+    evSpaceId = space!.id
+  })
+
+  function pushEvidence(markdown: string, version: string) {
+    return pipeline.enqueue(db, evSpaceId, {
+      markdown,
+      title: 'Stundenbericht',
+      evidence: true,
+      external_source_id: EV_ID,
+      source_version: version,
+    })
+  }
+
+  async function jobRow(id: string) {
+    const [row] = await db.select<{ status: string; proposal_id: string | null; source_id: string | null }>(
+      'wk_ingest_jobs',
+      { id: `eq.${id}` },
+    )
+    return row!
+  }
+
+  it('first evidence push: archived with stream identity and chunks — done, no proposal', async () => {
+    const enqueued = await pushEvidence(EV_V1, 'v1')
+    expect('ingest_id' in enqueued).toBe(true)
+    expect(await pipeline.runOnce()).toBe(true)
+
+    const job = await jobRow((enqueued as { ingest_id: string }).ingest_id)
+    expect(job.status).toBe('done')
+    expect(job.proposal_id).toBeNull()
+    expect(job.source_id).not.toBeNull()
+
+    const [stream] = await db.select<{ latest_source_id: string; latest_version: string }>('wk_source_streams', {
+      space_id: `eq.${evSpaceId}`,
+      external_source_id: `eq.${EV_ID}`,
+    })
+    expect(stream!.latest_version).toBe('v1')
+    expect(stream!.latest_source_id).toBe(job.source_id!)
+
+    // Chunked at archive time — the source-evidence tier is fed.
+    const chunks = await db.select('wk_source_chunks', { source_id: `eq.${job.source_id}` })
+    expect(chunks.length).toBeGreaterThan(0)
+  })
+
+  it('a blind re-push of the same version converges as 200 unchanged', async () => {
+    const result = await pushEvidence(EV_V1, 'v1')
+    expect(result).toMatchObject({ status: 'unchanged' })
+  })
+
+  it('a new version supersedes the previous head — still without a proposal', async () => {
+    const enqueued = await pushEvidence(EV_V2, 'v2')
+    expect('ingest_id' in enqueued).toBe(true)
+    expect(await pipeline.runOnce()).toBe(true)
+
+    const job = await jobRow((enqueued as { ingest_id: string }).ingest_id)
+    expect(job.status).toBe('done')
+    expect(job.proposal_id).toBeNull()
+
+    const [source] = await db.select<{ supersedes_source_id: string | null }>('wk_sources', {
+      id: `eq.${job.source_id}`,
+    })
+    expect(source!.supersedes_source_id).not.toBeNull()
+
+    // The whole stream produced zero review work.
+    const proposals = await db.select('wk_change_proposals', { space_id: `eq.${evSpaceId}` })
+    expect(proposals.length).toBe(0)
+  })
+
+  it('an evidence chunk is curatable later: a chunk_id citation resolves to a verbatim quote', async () => {
+    const chunkHits = await db.call<{ chunk_id: string; source_id: string }>('wk_search_sources', [
+      evSpaceId,
+      'Kompressor Neustarts',
+    ])
+    expect(chunkHits.length).toBeGreaterThanOrEqual(1)
+
+    const { createProposal } = await import('../../src/domain/proposals.ts')
+    const { proposal_id } = await createProposal(db, evSpaceId, {
+      title: 'Kompressor-Neustarts festhalten',
+      input_hash: 'b'.repeat(64),
+      concepts: [
+        {
+          slug: 'kompressor',
+          title: 'Kompressor',
+          markdown: '# Kompressor\n\nNeustarts werden gemeldet.',
+          claims: [
+            {
+              subject: 'kompressor',
+              predicate: 'meldet',
+              object: 'Neustarts',
+              citations: [{ chunk_id: chunkHits[0]!.chunk_id }],
+            },
+          ],
+        },
+      ],
+    })
+    const { rows: citations } = await db.query<{ source_id: string; quote: string; locator: string }>(
+      `SELECT c.source_id, c.quote, c.locator
+         FROM wk_citations c
+         JOIN wk_claims cl ON cl.id = c.claim_id
+        WHERE cl.proposal_id = $1`,
+      [proposal_id],
+    )
+    expect(citations).toHaveLength(1)
+    expect(citations[0]!.source_id).toBe(chunkHits[0]!.source_id)
+    expect(citations[0]!.locator).toBe(`chunk:${chunkHits[0]!.chunk_id}`)
+    // The quote is a verbatim slice of one of the archived versions.
+    expect(`${EV_V1}\n${EV_V2}`).toContain(citations[0]!.quote.split('\n').at(-1)!)
+  })
+})

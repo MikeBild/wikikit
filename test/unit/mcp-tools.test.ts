@@ -361,6 +361,23 @@ describe('execute — transport duties', () => {
     expect(result).toEqual({ status: 'captured', ingest_id: '22222222-2222-4222-8222-222222222222' })
   })
 
+  test('wikikit_ingest with evidence:true works keyless — archive-and-index asks for no model', async () => {
+    const d = deps({ config: { llmConfigured: false, scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS } as Config })
+    d.ingest.enqueue = async () => ({ ingest_id: '33333333-3333-4333-8333-333333333333' })
+    const result = await byName.wikikit_ingest!.execute(d, principal(), {
+      space: 'main',
+      markdown: '# hourly report',
+      evidence: true,
+    })
+    // The ordinary async ack: the job runs (archive + chunk) and completes
+    // done with proposal_id null — unlike capture there IS something to poll.
+    expect(result).toEqual({
+      status: 'running',
+      ingest_id: '33333333-3333-4333-8333-333333333333',
+      poll_with: 'wikikit_ingest_status',
+    })
+  })
+
   test('wikikit_review_proposal takes decision and note only from native elicitation', async () => {
     const proposalId = '11111111-1111-4111-8111-111111111111'
     const db = stubDb({

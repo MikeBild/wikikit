@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.39.0 - 2026-08-14
+
+### Added
+
+- **Evidence, by decision instead of by luck.** `POST
+/v1/spaces/{space}/ingest` accepts `evidence: true`: the source runs acquire
+  → archive → chunk and the job completes done with `proposal_id` null before
+  classify ever runs — zero model calls, zero review work. Until now a
+  machine-written report stream paid a classify call per document and hoped
+  the model proposed nothing; every false positive became a proposal a human
+  had to reject. Now the caller says what the content is — evidence to cite,
+  not knowledge to review — and the pipeline takes them at their word. The
+  archived source is searchable in the `source_evidence` tier immediately and
+  citable by chunk from a later curated proposal. Dedup, the queue ceiling and
+  the connector sync contract apply unchanged; like capture it works without
+  an LLM key; `evidence` refuses to combine with `capture` or `resynthesize`.
+
 ## 0.38.0 - 2026-08-14
 
 ### Added

@@ -228,3 +228,22 @@ describe('zIngestInput — sync-contract fields', () => {
     expect(zIngestInput.safeParse({ markdown: '# a', effective_at: '2026-07-23T10:00:00.000Z' }).success).toBe(false)
   })
 })
+
+describe('zIngestInput — evidence flag', () => {
+  test('accepts evidence alone and composed with the sync contract', () => {
+    expect(zIngestInput.safeParse({ markdown: '# a', evidence: true }).success).toBe(true)
+    expect(
+      zIngestInput.safeParse({
+        markdown: '# a',
+        evidence: true,
+        external_source_id: 'gdrive:file123',
+        source_version: 'v7',
+      }).success,
+    ).toBe(true)
+  })
+
+  test('evidence excludes capture and resynthesize', () => {
+    expect(zIngestInput.safeParse({ markdown: '# a', evidence: true, capture: true }).success).toBe(false)
+    expect(zIngestInput.safeParse({ markdown: '# a', evidence: true, resynthesize: true }).success).toBe(false)
+  })
+})

@@ -774,7 +774,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit. With evidence:true the content is archived and indexed as searchable, citable evidence only — the job completes with proposal_id null and no model ever runs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -793,6 +793,10 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
+        },
+        "evidence": {
+          "description": "Archive and index the content as searchable, citable evidence only — no classify, no proposal",
+          "type": "boolean",
         },
         "external_source_id": {
           "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
@@ -879,7 +883,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. An evidence:true ingest completes done with proposal_id null by design — archived and searchable, no review work. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1934,7 +1938,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit. With evidence:true the content is archived and indexed as searchable, citable evidence only — the job completes with proposal_id null and no model ever runs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1953,6 +1957,10 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
+        },
+        "evidence": {
+          "description": "Archive and index the content as searchable, citable evidence only — no classify, no proposal",
+          "type": "boolean",
         },
         "external_source_id": {
           "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
@@ -2039,7 +2047,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. An evidence:true ingest completes done with proposal_id null by design — archived and searchable, no review work. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3400,7 +3408,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit. With evidence:true the content is archived and indexed as searchable, citable evidence only — the job completes with proposal_id null and no model ever runs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -3419,6 +3427,10 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
+        },
+        "evidence": {
+          "description": "Archive and index the content as searchable, citable evidence only — no classify, no proposal",
+          "type": "boolean",
         },
         "external_source_id": {
           "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
@@ -3505,7 +3517,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. An evidence:true ingest completes done with proposal_id null by design — archived and searchable, no review work. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -4861,7 +4873,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": true,
       "readOnlyHint": false,
     },
-    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit.",
+    "description": "Submit a source (markdown, text, or a URL to fetch) into the ingest pipeline. Returns an async handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait in-band. The result is a pending ChangeProposal that a human approves over REST. With capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing to poll — a human promotes or discards the note in the cockpit. With evidence:true the content is archived and indexed as searchable, citable evidence only — the job completes with proposal_id null and no model ever runs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -4880,6 +4892,10 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "format": "date-time",
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
+        },
+        "evidence": {
+          "description": "Archive and index the content as searchable, citable evidence only — no classify, no proposal",
+          "type": "boolean",
         },
         "external_source_id": {
           "description": "Connector-scoped stable document id (e.g. 'gdrive:file123') — enables versioned re-sync",
@@ -4966,7 +4982,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
+    "description": "Poll an ingest job started by wikikit_ingest. Terminal states: done (source_id plus optional proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the job resumes on its own — keep polling. captured means the content is parked and nothing runs until a human promotes or discards it; discarded is terminal. An evidence:true ingest completes done with proposal_id null by design — archived and searchable, no review work. While running, phase and progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

@@ -5,7 +5,12 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
-import { ConflictError, LlmNotConfiguredError, UnprocessableError } from '../../src/domain/errors.ts'
+import {
+  ConflictError,
+  IngestQueueFullError,
+  LlmNotConfiguredError,
+  UnprocessableError,
+} from '../../src/domain/errors.ts'
 import { computeInputHash } from '../../src/domain/proposals.ts'
 import { sha256Hex } from '../../src/domain/sources.ts'
 import { createIngestPipeline, parseQuotaResumeAt } from '../../src/ingest/pipeline.ts'
@@ -339,6 +344,64 @@ describe('capture lifecycle', () => {
     expect(flip.sql).toContain('finished_at = now()')
     expect(flip.sql).toContain(`AND status = 'captured'`)
     expect(calls.some((call) => call.sql.includes('DELETE'))).toBe(false)
+  })
+})
+
+describe('evidence mode', () => {
+  test('archives, chunks and completes done with a null proposal — zero model calls', async () => {
+    const { db, calls } = fakeDb(workerRoutes({ jobInput: { markdown: RAW, evidence: true } }))
+    const llm = createFakeProvider()
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+
+    expect(await pipeline.runOnce()).toBe(true)
+
+    // The caller decided this is evidence: no classify, no synthesize, no
+    // audit rows — the FakeProvider is never consulted.
+    expect(llm.calls.length).toBe(0)
+    expect(calls.some((call) => call.sql.includes('"wk_agent_runs"'))).toBe(false)
+
+    // Archived AND chunked — the source-evidence tier is fed before the stop.
+    const sourceInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_sources"'))!
+    expect(sourceInsert.values).toContain(RAW)
+    expect(sourceInsert.values).toContain(HASH)
+    expect(calls.some((call) => call.sql.includes('"wk_source_chunks"'))).toBe(true)
+
+    // phase stays honest: the early return sits BEFORE setPhase('classify').
+    expect(calls.some((call) => call.values.includes('classify'))).toBe(false)
+
+    // Terminal: done with the source and NO proposal.
+    const jobUpdate = calls.find((call) => call.sql.includes('UPDATE "public"."wk_ingest_jobs"'))!
+    expect(jobUpdate.values).toContain('done')
+    expect(jobUpdate.values).toContain(SRC_ID)
+    expect(jobUpdate.values).not.toContain('prop-1')
+    expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))).toBe(false)
+  })
+
+  test('keyless: evidence enqueues (dedup pre-check still runs), normal ingest still 503s', async () => {
+    const { db, calls } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [] },
+      { match: /INSERT INTO "public"\."wk_ingest_jobs"/, rows: [{ id: 'ev-1' }] },
+    ])
+    const unconfigured = { ...createFakeProvider(), configured: false }
+    const pipeline = createIngestPipeline(config, db, unconfigured, logger)
+    const result = await pipeline.enqueue(db, 'space-1', { markdown: RAW, evidence: true })
+    expect(result).toEqual({ ingest_id: 'ev-1' })
+    // Unlike capture, evidence stays behind the dedup pre-check …
+    expect(calls.some((call) => call.sql.includes('wk_sources'))).toBe(true)
+    // … and the same keyless deployment still refuses a normal ingest.
+    await expect(pipeline.enqueue(db, 'space-1', { markdown: RAW })).rejects.toBeInstanceOf(LlmNotConfiguredError)
+  })
+
+  test('the queue ceiling refuses evidence when full — real worker work, unlike capture', async () => {
+    const { db } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [] },
+      { match: /AS waiting/, rows: [{ waiting: 1 }] },
+    ])
+    const capped = { ...config, ingestMaxQueuedPerSpace: 1 } as Config
+    const pipeline = createIngestPipeline(capped, db, createFakeProvider(), logger)
+    await expect(pipeline.enqueue(db, 'space-1', { markdown: RAW, evidence: true })).rejects.toBeInstanceOf(
+      IngestQueueFullError,
+    )
   })
 })
 

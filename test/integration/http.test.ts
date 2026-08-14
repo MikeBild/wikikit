@@ -546,6 +546,51 @@ describe('http surface (integration)', () => {
     expect(stats.totals.jobs.created).toBe(stats.totals.jobs.done)
   })
 
+  it('evidence lifecycle: archive-and-index only — done with a null proposal, searchable, retry 409s', async () => {
+    const evidenceMd = '# Hourly telemetry\n\nThe compressor recorded 42 restarts in the last hour.\n'
+    const res = await fetch(`${base}/v1/spaces/demo/ingest`, {
+      method: 'POST',
+      headers: json(writerKey),
+      body: JSON.stringify({ markdown: evidenceMd, title: 'Hourly telemetry', evidence: true }),
+    })
+    expect(res.status).toBe(202)
+    const { ingest_id } = (await res.json()) as { ingest_id: string }
+    expect(res.headers.get('location')).toBe(`/v1/ingests/${ingest_id}`)
+
+    expect(await app.ingest.runOnce()).toBe(true)
+    const done = (await (await fetch(`${base}/v1/ingests/${ingest_id}`, { headers: bearer(writerKey) })).json()) as {
+      status: string
+      proposal_id: string | null
+      source_id: string | null
+      error: unknown
+    }
+    // The caller-requested outcome: archived, no review work, no failure.
+    expect(done.status).toBe('done')
+    expect(done.proposal_id).toBeNull()
+    expect(done.source_id).not.toBeNull()
+    expect(done.error).toBeNull()
+
+    // The archive answers immediately in the source_evidence tier.
+    const search = (await (
+      await fetch(`${base}/v1/spaces/demo/search?q=compressor+restarts&mode=approved_then_sources`, {
+        headers: bearer(readerKey),
+      })
+    ).json()) as { hits: { tier: string; source_id: string | null; chunk_id: string | null }[] }
+    const hit = search.hits.find((h) => h.tier === 'source_evidence' && h.source_id === done.source_id)!
+    expect(hit).toBeDefined()
+    expect(hit.chunk_id).not.toBeNull()
+
+    // Retry of identical bytes 409s — the done job references the source, so
+    // the ordinary dedup pre-check applies to evidence unchanged.
+    const retry = await fetch(`${base}/v1/spaces/demo/ingest`, {
+      method: 'POST',
+      headers: json(writerKey),
+      body: JSON.stringify({ markdown: evidenceMd, title: 'Hourly telemetry', evidence: true }),
+    })
+    expect(retry.status).toBe(409)
+    expect(((await retry.json()) as { code: string }).code).toBe('already_ingested')
+  })
+
   it('document upload: unknown extension → 415 unsupported_document', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/ingest/document?filename=archive.zip`, {
       method: 'POST',

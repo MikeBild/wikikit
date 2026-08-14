@@ -635,6 +635,16 @@ export function createIngestPipeline(
     // legacy/import sources are healed by the backfill scan worker.
     await persistSourceChunks(db, job.space_id, source)
 
+    // Evidence mode stops HERE, before any model work: the caller asked for
+    // archive-and-index only, so the job completes through the same
+    // archived-no-proposal shape the classify-decided branch below uses —
+    // that branch stays as the LLM's own version of this outcome, this one
+    // is the caller's. No setPhase('classify'): phase stays honest.
+    if (input.evidence) {
+      logger.info('ingest archived as evidence, no proposal by request', { ingest_id: job.id, source_id: source.id })
+      return { sourceId: source.id, proposalId: null }
+    }
+
     // 3. Budget: the ARCHIVE keeps the full document; only what the models
     // read is capped (WIKIKIT_MAX_INGEST_TOKENS, plan §15.4).
     const budget = fitTokenBudget(source.markdown, config.maxIngestTokens)
@@ -1255,7 +1265,10 @@ export function createIngestPipeline(
       // Fail fast instead of queuing a job that can only fail: the 503 must
       // reach the caller synchronously (zero-config principle — LLM-free
       // features work without a key, ingest tells you why it cannot).
-      if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
+      // Evidence asks for no model work either, so it passes keyless like
+      // capture — but unlike capture it stays behind the dedup pre-check and
+      // the queue ceiling below (it is real worker work).
+      if (!input.evidence && !llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
 
       const body = input.markdown ?? input.text
       if (body !== undefined) {

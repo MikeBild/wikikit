@@ -1717,6 +1717,8 @@ export interface components {
             effective_at?: string;
             /** @description Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup */
             capture?: boolean;
+            /** @description Archive and index the content as searchable, citable evidence only — no classify, no proposal */
+            evidence?: boolean;
             /** @description Re-synthesize a source the archive already holds (bypasses the already_ingested guard) */
             resynthesize?: boolean;
         };

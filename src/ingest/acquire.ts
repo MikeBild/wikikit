@@ -102,6 +102,19 @@ export const zIngestInput = z
       .boolean()
       .optional()
       .describe('Park the content as a captured note instead of processing it — no LLM, no queue slot, no dedup'),
+    // Archive-and-index, nothing more: the source is acquired, archived
+    // verbatim and chunked into the source-evidence retrieval tier, then the
+    // job completes done with proposal_id null BEFORE classify ever runs —
+    // zero model calls, zero review work. The caller has decided this content
+    // is citable evidence, not candidate knowledge (a machine-generated report
+    // stream has no business staging proposals). Unlike capture it does real
+    // worker work, so dedup and the queue ceiling apply. The flag lives in
+    // THIS schema for the same reason capture does: the worker re-parses the
+    // stored input, and the early return reads it there.
+    evidence: z
+      .boolean()
+      .optional()
+      .describe('Archive and index the content as searchable, citable evidence only — no classify, no proposal'),
     // Re-run synthesis over content the archive already holds. Normally a
     // second ingest of identical bytes is refused (already_ingested) — the
     // first one produced a proposal, and re-running it would only stage the
@@ -122,6 +135,12 @@ export const zIngestInput = z
       (value.source_version === undefined && value.observed_at === undefined && value.effective_at === undefined),
     { message: 'source_version, observed_at and effective_at require external_source_id' },
   )
+  .refine((value) => !(value.evidence && value.capture), {
+    message: 'evidence and capture are mutually exclusive — evidence archives now, capture parks for later',
+  })
+  .refine((value) => !(value.evidence && value.resynthesize), {
+    message: 'evidence and resynthesize are mutually exclusive — evidence never synthesizes',
+  })
 
 export type IngestInput = z.input<typeof zIngestInput>
 

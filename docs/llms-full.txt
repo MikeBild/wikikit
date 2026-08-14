@@ -99,7 +99,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/charter/versions`         | knowledge:read    | List charter revisions (newest first) — the document version history |
 | PUT    | `/v1/spaces/{space}/charter`                  | admin             | Write the charter (JSON `{markdown}` or raw text/markdown); authored text versions directly, an edited overview routes through the review gate |
 | DELETE | `/v1/spaces/{space}/charter`                  | admin             | Delete the charter (supersede current revision; history retained). Idempotent |
-| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll; `capture:true` parks it instead (`200 {status:"captured"}` — no LLM, no queue slot) |
+| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll; `capture:true` parks it instead (`200 {status:"captured"}` — no LLM, no queue slot); `evidence:true` archives and indexes it as citable evidence only (done with `proposal_id` null, no model call) |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
@@ -288,6 +288,14 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   `POST /v1/ingests/{id}/discard` ends it — terminal, the row stays for the
   record. Identical text parked twice is two captured rows: dedup is
   content-hash-on-archive, and a capture archives nothing yet.
+- **Evidence:** the same route with `evidence:true` runs acquire → archive →
+  chunk and completes `done` with `proposal_id` null BEFORE classify ever
+  runs — zero model calls, zero review work. The source is immediately
+  searchable in the `source_evidence` tier and citable by `chunk_id` later.
+  Unlike capture it does real worker work, so the dedup pre-check, the queue
+  ceiling and the sync contract (`external_source_id`/`source_version`)
+  apply unchanged; like capture it works keyless. `evidence` excludes
+  `capture` and `resynthesize` (400 on either combination).
 
 ### Examples
 

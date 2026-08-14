@@ -741,7 +741,9 @@ export const TOOLS: McpToolDef[] = [
       'handle immediately — ALWAYS poll wikikit_ingest_status with the returned ingest_id; never wait ' +
       'in-band. The result is a pending ChangeProposal that a human approves over REST. With ' +
       'capture:true the content is PARKED instead ({status:"captured"}): no LLM, no queue slot, nothing ' +
-      'to poll — a human promotes or discards the note in the cockpit.',
+      'to poll — a human promotes or discards the note in the cockpit. With evidence:true the content is ' +
+      'archived and indexed as searchable, citable evidence only — the job completes with proposal_id ' +
+      'null and no model ever runs.',
     scope: 'knowledge:propose',
     inputSchema: zIngestToolInput,
     annotations: {
@@ -757,8 +759,10 @@ export const TOOLS: McpToolDef[] = [
       // one terminal llm_not_configured envelope (zero-config principle: the
       // read tools keep working without an LLM key). A capture asks for no
       // model work at all, so it must succeed keyless — the guard moves to
-      // promotion, which is deliberately NOT an MCP tool.
-      if (!args.capture && !deps.config.llmConfigured) throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
+      // promotion, which is deliberately NOT an MCP tool. Evidence asks for
+      // no model work either (archive-and-index only), so it passes too.
+      if (!args.capture && !args.evidence && !deps.config.llmConfigured)
+        throw new LlmNotConfiguredError(deps.config.llmApiKeyEnv)
       const space = await resolveSpace(deps.db, principal, args.space)
       const { space: _space, ...request } = args
       const enqueued = await deps.ingest.enqueue(deps.db, space.id, request)
@@ -776,8 +780,9 @@ export const TOOLS: McpToolDef[] = [
       'proposal_id; null means no review work) or failed (carries error.code/message — code "timeout" ' +
       'means the job hit its runtime ceiling). quota_blocked means the provider quota is exhausted; the ' +
       'job resumes on its own — keep polling. captured means the content is parked and nothing runs until ' +
-      'a human promotes or discards it; discarded is terminal. While running, phase and progress say which ' +
-      'stage it is in and how far along, and heartbeat_at shows the worker is alive.',
+      'a human promotes or discards it; discarded is terminal. An evidence:true ingest completes done with ' +
+      'proposal_id null by design — archived and searchable, no review work. While running, phase and ' +
+      'progress say which stage it is in and how far along, and heartbeat_at shows the worker is alive.',
     scope: 'knowledge:propose',
     inputSchema: zIngestStatusToolInput,
     annotations: READ_ANNOTATIONS,

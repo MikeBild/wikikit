@@ -1311,7 +1311,7 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 | GET    | `/v1/spaces/{space}/charter/versions`          | knowledge:read                      | `charterVersionsHandler`       | params `zSpaceParams`                                                         | 200 `zCharterVersionsResponse`                                                                                                                                                                                                                                                                                                |
 | PUT    | `/v1/spaces/{space}/charter`                   | admin                               | `putCharterHandler`            | params `zSpaceParams`; raw body (JSON `{markdown}` or `text/markdown`)        | 200 `zCharterWriteResponse`                                                                                                                                                                                                                                                                                                   |
 | DELETE | `/v1/spaces/{space}/charter`                   | admin                               | `deleteCharterHandler`         | params `zSpaceParams`                                                         | 200 `zCharterResponse` (empty document; idempotent)                                                                                                                                                                                                                                                                           |
-| POST   | `/v1/spaces/{space}/ingest`                    | knowledge:propose                   | `createIngestHandler`          | body `zIngestRequest`                                                         | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}` (429 `ingest_queue_full` at the per-space ceiling); `capture:true` → 200 `zIngestSyncResponse` (`captured` — parked, no LLM, no queue slot)                                                                                                                      |
+| POST   | `/v1/spaces/{space}/ingest`                    | knowledge:propose                   | `createIngestHandler`          | body `zIngestRequest`                                                         | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}` (429 `ingest_queue_full` at the per-space ceiling); `capture:true` → 200 `zIngestSyncResponse` (`captured` — parked, no LLM, no queue slot); `evidence:true` → ordinary 202, job completes done with `proposal_id` null before classify (§9.1a)                  |
 | POST   | `/v1/spaces/{space}/ingest/document`           | knowledge:propose                   | `ingestDocumentHandler`        | query `zIngestDocumentQuery`, raw body                                        | 202 `zIngestAcceptedResponse` (415 unsupported_document, 422 document_extraction_failed, 429 ingest_queue_full)                                                                                                                                                                                                               |
 | POST   | `/v1/spaces/{space}/agent/sessions`            | knowledge:propose                   | `captureSessionHandler`        | body `zCaptureSessionRequest`                                                 | 200 `zCaptureSessionResponse` (503 llm_not_configured)                                                                                                                                                                                                                                                                        |
 | GET    | `/v1/ingests/{id}`                             | knowledge:propose                   | `getIngestHandler`             | params `zIdParams`                                                            | 200 `zIngestStatusResponse`                                                                                                                                                                                                                                                                                                   |
@@ -2213,6 +2213,36 @@ the heartbeat and never allowed to fail the job; a reader that does not know a
 phase value treats the job as plain `running`. They are reset when a job is
 claimed and kept on terminal rows, so "failed while synthesizing 3 of 10"
 survives as a post-mortem.
+
+### 9.1a Evidence ingest (`evidence: true`)
+
+The caller-decided sibling of capture: where `capture:true` parks content
+BEFORE the pipeline, `evidence:true` runs the pipeline's front half — acquire
+→ archive → chunk — and completes `done` with `proposal_id` null immediately
+after `persistSourceChunks`, BEFORE classify ever runs. Zero model calls,
+zero review work; the source is searchable in the `source_evidence` tier
+(§1.15 `wk_search_sources`) the moment the job finishes and citable by
+`chunk_id` from a later curated proposal. The classify-decided
+archived-no-proposal completion stays untouched — that branch is the LLM's
+own version of this outcome, evidence is the caller's. No new status, no new
+wire shape, no `phase = 'classify'` (`phase` stays honest about what ran).
+
+Guards, against capture:
+
+| Guard                    | `capture:true`             | `evidence:true`               |
+| ------------------------ | -------------------------- | ----------------------------- |
+| Export-mirror loop guard | applies (outranks both)    | applies (outranks both)       |
+| LLM key (503 keyless)    | skipped — paid at promote  | skipped — no model work, ever |
+| Dedup pre-check (409)    | skipped — archives nothing | applies — real archive work   |
+| Queue ceiling (429)      | skipped — no queue slot    | applies — real worker work    |
+
+The sync matrix (§1.2a) composes without special cases: an evidence ingest
+with `external_source_id` advances the stream head, honours write-once
+version columns and supersedes chains, and a blind retry converges (200
+`unchanged` / the recorded null proposal) exactly as for a normal sync.
+`derived_from_output_id` composes too. `evidence` excludes `capture` and
+`resynthesize` by zod refine — parking and re-synthesis both contradict
+"archive now, synthesize never".
 
 ### 9.2 Proposal (`wk_change_proposals.status`)
 

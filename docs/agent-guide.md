@@ -72,6 +72,15 @@ the cockpit; promotion is deliberately not an MCP tool. This is the
 deterministic path for a session-end hook that wants to leave a note behind
 without making a decision.
 
+To archive content as searchable, citable evidence without staging any
+review work, call `wikikit_ingest` with `evidence: true`: the source is
+archived verbatim and indexed into the `source_evidence` search tier, and
+the job completes done with `proposal_id` null before any model runs. It
+also works without an LLM key, but unlike capture it is real worker work —
+dedup and the per-space queue ceiling apply. This is the right mode for
+machine-generated report streams: evidence to cite later, not candidate
+knowledge to review now.
+
 There is no primary/secondary-space ceiling. Any visible spaces can be active
 together. An explicit `manual_spaces` list always wins over automatic routing.
 For clients or hooks that accept natural prompt conventions, users may write
