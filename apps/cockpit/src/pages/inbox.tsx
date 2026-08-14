@@ -510,7 +510,9 @@ function JobResult({ row, index }: { row: IngestJobRow; index: number }) {
         data-testid={`inbox-job-${index + 1}-change`}
         className="text-sm underline-offset-4 hover:underline"
       >
-        Review the change
+        {/* The DataTable's cell wrapper cannot see through a component
+            boundary, so the phrase is routed to the catalog here. */}
+        <I18nText>Review the change</I18nText>
       </Link>
     )
   }
@@ -523,7 +525,7 @@ function JobResult({ row, index }: { row: IngestJobRow; index: number }) {
         data-testid={`inbox-job-${index + 1}-source`}
         className="text-sm underline-offset-4 hover:underline"
       >
-        The archived document
+        <I18nText>The archived document</I18nText>
       </Link>
     )
   }
@@ -665,7 +667,9 @@ function PasteLinks({
 
   return (
     <div className="border-border flex flex-col gap-2 rounded-lg border p-4">
-      <Label htmlFor="inbox-urls">Paste addresses, one per line</Label>
+      <I18nText>
+        <Label htmlFor="inbox-urls">Paste addresses, one per line</Label>
+      </I18nText>
       <Textarea
         id="inbox-urls"
         data-testid="inbox-urls"
@@ -742,7 +746,9 @@ function PasteText({
 
   return (
     <div className="border-border flex flex-col gap-2 rounded-lg border p-4">
-      <Label htmlFor="inbox-text">Throw in a note or a document</Label>
+      <I18nText>
+        <Label htmlFor="inbox-text">Throw in a note or a document</Label>
+      </I18nText>
       <Textarea
         id="inbox-text"
         data-testid="inbox-text"
@@ -753,43 +759,48 @@ function PasteText({
         disabled={!allowed || busy}
         onChange={(event) => setDraft({ ...draft, content: event.target.value })}
       />
-      <div className="flex flex-wrap gap-2">
-        <Input
-          id="inbox-text-title"
-          data-testid="inbox-text-title"
-          className="h-8 min-w-0 flex-1 text-xs"
-          placeholder="Title (optional)"
-          value={draft.title}
-          disabled={!allowed || busy}
-          onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-        />
-        <Select
-          value={draft.sourceKind || 'unstated'}
-          onValueChange={(value) =>
-            setDraft({ ...draft, sourceKind: value === 'unstated' ? '' : (value as IngestDraft['sourceKind']) })
-          }
-        >
-          <SelectTrigger id="inbox-text-kind" size="sm" className="w-36" data-testid="inbox-text-kind">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="unstated" data-testid="inbox-text-kind-unstated">
-                Not stated
-              </SelectItem>
-              <SelectItem value="meeting" data-testid="inbox-text-kind-meeting">
-                Meeting
-              </SelectItem>
-              <SelectItem value="article" data-testid="inbox-text-kind-article">
-                Article
-              </SelectItem>
-              <SelectItem value="note" data-testid="inbox-text-kind-note">
-                Note
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-      </div>
+      {/* One wrapper for the whole row: the title placeholder and the kind
+          items are element-tree strings, which is exactly what I18nText can
+          reach — `value` props stay data and stay untouched. */}
+      <I18nText>
+        <div className="flex flex-wrap gap-2">
+          <Input
+            id="inbox-text-title"
+            data-testid="inbox-text-title"
+            className="h-8 min-w-0 flex-1 text-xs"
+            placeholder="Title (optional)"
+            value={draft.title}
+            disabled={!allowed || busy}
+            onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+          />
+          <Select
+            value={draft.sourceKind || 'unstated'}
+            onValueChange={(value) =>
+              setDraft({ ...draft, sourceKind: value === 'unstated' ? '' : (value as IngestDraft['sourceKind']) })
+            }
+          >
+            <SelectTrigger id="inbox-text-kind" size="sm" className="w-36" data-testid="inbox-text-kind">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="unstated" data-testid="inbox-text-kind-unstated">
+                  Not stated
+                </SelectItem>
+                <SelectItem value="meeting" data-testid="inbox-text-kind-meeting">
+                  Meeting
+                </SelectItem>
+                <SelectItem value="article" data-testid="inbox-text-kind-article">
+                  Article
+                </SelectItem>
+                <SelectItem value="note" data-testid="inbox-text-kind-note">
+                  Note
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+      </I18nText>
       {/* Said out loud because it is the only field here that changes what
           synthesis DOES: a meeting is also read for the decisions it records. */}
       <p className="text-muted-foreground text-xs">
@@ -927,7 +938,9 @@ function CaptureCard({ space, allowed, onCaptured }: { space: string; allowed: b
 
   return (
     <div className="border-border flex flex-col gap-2 rounded-lg border p-4">
-      <Label htmlFor="inbox-capture">Park it verbatim — a title, a kind, a decision can all come later.</Label>
+      <I18nText>
+        <Label htmlFor="inbox-capture">Park it verbatim — a title, a kind, a decision can all come later.</Label>
+      </I18nText>
       <Textarea
         id="inbox-capture"
         data-testid="inbox-capture"

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.37.1 - 2026-08-14
+
+### Fixed
+
+- **The Inbox speaks German everywhere.** The production verification of 0.37.0
+  caught six phrases the console rendered in English under the German locale —
+  the capture card's label among them. The catalog had every translation; the
+  render path did not reach it, because the table's translation wrapper cannot
+  see through a component boundary and the form labels stood outside any
+  wrapper. All six now route through the reviewed catalog.
+- **Answer rows carry each test id once.** The answers table stamped
+  `answers-row-N-…` twice — once on the cell, once on the element inside it — a
+  latent duplication that only became visible when the first kept report gave
+  the list its first row in production. The cell keeps the id; the inner
+  elements keep only the ids that name something of their own.
+
 ## 0.37.0 - 2026-08-14
 
 ### Added

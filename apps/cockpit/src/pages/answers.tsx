@@ -92,28 +92,27 @@ export function AnswersPage() {
         className: 'text-right tabular-nums',
         // A measured zero, not a dash: an answer that quoted nothing is a fact
         // about the answer, and `citations` is always sent (CUI-SEV-2).
-        cell: (row, index) => <span data-testid={`answers-row-${index + 1}-cited`}>{count(row.citations.length)}</span>,
+        // No testid of its own: the TableCell already carries
+        // `answers-row-N-cited`, and a second element with the same id turns
+        // every selector into a coin toss.
+        cell: (row) => <span>{count(row.citations.length)}</span>,
       },
       {
         id: 'state',
         label: 'Status',
         required: true,
-        cell: (row, index) => {
+        cell: (row) => {
           const standing = filingStanding(row)
-          return (
-            // The word as well as the tone: a state is never carried by colour
-            // alone (CUI-A11Y-5).
-            <Badge tone={standing.tone} data-testid={`answers-row-${index + 1}-state`}>
-              {standing.label}
-            </Badge>
-          )
+          // The word as well as the tone: a state is never carried by colour
+          // alone (CUI-A11Y-5). The TableCell owns `answers-row-N-state`.
+          return <Badge tone={standing.tone}>{standing.label}</Badge>
         },
       },
       {
         id: 'made',
         label: 'Produced',
         priority: 'secondary',
-        cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`answers-row-${index + 1}-made`} />,
+        cell: (row) => <RelativeTime value={row.created_at} />,
       },
     ],
     [],
@@ -224,7 +223,9 @@ export function AnswersPage() {
 function OutputCell({ row, index }: { row: OutputListRow; index: number }) {
   const coverage = coverageOf(row)
   return (
-    <div className="flex min-w-0 flex-col gap-1" data-testid={`answers-row-${index + 1}-what`}>
+    // The enclosing TableCell already carries `answers-row-N-what`; only the
+    // ids that name something INSIDE the cell (-open, -uncovered) live here.
+    <div className="flex min-w-0 flex-col gap-1">
       <Link
         to="/answers/$id"
         params={{ id: row.id }}
