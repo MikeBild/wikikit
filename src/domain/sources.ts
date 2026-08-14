@@ -128,6 +128,12 @@ const zCreateSourceArgs = z.object({
   // transport). Stored on metadata, not a column: it is an optional hint that
   // steers synthesis, not an identity or index key. Absent → not recorded.
   sourceKind: z.enum(['meeting', 'article', 'note']).optional(),
+  // The output this content was rendered from (promoteOutput). Metadata for the
+  // same reason sourceKind is: it is provenance a linter reads, not an identity
+  // or an index key, and a column would have to be a foreign key to a table
+  // whose rows the retention sweep collects. Absent → not recorded, and the
+  // absence is what `self-derived-only` reads as "evidence from outside".
+  derivedFromOutputId: z.uuid().optional(),
   // Per-source language override for the retrieval index (wk_sources.language
   // column, migration 0016). A real column, not metadata: retrieval-critical.
   // Absent → null → the space's settings.language decides.
@@ -181,7 +187,14 @@ export async function createSource(
       observed_at: input.observedAt ?? null,
       effective_at: input.effectiveAt ?? null,
       supersedes_source_id: input.supersedesSourceId ?? null,
-      metadata: JSON.stringify(input.sourceKind ? { source_kind: input.sourceKind } : {}),
+      // One metadata object, built from the optional hints that were actually
+      // supplied — an absent hint leaves no key behind, so "not recorded" and
+      // "recorded as null" stay distinguishable (jsonb_exists is what the
+      // self-derived lint rule tests).
+      metadata: JSON.stringify({
+        ...(input.sourceKind ? { source_kind: input.sourceKind } : {}),
+        ...(input.derivedFromOutputId ? { derived_from_output_id: input.derivedFromOutputId } : {}),
+      }),
     })
     return { source: toSource(row!), created: true }
   } catch (error) {

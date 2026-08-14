@@ -133,6 +133,38 @@ export interface Config {
    * had no bound at all. This is that bound.
    */
   readonly ingestMaxRuntimeMs: number
+  /**
+   * How many ingest jobs one space may have WAITING (queued or parked on a
+   * provider quota) before enqueue refuses with 429 `ingest_queue_full` — see
+   * IngestQueueFullError for what the number protects.
+   *
+   * Optional only because every unit test builds a Config by hand (the same
+   * reason `usageRetentionDays` is optional), and NOT because an installation may
+   * run without a ceiling: the reader falls back to the shared
+   * DEFAULT_INGEST_MAX_QUEUED_PER_SPACE below rather than to "no cap", so an
+   * absent field cannot quietly remove the guard.
+   */
+  readonly ingestMaxQueuedPerSpace?: number
+  /**
+   * How long an UNPROMOTED output (an answer, a briefing, a health report) is
+   * kept before the hourly sweep collects it; 0 keeps them forever. Promoted
+   * outputs are never collected — their text lives on as an archived source and
+   * the row is the link back to the answer it came from.
+   *
+   * Optional for the same reason as the field above, with the same treatment: the
+   * sweeper falls back to DEFAULT_OUTPUT_RETENTION_DAYS, never to "unbounded".
+   */
+  readonly outputRetentionDays?: number
+  /**
+   * Whether the in-process schedule worker claims due briefing/health runs.
+   * Default true, and an absent value counts as true: a wiki nobody has given a
+   * schedule to has no due rows, so the loop is a cheap poll, and an operator who
+   * wants the reports has to configure a schedule either way. Turning it off is
+   * for the deployment that wants exactly one of several binaries producing
+   * reports — although it does not need to: the claim is
+   * `FOR UPDATE SKIP LOCKED`, so N instances already produce one per window.
+   */
+  readonly schedulerEnabled?: boolean
   readonly webhookPollMs: number
   readonly webhookTimeoutMs: number
   readonly webhookMaxAttempts: number
@@ -372,6 +404,29 @@ export const OPERATOR_SESSION_IDLE_MS = 8 * 60 * 60 * 1000
  * spent in both places, is the only version of this that cannot drift.
  */
 export const OPERATOR_SESSION_ABSOLUTE_TTL_DEFAULT_MS = 24 * 60 * 60 * 1000
+
+/**
+ * The shipped ingest queue ceiling, spent BOTH by the loader default below and by
+ * the reader (assertQueueHasRoom in src/ingest/pipeline.ts) when the field is
+ * absent — a named constant for the reason the session ceiling above is one: two
+ * independently typed numbers would let a build whose loader says 200 refuse at
+ * some other figure, and the field is optional precisely so hand-built Configs
+ * exist to hit that path.
+ *
+ * 200 waiting jobs is roughly a working week of review at a rate a human
+ * sustains: high enough that an ordinary bulk drop (a folder, a vault export)
+ * goes straight through, low enough that a misconfigured automatic feeder is
+ * stopped while somebody can still read the queue.
+ */
+export const DEFAULT_INGEST_MAX_QUEUED_PER_SPACE = 200
+
+/**
+ * The shipped output retention window, spent by the loader default and by the
+ * hourly sweeper in src/app.ts when the field is absent — same argument as above.
+ * A year: long enough that "what did we ask last quarter" is answerable, bounded
+ * so a busy /query surface does not grow a table forever.
+ */
+export const DEFAULT_OUTPUT_RETENTION_DAYS = 365
 
 /**
  * The revision kinds an installation stamps on pages that are STRUCTURE rather
@@ -688,6 +743,21 @@ export function loadConfig(): Config {
     ingestLeaseMs,
     ingestHeartbeatMs,
     ingestMaxRuntimeMs,
+    // The floor is 1 and not 0: there is no spelling for "unlimited" on purpose,
+    // because a deployment that wants more work in flight should say how much
+    // more (a cap of 0 would refuse every ingest instead).
+    ingestMaxQueuedPerSpace: integer('WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE', DEFAULT_INGEST_MAX_QUEUED_PER_SPACE, {
+      min: 1,
+      max: 100_000,
+    }),
+    // 0 = keep forever, which is the operator's opt-out and the reason the floor
+    // is 0 rather than 1 (cleanupOutputs refuses to compute a zero-day window,
+    // so 0 can never be read as "delete everything").
+    outputRetentionDays: integer('WIKIKIT_OUTPUT_RETENTION_DAYS', DEFAULT_OUTPUT_RETENTION_DAYS, {
+      min: 0,
+      max: 3650,
+    }),
+    schedulerEnabled: bool('WIKIKIT_SCHEDULER_ENABLED', true),
     webhookPollMs: integer('WIKIKIT_WEBHOOK_POLL_MS', 5000, { min: 250, max: 300_000 }),
     webhookTimeoutMs: integer('WIKIKIT_WEBHOOK_TIMEOUT_MS', 10_000, { min: 1000, max: 60_000 }),
     webhookMaxAttempts: integer('WIKIKIT_WEBHOOK_MAX_ATTEMPTS', 10, { min: 1, max: 20 }),

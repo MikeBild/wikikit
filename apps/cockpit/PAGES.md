@@ -18,7 +18,11 @@ promise the whole interface makes, and every page keeps it or breaks it:
 
 Write the words a reader would use. "Pages", "Changes", "Sources", "Wikis". The
 API says concept, proposal, source, space — keep that in the code, where it
-matches the tables, and out of the interface.
+matches the tables, and out of the interface. Same rule for the newer surfaces:
+the console says **Answers** where the API says outputs, **Guidelines** where it
+says charter, and **Care** for the composed health read. The technical name
+stays in the route, the facade call, the query key and every `data-testid`; only
+the label changes, so a rename is never a contract change.
 
 ## Two files per page
 
@@ -64,6 +68,29 @@ Read `src/http/schemas.ts` for the actual response shapes before you write a
 cell. Do not guess a field name; the schemas are the contract and the generated
 `api/schema.d.ts` will not let you invent one.
 
+### The one call that is not `openapi-fetch`
+
+`wk.ingest.document()` uploads a file, and a file cannot travel through the
+typed client: `POST /v1/spaces/{space}/ingest/document` is declared
+`rawBody: true` in `ROUTES` — the bytes ARE the body, and `filename` (which
+picks the extractor) travels in the query string, so there is no request schema
+to serialize against. Base64 inside a JSON envelope would inflate every upload
+by a third and invent a wire format the server does not speak.
+
+So there is exactly one `fetch` in this console, `postRaw` in `api/client.ts`,
+and it lives next to the typed client rather than at a call site. It re-raises
+the same `ApiError` the middleware raises, because the whole failure surface
+(`describeFailure`, `next_best_actions`, the `429 ingest_queue_full` the inbox
+has to show honestly) reads that class and must never meet a bare `Response`.
+Pages still call `wk.*` and never `postRaw` — the rule does not bend, the facade
+absorbs the exception.
+
+**One file, one call, one job.** Dropping N files sends N independent requests,
+not one bundle: each source keeps its own content hash, its own change and its
+own review. A single change holding forty documents is a change nobody can
+decide. Expect a `429` partway through a large drop — the server caps waiting
+jobs per wiki — and report which files were accepted rather than swallowing it.
+
 ## The four states, every time
 
 Use `DataState` (or `DataTable`, which restates them for a `<tbody>`):
@@ -98,6 +125,8 @@ The real vocabularies, from the migrations — do not invent members:
 | concept revision | `proposed`, `current`, `superseded`, `rejected`                                                                         |
 | decision         | `proposed`, `active`, `superseded` — an in-force decision is `active`, never `current`                                  |
 | relation         | `proposed`, `active`, `removed`                                                                                         |
+| output           | kinds `answer`, `briefing`, `health` — no status column: an output is promoted or it is not (`promoted_at`)             |
+| schedule         | kinds `briefing`, `health`; `enabled` plus `next_run_at` — null means not armed, and a null never fires                 |
 
 ## Lists
 

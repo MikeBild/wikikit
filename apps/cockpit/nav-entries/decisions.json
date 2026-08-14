@@ -3,6 +3,6 @@
   "label": "Decisions",
   "icon": "Scale",
   "scope": "knowledge:read",
-  "group": "wiki",
+  "group": "archive",
   "api": ["/v1/spaces/{space}/decisions", "/v1/spaces/{space}/decisions/{slug}"]
 }

@@ -46,6 +46,7 @@ describe('webhook payload schema snapshots', () => {
 const PROPOSAL_ID = 'aaaaaaaa-1111-4111-8111-111111111111'
 const SOURCE_ID = 'bbbbbbbb-2222-4222-8222-222222222222'
 const INGEST_ID = 'cccccccc-3333-4333-8333-333333333333'
+const OUTPUT_ID = 'ffffffff-6666-4666-8666-666666666666'
 
 const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<string, unknown>> = {
   'wikikit.proposal.created': {
@@ -117,6 +118,17 @@ const EXAMPLE_PAYLOADS: Record<(typeof WEBHOOK_EVENT_TYPES)[number], Record<stri
     review_channel: 'rest',
     changes_requested: true,
   },
+  // The scheduled care report. WikiKit sends no mail, so this event plus the
+  // Output row it points at IS the delivery. The payload is the SUMMARY an
+  // alerting rule branches on — severity census, queue depth, queue AGE — and
+  // never the document, which is kilobytes of markdown behind `output_id`.
+  'wikikit.health.reported': {
+    space: 'demo',
+    output_id: OUTPUT_ID,
+    findings: { error: 1, warn: 4, info: 12 },
+    pending_proposals: 436,
+    oldest_pending_days: 21,
+  },
 }
 
 describe('example payloads conform', () => {
@@ -132,6 +144,20 @@ describe('example payloads conform', () => {
       ).not.toThrow()
     })
   }
+
+  // The one pairing a consumer's alerting rule depends on: an age of null means
+  // "no queue", never "waited zero days". A 0 there would read as a healthy
+  // queue that was just cleared, which is the opposite of an empty one.
+  test('wikikit.health.reported: an empty review queue carries a null age, not 0', () => {
+    const empty = { ...EXAMPLE_PAYLOADS['wikikit.health.reported'], pending_proposals: 0, oldest_pending_days: null }
+    expect(() => zWebhookPayloads['wikikit.health.reported'].parse(empty)).not.toThrow()
+    // Nullable, so the schema alone cannot enforce the pairing — the producer
+    // does (src/domain/health.ts gates the age on the count). What the wire
+    // contract must guarantee is that null is expressible at all.
+    expect(zWebhookPayloads['wikikit.health.reported'].safeParse({ ...empty, oldest_pending_days: 1.5 }).success).toBe(
+      false,
+    )
+  })
 
   test('envelope rejects unknown event types and cross-wired data', () => {
     expect(() =>

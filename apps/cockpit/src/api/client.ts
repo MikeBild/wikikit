@@ -89,6 +89,49 @@ export async function unwrapAs<T>(promise: Promise<{ data?: unknown }>): Promise
 }
 
 /**
+ * A raw request body, posted by hand — the one shape openapi-fetch cannot carry.
+ *
+ * `POST /v1/spaces/{space}/ingest/document` is declared `rawBody: true` in
+ * ROUTES: the bytes of a pdf/docx/xlsx/md/txt/csv ARE the body, and everything
+ * that identifies them (`filename`, which selects the extractor) travels in the
+ * query string. openapi-fetch has no way to express that — it serializes `body`
+ * as JSON against a request schema, and this route has no request schema to
+ * serialize against. Encoding the file as base64 inside a JSON envelope to keep
+ * one client would inflate every upload by a third and invent a wire format the
+ * server does not speak.
+ *
+ * So this is a plain `fetch`, kept next to the typed client rather than at the
+ * call site, and it re-raises the same `ApiError` the middleware raises — the
+ * console's whole failure surface (`describeFailure`, `next_best_actions`, the
+ * 429 the inbox has to show honestly) reads that class and must not meet a bare
+ * `Response` from one call in the product.
+ *
+ * `credentials: 'same-origin'` for the operator cookie; no `Content-Type`, so
+ * the browser sends the Blob's own and the extractor is chosen by `filename`
+ * either way.
+ */
+export async function postRaw<T>(path: string, query: Record<string, string>, body: Blob): Promise<T> {
+  const url = `${path}?${new URLSearchParams(query).toString()}`
+  const response = await fetch(url, { method: 'POST', credentials: 'same-origin', body })
+  if (!response.ok) {
+    let code = 'request_failed'
+    let message = `${response.status} ${response.statusText}`
+    let actions: string[] = []
+    try {
+      const failure = (await response.json()) as { error?: string; code?: string; next_best_actions?: string[] }
+      if (typeof failure.code === 'string') code = failure.code
+      if (typeof failure.error === 'string') message = failure.error
+      if (Array.isArray(failure.next_best_actions)) actions = failure.next_best_actions
+    } catch {
+      // Same reason as the middleware: a proxy's HTML error page still has to
+      // surface as a typed failure rather than as a parse crash.
+    }
+    throw new ApiError(response.status, code, message, actions)
+  }
+  return (await response.json()) as T
+}
+
+/**
  * A liveness probe, fetched rather than typed.
  *
  * `/health` answers `text/plain` and exists to be cheap and to work when

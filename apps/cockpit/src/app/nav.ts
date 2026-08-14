@@ -2,7 +2,10 @@ import {
   Archive,
   BookOpen,
   FileDiff,
+  HeartPulse,
+  Inbox,
   KeyRound,
+  MessageSquareQuote,
   ScrollText,
   Search,
   Server,
@@ -58,6 +61,19 @@ export interface NavEntry {
   exact?: boolean
 }
 
+/**
+ * The wiki block is THE LOOP, read top to bottom: Inbox → Pages → Changes →
+ * Answers → Care. Something arrives, it becomes pages, a human decides them, a
+ * reader asks a question, and what the asking exposes gets maintained. An
+ * operator who reads the sidebar downwards has read the product.
+ *
+ * `Changes` deliberately stays visible even though folding the review queue in
+ * with the Inbox — which already lists the pending changes beside what arrived
+ * — would reach a tidy four entries. It is the one queue whose neglect does
+ * real damage: unreviewed proposals accumulate silently, an automatic feeder
+ * can outrun a human reviewer by hundreds, and nothing on a hidden queue ever
+ * says so. Tidiness is not worth a review backlog nobody sees.
+ */
 export const NAV: readonly NavEntry[] = [
   {
     to: '/',
@@ -66,11 +82,38 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'home',
     exact: true,
+    // `health` rather than `stats/coverage`: the composed read carries the same
+    // coverage block AND the two live queues the loop is measured by, so the
+    // front page asks once for the numbers it used to guess at.
     api: [
       '/v1/spaces/{space}/stats/knowledge',
       '/v1/spaces/{space}/stats/reviews',
       '/v1/spaces/{space}/stats/ingests',
-      '/v1/spaces/{space}/stats/coverage',
+      '/v1/spaces/{space}/health',
+      '/v1/spaces/{space}/proposals',
+    ],
+  },
+  {
+    to: '/inbox',
+    label: 'Inbox',
+    icon: Inbox,
+    scope: 'knowledge:read',
+    group: 'wiki',
+    // Revealed by `knowledge:read` and not by `knowledge:propose`, like the
+    // changes queue: watching what arrived is not the same right as adding to
+    // it. The drop zone and the forms gate themselves in-page with `useCan`.
+    //
+    // `/v1/spaces/{space}/proposals` is here because "what arrived" and "what
+    // of it still needs a decision" are one question and belong on one page.
+    //
+    // `/v1/ingests/{id}` is deliberately NOT here: the list carries `phase` and
+    // `progress` for every row, so the page never reads a job by id, and a
+    // declaration nothing calls is the answer a reviewer gets when they ask
+    // what this page touches.
+    api: [
+      '/v1/spaces/{space}/ingests',
+      '/v1/spaces/{space}/ingest',
+      '/v1/spaces/{space}/ingest/document',
       '/v1/spaces/{space}/proposals',
     ],
   },
@@ -109,20 +152,40 @@ export const NAV: readonly NavEntry[] = [
     ],
   },
   {
+    to: '/answers',
+    label: 'Answers',
+    icon: MessageSquareQuote,
+    scope: 'knowledge:read',
+    group: 'wiki',
+    // `/v1/ingests/{id}` is here because promotion answers with an ingest job
+    // and nothing else: the page polls that job so the operator can follow the
+    // link to the change it produced instead of being told to go and look.
+    api: ['/v1/spaces/{space}/outputs', '/v1/outputs/{id}', '/v1/outputs/{id}/promote', '/v1/ingests/{id}'],
+  },
+  {
+    to: '/care',
+    label: 'Care',
+    icon: HeartPulse,
+    scope: 'knowledge:read',
+    group: 'wiki',
+    // `knowledge:read` reveals it, and the schedule controls inside are admin.
+    // Same reading as the changes queue: seeing what the wiki needs is not the
+    // same right as deciding when a report runs.
+    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules'],
+  },
+  {
     to: '/sources',
     label: 'Sources',
     icon: Archive,
     scope: 'knowledge:read',
-    group: 'wiki',
-    // The two ingest paths are here because the archive is where a document
-    // ENTERS: the page starts the ingest and then polls the job it created.
+    group: 'archive',
+    // No ingest paths any more: a document ENTERS through the Inbox now, and
+    // this page is what the archive holds afterwards.
     api: [
       '/v1/spaces/{space}/sources',
       '/v1/spaces/{space}/sources/{id}',
       '/v1/spaces/{space}/source-streams',
       '/v1/spaces/{space}/source-streams/{external_source_id}',
-      '/v1/spaces/{space}/ingest',
-      '/v1/ingests/{id}',
     ],
   },
   {
@@ -130,24 +193,27 @@ export const NAV: readonly NavEntry[] = [
     label: 'Decisions',
     icon: Scale,
     scope: 'knowledge:read',
-    group: 'wiki',
+    group: 'archive',
     api: ['/v1/spaces/{space}/decisions', '/v1/spaces/{space}/decisions/{slug}'],
+  },
+  {
+    to: '/charter',
+    // "Guidelines" in the interface, `charter` everywhere a machine reads it —
+    // the route, the MCP tools, the table and the doc anchors keep the
+    // technical name, because renaming an API breaks contracts for no gain.
+    label: 'Guidelines',
+    icon: ScrollText,
+    scope: 'knowledge:read',
+    group: 'archive',
+    api: ['/v1/spaces/{space}/charter', '/v1/spaces/{space}/charter/versions'],
   },
   {
     to: '/search',
     label: 'Search',
     icon: Search,
     scope: 'knowledge:read',
-    group: 'wiki',
+    group: 'archive',
     api: ['/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
-  },
-  {
-    to: '/charter',
-    label: 'Charter',
-    icon: ScrollText,
-    scope: 'knowledge:read',
-    group: 'wiki',
-    api: ['/v1/spaces/{space}/charter', '/v1/spaces/{space}/charter/versions'],
   },
   {
     to: '/spaces',
@@ -198,7 +264,6 @@ export const NAV: readonly NavEntry[] = [
     api: [
       '/ready',
       '/.well-known/service-descriptor.json',
-      '/v1/spaces/{space}/lint',
       '/v1/spaces/{space}/stats/http',
       '/v1/spaces/{space}/stats/usage',
       '/v1/spaces/{space}/stats/llm',
@@ -220,18 +285,22 @@ export interface NavGroup {
 /**
  * The groups, in the order an operator meets them.
  *
- * Three, not five. The console is a wiki: there is the page you are on, the
- * wiki you are in, and — folded away — the installation that hosts it. Every
- * extra top-level heading is one more decision before the reader gets to read
- * anything, and a knowledge base whose navigation needs studying is a knowledge
- * base nobody browses.
+ * The Wiki block is the loop and nothing else: five entries somebody can hold
+ * in their head, in the order the work happens. Everything that is a way INTO
+ * one of those five rather than a step of the loop — the archive the pages are
+ * quoted from, the decision log approving them writes, the guidelines that
+ * steer synthesis, the search box — moved into `archive`, which starts CLOSED.
+ * Nine open entries is a menu; five is a model.
  *
- * Installation is separated because it is the only block about WikiKit itself
- * rather than about the knowledge it holds.
+ * `archive` is collapsible and NOT separated: it is still about the knowledge,
+ * just one level in. Installation stays the only separated block, because it is
+ * the only one about WikiKit itself rather than about what it holds — and
+ * test/unit/cockpit-navigation.test.ts holds that to exactly one block.
  */
 export const GROUPS: readonly NavGroup[] = [
   { id: 'home', label: '', collapsible: false, startsOpen: true, separated: false },
   { id: 'wiki', label: 'Wiki', collapsible: true, startsOpen: true, separated: false },
+  { id: 'archive', label: 'Archive & control', collapsible: true, startsOpen: false, separated: false },
   { id: 'installation', label: 'Installation', collapsible: true, startsOpen: false, separated: true },
 ]
 

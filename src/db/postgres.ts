@@ -51,6 +51,11 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_usage_events',
   'wk_concept_reads',
   'wk_coverage_gaps',
+  // What the knowledge base PRODUCED (answers, briefings, health reports) and
+  // the schedules that produce two of them — derived artifacts, not knowledge
+  // and not evidence (0036, 0037).
+  'wk_outputs',
+  'wk_schedules',
 ])
 
 /** Whitelisted SQL function names — the ONLY write path for review decisions. */
@@ -78,6 +83,10 @@ export type WebhookEventType =
   | 'wikikit.source.tombstoned'
   | 'wikikit.proposal.split'
   | 'wikikit.proposal.changes_requested'
+  // The scheduled health report landed. The Output row IS the report; this is
+  // the push seam for anyone who wants it delivered (a mail step on a workflow
+  // engine, a chat message) rather than polled — WikiKit itself sends nothing.
+  | 'wikikit.health.reported'
 
 const EVENT_TYPES: ReadonlySet<string> = new Set([
   'wikikit.proposal.created',
@@ -90,6 +99,7 @@ const EVENT_TYPES: ReadonlySet<string> = new Set([
   'wikikit.source.tombstoned',
   'wikikit.proposal.split',
   'wikikit.proposal.changes_requested',
+  'wikikit.health.reported',
 ])
 
 interface QueryResultLike {

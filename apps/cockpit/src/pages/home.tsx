@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { CircleCheck, Telescope } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DataState, RowSkeleton } from '@/components/data-state'
@@ -15,79 +15,55 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useSpace } from '@/lib/space'
 import { useI18n } from '@/lib/i18n-context'
 import { semanticLabel } from '@/lib/presentation'
-import {
-  averageSeconds,
-  changeStanding,
-  count,
-  durationHours,
-  measured,
-  staleShare,
-  windowLabel,
-} from '@/pages/home.logic'
+import { averageSeconds, changeStanding, count, measured, staleShare, windowLabel } from '@/pages/home.logic'
+import { waitedDays, type Waited } from '@/pages/care.logic'
 
 /**
- * The wiki's front page — a FRONT PAGE, not a dashboard.
+ * The wiki's front page — the LOOP, in the order it turns.
  *
- * The difference is not decoration. A dashboard answers "how is the system
- * doing"; a front page answers the three questions somebody actually arrives
- * with: what has this wiki learned lately, what is waiting for a person, and
- * where is its knowledge thin. Everything here is one of those three, and the
- * numbers that belong to the installation rather than to the knowledge —
- * request rates, token spend, webhook delivery — live on System, where an
- * operator goes on purpose.
+ * It used to be three questions arranged as a dashboard: what changed, what is
+ * waiting, where is it thin. Each of those was true and none of them said what
+ * to do next, so a reader who was not already a reviewer had nothing to act on.
+ * The four cards below are the product instead: something arrives, a person
+ * decides what it became, a reader asks the wiki a question, and what the
+ * asking exposes gets maintained. Every step carries a real number and the one
+ * link that continues it — the same order the sidebar reads in, so a reader who
+ * has read either has read the product.
  *
- * Five independent reads, five independent `DataState`s, deliberately NOT one.
- * A single combined query would let the slowest endpoint hold the whole page
- * blank, and — worse — let one refusal blank four surfaces that were answering
- * fine. Coverage in particular is the endpoint most likely to say no, and a
- * reviewer must still be able to see what is waiting for them when it does.
+ * Four independent `DataState`s over three reads, deliberately not one. A
+ * single combined query would let the slowest endpoint hold the whole page
+ * blank and — worse — let one refusal blank four surfaces that were answering
+ * fine. A reviewer must still see what is waiting for them when the composed
+ * health read says no.
  *
- * No chart. This console vendors no chart library, and the three questions above
- * are answered by counts and a list; a sparkline of "concepts created per hour"
- * would be the first thing on the page that nobody could act on.
+ * `/health` rather than `/stats/coverage`: it carries the same coverage block
+ * AND the two live queues the loop is actually measured by, so the front page
+ * asks once for numbers it used to guess at — chiefly how OLD the oldest
+ * waiting change is, which is the number a bare count hides.
+ *
+ * No chart. This console vendors no chart library, and none of the four
+ * questions above is answered by a shape; a sparkline of "concepts created per
+ * hour" would be the first thing here nobody could act on.
  */
 
 /**
  * Five is a GLANCE, not a page of the queue.
  *
- * The front page's job is to say that something is waiting and who it is
- * waiting on; the queue itself is `/changes`, which has the filters, the
- * columns and the address bar to hold them. A twenty-row list here would be a
- * second, worse review queue that nobody could link to.
+ * The front page's job is to say that something is waiting and how long it has
+ * been; the queue itself is `/changes`, which has the filters, the columns and
+ * the address bar to hold them. A twenty-row list here would be a second, worse
+ * review queue that nobody could link to.
  */
 const WAITING_QUERY = { status: 'pending', limit: 5 } as const
-
-/**
- * How far back "lately" reaches on this page.
- *
- * Coverage takes a required window because a disputed-claim count or a median
- * review latency means nothing without a stated period. Thirty days is long
- * enough that a quiet fortnight does not read as a dead wiki, and short enough
- * that a number here is about now — and the window is printed beside the
- * figures rather than left for the reader to assume.
- */
-const COVERAGE_DAYS = 30
 
 export function HomePage() {
   const space = useSpace()
   const { text } = useI18n()
 
-  // Pinned to the hour, not to `now`: a fresh millisecond on every render is a
-  // fresh query key, and the front page would refetch its coverage forever.
-  const window = useMemo(() => {
-    const to = new Date()
-    to.setUTCMinutes(0, 0, 0)
-    const from = new Date(to.getTime() - COVERAGE_DAYS * 24 * 60 * 60 * 1000)
-    return { from: from.toISOString(), to: to.toISOString() }
-  }, [])
-
   const knowledge = useQuery({ queryKey: keys.stats(space, 'knowledge'), queryFn: () => wk.stats.knowledge(space) })
   const reviews = useQuery({ queryKey: keys.stats(space, 'reviews'), queryFn: () => wk.stats.reviews(space) })
   const ingests = useQuery({ queryKey: keys.stats(space, 'ingests'), queryFn: () => wk.stats.ingests(space) })
-  const coverage = useQuery({
-    queryKey: [...keys.stats(space, 'coverage'), window],
-    queryFn: () => wk.stats.coverage(space, window),
-  })
+  const health = useQuery({ queryKey: keys.health(space), queryFn: () => wk.health.space(space) })
   const waiting = useQuery({
     queryKey: keys.changes(space, WAITING_QUERY),
     queryFn: () => wk.changes.list(space, WAITING_QUERY),
@@ -100,7 +76,7 @@ export function HomePage() {
       // in without hunting for the sidebar, and on a phone the sidebar is
       // closed.
       title={space}
-      description="What this wiki learned lately, what is waiting for a reviewer, and where its knowledge is thin."
+      description="The loop this wiki turns on: something arrives, a person decides it, a reader asks, and what the asking exposes gets maintained."
       actions={
         <Button asChild>
           <Link to="/changes" search={(prev) => prev} data-testid="home-open-changes">
@@ -142,120 +118,20 @@ export function HomePage() {
         </DataState>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card data-testid="waiting-card">
-            <CardHeader>
-              <CardTitle>Waiting for review</CardTitle>
-              <CardDescription>Nothing becomes visible knowledge until a person approves it.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataState
-                testId="home-waiting"
-                query={waiting}
-                skeleton={<RowSkeleton rows={5} columns={2} />}
-                isEmpty={(data) => data.items.length === 0}
-                empty={
-                  // An empty queue is GOOD NEWS and must not read like a
-                  // failure (CUI-LOAD-4), and it needs no action: the way to
-                  // fill it is to write knowledge, which is another page's job.
-                  <EmptyState
-                    icon={CircleCheck}
-                    framed={false}
-                    title="Nothing is waiting"
-                    description="Every change proposed in this wiki has been decided."
-                    data-testid="waiting-empty"
-                  />
-                }
-              >
-                {(data) => (
-                  <ul className="flex flex-col gap-0.5">
-                    {data.items.map((item, index) => {
-                      const standing = changeStanding(item.status, item.changes_requested)
-                      return (
-                        <li key={item.id}>
-                          <Link
-                            to="/changes/$id"
-                            params={{ id: item.id }}
-                            search={(prev) => prev}
-                            data-testid={`waiting-change-${index + 1}`}
-                            className="hover:bg-muted focus-visible:ring-ring/50 flex flex-col gap-1 rounded-md px-2 py-1.5 transition-colors focus-visible:ring-3 focus-visible:outline-none sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                          >
-                            <span className="min-w-0 truncate text-sm font-medium">
-                              {semanticLabel([item.title], 'Knowledge change')}
-                            </span>
-                            <span className="flex shrink-0 items-center gap-2">
-                              <Badge tone={standing.tone}>{standing.label}</Badge>
-                              <RelativeTime value={item.created_at} className="text-muted-foreground text-xs" />
-                            </span>
-                          </Link>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </DataState>
-            </CardContent>
-            <CardFooter>
-              <Link
-                to="/changes"
-                search={(prev) => prev}
-                data-testid="waiting-all"
-                className="text-sm underline-offset-4 hover:underline"
-              >
-                All changes
-              </Link>
-            </CardFooter>
-          </Card>
-
-          <Card data-testid="coverage-card">
-            <CardHeader>
-              <CardTitle>Where the knowledge is thin</CardTitle>
-              <CardDescription>
-                Claims somebody disputed, pages nobody has revisited, and how long a change waits.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataState testId="home-coverage" query={coverage} skeleton={<FactsSkeleton facts={3} />}>
-                {(data) => (
-                  <div className="flex flex-col gap-4">
-                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                      <Fact
-                        testId="coverage-disputed"
-                        label="Disputed claims"
-                        value={count(data.disputed.open)}
-                        hint={
-                          data.disputed.oldest_days === null
-                            ? 'none open'
-                            : `oldest ${count(Math.round(data.disputed.oldest_days))} days`
-                        }
-                      />
-                      <Fact
-                        testId="coverage-stale"
-                        label="Untouched 90 days"
-                        value={staleShare(data.freshness.concepts, data.freshness.stale_over_90d)}
-                        hint={`${count(data.freshness.stale_over_90d)} of ${count(data.freshness.concepts)} pages`}
-                      />
-                      <Fact
-                        testId="coverage-latency"
-                        label="Median time to decide"
-                        value={durationHours(data.review_latency.median_hours)}
-                        hint={`${count(data.review_latency.decided)} decided`}
-                      />
-                    </dl>
-                    <GapTopics gaps={data.gap_topics} />
-                  </div>
-                )}
-              </DataState>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card data-testid="ingests-card">
+          {/* 1 — something arrives. */}
+          <Card data-testid="loop-capture">
             <CardHeader>
               <CardTitle>Documents coming in</CardTitle>
               <CardDescription>Every page here is written from an archived document.</CardDescription>
             </CardHeader>
             <CardContent>
+              {/*
+                Deliberately the ingest STATS and not the live queue depth,
+                even though `/health` carries one: this card already costs a
+                read that cannot fail with the other three, and a fourth
+                `DataState` over the same composed read would paint a fourth
+                copy of one refusal across one page.
+              */}
               <DataState testId="home-ingests" query={ingests} skeleton={<FactsSkeleton facts={3} />}>
                 {(data) => (
                   <dl className="grid grid-cols-3 gap-3">
@@ -271,57 +147,210 @@ export function HomePage() {
                 )}
               </DataState>
             </CardContent>
+            <CardFooter>
+              <Link
+                to="/inbox"
+                search={(prev) => prev}
+                data-testid="loop-capture-next"
+                className="text-sm underline-offset-4 hover:underline"
+              >
+                Throw something in
+              </Link>
+            </CardFooter>
           </Card>
 
-          <Card data-testid="reviews-card">
+          {/* 2 — a person decides what it became. */}
+          <Card data-testid="loop-review">
             <CardHeader>
-              <CardTitle>Reviewing</CardTitle>
+              <CardTitle>Waiting for review</CardTitle>
+              <CardDescription>Nothing becomes visible knowledge until a person approves it.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-3">
+                <DataState testId="home-backlog" query={health} skeleton={<FactsSkeleton facts={2} />}>
+                  {(data) => (
+                    <dl className="grid grid-cols-2 gap-3">
+                      <Fact testId="review-waiting" label="Waiting" value={count(data.review_queue.pending)} />
+                      {/*
+                        The number a bare count hides. `oldest_days` is null
+                        exactly when nothing is waiting, and null is the em
+                        dash, never "0 days" (CUI-SEV-2).
+                      */}
+                      <Fact
+                        testId="review-oldest"
+                        label="The oldest has waited"
+                        value={waitedLabel(text, waitedDays(data.review_queue.oldest_days))}
+                      />
+                    </dl>
+                  )}
+                </DataState>
+                <DataState
+                  testId="home-waiting"
+                  query={waiting}
+                  skeleton={<RowSkeleton rows={3} columns={2} />}
+                  isEmpty={(data) => data.items.length === 0}
+                  empty={
+                    // An empty queue is GOOD NEWS and must not read like a
+                    // failure (CUI-LOAD-4), and it needs no action: the way to
+                    // fill it is to write knowledge, which is another card.
+                    <EmptyState
+                      icon={CircleCheck}
+                      framed={false}
+                      title="Nothing is waiting"
+                      description="Every change proposed in this wiki has been decided."
+                      data-testid="waiting-empty"
+                    />
+                  }
+                >
+                  {(data) => (
+                    <ul className="flex flex-col gap-0.5">
+                      {data.items.map((item, index) => {
+                        const standing = changeStanding(item.status, item.changes_requested)
+                        return (
+                          <li key={item.id}>
+                            <Link
+                              to="/changes/$id"
+                              params={{ id: item.id }}
+                              search={(prev) => prev}
+                              data-testid={`waiting-change-${index + 1}`}
+                              className="hover:bg-muted focus-visible:ring-ring/50 flex flex-col gap-1 rounded-md px-2 py-1.5 transition-colors focus-visible:ring-3 focus-visible:outline-none sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                            >
+                              <span className="min-w-0 truncate text-sm font-medium">
+                                {semanticLabel([item.title], 'Knowledge change')}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2">
+                                <Badge tone={standing.tone}>{standing.label}</Badge>
+                                <RelativeTime value={item.created_at} className="text-muted-foreground text-xs" />
+                              </span>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </DataState>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Link
+                to="/changes"
+                search={(prev) => prev}
+                data-testid="waiting-all"
+                className="text-sm underline-offset-4 hover:underline"
+              >
+                All changes
+              </Link>
+            </CardFooter>
+          </Card>
+
+          {/* 3 — a reader asks. */}
+          <Card data-testid="loop-ask">
+            <CardHeader>
+              <CardTitle>What readers asked for</CardTitle>
               <CardDescription>
-                What reviewers did here — through this console, the API and agents alike.
+                An answer is kept, with the pages it quoted, and a good one can be filed back in.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DataState
-                testId="home-reviews"
-                query={reviews}
-                skeleton={<FactsSkeleton facts={2} />}
-                isEmpty={(data) => data.totals.length === 0}
-                empty={
-                  <EmptyState
-                    icon={Telescope}
-                    framed={false}
-                    title="No review activity"
-                    description="Nobody opened or decided a change in this window."
-                    data-testid="reviews-empty"
-                  />
-                }
-              >
-                {(data) => {
-                  // `totals` is an ARRAY because the endpoint can group by a
-                  // dimension; ungrouped it holds exactly one row. Reading
-                  // `[0]` through `measured` rather than asserting it means a
-                  // window the server grouped away renders as unmeasured
-                  // instead of crashing the front page.
-                  const totals = data.totals[0]
-                  return (
-                    <dl className="grid grid-cols-2 gap-3">
-                      <Fact
-                        testId="review-actions"
-                        label="Changes opened or decided"
-                        value={count(measured(totals?.metrics.calls))}
-                      />
-                      <Fact
-                        testId="review-actors"
-                        label="People doing it"
-                        value={count(measured(totals?.metrics.unique_actors))}
-                      />
-                    </dl>
-                  )
-                }}
+              <DataState testId="home-gaps" query={health} skeleton={<FactsSkeleton facts={2} />}>
+                {(data) => <GapTopics gaps={data.coverage.gap_topics} />}
               </DataState>
             </CardContent>
+            <CardFooter>
+              <Link
+                to="/search"
+                search={(prev) => prev}
+                data-testid="loop-ask-next"
+                className="text-sm underline-offset-4 hover:underline"
+              >
+                Ask this wiki something
+              </Link>
+            </CardFooter>
+          </Card>
+
+          {/* 4 — what the asking exposes gets maintained. */}
+          <Card data-testid="loop-care">
+            <CardHeader>
+              <CardTitle>What needs care</CardTitle>
+              <CardDescription>
+                Claims with no quote behind them, pages that contradict each other, knowledge nobody has revisited.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataState testId="home-care" query={health} skeleton={<FactsSkeleton facts={3} />}>
+                {(data) => (
+                  <dl className="grid grid-cols-3 gap-3">
+                    <Fact testId="loop-lint-errors" label="Errors" value={count(data.lint.counts.error)} />
+                    <Fact testId="loop-lint-warnings" label="Warnings" value={count(data.lint.counts.warn)} />
+                    <Fact
+                      testId="loop-lint-stale"
+                      label="Untouched 90 days"
+                      value={staleShare(data.coverage.freshness.concepts, data.coverage.freshness.stale_over_90d)}
+                      hint={`${count(data.coverage.freshness.stale_over_90d)} of ${count(data.coverage.freshness.concepts)} pages`}
+                    />
+                  </dl>
+                )}
+              </DataState>
+            </CardContent>
+            <CardFooter>
+              <Link
+                to="/care"
+                search={(prev) => prev}
+                data-testid="loop-care-next"
+                className="text-sm underline-offset-4 hover:underline"
+              >
+                What this wiki needs
+              </Link>
+            </CardFooter>
           </Card>
         </div>
+
+        <Card data-testid="reviews-card">
+          <CardHeader>
+            <CardTitle>Reviewing</CardTitle>
+            <CardDescription>What reviewers did here — through this console, the API and agents alike.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataState
+              testId="home-reviews"
+              query={reviews}
+              skeleton={<FactsSkeleton facts={2} />}
+              isEmpty={(data) => data.totals.length === 0}
+              empty={
+                <EmptyState
+                  icon={Telescope}
+                  framed={false}
+                  title="No review activity"
+                  description="Nobody opened or decided a change in this window."
+                  data-testid="reviews-empty"
+                />
+              }
+            >
+              {(data) => {
+                // `totals` is an ARRAY because the endpoint can group by a
+                // dimension; ungrouped it holds exactly one row. Reading `[0]`
+                // through `measured` rather than asserting it means a window
+                // the server grouped away renders as unmeasured instead of
+                // crashing the front page.
+                const totals = data.totals[0]
+                return (
+                  <dl className="grid grid-cols-2 gap-3">
+                    <Fact
+                      testId="review-actions"
+                      label="Changes opened or decided"
+                      value={count(measured(totals?.metrics.calls))}
+                    />
+                    <Fact
+                      testId="review-actors"
+                      label="People doing it"
+                      value={count(measured(totals?.metrics.unique_actors))}
+                    />
+                  </dl>
+                )
+              }}
+            </DataState>
+          </CardContent>
+        </Card>
       </div>
     </Page>
   )
@@ -365,6 +394,14 @@ function GapTopics({ gaps }: { gaps: { enabled: boolean; items: readonly { lexem
       </div>
     </I18nText>
   )
+}
+
+/** A `Waited` as a string: the em dash when there is nothing to say (CUI-SEV-2). */
+function waitedLabel(
+  text: (source: string, values?: Readonly<Record<string, string | number>>) => string,
+  waited: Waited,
+): string {
+  return waited.phrase === null ? '—' : text(waited.phrase, waited.values)
 }
 
 /** One number from the growth window, large enough to read from across a desk. */

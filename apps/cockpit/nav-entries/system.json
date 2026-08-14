@@ -7,7 +7,6 @@
   "api": [
     "/ready",
     "/.well-known/service-descriptor.json",
-    "/v1/spaces/{space}/lint",
     "/v1/spaces/{space}/stats/http",
     "/v1/spaces/{space}/stats/usage",
     "/v1/spaces/{space}/stats/llm",

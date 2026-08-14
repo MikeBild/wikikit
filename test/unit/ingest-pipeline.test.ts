@@ -142,7 +142,9 @@ describe('enqueue', () => {
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
     const result = await pipeline.enqueue(db, 'space-1', { markdown: RAW })
     expect(result).toEqual({ ingest_id: 'job-1' })
-    const insert = calls.find((call) => call.sql.includes('wk_ingest_jobs'))!
+    // INSERT specifically: enqueue also COUNTS the space's waiting jobs first
+    // (the per-space queue cap), and that statement names the same table.
+    const insert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_ingest_jobs"'))!
     expect(insert.values).toContain('space-1')
     expect(insert.values).toContain('queued')
     // The validated request is stored verbatim (the worker re-parses it).

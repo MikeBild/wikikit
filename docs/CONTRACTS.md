@@ -401,6 +401,98 @@ CREATE TABLE wk_agent_runs (
 CREATE INDEX wk_agent_runs_space_idx ON wk_agent_runs (space_id, created_at DESC);
 ```
 
+### 1.13a `wk_outputs` (what the knowledge base PRODUCED — migration 0036)
+
+```sql
+-- The fourth place, beside sources (what came in), concepts (what is known)
+-- and proposals (what is pending): grounded answers, scheduled briefings,
+-- health reports. Rows here are DERIVED ARTIFACTS — not knowledge, not
+-- evidence. Synthesis and /query never read them.
+CREATE TABLE wk_outputs (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  space_id              uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
+  kind                  text NOT NULL CHECK (kind IN ('answer','briefing','health')),
+  title                 text NOT NULL,
+  question              text,                        -- kind='answer' only; a briefing answers none
+  markdown              text NOT NULL,
+  citations             jsonb NOT NULL DEFAULT '[]', -- [{slug,title}] as the answer named them
+  not_in_knowledge_base boolean,                     -- tri-state; null outside kind='answer'
+  agent_run_id          uuid REFERENCES wk_agent_runs(id) ON DELETE SET NULL,
+  promoted_ingest_id    uuid REFERENCES wk_ingest_jobs(id) ON DELETE SET NULL,
+  promoted_at           timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX wk_outputs_space_created_idx      ON wk_outputs (space_id, created_at DESC);
+CREATE INDEX wk_outputs_space_kind_created_idx ON wk_outputs (space_id, kind, created_at DESC);
+```
+
+Binding: **an output re-enters the wiki only through the ordinary review gate.**
+`promoteOutput` (§4) renders the row as markdown and hands it to
+`ingest.enqueue` like any human's document — content-hash dedup, the
+verbatim-quote grounding guard, contradiction detection, ONE ChangeProposal a
+human approves. There is no write path from this table into `wk_concepts` or
+`wk_claims`, and there must never be one. The tempting alternative — filing a
+good answer back automatically, which is what the folder-based versions of this
+idea do — was rejected because an answer synthesized FROM the wiki would become
+the source of the next answer with nobody in between: the grounding guarantee
+would still hold formally (every claim still quotes an archived document) while
+being hollow, since the document is the wiki talking to itself. Promotion is
+therefore an explicit human act, and the source it creates carries
+`derived_from_output_id` on `wk_sources.metadata` so the `self-derived-only`
+lint rule can report knowledge that has ended up resting on nothing else.
+
+`citations` is denormalized on purpose: it records what the output SAID at the
+time, so renaming or deleting a page must neither rewrite history nor FK-block
+the delete. `promoted_ingest_id` doubles as the retention marker — the sweep
+(`WIKIKIT_OUTPUT_RETENTION_DAYS`) collects only unpromoted rows, because a
+promoted output's markdown already lives on as an archived source and deleting
+the row would cut that source's provenance link while freeing nothing. One
+table for three kinds, not three tables: they differ only in how they were
+produced, never in shape, lifecycle, retention or promote path, and the CHECK
+keeps the set closed so adding a kind is a migration that has to answer "is this
+promotable evidence".
+
+### 1.13b `wk_schedules` (recurring maintenance — migration 0037)
+
+```sql
+CREATE TABLE wk_schedules (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  space_id    uuid NOT NULL REFERENCES wk_spaces(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('briefing','health')),
+  at_time     time NOT NULL,                          -- WALL CLOCK in `timezone`
+  weekday     integer CHECK (weekday IS NULL OR (weekday BETWEEN 0 AND 6)),  -- null = daily; 0 = Sunday
+  timezone    text NOT NULL DEFAULT 'UTC',            -- IANA name, validated by the write path
+  enabled     boolean NOT NULL DEFAULT true,
+  last_run_at timestamptz,
+  next_run_at timestamptz,                            -- the armed instant; NULL never fires
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (space_id, kind)
+);
+CREATE INDEX wk_schedules_due_idx ON wk_schedules (next_run_at) WHERE enabled;
+```
+
+Binding: **the schedule vocabulary is a closed set — `daily at HH:MM` and
+`weekly on DOW at HH:MM`, plus an IANA `timezone` — and NOT a cron expression.**
+A full cron parser is a configuration surface nobody can verify: neither the
+operator typing `*/7 3 * * 1-5` nor the reviewer reading it can say what it will
+do without running it, and each of the five fields is another way to schedule a
+hundred runs by accident. What is actually being asked for is "every morning",
+and the field that makes that the OPERATOR's morning rather than UTC's is
+`timezone`, not expression power. An installation that genuinely needs
+Nth-weekday or minute-level firing already owns a cron and can drive
+`PUT /v1/spaces/{space}/schedules` from it.
+
+`at_time` is `time` and not `timestamptz` so that 07:00 stays 07:00 across a DST
+boundary; the instant that wall clock means is derived per run
+(`computeNextRun`, §4) and cached in `next_run_at`, which keeps the due check a
+plain indexed comparison. `UNIQUE (space_id, kind)` is what makes the PUT an
+idempotent replace rather than an append that accumulates duplicate briefings.
+Claiming is `FOR UPDATE SKIP LOCKED` with `next_run_at` advanced inside the
+claiming transaction, so N binaries against one database produce exactly one
+report per window — a missing briefing is repaired by tomorrow's, a duplicate
+briefing is noise in the record forever.
+
 ### 1.14 `agent_meta` jsonb shape (revisions, claims, decisions, proposals)
 
 ```json
@@ -914,6 +1006,7 @@ export interface LintFinding {
     | 'stale-claims'
     | 'orphan-concepts'
     | 'unsourced-concepts'
+    | 'self-derived-only'
     | 'stub-concepts'
     | 'scaffolded-claims'
     | 'empty-concepts'
@@ -931,12 +1024,70 @@ export interface LintReport {
   findings: LintFinding[]
   counts: { error: number; warn: number; info: number }
 }
+
+// src/domain/outputs.ts  (§1.13a — what the base produced, and the door back in)
+export type OutputKind = 'answer' | 'briefing' | 'health'
+export function recordOutput(db: Db, spaceId: string, args: RecordOutputArgs): Promise<Output>
+export function listOutputs(
+  db: Db,
+  spaceId: string,
+  args: { kind?: OutputKind; limit?: number; before?: string }, // newest-first, keyset; FULL rows incl. markdown
+): Promise<{ items: Output[]; next_before: string | null }>
+export function getOutput(db: Db, id: string): Promise<Output> // ⚠ global id; returns space_id — transport enforces key/space match
+// DETERMINISTIC BY CONTRACT: no timestamps, no ids. Same row twice → identical
+// bytes → identical sha256 → `already_ingested` instead of a second proposal.
+export function renderOutputSource(output: Output): string
+// Archives renderOutputSource(output) through ingest.enqueue with
+// source_kind:'note' and derived_from_output_id — the ORDINARY pipeline, ending
+// in a proposal a human reviews. Re-promoting returns the FIRST ingest_id.
+export function promoteOutput(db: Db, deps: PromoteDeps, id: string): Promise<{ ingest_id: string }>
+export function cleanupOutputs(db: Db, retentionDays: number): Promise<number> // UNPROMOTED rows only; <= 0 keeps forever
+
+// src/domain/health.ts  (LLM-free composition; one producer for REST, MCP and the scheduler)
+export function spaceHealth(
+  db: Db,
+  spaceId: string,
+  args: { from?: string; to?: string; top?: number }, // window defaults to the last 30 days, top to 5
+  deps: { scaffoldingKinds: readonly string[]; gapTopicsEnabled: boolean },
+): Promise<SpaceHealth>
+export interface SpaceHealth {
+  window: { from: string; to: string } // echoed, never assumed by the caller
+  lint: LintReport // lintSpace() whole — never re-counted
+  coverage: Omit<CoverageStats, 'gap_topics'> & {
+    gap_topics: { enabled: boolean; items: { lexeme: string; count: number }[] }
+  }
+  review_queue: { pending: number; oldest_days: number | null } // oldest_days null iff pending is 0
+  ingest_queue: {
+    depth: number // queued + running
+    queued: number
+    running: number
+    quota_blocked: number // beside depth, never inside it
+    oldest_queued_hours: number | null
+  }
+}
+
+// src/schedule.ts  (§1.13b — the in-process briefing/health worker)
+export const SCHEDULE_KINDS = ['briefing', 'health'] as const
+export function computeNextRun(
+  schedule: { at_time: string; weekday: number | null; timezone: string },
+  from: Date,
+): Date // PURE
+export function listSchedules(db: Db, spaceId: string): Promise<ScheduleWire[]>
+export function replaceSchedules(db: Db, spaceId: string, args: unknown): Promise<ScheduleWire[]> // PUT semantics, ONE tx
+export function renderBriefing(facts: BriefingFacts): string // LLM-free, deterministic
+export function renderHealth(health: SpaceHealth, at: { timezone: string; instant: Date }): string
+export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): Scheduler
+export interface Scheduler {
+  start(): void // no-op when WIKIKIT_SCHEDULER_ENABLED=false, so app.ts calls it unconditionally
+  stop(): Promise<void> // awaited by the SIGTERM drain
+  runOnce(): Promise<boolean> // claim + run at most one due row — the deterministic test handle
+}
 ```
 
 Severity mapping is fixed: `contradictions`/`missing-citations`/`broken-relations`
-= error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/`stub-concepts`/
-`scaffolded-claims`/`tombstoned-sources`/`broken-cross-space-links` = warn; the
-rest = info. `unsourced-concepts` flags a readable page across whose visible claims
+= error; `stale-claims`/`orphan-concepts`/`unsourced-concepts`/`self-derived-only`/
+`stub-concepts`/`scaffolded-claims`/`tombstoned-sources`/`broken-cross-space-links`
+= warn; the rest = info. `unsourced-concepts` flags a readable page across whose visible claims
 there is not one citation — nothing archived stands behind it. Warn, never an
 error: a hand-written page is legitimate, and the finding names the fix (ingest
 a source and let synthesis quote it) rather than only the fault. It overlaps
@@ -965,6 +1116,24 @@ more alarming of the two cases, not the less. `tombstoned-sources` flags
 visible claims citing sources whose stream the connector tombstoned (upstream
 document deleted) — surfacing only, never an automatic status flip: whether the
 claim gets deprecated is a human decision made through a normal proposal.
+`self-derived-only` is the counterweight to promotion (§1.13a): a readable page
+whose visible claims quote at least one source carrying
+`derived_from_output_id` and no source without it — knowledge with no evidence
+from outside the wiki. Every neighbouring rule is correctly silent about it (the
+sources exist, are archived verbatim, and are quoted with real quotes), because
+they all ask whether evidence is present and this is the one that asks where it
+came from. The review gate cannot see it either: each individual promotion
+looked right to the reviewer who approved it, and only the state at the end of
+the chain is circular. Warn, not error — a page resting on a promoted answer is
+legitimate and the finding disappears the moment one claim cites one outside
+source, so failing CI on the product's own loop would only teach operators to
+switch the rule off. Its message names the fix as ingesting a source from
+OUTSIDE the wiki, which is deliberately not what `unsourced-concepts` says: an
+operator who read "ingest a source" here would reasonably promote another
+answer, which is the state rather than the cure. Requires at least one derived
+citation AND zero others; the presence of the metadata key is the statement
+(`jsonb_exists`), whether promotion wrote it or a client declared it on its own
+ingest.
 
 ### 4.1 Ingest pipeline (`src/ingest/pipeline.ts`)
 
@@ -1080,71 +1249,78 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 
 ### 5.2 Complete route table (v1 — binding)
 
-| Method | Path                                          | Scope                              | Handler                        | Request schema(s)                                                      | 2xx Response schema                                                                                                                                                                                              |
-| ------ | --------------------------------------------- | ---------------------------------- | ------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/spaces`                                  | knowledge:read                     | `listSpacesHandler`            | —                                                                      | 200 `zSpaceListResponse`                                                                                                                                                                                         |
-| POST   | `/v1/spaces`                                  | admin                              | `createSpaceHandler`           | body `zCreateSpaceRequest`                                             | 201 `zSpaceResponse`                                                                                                                                                                                             |
-| GET    | `/v1/agent/briefing`                          | knowledge:read                     | `agentBriefingHandler`         | query `zAgentBriefingQuery`                                            | 200 `zAgentBriefingResponse`                                                                                                                                                                                     |
-| POST   | `/v1/agent/context`                           | knowledge:read                     | `agentContextHandler`          | body `zAgentContextRequest`                                            | 200 `zAgentContextResponse`                                                                                                                                                                                      |
-| GET    | `/v1/spaces/{space}`                          | knowledge:read                     | `getSpaceHandler`              | params `zSpaceParams`                                                  | 200 `zSpaceResponse`                                                                                                                                                                                             |
-| POST   | `/v1/spaces/{space}/settings`                 | admin                              | `updateSpaceSettingsHandler`   | params `zSpaceParams`; body `zUpdateSpaceSettingsRequest`              | 200 `zSpaceResponse`                                                                                                                                                                                             |
-| GET    | `/v1/spaces/{space}/charter`                  | knowledge:read                     | `getCharterHandler`            | params `zSpaceParams`; query `zCharterQuery` (`?rev=N`)                | 200 `zCharterResponse` (or the rendered document via `Accept: text/markdown`)                                                                                                                                    |
-| GET    | `/v1/spaces/{space}/charter/versions`         | knowledge:read                     | `charterVersionsHandler`       | params `zSpaceParams`                                                  | 200 `zCharterVersionsResponse`                                                                                                                                                                                   |
-| PUT    | `/v1/spaces/{space}/charter`                  | admin                              | `putCharterHandler`            | params `zSpaceParams`; raw body (JSON `{markdown}` or `text/markdown`) | 200 `zCharterWriteResponse`                                                                                                                                                                                      |
-| DELETE | `/v1/spaces/{space}/charter`                  | admin                              | `deleteCharterHandler`         | params `zSpaceParams`                                                  | 200 `zCharterResponse` (empty document; idempotent)                                                                                                                                                              |
-| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose                  | `createIngestHandler`          | body `zIngestRequest`                                                  | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}`                                                                                                                                                     |
-| POST   | `/v1/spaces/{space}/ingest/document`          | knowledge:propose                  | `ingestDocumentHandler`        | query `zIngestDocumentQuery`, raw body                                 | 202 `zIngestAcceptedResponse` (415 unsupported_document, 422 document_extraction_failed)                                                                                                                         |
-| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose                  | `captureSessionHandler`        | body `zCaptureSessionRequest`                                          | 200 `zCaptureSessionResponse` (503 llm_not_configured)                                                                                                                                                           |
-| GET    | `/v1/ingests/{id}`                            | knowledge:propose                  | `getIngestHandler`             | params `zIdParams`                                                     | 200 `zIngestStatusResponse`                                                                                                                                                                                      |
-| GET    | `/v1/spaces/{space}/sources`                  | knowledge:read                     | `listSourcesHandler`           | query `zListQuery`                                                     | 200 `zSourceListResponse`                                                                                                                                                                                        |
-| GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read                     | `getSourceHandler`             | params `zSpaceIdParams`                                                | 200 `zSourceResponse`                                                                                                                                                                                            |
-| GET    | `/v1/spaces/{space}/decisions`                | knowledge:read                     | `listDecisionsHandler`         | query `zListQuery`                                                     | 200 `zDecisionListResponse`                                                                                                                                                                                      |
-| GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read                     | `getDecisionHandler`           | params `zDecisionParams`                                               | 200 `zDecisionResponse`                                                                                                                                                                                          |
-| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read                     | `listConceptsHandler`          | query `zListQuery`                                                     | 200 `zConceptListResponse` (ETag = `"<space-epoch>"`, 304 on If-None-Match; items carry `evidence` counted over VISIBLE claims only, absent on a reference-target page — §5.3)                                   |
-| GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read                     | `getConceptHandler`            | params `zConceptParams`                                                | 200 `zConceptResponse`                                                                                                                                                                                           |
-| GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read                     | `getConceptHistoryHandler`     | params `zConceptParams`                                                | 200 `zConceptHistoryResponse`                                                                                                                                                                                    |
-| GET    | `/v1/spaces/{space}/search`                   | knowledge:read                     | `searchHandler`                | query `zSearchQuery`                                                   | 200 `zSearchResponse` (`kind:'concept'` hits carry `evidence` — same counts as the concept list — or `not_measured` where it declines to measure; `claim`/`source_chunk` hits deliberately carry neither — §5.3) |
-| POST   | `/v1/spaces/{space}/query`                    | knowledge:read                     | `queryHandler`                 | body `zQueryRequest`                                                   | 200 `zQueryResponse` (503 `llm_not_configured` without key)                                                                                                                                                      |
-| GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | `listProposalsHandler`         | query `zProposalListQuery`                                             | 200 `zProposalListResponse`                                                                                                                                                                                      |
-| POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose                  | `createProposalHandler`        | body `zCreateProposalRequest`                                          | 201 `zProposalCreatedResponse`                                                                                                                                                                                   |
-| GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review | `getProposalHandler`           | params `zIdParams`                                                     | 200 `zProposalDetailResponse` (or `text/markdown` via Accept)                                                                                                                                                    |
-| POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve                  | `approveProposalHandler`       | body `zReviewRequest`                                                  | 200 `zProposalReviewResponse`                                                                                                                                                                                    |
-| POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve                  | `rejectProposalHandler`        | body `zReviewRequest`                                                  | 200 `zProposalReviewResponse`                                                                                                                                                                                    |
-| GET    | `/v1/spaces/{space}/lint`                     | knowledge:read                     | `lintHandler`                  | params `zSpaceParams`                                                  | 200 `zLintResponse`                                                                                                                                                                                              |
-| GET    | `/v1/spaces/{space}/export`                   | knowledge:read                     | `exportHandler`                | query `zExportQuery`                                                   | 200 `application/zip` stream                                                                                                                                                                                     |
-| POST   | `/v1/spaces/{space}/import`                   | knowledge:propose                  | `importHandler`                | body: zip (`application/zip`) or MD tree                               | 202 `zProposalCreatedResponse`                                                                                                                                                                                   |
-| GET    | `/v1/spaces/{space}/webhooks`                 | admin                              | `listWebhooksHandler`          | params `zSpaceParams`                                                  | 200 `zWebhookListResponse`                                                                                                                                                                                       |
-| POST   | `/v1/spaces/{space}/webhooks`                 | admin                              | `createWebhookHandler`         | body `zCreateWebhookRequest`                                           | 201 `zWebhookResponse` (secret shown once)                                                                                                                                                                       |
-| GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin                              | `listWebhookDeliveriesHandler` | params `zSpaceIdParams`                                                | 200 `zDeliveryListResponse`                                                                                                                                                                                      |
-| GET    | `/v1/api-keys`                                | admin                              | `listApiKeysHandler`           | —                                                                      | 200 `zApiKeyListResponse` (never plaintext/hash)                                                                                                                                                                 |
-| POST   | `/v1/api-keys`                                | admin                              | `createApiKeyHandler`          | body `zCreateApiKeyRequest`                                            | 201 `zApiKeyCreatedResponse` (plaintext key shown once)                                                                                                                                                          |
-| DELETE | `/v1/api-keys/{id}`                           | admin                              | `revokeApiKeyHandler`          | params `zIdParams`                                                     | 200 `zApiKeyRevokedResponse` (idempotent)                                                                                                                                                                        |
-| GET    | `/v1/identities`                              | admin                              | `listIdentitiesHandler`        | —                                                                      | 200 `zIdentityListResponse` (never tokens/hashes)                                                                                                                                                                |
-| PUT    | `/v1/identities/{provider}/{subject}`         | admin                              | `upsertIdentityHandler`        | params `zIdentityParams`; body `zUpsertIdentityRequest`                | 200/201 `zIdentityResponse` (409 `identity_revoked` without `restore:true`; 422 role XOR scopes / unknown provider / update would leave an empty stored ceiling)                                                 |
-| DELETE | `/v1/identities/{provider}/{subject}`         | admin                              | `revokeIdentityHandler`        | params `zIdentityParams`                                               | 200 `zIdentityRevokedResponse` (idempotent; kills the identity's live OAuth tokens and SSO-minted API keys)                                                                                                      |
-| GET    | `/v1/installation/knowledge-config`           | admin                              | `knowledgeConfigHandler`       | —                                                                      | 200 `zKnowledgeConfigResponse` (effective knowledge-shaping config with per-value provenance; never secrets or anything derived from one)                                                                        |
-| GET    | `/v1/stats/mcp`                               | admin                              | `mcpUsageStatsHandler`         | query `zUsageStatsQuery`                                               | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
-| GET    | `/v1/spaces/{space}/stats/http`               | knowledge:read                     | `httpUsageStatsHandler`        | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
-| GET    | `/v1/spaces/{space}/stats/usage`              | knowledge:read                     | `knowledgeUsageStatsHandler`   | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
-| GET    | `/v1/spaces/{space}/stats/coverage`           | knowledge:read                     | `coverageStatsHandler`         | params `zSpaceParams`; query `zCoverageStatsQuery`                     | 200 `zCoverageStatsResponse`                                                                                                                                                                                     |
-| GET    | `/v1/spaces/{space}/stats/reviews`            | knowledge:read                     | `reviewUsageStatsHandler`      | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
-| GET    | `/v1/spaces/{space}/stats/ingests`            | knowledge:read                     | `ingestStatsHandler`           | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zIngestStatsResponse`                                                                                                                                                                                       |
-| GET    | `/v1/spaces/{space}/stats/knowledge`          | knowledge:read                     | `knowledgeStatsHandler`        | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zKnowledgeStatsResponse`                                                                                                                                                                                    |
-| GET    | `/v1/spaces/{space}/stats/llm`                | knowledge:read                     | `llmStatsHandler`              | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zLlmStatsResponse`                                                                                                                                                                                          |
-| GET    | `/v1/spaces/{space}/stats/webhooks`           | knowledge:read                     | `webhookStatsHandler`          | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zWebhookStatsResponse`                                                                                                                                                                                      |
-| GET    | `/health`                                     | —                                  | `healthHandler`                | —                                                                      | 200 `text/plain` `"ok"`                                                                                                                                                                                          |
-| GET    | `/ready`                                      | —                                  | `readyHandler`                 | —                                                                      | 200 `zReadyResponse` `{status:'ready', version}`; 503 while draining/not migrated                                                                                                                                |
-| GET    | `/metrics`                                    | —                                  | `metricsHandler`               | —                                                                      | 200 Prometheus text                                                                                                                                                                                              |
-| GET    | `/openapi.json`                               | —                                  | `openapiHandler`               | —                                                                      | 200 OpenAPI 3.1 from `buildOpenApi(ROUTES)`                                                                                                                                                                      |
-| GET    | `/review/{id}`                                | —                                  | `reviewPageHandler`            | params `zIdParams`                                                     | 200 `text/html`                                                                                                                                                                                                  |
-| GET    | `/agent-guide.md`                             | —                                  | `agentGuideHandler`            | —                                                                      | 200 `text/markdown`                                                                                                                                                                                              |
-| GET    | `/llms.txt`                                   | —                                  | `llmsTxtHandler`               | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
-| GET    | `/llms-full.txt`                              | —                                  | `llmsFullTxtHandler`           | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
-| GET    | `/.well-known/llms.txt`                       | —                                  | `llmsTxtHandler`               | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
-| GET    | `/.well-known/llms-full.txt`                  | —                                  | `llmsFullTxtHandler`           | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
-| GET    | `/install.sh`                                 | —                                  | `installShHandler`             | —                                                                      | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                                                                                                                                                  |
-| GET    | `/install.ps1`                                | —                                  | `installPs1Handler`            | —                                                                      | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                                                                                                                                                  |
-| GET    | `/install/hooks/{script}`                     | —                                  | `installHookScriptHandler`     | params `zInstallHookScriptParams`                                      | 200 `text/plain` (closed enum of the six hook scripts)                                                                                                                                                           |
+| Method | Path                                          | Scope                               | Handler                        | Request schema(s)                                                      | 2xx Response schema                                                                                                                                                                                              |
+| ------ | --------------------------------------------- | ----------------------------------- | ------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/spaces`                                  | knowledge:read                      | `listSpacesHandler`            | —                                                                      | 200 `zSpaceListResponse`                                                                                                                                                                                         |
+| POST   | `/v1/spaces`                                  | admin                               | `createSpaceHandler`           | body `zCreateSpaceRequest`                                             | 201 `zSpaceResponse`                                                                                                                                                                                             |
+| GET    | `/v1/agent/briefing`                          | knowledge:read                      | `agentBriefingHandler`         | query `zAgentBriefingQuery`                                            | 200 `zAgentBriefingResponse`                                                                                                                                                                                     |
+| POST   | `/v1/agent/context`                           | knowledge:read                      | `agentContextHandler`          | body `zAgentContextRequest`                                            | 200 `zAgentContextResponse`                                                                                                                                                                                      |
+| GET    | `/v1/spaces/{space}`                          | knowledge:read                      | `getSpaceHandler`              | params `zSpaceParams`                                                  | 200 `zSpaceResponse`                                                                                                                                                                                             |
+| POST   | `/v1/spaces/{space}/settings`                 | admin                               | `updateSpaceSettingsHandler`   | params `zSpaceParams`; body `zUpdateSpaceSettingsRequest`              | 200 `zSpaceResponse`                                                                                                                                                                                             |
+| GET    | `/v1/spaces/{space}/charter`                  | knowledge:read                      | `getCharterHandler`            | params `zSpaceParams`; query `zCharterQuery` (`?rev=N`)                | 200 `zCharterResponse` (or the rendered document via `Accept: text/markdown`)                                                                                                                                    |
+| GET    | `/v1/spaces/{space}/charter/versions`         | knowledge:read                      | `charterVersionsHandler`       | params `zSpaceParams`                                                  | 200 `zCharterVersionsResponse`                                                                                                                                                                                   |
+| PUT    | `/v1/spaces/{space}/charter`                  | admin                               | `putCharterHandler`            | params `zSpaceParams`; raw body (JSON `{markdown}` or `text/markdown`) | 200 `zCharterWriteResponse`                                                                                                                                                                                      |
+| DELETE | `/v1/spaces/{space}/charter`                  | admin                               | `deleteCharterHandler`         | params `zSpaceParams`                                                  | 200 `zCharterResponse` (empty document; idempotent)                                                                                                                                                              |
+| POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose                   | `createIngestHandler`          | body `zIngestRequest`                                                  | 202 `zIngestAcceptedResponse` + `Location: /v1/ingests/{id}` (429 `ingest_queue_full` at the per-space ceiling)                                                                                                  |
+| POST   | `/v1/spaces/{space}/ingest/document`          | knowledge:propose                   | `ingestDocumentHandler`        | query `zIngestDocumentQuery`, raw body                                 | 202 `zIngestAcceptedResponse` (415 unsupported_document, 422 document_extraction_failed, 429 ingest_queue_full)                                                                                                  |
+| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose                   | `captureSessionHandler`        | body `zCaptureSessionRequest`                                          | 200 `zCaptureSessionResponse` (503 llm_not_configured)                                                                                                                                                           |
+| GET    | `/v1/ingests/{id}`                            | knowledge:propose                   | `getIngestHandler`             | params `zIdParams`                                                     | 200 `zIngestStatusResponse`                                                                                                                                                                                      |
+| GET    | `/v1/spaces/{space}/ingests`                  | knowledge:read \| knowledge:propose | `listIngestsHandler`           | params `zSpaceParams`; query `zIngestListQuery`                        | 200 `zIngestListResponse` (the inbox: rows are byte-identical to the single status read)                                                                                                                         |
+| GET    | `/v1/spaces/{space}/sources`                  | knowledge:read                      | `listSourcesHandler`           | query `zListQuery`                                                     | 200 `zSourceListResponse`                                                                                                                                                                                        |
+| GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read                      | `getSourceHandler`             | params `zSpaceIdParams`                                                | 200 `zSourceResponse`                                                                                                                                                                                            |
+| GET    | `/v1/spaces/{space}/decisions`                | knowledge:read                      | `listDecisionsHandler`         | query `zListQuery`                                                     | 200 `zDecisionListResponse`                                                                                                                                                                                      |
+| GET    | `/v1/spaces/{space}/decisions/{slug}`         | knowledge:read                      | `getDecisionHandler`           | params `zDecisionParams`                                               | 200 `zDecisionResponse`                                                                                                                                                                                          |
+| GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read                      | `listConceptsHandler`          | query `zListQuery`                                                     | 200 `zConceptListResponse` (ETag = `"<space-epoch>"`, 304 on If-None-Match; items carry `evidence` counted over VISIBLE claims only, absent on a reference-target page — §5.3)                                   |
+| GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read                      | `getConceptHandler`            | params `zConceptParams`                                                | 200 `zConceptResponse`                                                                                                                                                                                           |
+| GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read                      | `getConceptHistoryHandler`     | params `zConceptParams`                                                | 200 `zConceptHistoryResponse`                                                                                                                                                                                    |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read                      | `searchHandler`                | query `zSearchQuery`                                                   | 200 `zSearchResponse` (`kind:'concept'` hits carry `evidence` — same counts as the concept list — or `not_measured` where it declines to measure; `claim`/`source_chunk` hits deliberately carry neither — §5.3) |
+| POST   | `/v1/spaces/{space}/query`                    | knowledge:read                      | `queryHandler`                 | body `zQueryRequest`                                                   | 200 `zQueryResponse` — additively carries `output_id` (§1.13a), nullable when the row could not be written (503 `llm_not_configured` without key)                                                                |
+| GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read                      | `listOutputsHandler`           | params `zSpaceParams`; query `zOutputListQuery`                        | 200 `zOutputListResponse` (`?kind=answer\|briefing\|health`)                                                                                                                                                     |
+| GET    | `/v1/outputs/{id}`                            | knowledge:read                      | `getOutputHandler`             | params `zIdParams`                                                     | 200 `zOutputResponse` (or `renderOutputSource` via `Accept: text/markdown` — byte-for-byte what promotion would archive)                                                                                         |
+| POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose                   | `promoteOutputHandler`         | params `zIdParams`                                                     | 202 `zOutputPromotedResponse` + `Location: /v1/ingests/{id}` (409 `already_ingested`, 429 `ingest_queue_full`, 503 `llm_not_configured`)                                                                         |
+| GET    | `/v1/spaces/{space}/health`                   | knowledge:read                      | `spaceHealthHandler`           | params `zSpaceParams`; query `zSpaceHealthQuery`                       | 200 `zSpaceHealthResponse` (lint + coverage + the two live queues; LLM-free, no verdict)                                                                                                                         |
+| GET    | `/v1/spaces/{space}/schedules`                | admin                               | `getSchedulesHandler`          | params `zSpaceParams`                                                  | 200 `zScheduleListResponse`                                                                                                                                                                                      |
+| PUT    | `/v1/spaces/{space}/schedules`                | admin                               | `putSchedulesHandler`          | params `zSpaceParams`; body `zScheduleSetRequest`                      | 200 `zScheduleListResponse` (REPLACE: a kind left out is switched off — hence no DELETE route; idempotent)                                                                                                       |
+| GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review  | `listProposalsHandler`         | query `zProposalListQuery`                                             | 200 `zProposalListResponse`                                                                                                                                                                                      |
+| POST   | `/v1/spaces/{space}/proposals`                | knowledge:propose                   | `createProposalHandler`        | body `zCreateProposalRequest`                                          | 201 `zProposalCreatedResponse`                                                                                                                                                                                   |
+| GET    | `/v1/proposals/{id}`                          | knowledge:read \| knowledge:review  | `getProposalHandler`           | params `zIdParams`                                                     | 200 `zProposalDetailResponse` (or `text/markdown` via Accept)                                                                                                                                                    |
+| POST   | `/v1/proposals/{id}/approve`                  | knowledge:approve                   | `approveProposalHandler`       | body `zReviewRequest`                                                  | 200 `zProposalReviewResponse`                                                                                                                                                                                    |
+| POST   | `/v1/proposals/{id}/reject`                   | knowledge:approve                   | `rejectProposalHandler`        | body `zReviewRequest`                                                  | 200 `zProposalReviewResponse`                                                                                                                                                                                    |
+| GET    | `/v1/spaces/{space}/lint`                     | knowledge:read                      | `lintHandler`                  | params `zSpaceParams`                                                  | 200 `zLintResponse`                                                                                                                                                                                              |
+| GET    | `/v1/spaces/{space}/export`                   | knowledge:read                      | `exportHandler`                | query `zExportQuery`                                                   | 200 `application/zip` stream                                                                                                                                                                                     |
+| POST   | `/v1/spaces/{space}/import`                   | knowledge:propose                   | `importHandler`                | body: zip (`application/zip`) or MD tree                               | 202 `zProposalCreatedResponse`                                                                                                                                                                                   |
+| GET    | `/v1/spaces/{space}/webhooks`                 | admin                               | `listWebhooksHandler`          | params `zSpaceParams`                                                  | 200 `zWebhookListResponse`                                                                                                                                                                                       |
+| POST   | `/v1/spaces/{space}/webhooks`                 | admin                               | `createWebhookHandler`         | body `zCreateWebhookRequest`                                           | 201 `zWebhookResponse` (secret shown once)                                                                                                                                                                       |
+| GET    | `/v1/spaces/{space}/webhooks/{id}/deliveries` | admin                               | `listWebhookDeliveriesHandler` | params `zSpaceIdParams`                                                | 200 `zDeliveryListResponse`                                                                                                                                                                                      |
+| GET    | `/v1/api-keys`                                | admin                               | `listApiKeysHandler`           | —                                                                      | 200 `zApiKeyListResponse` (never plaintext/hash)                                                                                                                                                                 |
+| POST   | `/v1/api-keys`                                | admin                               | `createApiKeyHandler`          | body `zCreateApiKeyRequest`                                            | 201 `zApiKeyCreatedResponse` (plaintext key shown once)                                                                                                                                                          |
+| DELETE | `/v1/api-keys/{id}`                           | admin                               | `revokeApiKeyHandler`          | params `zIdParams`                                                     | 200 `zApiKeyRevokedResponse` (idempotent)                                                                                                                                                                        |
+| GET    | `/v1/identities`                              | admin                               | `listIdentitiesHandler`        | —                                                                      | 200 `zIdentityListResponse` (never tokens/hashes)                                                                                                                                                                |
+| PUT    | `/v1/identities/{provider}/{subject}`         | admin                               | `upsertIdentityHandler`        | params `zIdentityParams`; body `zUpsertIdentityRequest`                | 200/201 `zIdentityResponse` (409 `identity_revoked` without `restore:true`; 422 role XOR scopes / unknown provider / update would leave an empty stored ceiling)                                                 |
+| DELETE | `/v1/identities/{provider}/{subject}`         | admin                               | `revokeIdentityHandler`        | params `zIdentityParams`                                               | 200 `zIdentityRevokedResponse` (idempotent; kills the identity's live OAuth tokens and SSO-minted API keys)                                                                                                      |
+| GET    | `/v1/installation/knowledge-config`           | admin                               | `knowledgeConfigHandler`       | —                                                                      | 200 `zKnowledgeConfigResponse` (effective knowledge-shaping config with per-value provenance; never secrets or anything derived from one)                                                                        |
+| GET    | `/v1/stats/mcp`                               | admin                               | `mcpUsageStatsHandler`         | query `zUsageStatsQuery`                                               | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
+| GET    | `/v1/spaces/{space}/stats/http`               | knowledge:read                      | `httpUsageStatsHandler`        | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
+| GET    | `/v1/spaces/{space}/stats/usage`              | knowledge:read                      | `knowledgeUsageStatsHandler`   | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
+| GET    | `/v1/spaces/{space}/stats/coverage`           | knowledge:read                      | `coverageStatsHandler`         | params `zSpaceParams`; query `zCoverageStatsQuery`                     | 200 `zCoverageStatsResponse`                                                                                                                                                                                     |
+| GET    | `/v1/spaces/{space}/stats/reviews`            | knowledge:read                      | `reviewUsageStatsHandler`      | params `zSpaceParams`; query `zUsageStatsQuery`                        | 200 `zUsageStatsResponse`                                                                                                                                                                                        |
+| GET    | `/v1/spaces/{space}/stats/ingests`            | knowledge:read                      | `ingestStatsHandler`           | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zIngestStatsResponse`                                                                                                                                                                                       |
+| GET    | `/v1/spaces/{space}/stats/knowledge`          | knowledge:read                      | `knowledgeStatsHandler`        | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zKnowledgeStatsResponse`                                                                                                                                                                                    |
+| GET    | `/v1/spaces/{space}/stats/llm`                | knowledge:read                      | `llmStatsHandler`              | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zLlmStatsResponse`                                                                                                                                                                                          |
+| GET    | `/v1/spaces/{space}/stats/webhooks`           | knowledge:read                      | `webhookStatsHandler`          | params `zSpaceParams`; query `zStatsQuery`                             | 200 `zWebhookStatsResponse`                                                                                                                                                                                      |
+| GET    | `/health`                                     | —                                   | `healthHandler`                | —                                                                      | 200 `text/plain` `"ok"`                                                                                                                                                                                          |
+| GET    | `/ready`                                      | —                                   | `readyHandler`                 | —                                                                      | 200 `zReadyResponse` `{status:'ready', version}`; 503 while draining/not migrated                                                                                                                                |
+| GET    | `/metrics`                                    | —                                   | `metricsHandler`               | —                                                                      | 200 Prometheus text                                                                                                                                                                                              |
+| GET    | `/openapi.json`                               | —                                   | `openapiHandler`               | —                                                                      | 200 OpenAPI 3.1 from `buildOpenApi(ROUTES)`                                                                                                                                                                      |
+| GET    | `/review/{id}`                                | —                                   | `reviewPageHandler`            | params `zIdParams`                                                     | 200 `text/html`                                                                                                                                                                                                  |
+| GET    | `/agent-guide.md`                             | —                                   | `agentGuideHandler`            | —                                                                      | 200 `text/markdown`                                                                                                                                                                                              |
+| GET    | `/llms.txt`                                   | —                                   | `llmsTxtHandler`               | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
+| GET    | `/llms-full.txt`                              | —                                   | `llmsFullTxtHandler`           | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
+| GET    | `/.well-known/llms.txt`                       | —                                   | `llmsTxtHandler`               | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
+| GET    | `/.well-known/llms-full.txt`                  | —                                   | `llmsFullTxtHandler`           | —                                                                      | 200 `text/plain`                                                                                                                                                                                                 |
+| GET    | `/install.sh`                                 | —                                   | `installShHandler`             | —                                                                      | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                                                                                                                                                  |
+| GET    | `/install.ps1`                                | —                                   | `installPs1Handler`            | —                                                                      | 200 `text/plain` (agent hooks installer, base URL pre-resolved)                                                                                                                                                  |
+| GET    | `/install/hooks/{script}`                     | —                                   | `installHookScriptHandler`     | params `zInstallHookScriptParams`                                      | 200 `text/plain` (closed enum of the six hook scripts)                                                                                                                                                           |
 
 `POST /mcp` (plus `GET`/`DELETE /mcp` for SSE/session-close per Streamable
 HTTP) is intentionally **outside** the ROUTES registry and the OpenAPI surface;
@@ -1214,6 +1390,26 @@ Notes binding all builders:
   same id appears in the error envelope and logs.
 - Pagination is keyset: `?limit=&after=` (opaque cursor), response carries
   `next_after: string | null`.
+- **There is no `DELETE /v1/outputs/{id}`.** Retention collects unpromoted rows
+  and a promoted one is provenance for a source that exists forever, so nothing
+  is left for a manual delete to accomplish — and no scope fits it:
+  `knowledge:propose` would let anything that can write a proposal erase the
+  record of an answer, while `admin` is credential-level authority for a routine
+  tidy-up. Likewise no `DELETE .../schedules`: the PUT is a replace, and an
+  empty `schedules` array is how an operator turns everything off.
+- **`POST .../query` writes an output row under `knowledge:read`.** That is the
+  existing audit-ledger precedent (`wk_agent_runs` and `wk_concept_reads` are
+  both written under read scope), not a new liberty: what a read may not change
+  is KNOWLEDGE, and an output is a record of what was produced. Promoting it
+  back is the separate act, under `knowledge:propose`.
+- **Backpressure, not a silent queue.** Enqueue refuses with
+  `429 ingest_queue_full` once a space has `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`
+  jobs waiting (`queued` + `quota_blocked`; `running` is excluded, since those
+  are draining now and counting them would make the ceiling wobble with the
+  worker's pace). The check sits AFTER the content-hash pre-check, so a
+  re-submission still gets the precise `already_ingested` answer with its
+  `source_id` rather than a vaguer refusal for a call that would never have
+  queued anything.
 
 ### 5.3 HTTP zod schema module (`src/http/schemas.ts`) — layout contract
 
@@ -1561,6 +1757,7 @@ wikikit.ingest.failed
 wikikit.source.tombstoned
 wikikit.proposal.split
 wikikit.proposal.changes_requested
+wikikit.health.reported
 ```
 
 ### 6.2 Delivery envelope
@@ -1591,6 +1788,18 @@ Body (`zWebhookEnvelope`):
 | `wikikit.source.tombstoned`          | `{ space, external_source_id, stream_id, source_id: string \| null }`                                                                                                      |
 | `wikikit.proposal.split`             | `{ space, parent_id, parent_status: 'split' \| 'pending', children: [{ proposal_id, concepts: string[] }], reviewer }`                                                     |
 | `wikikit.proposal.changes_requested` | rejected shape `\|\| { changes_requested: true }`                                                                                                                          |
+| `wikikit.health.reported`            | `{ space, output_id, findings: { error, warn, info }, pending_proposals, oldest_pending_days: number \| null }`                                                            |
+
+`wikikit.health.reported` fires when the scheduler's `health` run commits — the
+Output row and the outbox event are written in ONE transaction, so no consumer
+is told about a report that is not there to read. It carries the summary an
+alerting rule branches on ("page me when errors > 0, or when the oldest pending
+change passes two weeks") and deliberately not the report: that is kilobytes of
+markdown behind `output_id`, and a payload holding a full document is a payload
+nobody can version. `oldest_pending_days` is null exactly when
+`pending_proposals` is 0, never 0. **WikiKit sends no mail** — there is no SMTP
+in a single binary — so delivery is this event plus the Output; an installation
+that wants a morning message hangs a consumer off the webhook.
 
 Delivery worker: poll `wk_outbox_events` where `dispatched_at IS NULL`, fan out
 one `wk_webhook_deliveries` row per matching active endpoint, exponential
@@ -1812,6 +2021,9 @@ audience they are written for.
 | `wikikit_propose`         | knowledge:propose | structured proposal: `{ space: string } & zCreateProposalRequest`                                                                    | `{ proposal_id, status: 'pending' }`                                                                                                                                                                                                                                                                                                | `false`  | `true`      | `true`     | `false`   |
 | `wikikit_proposals`       | knowledge:review  | `{ space: string, proposal_id?: uuid, status?: ProposalStatus, limit?: 1-200 }`                                                      | summaries, or one complete public proposal diff including staged decisions and relations added/removed                                                                                                                                                                                                                              | `true`   | `false`     | `true`     | `false`   |
 | `wikikit_review_proposal` | knowledge:review  | `{ proposal_id: uuid }` only; decision + optional note are human form fields; `decision`/`note` as input → `approval_requires_human` | accepted: approved/rejected result with `review_channel:'mcp_elicitation'`; declined/cancelled: `{ proposal_id, outcome, mutation_applied:false }`; no form capability: `{ proposal_id, status:'pending', outcome:'human_review_required', review_url, mutation_applied:false, poll_with:'wikikit_proposals', agent_instructions }` | `false`  | `true`      | `false`    | `false`   |
+| `wikikit_outputs`         | knowledge:read    | `{ space: string, output_id?: uuid, kind?: 'answer'\|'briefing'\|'health', limit?: 1-100, cursor?: string }` (omit output_id → list) | one `Output` (§1.13a), else `{ items: Output[], next_before }` — full markdown per row                                                                                                                                                                                                                                              | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_health`          | knowledge:read    | `{ space: string, from?: ISO, to?: ISO, top?: 1-25 }`                                                                                | `SpaceHealth` (§4) — lint findings + severity census, coverage, review queue with the age of the oldest, live ingest queue                                                                                                                                                                                                          | `true`   | `false`     | `true`     | `false`   |
+| `wikikit_promote_output`  | knowledge:propose | `{ space: string, output_id: uuid }` — `space` required beside the globally unique id so the key/space match stays checkable         | `{ status: 'running', ingest_id, poll_with: 'wikikit_ingest_status' }` (async ack — the ordinary pipeline, ending in a proposal a human approves)                                                                                                                                                                                   | `false`  | `true`      | `true`     | `false`   |
 
 Annotation rationale (do not change silently): writes are `destructiveHint: true`
 per the hard-won MCP rule ("never destructiveHint:false on real writes") even though
@@ -1819,7 +2031,19 @@ they only stage content — an honest write is a write. `idempotentHint: true` o
 `wikikit_ingest` (content-hash dedup) and `wikikit_propose` (pending
 `input_hash` unique index) because retrying with identical input converges on
 the same row. `openWorldHint: true` only on `wikikit_ingest` (a `url` input
-fetches an external host).
+fetches an external host) — `wikikit_promote_output` is the deliberate contrast:
+it writes and creates review work, so `destructiveHint: true`, but the markdown
+is already in the database and no host is contacted, so `openWorldHint: false`.
+Its `idempotentHint: true` is real: re-promotion returns the original ingest
+job, and the deterministic rendering converges on one source either way.
+
+There are deliberately **no schedule tools**. Recurring maintenance is
+installation configuration, and the palette already declines to carry
+api-keys/webhooks/spaces administration for the same reason; an agent that needs
+it drives `PUT /v1/spaces/{space}/schedules` with an `admin` credential a human
+issued. `/query` likewise stays REST-only — agents _read_ what it produced
+through `wikikit_outputs`. MCP hosts cache the scanned tool contract: after a
+release that adds tools, rescan or reconnect.
 
 ### 7.2 Error adapter (`src/mcp/error-adapter.ts`)
 
@@ -1865,9 +2089,22 @@ export function toToolError(
 | `elicitation_failed` (client/transport failed before a valid human decision)                       | 502  | `ElicitationFailedError`          |
 | `body_too_large`                                                                                   | 413  | `PayloadTooLargeError`            |
 | `rate_limited`                                                                                     | 429  | `RateLimitError`                  |
+| `ingest_queue_full` (envelope carries `queued` + `limit`; nothing was queued)                      | 429  | `IngestQueueFullError`            |
 | `internal_error` (message NEVER leaks internals)                                                   | 500  | anything unrecognized             |
 | `llm_not_configured` (`next_best_actions: ["set <the selected provider's key> and restart", ...]`) | 503  | `LlmNotConfiguredError`           |
 | `draining`                                                                                         | 503  | shutdown state                    |
+
+`ingest_queue_full` shares its status with `rate_limited` and is deliberately a
+separate code. Rate limiting is about request FREQUENCY and its remedy is "wait
+and retry the same call"; here the request was perfectly paced and what is full
+is the work queue, whose remedies differ in kind — let it drain, or clear the
+review backlog holding it up. A client that treats this as a rate limit retries
+in a loop and learns nothing. The refusal exists because fifty dropped files
+cost fifty classify calls plus a synthesis call per affected page and land as
+fifty proposals a human has to review: a queue that silently accepts all of it
+looks exactly like one that is keeping up, right until the backlog is
+unclearable. `queued` and `limit` ride in the envelope so a bulk uploader can
+report "37 of your 50 files were accepted" without a second round trip.
 
 ---
 
@@ -1938,60 +2175,73 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 
 ## 10. Environment variables (must stay in lockstep with `src/config.ts`, `docs/CONFIGURATION.md`, `docs/llms-full.txt` — drift-tested)
 
-| Variable                                         | Default                                                            | Notes                                                       |
-| ------------------------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `HOST`                                           | `127.0.0.1`                                                        |                                                             |
-| `PORT`                                           | `4060`                                                             |                                                             |
-| `WIKIKIT_PUBLIC_URL`                             | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production     |
-| `DATABASE_URL`                                   | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                  |
-| `WIKIKIT_KEY_PEPPER`                             | dev: `wikikit-local-key-pepper`                                    | **required in production**                                  |
-| `WIKIKIT_BOOTSTRAP_API_KEY`                      | `` (dev: generated + printed once at boot)                         |                                                             |
-| `DEPLOYMENT_ENVIRONMENT`                         | `development`                                                      | `production` in the production service                      |
-| `WIKIKIT_LLM_PROVIDER`                           | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails   |
-| `ANTHROPIC_API_KEY`                              | `` — no default anywhere                                           | read when provider is `anthropic`                           |
-| `OPENAI_API_KEY`                                 | `` — no default anywhere                                           | read when provider is `openai`                              |
-| `GOOGLE_GENERATIVE_AI_API_KEY`                   | `` — no default anywhere                                           | read when provider is `google`                              |
-| `ANTHROPIC_BASE_URL`                             | ``                                                                 | honored when provider is `anthropic`; test stub target      |
-| `WIKIKIT_MODEL_SYNTHESIS`                        | `claude-sonnet-5`                                                  |                                                             |
-| `WIKIKIT_MODEL_CLASSIFY`                         | `claude-haiku-4-5`                                                 |                                                             |
-| `WIKIKIT_MODEL_ANSWER`                           | `claude-sonnet-5`                                                  |                                                             |
-| `WIKIKIT_EMBEDDING_PROVIDER`                     | `none`                                                             | `none` \| `openai` \| `google`; hybrid ranker opt-in        |
-| `WIKIKIT_MODEL_EMBEDDING`                        | `text-embedding-3-small`                                           | must be 1536-dim (google default: `gemini-embedding-001`)   |
-| `WIKIKIT_MAX_BODY_BYTES`                         | `10485760`                                                         | 1 KiB – 250 MiB                                             |
-| `WIKIKIT_MAX_INGEST_TOKENS`                      | `100000`                                                           | chunking threshold                                          |
-| `WIKIKIT_INGEST_CONCURRENCY`                     | `2`                                                                | 1–16                                                        |
-| `WIKIKIT_INGEST_LEASE_MS`                        | `900000`                                                           | 10 s–24 h                                                   |
-| `WIKIKIT_INGEST_HEARTBEAT_MS`                    | `30000`                                                            | 1 s–1 h; less than half the lease                           |
-| `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `5400000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)          |
-| `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                             |
-| `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | `10000`                                                            |                                                             |
-| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | `10`                                                               |                                                             |
-| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`              | `5`                                                                |                                                             |
-| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`                  | `!production`                                                      | SSRF guard                                                  |
-| `WIKIKIT_TRUST_PROXY`                            | `false`                                                            |                                                             |
-| `WIKIKIT_MCP_SESSION_TTL_MS`                     | `1800000` (30 min)                                                 |                                                             |
-| `WIKIKIT_MCP_MAX_SESSIONS`                       | `200`                                                              |                                                             |
-| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`             | `300000` (5 min)                                                   | 10 s–30 min; no mutation after timeout                      |
-| `WIKIKIT_USAGE_TELEMETRY_ENABLED`                | `false`                                                            | opt-in privacy-bounded usage ledger                         |
-| `WIKIKIT_USAGE_HMAC_SECRET`                      | ``                                                                 | required when telemetry is enabled; do not reuse key pepper |
-| `WIKIKIT_USAGE_RETENTION_DAYS`                   | `90`                                                               | 31–365 days                                                 |
-| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED`            | `false`                                                            | opt-in gap-topic lexemes; never stores question text        |
-| `WIKIKIT_SCAFFOLDING_KINDS`                      | (unset)                                                            | extra structure markers; `structural-reference` is built in |
-| `WIKIKIT_OAUTH_DCR_ENABLED`                      | `true`                                                             | RFC 7591 remote-client registration                         |
-| `WIKIKIT_OAUTH_CODE_TTL_MS`                      | `600000` (10 min)                                                  | 1–15 min                                                    |
-| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`              | `3600000` (1 h)                                                    | 5 min–24 h                                                  |
-| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`             | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                    |
-| `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` | `86400000` (24 h)                                                  | 8 h–30 d; floor is the 8 h idle window; stamped at mint     |
-| `WIKIKIT_OAUTH_ALLOWED_SCOPES`                   | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                     |
-| `WIKIKIT_OAUTH_ENABLE_SIGNUP`                    | `false`                                                            | auto-admit unknown OIDC identities at `knowledge:read`      |
-| `WIKIKIT_OAUTH_PROVIDERS`                        | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS     |
-| `LOG_LEVEL`                                      | `info`                                                             | debug/info/warn/error                                       |
-| `NODE_ENV`                                       | —                                                                  | `production` activates guards + disables `.env.defaults`    |
+| Variable                                         | Default                                                            | Notes                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------ | -------------------------------------------------------------- |
+| `HOST`                                           | `127.0.0.1`                                                        |                                                                |
+| `PORT`                                           | `4060`                                                             |                                                                |
+| `WIKIKIT_PUBLIC_URL`                             | `http://127.0.0.1:4060`                                            | OAuth issuer/resource + MCP origin; HTTPS in production        |
+| `DATABASE_URL`                                   | dev: `postgresql://postgres:wikikit-local@127.0.0.1:55442/wikikit` | **required in production**                                     |
+| `WIKIKIT_KEY_PEPPER`                             | dev: `wikikit-local-key-pepper`                                    | **required in production**                                     |
+| `WIKIKIT_BOOTSTRAP_API_KEY`                      | `` (dev: generated + printed once at boot)                         |                                                                |
+| `DEPLOYMENT_ENVIRONMENT`                         | `development`                                                      | `production` in the production service                         |
+| `WIKIKIT_LLM_PROVIDER`                           | `anthropic`                                                        | `anthropic` \| `openai` \| `google`; invalid → boot fails      |
+| `ANTHROPIC_API_KEY`                              | `` — no default anywhere                                           | read when provider is `anthropic`                              |
+| `OPENAI_API_KEY`                                 | `` — no default anywhere                                           | read when provider is `openai`                                 |
+| `GOOGLE_GENERATIVE_AI_API_KEY`                   | `` — no default anywhere                                           | read when provider is `google`                                 |
+| `ANTHROPIC_BASE_URL`                             | ``                                                                 | honored when provider is `anthropic`; test stub target         |
+| `WIKIKIT_MODEL_SYNTHESIS`                        | `claude-sonnet-5`                                                  |                                                                |
+| `WIKIKIT_MODEL_CLASSIFY`                         | `claude-haiku-4-5`                                                 |                                                                |
+| `WIKIKIT_MODEL_ANSWER`                           | `claude-sonnet-5`                                                  |                                                                |
+| `WIKIKIT_EMBEDDING_PROVIDER`                     | `none`                                                             | `none` \| `openai` \| `google`; hybrid ranker opt-in           |
+| `WIKIKIT_MODEL_EMBEDDING`                        | `text-embedding-3-small`                                           | must be 1536-dim (google default: `gemini-embedding-001`)      |
+| `WIKIKIT_MAX_BODY_BYTES`                         | `10485760`                                                         | 1 KiB – 250 MiB                                                |
+| `WIKIKIT_MAX_INGEST_TOKENS`                      | `100000`                                                           | chunking threshold                                             |
+| `WIKIKIT_INGEST_CONCURRENCY`                     | `2`                                                                | 1–16                                                           |
+| `WIKIKIT_INGEST_LEASE_MS`                        | `900000`                                                           | 10 s–24 h                                                      |
+| `WIKIKIT_INGEST_HEARTBEAT_MS`                    | `30000`                                                            | 1 s–1 h; less than half the lease                              |
+| `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `5400000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)             |
+| `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`            | `200`                                                              | 1–100000; waiting jobs per space, then 429 `ingest_queue_full` |
+| `WIKIKIT_OUTPUT_RETENTION_DAYS`                  | `365`                                                              | 0–3650; `0` keeps forever; UNPROMOTED outputs only             |
+| `WIKIKIT_SCHEDULER_ENABLED`                      | `true`                                                             | in-process briefing/health worker; off leaves rows armed       |
+| `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                                |
+| `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | `10000`                                                            |                                                                |
+| `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | `10`                                                               |                                                                |
+| `WIKIKIT_WEBHOOK_CIRCUIT_THRESHOLD`              | `5`                                                                |                                                                |
+| `WIKIKIT_WEBHOOK_ALLOW_PRIVATE`                  | `!production`                                                      | SSRF guard                                                     |
+| `WIKIKIT_TRUST_PROXY`                            | `false`                                                            |                                                                |
+| `WIKIKIT_MCP_SESSION_TTL_MS`                     | `1800000` (30 min)                                                 |                                                                |
+| `WIKIKIT_MCP_MAX_SESSIONS`                       | `200`                                                              |                                                                |
+| `WIKIKIT_MCP_ELICITATION_TIMEOUT_MS`             | `300000` (5 min)                                                   | 10 s–30 min; no mutation after timeout                         |
+| `WIKIKIT_USAGE_TELEMETRY_ENABLED`                | `false`                                                            | opt-in privacy-bounded usage ledger                            |
+| `WIKIKIT_USAGE_HMAC_SECRET`                      | ``                                                                 | required when telemetry is enabled; do not reuse key pepper    |
+| `WIKIKIT_USAGE_RETENTION_DAYS`                   | `90`                                                               | 31–365 days                                                    |
+| `WIKIKIT_COVERAGE_GAP_TOPICS_ENABLED`            | `false`                                                            | opt-in gap-topic lexemes; never stores question text           |
+| `WIKIKIT_SCAFFOLDING_KINDS`                      | (unset)                                                            | extra structure markers; `structural-reference` is built in    |
+| `WIKIKIT_OAUTH_DCR_ENABLED`                      | `true`                                                             | RFC 7591 remote-client registration                            |
+| `WIKIKIT_OAUTH_CODE_TTL_MS`                      | `600000` (10 min)                                                  | 1–15 min                                                       |
+| `WIKIKIT_OAUTH_ACCESS_TOKEN_TTL_MS`              | `3600000` (1 h)                                                    | 5 min–24 h                                                     |
+| `WIKIKIT_OAUTH_REFRESH_TOKEN_TTL_MS`             | `2592000000` (30 d)                                                | 1 h–90 d; rotated on use                                       |
+| `WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS` | `86400000` (24 h)                                                  | 8 h–30 d; floor is the 8 h idle window; stamped at mint        |
+| `WIKIKIT_OAUTH_ALLOWED_SCOPES`                   | `knowledge:read,knowledge:propose`                                 | interactive identity permission ceiling                        |
+| `WIKIKIT_OAUTH_ENABLE_SIGNUP`                    | `false`                                                            | auto-admit unknown OIDC identities at `knowledge:read`         |
+| `WIKIKIT_OAUTH_PROVIDERS`                        | API-key record                                                     | provider-neutral JSON list; external adapters use HTTPS        |
+| `LOG_LEVEL`                                      | `info`                                                             | debug/info/warn/error                                          |
+| `NODE_ENV`                                       | —                                                                  | `production` activates guards + disables `.env.defaults`       |
 
 Only the key matching `WIKIKIT_LLM_PROVIDER` gates the LLM: absent → ingest and
 query answer 503 `llm_not_configured`, naming **that** provider's key, while
 every LLM-free feature keeps working. `NODE_ENV` is read from the process environment only and so has no row in
 `.env.example`.
+
+`WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` and `WIKIKIT_OUTPUT_RETENTION_DAYS` are
+optional on `Config` only because unit tests build one by hand; an absent field
+falls back to the shipped constant (`DEFAULT_INGEST_MAX_QUEUED_PER_SPACE`,
+`DEFAULT_OUTPUT_RETENTION_DAYS` in `src/config.ts`), never to "no ceiling" or
+"keep forever" — a guard that disappears when a field is missing is not a guard.
+There is no spelling for an unlimited queue: the floor is 1, because a
+deployment that wants more work in flight should say how much more. Retention's
+floor IS 0, and 0 means keep forever — `cleanupOutputs` refuses to compute a
+zero-day window, so it can never be read as "delete everything".
 
 ---
 
@@ -2005,6 +2255,8 @@ export interface App {
   state: { draining: boolean }
   outbox: OutboxWorker
   ingest: IngestPipeline
+  scheduler: Scheduler // §1.13b; awaited by the drain like the ingest worker
+  retention: RetentionSweeper // hourly wk_outputs sweep, on its own timer
   database: Database
 }
 export function start(config?: Config): Promise<App> // runMigrations → createApp → listen → workers

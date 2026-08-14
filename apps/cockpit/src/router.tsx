@@ -68,6 +68,31 @@ const homeRoute = createRoute({
   path: '/',
   component: lazyRouteComponent(() => import('@/pages/home'), 'HomePage'),
 })
+/**
+ * The four named places of the loop, in the order the sidebar reads them.
+ * `/answers/$id` is a detail route under its index, like `/pages/$slug`: an
+ * answer somebody wants a second opinion on is a link you can send.
+ */
+const inboxRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/inbox',
+  component: lazyRouteComponent(() => import('@/pages/inbox'), 'InboxPage'),
+})
+const answersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/answers',
+  component: lazyRouteComponent(() => import('@/pages/answers'), 'AnswersPage'),
+})
+const answerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/answers/$id',
+  component: lazyRouteComponent(() => import('@/pages/answer'), 'AnswerPage'),
+})
+const careRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/care',
+  component: lazyRouteComponent(() => import('@/pages/care'), 'CarePage'),
+})
 const pagesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/pages',
@@ -164,6 +189,7 @@ const systemRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
+  inboxRoute,
   pagesRoute,
   // Before the $slug route: '/pages/new' would otherwise resolve as a page
   // whose slug is the word "new".
@@ -172,6 +198,9 @@ const routeTree = rootRoute.addChildren([
   pageEditRoute,
   changesRoute,
   changeRoute,
+  answersRoute,
+  answerRoute,
+  careRoute,
   sourcesRoute,
   sourceRoute,
   decisionsRoute,

@@ -34,7 +34,9 @@ import {
   NotFoundError,
 } from '../domain/errors.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
+import { spaceHealth } from '../domain/health.ts'
 import { lintSpace } from '../domain/lint.ts'
+import { getOutput, listOutputs, promoteOutput } from '../domain/outputs.ts'
 import {
   approveProposal,
   createProposal,
@@ -218,6 +220,36 @@ export const zDecisionsToolInput = z.object({
 export const zHistoryToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
 export const zLintToolInput = z.object({ space: zSpaceSlug })
+
+/** No output_id → the newest page of outputs; output_id → that one output. */
+export const zOutputsToolInput = z.object({
+  space: zSpaceSlug,
+  output_id: z.uuid().optional().describe('Output id — omit to list this space’s outputs newest-first'),
+  kind: z
+    .enum(['answer', 'briefing', 'health'])
+    .optional()
+    .describe('Restrict the list to one kind of output (ignored when output_id is set)'),
+  limit: z.number().int().min(1).max(100).optional().describe('Max outputs when output_id is omitted (default 25)'),
+  cursor: z.string().max(500).optional().describe('Opaque next_before cursor from a previous page'),
+})
+
+export const zHealthToolInput = z.object({
+  space: zSpaceSlug,
+  from: z.iso.datetime().optional().describe('Window start (ISO 8601); default 30 days before `to`'),
+  to: z.iso.datetime().optional().describe('Window end (ISO 8601); default now'),
+  top: z.number().int().min(1).max(25).optional().describe('How many hub pages and gap topics to list (default 5)'),
+})
+
+/**
+ * `space` is required beside the id even though the id is globally unique: it is
+ * what makes the key/space match checkable for a key that is NOT space-scoped —
+ * without it, a global key could promote inside a wiki the caller never named,
+ * which for a write that creates review work is the wrong default.
+ */
+export const zPromoteOutputToolInput = z.object({
+  space: zSpaceSlug,
+  output_id: z.uuid().describe('Output to promote — from wikikit_outputs'),
+})
 
 export const zCharterToolInput = z.object({
   space: zSpaceSlug,
@@ -956,6 +988,99 @@ export const TOOLS: McpToolDef[] = [
         return approveProposal(deps.db, common)
       }
       return rejectProposal(deps.db, common)
+    },
+  },
+  {
+    name: 'wikikit_outputs',
+    description:
+      'Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. ' +
+      'Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single ' +
+      'output whole. Reach for this before asking a question the wiki may already have answered, to see whether a ' +
+      'good answer is already waiting to be filed back into the knowledge base, and to find the output_id ' +
+      'wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts ' +
+      'as evidence only once a human has approved its promotion.',
+    scope: 'knowledge:read',
+    inputSchema: zOutputsToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zOutputsToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      if (args.output_id) {
+        // Global-by-id (⚠ §4) like wikikit_ingest_status: the row carries its
+        // space and this layer enforces the match against the space the caller
+        // named — an id from another wiki is a 403, not a silent read.
+        const output = await getOutput(deps.db, args.output_id)
+        if (output.space_id !== space.id) throw new ForbiddenError('output belongs to a different space')
+        return output
+      }
+      return listOutputs(deps.db, space.id, { kind: args.kind, limit: args.limit, before: args.cursor })
+    },
+  },
+  {
+    name: 'wikikit_health',
+    description:
+      'One LLM-free read answering "how is this wiki doing": every lint finding (contradictions, uncited claims, ' +
+      'stale claims, orphans, pages resting only on the wiki’s own answers) with a severity census, the coverage ' +
+      'block (open disputes, review latency, freshness, most-read and most-linked pages, unanswered-question topics), ' +
+      'and the two live queues — changes waiting for a human WITH the age of the oldest, and ingest work still in ' +
+      'flight. Use this when asked to check a space for contradictions and gaps, or before a maintenance pass, ' +
+      'instead of chaining wikikit_lint with the stats routes. It reports numbers and never a verdict: what counts ' +
+      'as too many pending changes is the operator’s policy, not WikiKit’s.',
+    scope: 'knowledge:read',
+    inputSchema: zHealthToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      const args = zHealthToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      // The same function and the same installation inputs the REST route and the
+      // scheduler pass — three surfaces, one set of numbers.
+      return spaceHealth(
+        deps.db,
+        space.id,
+        { from: args.from, to: args.to, top: args.top },
+        {
+          scaffoldingKinds: deps.config.scaffoldingKinds,
+          gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,
+        },
+      )
+    },
+  },
+  {
+    name: 'wikikit_promote_output',
+    description:
+      'File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the ' +
+      'wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding ' +
+      'guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. ' +
+      'Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct ' +
+      'and worth keeping; do not promote routinely or in bulk, because every promotion creates review work, and an ' +
+      'answer that only cites the wiki adds no outside evidence (the self-derived-only lint rule reports pages that ' +
+      'end up resting on nothing else). Promoting the same output twice is safe: it returns the first job.',
+    scope: 'knowledge:propose',
+    inputSchema: zPromoteOutputToolInput,
+    annotations: {
+      readOnlyHint: false,
+      // A real write that creates review work (§7.1 hard rule) — a host must ask.
+      destructiveHint: true,
+      // Re-promotion returns the original ingest job, and the deterministic
+      // rendering means identical content converges on one source either way.
+      idempotentHint: true,
+      // FALSE, unlike wikikit_ingest: the markdown is already in the database, so
+      // no host is fetched. The only outbound traffic promotion can cause is the
+      // synthesis the pipeline would run for any source.
+      openWorldHint: false,
+    },
+    async execute(deps, principal, input) {
+      const args = zPromoteOutputToolInput.parse(input)
+      const space = await resolveSpace(deps.db, principal, args.space)
+      // Authorize against the row's own space before writing anything; the
+      // enqueue inside promoteOutput raises llm_not_configured on a keyless
+      // deployment exactly as wikikit_ingest does.
+      const output = await getOutput(deps.db, args.output_id)
+      if (output.space_id !== space.id) throw new ForbiddenError('output belongs to a different space')
+      const { ingest_id } = await promoteOutput(deps.db, { ingest: deps.ingest }, output.id)
+      // Async-ack contract (§7.1): the pipeline runs LLM calls, so the tool
+      // returns the handle and never waits.
+      return { status: 'running' as const, ingest_id, poll_with: 'wikikit_ingest_status' as const }
     },
   },
 ]

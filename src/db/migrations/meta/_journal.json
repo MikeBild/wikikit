@@ -217,6 +217,18 @@
       "tag": "0035_wk_ingest_progress",
       "when": 1785034800000,
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "tag": "0036_wk_outputs",
+      "when": 1785038400000,
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "tag": "0037_wk_schedules",
+      "when": 1785042000000,
+      "breakpoints": true
     }
   ]
 }

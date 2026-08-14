@@ -43,6 +43,12 @@ const READ_TOOLS = [
   'wikikit_charter',
   'wikikit_charter_history',
   'wikikit_deleted_concepts',
+  // What the wiki PRODUCED (answers, briefings, care reports) and the composed
+  // maintenance read. Both are knowledge:read: they write nothing, and the
+  // health surface is lint + coverage + the two queues in one call so an agent
+  // asked "check for contradictions and gaps" does not chain two tools.
+  'wikikit_outputs',
+  'wikikit_health',
 ]
 // Charter mutations are admin-scoped (human-owned configuration, not knowledge).
 const ADMIN_TOOLS = ['wikikit_charter_set', 'wikikit_charter_delete']
@@ -52,6 +58,10 @@ const PROPOSE_TOOLS = [
   'wikikit_ingest',
   'wikikit_ingest_status',
   'wikikit_propose',
+  // Filing an answer back into the wiki stages review work, so it sits with the
+  // proposing tools and not with the reading ones — the promotion itself is
+  // ordinary ingest, and a human still decides.
+  'wikikit_promote_output',
 ]
 const REVIEW_TOOLS = ['wikikit_proposals', 'wikikit_review_proposal']
 
@@ -150,6 +160,15 @@ describe('tool palette shape (binding contract §7.1)', () => {
       openWorldHint: false,
     })
     expect(byName.wikikit_proposals).toEqual(read)
+    // destructive because it creates REVIEW WORK, openWorld false because —
+    // unlike wikikit_ingest — promotion fetches nothing: the text is already in
+    // the database.
+    expect(byName.wikikit_promote_output).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    })
     expect(byName.wikikit_review_proposal).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
@@ -169,12 +188,12 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(18)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(21)
     expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     // admin implies knowledge scopes (§5.2) AND is the direct scope of the charter mutations.
-    expect(visibleTools(['admin'])).toHaveLength(22)
-    expect(visibleTools(['*'])).toHaveLength(22)
+    expect(visibleTools(['admin'])).toHaveLength(25)
+    expect(visibleTools(['*'])).toHaveLength(25)
     expect(visibleTools([])).toHaveLength(0)
   })
 

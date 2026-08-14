@@ -10,12 +10,18 @@ const EN = {
   'app.name': 'WikiKit',
   'nav.label': 'Cockpit navigation',
   'nav.home': 'Home',
+  'nav.inbox': 'Inbox',
   'nav.pages': 'Pages',
   'nav.changes': 'Changes',
+  'nav.answers': 'Answers',
+  'nav.care': 'Care',
   'nav.sources': 'Sources',
   'nav.decisions': 'Decisions',
   'nav.search': 'Search',
-  'nav.charter': 'Charter',
+  // "Guidelines" in the interface, `charter` in every route, tool, table and
+  // doc anchor a machine reads — renaming the API would break contracts for no
+  // gain, so the rename stops at the words on screen.
+  'nav.charter': 'Guidelines',
   'nav.spaces': 'Wikis',
   'nav.apiKeys': 'API keys',
   'nav.identities': 'People',
@@ -23,6 +29,7 @@ const EN = {
   'nav.system': 'System',
   'nav.group.home': 'Home',
   'nav.group.wiki': 'Wiki',
+  'nav.group.archive': 'Archive & control',
   'nav.group.installation': 'Installation',
   'space.fallback': 'Wiki',
   'space.choose': 'Choose a wiki',
@@ -76,9 +83,16 @@ const EN = {
   'pagination.loading': 'loading…',
   'pagination.previous': 'Previous',
   'pagination.next': 'Next',
-  'page.home.description': 'The current state of this wiki at a glance.',
+  'page.home.description':
+    'The loop this wiki turns on: something arrives, a person decides it, a reader asks, and what the asking exposes gets maintained.',
+  'page.inbox.description':
+    'Everything lands here: drop documents, paste addresses, and watch what still needs a decision.',
   'page.pages.description': 'Published knowledge, its history and proposed edits.',
   'page.changes.description': 'Review proposed changes before they become published knowledge.',
+  'page.answers.description':
+    'Every answer, briefing and care report this wiki has produced — and which of them were filed back into it.',
+  'page.care.description':
+    'What this wiki needs: what is waiting for a decision, what the linter found, and where its knowledge is thin.',
   'page.sources.description': 'Documents and streams that provide evidence for this wiki.',
   'page.decisions.description': 'Recorded decisions and the evidence behind them.',
   'page.search.description': 'Find knowledge and ask questions across this wiki.',
@@ -87,7 +101,8 @@ const EN = {
   'page.apiKeys.description': 'Machine credentials and their effective permissions.',
   'page.identities.description': 'People who can sign in and their permission ceilings.',
   'page.webhooks.description': 'Destinations that receive WikiKit events.',
-  'page.system.description': 'Installation health, knowledge quality and activity.',
+  'page.system.description':
+    'Which build is serving, whether it is taking traffic, and what the endpoints have been doing.',
   'pages.empty.filtered.one': 'This wiki has {count} page loaded; none changed {window}.',
   'pages.empty.filtered.many': 'This wiki has {count} pages loaded; none changed {window}.',
   'system.tab.overview': 'Overview',
@@ -107,8 +122,11 @@ const DE: Record<TranslationKey, string> = {
   'app.name': 'WikiKit',
   'nav.label': 'Cockpit-Navigation',
   'nav.home': 'Start',
+  'nav.inbox': 'Eingang',
   'nav.pages': 'Seiten',
   'nav.changes': 'Änderungen',
+  'nav.answers': 'Antworten',
+  'nav.care': 'Pflege',
   'nav.sources': 'Quellen',
   'nav.decisions': 'Entscheidungen',
   'nav.search': 'Suche',
@@ -120,6 +138,7 @@ const DE: Record<TranslationKey, string> = {
   'nav.system': 'System',
   'nav.group.home': 'Start',
   'nav.group.wiki': 'Wiki',
+  'nav.group.archive': 'Archiv & Steuerung',
   'nav.group.installation': 'Installation',
   'space.fallback': 'Wiki',
   'space.choose': 'Wiki auswählen',
@@ -173,9 +192,16 @@ const DE: Record<TranslationKey, string> = {
   'pagination.loading': 'wird geladen…',
   'pagination.previous': 'Zurück',
   'pagination.next': 'Weiter',
-  'page.home.description': 'Der aktuelle Zustand dieses Wikis auf einen Blick.',
+  'page.home.description':
+    'Der Kreislauf dieses Wikis: Etwas kommt an, eine Person entscheidet darüber, jemand fragt nach, und was dabei auffällt wird gepflegt.',
+  'page.inbox.description':
+    'Hier landet alles: Dokumente ablegen, Adressen einfügen und verfolgen, was noch eine Entscheidung braucht.',
   'page.pages.description': 'Veröffentlichtes Wissen, sein Verlauf und vorgeschlagene Änderungen.',
   'page.changes.description': 'Vorgeschlagene Änderungen prüfen, bevor sie veröffentlicht werden.',
+  'page.answers.description':
+    'Alle Antworten, Kurzberichte und Pflegeberichte dieses Wikis – und welche davon zurück ins Wiki übernommen wurden.',
+  'page.care.description':
+    'Was dieses Wiki braucht: was auf eine Entscheidung wartet, was die Prüfung gefunden hat und wo Nachweise fehlen.',
   'page.sources.description': 'Dokumente und Datenströme, die Nachweise für dieses Wiki liefern.',
   'page.decisions.description': 'Dokumentierte Entscheidungen und die zugehörigen Nachweise.',
   'page.search.description': 'Wissen in diesem Wiki finden und Fragen dazu stellen.',
@@ -184,7 +210,7 @@ const DE: Record<TranslationKey, string> = {
   'page.apiKeys.description': 'Maschinenzugänge und ihre wirksamen Berechtigungen.',
   'page.identities.description': 'Personen mit Zugang und ihre Berechtigungsgrenzen.',
   'page.webhooks.description': 'Ziele, die WikiKit-Ereignisse empfangen.',
-  'page.system.description': 'Installationszustand, Wissensqualität und Aktivität.',
+  'page.system.description': 'Ausgelieferter Build, Bereitschaft und Endpunktaktivität.',
   'pages.empty.filtered.one': 'Dieses Wiki enthält {count} geladene Seite; sie wurde {window} nicht geändert.',
   'pages.empty.filtered.many': 'Dieses Wiki enthält {count} geladene Seiten; keine davon wurde {window} geändert.',
   'system.tab.overview': 'Übersicht',
@@ -1085,6 +1111,211 @@ export const DE_PHRASES = {
     '– mit der oben gewählten, die bei ihrer nächsten Anfrage in Kraft tritt.',
   '”. It becomes part of the wiki only when a reviewer holding knowledge:approve approves it.':
     'Es wird nur dann Teil des Wikis, wenn ein Prüfer, der über Knowledge:Approve verfügt, es genehmigt.',
+  'About adding documents': 'Informationen zum Hinzufügen von Dokumenten',
+  'Every item becomes its own archived source and its own change, so one unreadable file never takes the rest of a drop with it. Nothing here is visible knowledge until somebody approves the change it raises.':
+    'Jedes Element wird zu einer eigenen archivierten Quelle und einer eigenen Änderung; eine unlesbare Datei reißt die übrigen nicht mit. Nichts davon ist sichtbares Wissen, bevor die erzeugte Änderung freigegeben wurde.',
+  'Throw something in': 'Etwas einwerfen',
+  'Drop documents here': 'Dokumente hier ablegen',
+  'pdf, docx, xlsx, md, txt, csv — one job per file.': 'pdf, docx, xlsx, md, txt, csv — ein Auftrag pro Datei.',
+  'Choose files': 'Dateien auswählen',
+  'Some files were not sent': 'Einige Dateien wurden nicht gesendet',
+  'Paste addresses, one per line': 'Adressen einfügen, eine pro Zeile',
+  'Lines that are not http:// or https:// addresses are ignored:':
+    'Zeilen ohne http:// oder https:// Adresse werden ignoriert:',
+  'Fetch these pages': 'Diese Seiten abrufen',
+  'Throw in a note or a document': 'Eine Notiz oder ein Dokument einwerfen',
+  'A meeting note, an email, a transcript, a Markdown page.':
+    'Eine Besprechungsnotiz, eine E-Mail, ein Transkript, eine Markdown-Seite.',
+  'Add this document': 'Dieses Dokument hinzufügen',
+  'Still needs your decision': 'Wartet noch auf eine Entscheidung',
+  'What arrived became pages. None of them is visible knowledge until a person approves it.':
+    'Aus dem Eingegangenen wurden Seiten. Keine davon ist sichtbares Wissen, bevor eine Person sie freigibt.',
+  'Every change this wiki has raised has been decided.': 'Über jede Änderung dieses Wikis wurde entschieden.',
+  'The whole review queue': 'Die gesamte Prüfwarteschlange',
+  'What arrived': 'Was eingegangen ist',
+  'Nothing has arrived yet': 'Es ist noch nichts eingegangen',
+  'Drop a document, paste an address, or throw in a note — the pages come back as changes to review.':
+    'Ein Dokument ablegen, eine Adresse einfügen oder eine Notiz einwerfen — die Seiten kommen als Änderungen zur Prüfung zurück.',
+  'The archive': 'Das Archiv',
+  'The archived document': 'Das archivierte Dokument',
+  'Review the change': 'Änderung prüfen',
+  'The rest of this drop was not sent. Deciding the changes already waiting is what makes room.':
+    'Der Rest dieses Stapels wurde nicht gesendet. Erst entschiedene Änderungen schaffen wieder Platz.',
+  'Clear this report': 'Diesen Bericht ausblenden',
+  Clear: 'Leeren',
+  'Everything that arrived': 'Alles Eingegangene',
+  'Waiting for a worker': 'Wartet auf einen Worker',
+  'Being read': 'Wird gelesen',
+  'Paused on a quota': 'Wegen Kontingent pausiert',
+  Arrived: 'Eingegangen',
+  Result: 'Ergebnis',
+  'Not sent': 'Nicht gesendet',
+  Sending: 'Wird gesendet',
+  Added: 'Hinzugefügt',
+  Refused: 'Abgelehnt',
+  '{queued} added · {refused} refused · {pending} not sent':
+    '{queued} hinzugefügt · {refused} abgelehnt · {pending} nicht gesendet',
+  'Needs knowledge:propose': 'Erfordert knowledge:propose',
+  'Paste at least one address.': 'Mindestens eine Adresse einfügen.',
+  'Paste the document first.': 'Zuerst das Dokument einfügen.',
+  'This file is empty.': 'Diese Datei ist leer.',
+  items: 'Einträge',
+  'Ask a question': 'Eine Frage stellen',
+  'Everything produced': 'Alles Erzeugte',
+  Briefings: 'Kurzberichte',
+  'Care reports': 'Pflegeberichte',
+  Answer: 'Antwort',
+  Briefing: 'Kurzbericht',
+  'Care report': 'Pflegebericht',
+  'In the wiki': 'Im Wiki',
+  'Not filed': 'Nicht übernommen',
+  'What was produced': 'Erzeugtes',
+  Produced: 'Erzeugt',
+  'Untitled output': 'Ergebnis ohne Titel',
+  Output: 'Ergebnis',
+  'Nothing produced yet': 'Noch nichts erzeugt',
+  'Ask this wiki a question and the answer is kept here, with the pages it quoted.':
+    'Eine Frage an dieses Wiki wird hier mitsamt den zitierten Seiten aufbewahrt.',
+  'Nothing of that kind': 'Nichts dieser Art',
+  'This is what the filter is showing, not what the wiki holds.':
+    'Der Filter zeigt nur einen Ausschnitt, nicht den gesamten Bestand.',
+  'This answer is kept — open it to file it back': 'Diese Antwort ist gespeichert – zum Übernehmen öffnen',
+  'What this wiki produced, the pages it quoted, and the way back into the wiki.':
+    'Was dieses Wiki erzeugt hat, welche Seiten es zitiert hat und der Weg zurück ins Wiki.',
+  'No answer named': 'Keine Antwort angegeben',
+  'This address is missing the id of an answer. Open one from the Answers list.':
+    'In dieser Adresse fehlt die Antwort. Eine Antwort aus der Liste öffnen.',
+  'What this is': 'Worum es sich handelt',
+  'The question': 'Die Frage',
+  'This document has no text in it.': 'Dieses Dokument enthält keinen Text.',
+  'Cited pages': 'Zitierte Seiten',
+  'This document quotes no page of this wiki.': 'Dieses Dokument zitiert keine Seite dieses Wikis.',
+  'Take this into the wiki': 'In das Wiki übernehmen',
+  'The text above is archived as a source and read into pages, exactly like a document dropped in the Inbox. Nothing here becomes visible knowledge until somebody approves the change it raises.':
+    'Der Text oben wird als Quelle archiviert und wie ein im Eingang abgelegtes Dokument in Seiten überführt. Nichts davon wird sichtbares Wissen, bevor die erzeugte Änderung freigegeben wurde.',
+  'File this back into the wiki?': 'Diesen Text zurück ins Wiki übernehmen?',
+  'The text above is archived as a source and read into pages.':
+    'Der Text oben wird als Quelle archiviert und in Seiten überführt.',
+  'This creates a change somebody has to decide.': 'Dadurch entsteht eine Änderung, über die jemand entscheiden muss.',
+  'The document is archived verbatim, quoted claim by claim into pages, and staged as one change proposal — the same path a document dropped in the Inbox takes.':
+    'Das Dokument wird wortgetreu archiviert, Aussage für Aussage mit Zitaten in Seiten überführt und als eine Änderung zur Prüfung vorgemerkt — derselbe Weg wie bei einem im Eingang abgelegten Dokument.',
+  "The source it archives is marked as coming from this wiki's own answer, so knowledge that ends up resting only on answers is reported on the Care page rather than passing as evidence from outside.":
+    'Die archivierte Quelle wird als eigene Antwort dieses Wikis gekennzeichnet. Wissen, das nur noch auf Antworten beruht, erscheint dadurch auf der Pflegeseite und gilt nicht als Nachweis von außen.',
+  'Filing the same text twice archives nothing twice: the second attempt is refused with the source that already holds it.':
+    'Derselbe Text wird nicht zweimal archiviert: Der zweite Versuch wird mit Verweis auf die vorhandene Quelle abgelehnt.',
+  'File it back': 'Zurück ins Wiki übernehmen',
+  'Needs knowledge:propose — filing this back raises a change for review.':
+    'Erfordert knowledge:propose – die Übernahme erzeugt eine Änderung zur Prüfung.',
+  'Filed back — a change is waiting for review': 'Zurück ins Wiki übernommen – eine Änderung wartet auf Prüfung',
+  'Filed back into the wiki': 'Zurück ins Wiki übernommen',
+  'The review queue': 'Die Prüfwarteschlange',
+  'What is waiting': 'Was wartet',
+  'Changes waiting for a person': 'Änderungen, die auf eine Person warten',
+  'Nothing in this wiki becomes visible knowledge until somebody decides it.':
+    'Nichts in diesem Wiki wird sichtbares Wissen, bevor jemand darüber entscheidet.',
+  'The oldest has waited': 'Die älteste wartet seit',
+  'Waiting for a decision': 'Wartet auf eine Entscheidung',
+  'Documents still being read': 'Dokumente, die noch gelesen werden',
+  'Work the pipeline has not finished. A parked job is counted beside the queue, not inside it.':
+    'Arbeit, welche die Verarbeitung noch nicht abgeschlossen hat. Ein pausierter Auftrag zählt neben der Warteschlange, nicht darin.',
+  'In the queue': 'In der Warteschlange',
+  'Longest wait': 'Längste Wartezeit',
+  'About these findings': 'Informationen zu diesen Befunden',
+  'Found by reading this wiki, without a model: claims with no quote behind them, pages that contradict each other, pages nothing links to, changes nobody has reviewed.':
+    'Ohne Modell aus diesem Wiki gelesen: Aussagen ohne Beleg, einander widersprechende Seiten, nicht verlinkte Seiten und ungeprüfte Änderungen.',
+  'What the linter found': 'Prüfbefunde',
+  'What needs care': 'Was Pflege braucht',
+  'Claims with no quote behind them, pages that contradict each other, knowledge nobody has revisited.':
+    'Aussagen ohne Beleg, einander widersprechende Seiten und Wissen, das niemand mehr überarbeitet hat.',
+  'What this wiki needs': 'Was dieses Wiki braucht',
+  'What readers asked for': 'Wonach gefragt wurde',
+  'An answer is kept, with the pages it quoted, and a good one can be filed back in.':
+    'Eine Antwort wird mit den zitierten Seiten aufbewahrt; eine gute davon kann zurück ins Wiki übernommen werden.',
+  'Ask this wiki something': 'Diesem Wiki eine Frage stellen',
+  today: 'heute',
+  '1 day': '1 Tag',
+  '{count} days': '{count} Tage',
+  'under an hour': 'unter einer Stunde',
+  '{count} h': '{count} Std.',
+  'About scheduled reports': 'Informationen zu geplanten Berichten',
+  'WikiKit runs these itself, in its own process. Each one writes an entry under Answers; nothing is emailed, and a briefing costs no model tokens because it is an assembly of counts and titles.':
+    'WikiKit führt diese im eigenen Prozess aus. Jeder Lauf erzeugt einen Eintrag unter „Antworten“; es wird nichts per E-Mail versendet, und ein Kurzbericht verbraucht keine Modell-Tokens, weil er nur aus Zahlen und Titeln besteht.',
+  'Reports that run by themselves': 'Berichte, die von selbst laufen',
+  "Reading and changing the timetable is an admin's right, not a reader's.":
+    'Zeitplan lesen und ändern ist ein Administrationsrecht, kein Leserecht.',
+  'Save this timetable?': 'Diesen Zeitplan speichern?',
+  'WikiKit runs these reports itself, from its own process.': 'WikiKit führt diese Berichte im eigenen Prozess aus.',
+  'Each run writes an entry under Answers. A briefing costs nothing — it is an assembly of counts and titles — and a care report is the page above, kept.':
+    'Jeder Lauf erzeugt einen Eintrag unter „Antworten“. Ein Kurzbericht kostet nichts – er besteht aus Zahlen und Titeln – und ein Pflegebericht ist die obige Seite, aufbewahrt.',
+  'A report switched off here stops running and keeps its record of when it last did. Nothing is emailed: a care report also raises an event, which is where a mail would be hung.':
+    'Ein hier deaktivierter Bericht läuft nicht mehr und behält den Vermerk, wann er zuletzt lief. Es wird nichts per E-Mail versendet: Ein Pflegebericht löst zusätzlich ein Ereignis aus, an das sich ein Mailversand hängen lässt.',
+  'Save timetable': 'Zeitplan speichern',
+  'Timetable saved': 'Zeitplan gespeichert',
+  'The timetable has not loaded yet.': 'Der Zeitplan wurde noch nicht geladen.',
+  'A time has to read HH:MM, in 24 hours.': 'Eine Uhrzeit muss im Format HH:MM (24 Stunden) angegeben werden.',
+  'That is not a time zone this browser knows.': 'Diese Zeitzone ist dem Browser nicht bekannt.',
+  'Morning briefing': 'Morgendlicher Kurzbericht',
+  'What was approved since the last one, what is waiting, and how long the oldest has waited.':
+    'Was seit dem letzten Lauf freigegeben wurde, was wartet und wie lange die älteste Änderung schon wartet.',
+  'The report on this page, kept — and an event other systems can listen for.':
+    'Der Bericht dieser Seite, aufbewahrt – und ein Ereignis, auf das andere Systeme hören können.',
+  'Run it': 'Aktiv',
+  'How often': 'Häufigkeit',
+  'Every day': 'Täglich',
+  'Once a week': 'Wöchentlich',
+  On: 'Am',
+  At: 'Um',
+  'Time zone': 'Zeitzone',
+  Monday: 'Montag',
+  Tuesday: 'Dienstag',
+  Wednesday: 'Mittwoch',
+  Thursday: 'Donnerstag',
+  Friday: 'Freitag',
+  Saturday: 'Samstag',
+  Sunday: 'Sonntag',
+  'Write the guidelines': 'Leitlinien verfassen',
+  'Write guidelines': 'Leitlinien schreiben',
+  'Delete the guidelines': 'Leitlinien löschen',
+  'Delete guidelines': 'Leitlinien entfernen',
+  'No guidelines yet': 'Noch keine Leitlinien',
+  'No guidelines have ever been written for this wiki.': 'Für dieses Wiki wurden noch keine Leitlinien verfasst.',
+  'About guidelines Markdown': 'Informationen zum Markdown der Leitlinien',
+  'Guidelines (Markdown)': 'Leitlinien (Markdown)',
+  'The guidelines are not reviewed: they are configuration an admin owns, so no change proposal is created and nobody approves them.':
+    'Leitlinien werden nicht geprüft: Es handelt sich um Administrationskonfiguration, es entsteht keine Änderung und niemand gibt sie frei.',
+  'Until new guidelines are written, nothing steers classification and synthesis for this wiki: they fall back to their defaults. Pages already written are unaffected.':
+    'Bis neue Leitlinien vorliegen, verwenden Klassifizierung und Synthese ihre Standardwerte. Bestehende Seiten bleiben unverändert.',
+  'is left with no guidelines. Every revision stays readable in the history below — this deletes what is in force, not the record of it.':
+    'bleibt ohne Leitlinien. Jede Fassung bleibt im Verlauf lesbar; entfernt wird nur die aktuell gültige Fassung.',
+  'Every version of the guidelines written for this wiki, newest first. Writing supersedes the current revision rather than overwriting it.':
+    'Alle Fassungen der Leitlinien dieses Wikis, neueste zuerst. Eine neue Fassung ersetzt die aktuelle, ohne den Verlauf zu überschreiben.',
+  'Derived from current knowledge and appended to the guidelines automatically, together with an index of every page in this wiki. It is not part of the text above and cannot be edited here.':
+    'Aus dem aktuellen Wissen abgeleitet und zusammen mit einem Seitenindex automatisch an die Leitlinien angehängt. Dieser Abschnitt gehört nicht zum bearbeitbaren Text.',
+  'Needs admin — the guidelines are configuration, not reviewed knowledge.':
+    'Erfordert admin – Leitlinien sind Konfiguration und kein geprüftes Wissen.',
+  'Start from six questions': 'Mit sechs Fragen beginnen',
+  'Answer what you can and leave the rest. What you write becomes an ordinary Markdown document you can edit before it is saved — an unanswered question is left out rather than left empty.':
+    'Beantwortbares ausfüllen, den Rest offen lassen. Daraus entsteht ein gewöhnliches Markdown-Dokument, das sich vor dem Speichern bearbeiten lässt — eine unbeantwortete Frage entfällt, statt leer zu bleiben.',
+  'Use this as a start': 'Als Ausgangspunkt verwenden',
+  'Answer at least one question first.': 'Zuerst mindestens eine Frage beantworten.',
+  'What belongs in this wiki': 'Was in dieses Wiki gehört',
+  'What does not': 'Was nicht hineingehört',
+  'Page types': 'Seitenarten',
+  'What to emphasise': 'Worauf es ankommt',
+  Voice: 'Sprachstil',
+  'Answering questions about how we deploy, who is on call, and what to do when something breaks.':
+    'Fragen dazu beantworten, wie ausgerollt wird, wer Rufbereitschaft hat und was bei einer Störung zu tun ist.',
+  'Runbooks, post-mortems, architecture decisions, on-call handovers.':
+    'Runbooks, Nachbetrachtungen, Architekturentscheidungen, Übergaben der Rufbereitschaft.',
+  'Customer data, meeting small talk, anything that belongs in a ticket.':
+    'Kundendaten, Nebensächliches aus Besprechungen und alles, was in ein Ticket gehört.',
+  'One page per service, one per recurring incident, one per decision.':
+    'Eine Seite je Dienst, eine je wiederkehrender Störung, eine je Entscheidung.',
+  'Why a thing is done this way, and what was tried before it.':
+    'Warum etwas so gemacht wird und was zuvor versucht wurde.',
+  'Short sentences. Present tense. No marketing words.': 'Kurze Sätze. Präsens. Keine Werbesprache.',
+  'What the linter finds in this wiki now lives on its own page, beside the two queues it cannot see and the schedule that reports on them.':
+    'Die Prüfbefunde dieses Wikis stehen jetzt auf einer eigenen Seite, neben den beiden Warteschlangen und dem Zeitplan, der darüber berichtet.',
 } as const satisfies Readonly<Record<string, string>>
 
 export function translateText(

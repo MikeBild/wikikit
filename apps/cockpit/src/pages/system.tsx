@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
@@ -21,7 +20,6 @@ import {
   count,
   declarationSentence,
   durationMs,
-  groupFindings,
   measured,
   originLegend,
   percent,
@@ -33,7 +31,6 @@ import {
   shortDigest,
   versionsDisagree,
   windowLabel,
-  type LintFinding,
   type Readiness,
   type ServiceDescriptor,
 } from '@/pages/system.logic'
@@ -133,7 +130,6 @@ async function fetchDescriptor(): Promise<ServiceDescriptor> {
  * never truncates — and the fix happens on the page the finding names, which is
  * one click away from each row.
  */
-const FINDINGS_SHOWN = 8
 
 export function SystemPage() {
   const space = useSpace()
@@ -148,7 +144,6 @@ export function SystemPage() {
   const readiness = useQuery({ queryKey: READY_KEY, queryFn: fetchReadiness, ...pollAlways(15_000) })
   const descriptor = useQuery({ queryKey: DESCRIPTOR_KEY, queryFn: fetchDescriptor })
 
-  const lint = useQuery({ queryKey: keys.lint(space), queryFn: () => wk.lint.space(space) })
   const http = useQuery({ queryKey: keys.stats(space, 'http'), queryFn: () => wk.stats.http(space) })
   const usage = useQuery({ queryKey: keys.stats(space, 'usage'), queryFn: () => wk.stats.usage(space) })
   const llm = useQuery({ queryKey: keys.stats(space, 'llm'), queryFn: () => wk.stats.llm(space) })
@@ -162,7 +157,7 @@ export function SystemPage() {
   return (
     <Page
       title="System"
-      description="Which build is serving, whether it is taking traffic, what the linter finds in this wiki, and what the endpoints have been doing."
+      description="Which build is serving, whether it is taking traffic, and what the endpoints have been doing."
     >
       <div className="flex flex-col gap-4">
         <Tabs
@@ -384,59 +379,27 @@ export function SystemPage() {
             <CardHeader>
               <CardTitle>Knowledge health in {space}</CardTitle>
               <CardDescription>
-                What the linter finds in this wiki: claims with no quote behind them, pages nothing links to, changes
-                nobody has reviewed.
+                What the linter finds in this wiki now lives on its own page, beside the two queues it cannot see and
+                the schedule that reports on them.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DataState
-                testId="system-lint"
-                query={lint}
-                skeleton={<FactsSkeleton facts={3} />}
-                isEmpty={(data) => data.findings.length === 0}
-                empty={
-                  // A clean lint is GOOD NEWS and must not read like a failure
-                  // (CUI-LOAD-4). No action either: the way to keep it clean is
-                  // to keep citing sources, which happens on other pages.
-                  <EmptyState
-                    icon={CircleCheck}
-                    framed={false}
-                    title="Nothing to fix"
-                    description="The linter found no errors, warnings or notes in this wiki."
-                    data-testid="lint-empty"
-                  />
-                }
+              {/*
+                A POINTER, not a second copy of the report. System is
+                installation diagnosis — which build, is it taking traffic,
+                what did the endpoints do — and knowledge maintenance is a
+                different job with a different reader. Two surfaces drawing the
+                same findings is how one of them quietly falls a release behind
+                the other, and this is the one that would.
+              */}
+              <Link
+                to="/care"
+                search={(prev) => prev}
+                data-testid="lint-open-care"
+                className="text-sm underline-offset-4 hover:underline"
               >
-                {(data) => (
-                  <div className="flex flex-col gap-4">
-                    <dl className="grid grid-cols-3 gap-3">
-                      <Fact testId="lint-errors" label="Errors" value={count(data.counts.error)} />
-                      <Fact testId="lint-warnings" label="Warnings" value={count(data.counts.warn)} />
-                      <Fact testId="lint-notes" label="Notes" value={count(data.counts.info)} />
-                    </dl>
-                    {groupFindings(data.findings).map((group) => (
-                      <section key={group.severity} className="flex flex-col gap-2" aria-label={group.many}>
-                        <div className="flex items-center gap-2">
-                          {/* The tone is never the only carrier: the badge says
-                            the word too (CUI-A11Y-5). */}
-                          <Badge tone={group.tone}>{group.many}</Badge>
-                          <span className="text-muted-foreground text-xs">{count(group.items.length)}</span>
-                        </div>
-                        <ul className="flex flex-col gap-2">
-                          {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
-                            <Finding key={`${finding.rule}-${finding.concept_slug ?? index}`} finding={finding} />
-                          ))}
-                        </ul>
-                        {group.items.length > FINDINGS_SHOWN ? (
-                          <p className="text-muted-foreground text-xs" data-testid={`lint-more-${group.severity}`}>
-                            And {count(group.items.length - FINDINGS_SHOWN)} more.
-                          </p>
-                        ) : null}
-                      </section>
-                    ))}
-                  </div>
-                )}
-              </DataState>
+                What this wiki needs
+              </Link>
             </CardContent>
           </Card>
         </div>
@@ -676,37 +639,6 @@ export function SystemPage() {
         </div>
       </div>
     </Page>
-  )
-}
-
-/**
- * One lint finding: the rule that fired, what it says, and the page it is
- * about.
- *
- * The slug is a LINK, because a finding you cannot act on is a complaint. The
- * rule name is kept verbatim and in monospace rather than translated into
- * prose — it is what an operator greps the docs and the CLI for, and a nicer
- * sentence would be a second name for the same thing.
- */
-function Finding({ finding }: { finding: LintFinding }) {
-  return (
-    <li className="flex min-w-0 flex-col gap-0.5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <code className="text-muted-foreground font-mono text-xs">{finding.rule}</code>
-        {finding.concept_slug ? (
-          <Link
-            to="/pages/$slug"
-            params={{ slug: finding.concept_slug }}
-            search={(prev) => prev}
-            data-testid={`lint-page-${finding.concept_slug}`}
-            className="min-w-0 truncate text-xs underline-offset-4 hover:underline"
-          >
-            {finding.concept_slug}
-          </Link>
-        ) : null}
-      </div>
-      <p className="text-sm">{finding.message}</p>
-    </li>
   )
 }
 

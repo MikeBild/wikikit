@@ -1,0 +1,8 @@
+{
+  "to": "/answers",
+  "label": "Answers",
+  "icon": "MessageSquareQuote",
+  "scope": "knowledge:read",
+  "group": "wiki",
+  "api": ["/v1/spaces/{space}/outputs", "/v1/outputs/{id}", "/v1/outputs/{id}/promote", "/v1/ingests/{id}"]
+}

@@ -28,6 +28,10 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/spaces/{space}/ingest/document', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/agent/sessions', 'knowledge:propose'],
   ['get', '/v1/ingests/{id}', 'knowledge:propose'],
+  // The inbox list. knowledge:read is the declared scope and propose satisfies
+  // it too (altScopes): a contributor key can already poll any single job of
+  // its own, so refusing it the list of exactly those jobs would be a gap.
+  ['get', '/v1/spaces/{space}/ingests', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources/{id}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/source-streams', 'knowledge:read'],
@@ -42,6 +46,18 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/spaces/{space}/concepts/{slug}/restore', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/search', 'knowledge:read'],
   ['post', '/v1/spaces/{space}/query', 'knowledge:read'],
+  // Outputs. Reading one is knowledge:read; promoting it is knowledge:propose,
+  // because it stages review work — and there is deliberately no DELETE: the
+  // retention sweep collects unpromoted rows and a promoted row is provenance
+  // for a source that lives forever.
+  ['get', '/v1/spaces/{space}/outputs', 'knowledge:read'],
+  ['get', '/v1/outputs/{id}', 'knowledge:read'],
+  ['post', '/v1/outputs/{id}/promote', 'knowledge:propose'],
+  // The composed maintenance read — LLM-free, so it is an ordinary read.
+  ['get', '/v1/spaces/{space}/health', 'knowledge:read'],
+  // admin, because a schedule decides what this server does on its own.
+  ['get', '/v1/spaces/{space}/schedules', 'admin'],
+  ['put', '/v1/spaces/{space}/schedules', 'admin'],
   ['get', '/v1/spaces/{space}/proposals', 'knowledge:read'],
   ['post', '/v1/spaces/{space}/proposals', 'knowledge:propose'],
   ['get', '/v1/proposals/{id}', 'knowledge:read'],

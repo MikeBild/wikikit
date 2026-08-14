@@ -17,6 +17,7 @@ import { zCaptureSessionArgs } from '../agent/sessions.ts'
 import { zClaimTriple } from '../domain/claims.ts'
 import { REVIEW_CHANNELS, zCreateProposalArgs } from '../domain/proposals.ts'
 import { zIngestInput } from '../ingest/acquire.ts'
+import { SCHEDULE_KINDS, zScheduleSet } from '../schedule.ts'
 import { WEBHOOK_EVENT_TYPES } from '../webhooks.ts'
 
 // ---------------------------------------------------------------------------
@@ -286,6 +287,15 @@ export const zCaptureSessionResponse = z.object({
   agent_run_id: z.uuid().describe('The distill call in the audit ledger — present even when nothing was learned'),
 })
 
+// The inbox list. `status` filters on the §9.1 states; `cursor` is the opaque
+// `before` keyset cursor every archive list in this API uses, echoed back as
+// next_before.
+export const zIngestListQuery = z.object({
+  status: z.enum(['queued', 'running', 'done', 'failed', 'quota_blocked']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().max(500).optional(),
+})
+
 export const zIngestStatusResponse = z.object({
   ingest_id: z.uuid(),
   // quota_blocked = parked on provider quota exhaustion; the worker requeues
@@ -306,12 +316,27 @@ export const zIngestStatusResponse = z.object({
     .object({ done: z.number().int(), total: z.number().int() })
     .nullable()
     .describe('Position inside a countable stage — during synthesis, concepts finished of total'),
+  // ADDITIVE (0.35): when the job was accepted. A queued job has no started_at
+  // and no finished_at, so until this field existed the one state a job spends
+  // most of its life in carried no time at all — and the space-scoped list, which
+  // orders by it, had nothing to show for "waiting since".
+  created_at: z.string().describe('When the job was accepted (ISO 8601)'),
   started_at: z.string().nullable().describe('When a worker claimed the job (ISO 8601)'),
   heartbeat_at: z
     .string()
     .nullable()
     .describe('Last lease renewal — a recent value means the worker is alive (ISO 8601)'),
   finished_at: z.string().nullable().describe('When the job reached a terminal state (ISO 8601)'),
+})
+
+/**
+ * A page of this space's ingest jobs. The rows are byte-identical to the single
+ * status read (same producer — toJobStatus in src/http/jobs.ts), which is what
+ * lets the inbox render a row and the detail poll interchangeably.
+ */
+export const zIngestListResponse = z.object({
+  items: z.array(zIngestStatusResponse),
+  next_before: z.string().nullable(),
 })
 
 // ---------------------------------------------------------------------------
@@ -665,7 +690,75 @@ export const zQueryResponse = z.object({
       title: z.string().nullable(),
     }),
   ),
+  /**
+   * The persisted Output this answer became — the handle for
+   * POST /v1/outputs/{id}/promote, which is the one door back into the wiki.
+   * ADDITIVE: every field above is unchanged and in place.
+   *
+   * NULLABLE, and the null is honest rather than convenient: the answer is
+   * already synthesized and paid for by the time the row is written, so a failed
+   * insert must not throw away the response. Null means exactly "this answer
+   * exists but was not persisted, so there is nothing to promote" — never "the
+   * answer is bad".
+   */
+  output_id: z.uuid().nullable(),
 })
+
+// ---------------------------------------------------------------------------
+// Outputs — what the knowledge base produced (§1 wk_outputs)
+// ---------------------------------------------------------------------------
+
+/**
+ * One produced artifact. FULL rows in the list as well as the detail read, which
+ * is unusual here and deliberate: an answer's markdown is kilobytes, and a list
+ * of questions nobody can read without a second request per row is a list nobody
+ * reads. The page size is smaller than the source list's for the same reason.
+ */
+export const zOutputResponse = z.object({
+  id: z.uuid(),
+  /**
+   * Present on BOTH the list and the by-id read, though only the by-id route
+   * strictly needs it: GET /v1/outputs/{id} is global-by-id (⚠ §4), so the space
+   * has to travel for the key/space match, and serving one shape from one
+   * producer is worth more than trimming a field off the list.
+   */
+  space_id: z.uuid(),
+  kind: z.enum(['answer', 'briefing', 'health']),
+  title: z.string(),
+  /** The question asked (kind=answer); null for a briefing or a health report. */
+  question: z.string().nullable(),
+  markdown: z.string(),
+  /** The knowledge pages the answer leaned on, as it named them (denormalized). */
+  citations: z.array(z.object({ slug: z.string(), title: z.string() })),
+  /** The honest "the base does not cover this"; null outside kind=answer. */
+  not_in_knowledge_base: z.boolean().nullable(),
+  agent_run_id: z.uuid().nullable(),
+  /** The ingest job promotion opened; null while this output is unpromoted. */
+  promoted_ingest_id: z.uuid().nullable(),
+  promoted_at: z.string().nullable(),
+  created_at: z.string(),
+})
+
+export const zOutputListQuery = z.object({
+  kind: z.enum(['answer', 'briefing', 'health']).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  cursor: z.string().max(500).optional(),
+})
+
+export const zOutputListResponse = z.object({
+  items: z.array(zOutputResponse),
+  next_before: z.string().nullable(),
+})
+
+/**
+ * The promote answer: the ingest job the promotion opened.
+ *
+ * NOT zIngestAcceptedResponse, which carries `status: 'queued'` — re-promoting an
+ * already-promoted output returns the ORIGINAL job id, and that job may well be
+ * done. Claiming 'queued' about it would be a lie told to keep two schemas
+ * looking alike. The caller polls /v1/ingests/{id} for the state either way.
+ */
+export const zOutputPromotedResponse = z.object({ ingest_id: z.uuid() })
 
 // ---------------------------------------------------------------------------
 // Proposals
@@ -848,32 +941,46 @@ export const zProposalLintResponse = z.object({
 // Lint
 // ---------------------------------------------------------------------------
 
+/**
+ * One lint finding, declared once because TWO responses now serve the whole lint
+ * report: GET /v1/spaces/{space}/lint and the composed health surface below,
+ * which embeds `lintSpace()` unchanged rather than re-counting anything. Two
+ * copies of this enum would mean a rule that exists on one surface and not the
+ * other — and the health page would then be the one quietly missing a fault.
+ */
+const zLintFinding = z.object({
+  rule: z.enum([
+    'contradictions',
+    'missing-citations',
+    'broken-relations',
+    'stale-claims',
+    'orphan-concepts',
+    'unsourced-concepts',
+    // Knowledge whose visible claims quote nothing but sources WikiKit itself
+    // produced (promoted answers). The one risk the output loop introduces, so
+    // the loop ships with the rule that reports it.
+    'self-derived-only',
+    'stub-concepts',
+    'scaffolded-claims',
+    'empty-concepts',
+    'unreviewed-proposals',
+    'dangling-sources',
+    'tombstoned-sources',
+    'broken-cross-space-links',
+  ]),
+  severity: z.enum(['error', 'warn', 'info']),
+  message: z.string(),
+  concept_slug: z.string().optional(),
+  claim_id: z.string().optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+})
+
+/** The severity census — a count per level, never a verdict. */
+const zLintCounts = z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() })
+
 export const zLintResponse = z.object({
-  findings: z.array(
-    z.object({
-      rule: z.enum([
-        'contradictions',
-        'missing-citations',
-        'broken-relations',
-        'stale-claims',
-        'orphan-concepts',
-        'unsourced-concepts',
-        'stub-concepts',
-        'scaffolded-claims',
-        'empty-concepts',
-        'unreviewed-proposals',
-        'dangling-sources',
-        'tombstoned-sources',
-        'broken-cross-space-links',
-      ]),
-      severity: z.enum(['error', 'warn', 'info']),
-      message: z.string(),
-      concept_slug: z.string().optional(),
-      claim_id: z.string().optional(),
-      details: z.record(z.string(), z.unknown()).optional(),
-    }),
-  ),
-  counts: z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() }),
+  findings: z.array(zLintFinding),
+  counts: zLintCounts,
 })
 
 // ---------------------------------------------------------------------------
@@ -941,6 +1048,31 @@ export const zDeliveryListResponse = z.object({
     }),
   ),
 })
+
+// ---------------------------------------------------------------------------
+// Schedules (admin — the in-process briefing/health worker, §1 wk_schedules)
+// ---------------------------------------------------------------------------
+
+// Alias, not copy (this module's rule): the wire body IS the domain's set schema
+// — replaceSchedules re-parses through it, and the timezone refinement checks the
+// name against the runtime's zone database, which no restatement here could do.
+export const zScheduleSetRequest = zScheduleSet
+
+export const zScheduleResponse = z.object({
+  kind: z.enum(SCHEDULE_KINDS),
+  /** Wall clock in `timezone`, HH:MM — 'every morning' means the operator's morning. */
+  at_time: z.string(),
+  /** null = daily; 0 = Sunday … 6 = Saturday (matches Postgres extract(dow)). */
+  weekday: z.number().int().min(0).max(6).nullable(),
+  timezone: z.string(),
+  enabled: z.boolean(),
+  last_run_at: z.string().nullable(),
+  /** null = not armed; the worker never fires a row that has no next run. */
+  next_run_at: z.string().nullable(),
+})
+
+/** GET and PUT answer the SAME shape: the complete set, after the change. */
+export const zScheduleListResponse = z.object({ schedules: z.array(zScheduleResponse) })
 
 // ---------------------------------------------------------------------------
 // API keys
@@ -1309,30 +1441,109 @@ export const zCoverageStatsQuery = z.object({
   to: z.iso.datetime(),
   top: z.coerce.number().int().min(1).max(25).default(10),
 })
+// The five coverage measurements and the gap-topic wrapper, each declared once.
+// The health surface below serves this same block (it calls the same
+// getCoverageStats), and a second literal of these shapes would be a second
+// answer to "how stale is this wiki" that nothing holds to the first.
+const zCoverageDisputed = z.strictObject({
+  open: z.number().int().nonnegative(),
+  oldest_days: z.number().nullable(),
+})
+const zCoverageReviewLatency = z.strictObject({
+  decided: z.number().int().nonnegative(),
+  approved: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+  median_hours: z.number().nullable(),
+})
+const zCoverageFreshness = z.strictObject({
+  concepts: z.number().int().nonnegative(),
+  stale_over_90d: z.number().int().nonnegative(),
+})
+const zTopReadConcepts = z.array(
+  z.strictObject({ slug: z.string(), title: z.string(), reads: z.number().int().nonnegative() }),
+)
+const zTopLinkedConcepts = z.array(
+  z.strictObject({ slug: z.string(), title: z.string(), inbound_relations: z.number().int().nonnegative() }),
+)
+/** `enabled:false` means nothing is ever recorded here — NOT "no gaps found". */
+const zGapTopics = z.strictObject({
+  enabled: z.boolean(),
+  items: z.array(z.strictObject({ lexeme: z.string(), count: z.number().int().nonnegative() })),
+})
+
 export const zCoverageStatsResponse = z.strictObject({
   schema_version: z.literal('wikikit.coverage-stats.v1'),
   from: z.iso.datetime(),
   to: z.iso.datetime(),
-  disputed: z.strictObject({ open: z.number().int().nonnegative(), oldest_days: z.number().nullable() }),
-  review_latency: z.strictObject({
-    decided: z.number().int().nonnegative(),
-    approved: z.number().int().nonnegative(),
-    rejected: z.number().int().nonnegative(),
-    median_hours: z.number().nullable(),
+  disputed: zCoverageDisputed,
+  review_latency: zCoverageReviewLatency,
+  freshness: zCoverageFreshness,
+  top_read_concepts: zTopReadConcepts,
+  top_linked_concepts: zTopLinkedConcepts,
+  gap_topics: zGapTopics,
+})
+
+// Composed health (§4 src/domain/health.ts) ----------------------------------
+
+/**
+ * `from`/`to` are OPTIONAL here, unlike the coverage route where both are
+ * required — the domain defaults to the last 30 days and echoes the window it
+ * used. A maintenance page and a scheduled report have no window to pass, and a
+ * required range would force each of them to invent the same one.
+ *
+ * `top` defaults to 5 rather than coverage's 10: on this surface the hub lists
+ * are context beside the queue numbers, not the subject of the page.
+ */
+export const zSpaceHealthQuery = z.object({
+  from: z.iso.datetime().optional(),
+  to: z.iso.datetime().optional(),
+  top: z.coerce.number().int().min(1).max(25).default(5),
+})
+
+/**
+ * One answer to "how is this wiki doing": the lint report whole, the coverage
+ * block whole, and the two live queues neither of them can measure.
+ *
+ * There is deliberately NO top-level verdict — no status, no traffic light, no
+ * score. Every threshold that would produce one is policy (how many pending
+ * changes is too many, for whose team?), `lint.counts` is already a severity
+ * census, and a domain that invented a verdict would be hiding a decision from
+ * the operator who owns it. src/domain/health.ts argues this at length.
+ *
+ * Nullable numbers are honestly null and never 0: "oldest pending change: 0 days"
+ * about an empty queue is a fact about nothing.
+ */
+export const zSpaceHealthResponse = z.strictObject({
+  schema_version: z.literal('wikikit.space-health.v1'),
+  /** The window the `coverage` block describes, echoed — never assumed. */
+  window: z.strictObject({ from: z.iso.datetime(), to: z.iso.datetime() }),
+  lint: z.object({ findings: z.array(zLintFinding), counts: zLintCounts }),
+  coverage: z.strictObject({
+    disputed: zCoverageDisputed,
+    review_latency: zCoverageReviewLatency,
+    freshness: zCoverageFreshness,
+    top_read_concepts: zTopReadConcepts,
+    top_linked_concepts: zTopLinkedConcepts,
+    gap_topics: zGapTopics,
   }),
-  freshness: z.strictObject({
-    concepts: z.number().int().nonnegative(),
-    stale_over_90d: z.number().int().nonnegative(),
+  /** Changes staged and waiting for a human; oldest_days null iff pending is 0. */
+  review_queue: z.strictObject({
+    pending: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
   }),
-  top_read_concepts: z.array(
-    z.strictObject({ slug: z.string(), title: z.string(), reads: z.number().int().nonnegative() }),
-  ),
-  top_linked_concepts: z.array(
-    z.strictObject({ slug: z.string(), title: z.string(), inbound_relations: z.number().int().nonnegative() }),
-  ),
-  gap_topics: z.strictObject({
-    enabled: z.boolean(),
-    items: z.array(z.strictObject({ lexeme: z.string(), count: z.number().int().nonnegative() })),
+  /**
+   * Ingest work not yet finished, right now. `depth` is queued + running;
+   * `quota_blocked` sits beside them rather than inside, because a parked job is
+   * neither — and a depth that hid it would report an idle queue to an operator
+   * whose ingest has stopped moving. Hours, not days: a healthy queue drains in
+   * minutes, so "0 days" would read like reassurance.
+   */
+  ingest_queue: z.strictObject({
+    depth: z.number().int().nonnegative(),
+    queued: z.number().int().nonnegative(),
+    running: z.number().int().nonnegative(),
+    quota_blocked: z.number().int().nonnegative(),
+    oldest_queued_hours: z.number().nullable(),
   }),
 })
 
@@ -1369,6 +1580,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestAcceptedResponse,
   zIngestUnchangedResponse,
   zIngestStatusResponse,
+  zIngestListQuery,
+  zIngestListResponse,
   zCaptureSessionRequest,
   zCaptureSessionResponse,
   zSourceListResponse,
@@ -1388,6 +1601,10 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zSearchResponse,
   zQueryRequest,
   zQueryResponse,
+  zOutputResponse,
+  zOutputListQuery,
+  zOutputListResponse,
+  zOutputPromotedResponse,
   zProposalListResponse,
   zCreateProposalRequest,
   zProposalCreatedResponse,
@@ -1400,6 +1617,11 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zRequestChangesResponse,
   zProposalLintResponse,
   zLintResponse,
+  zSpaceHealthQuery,
+  zSpaceHealthResponse,
+  zScheduleSetRequest,
+  zScheduleResponse,
+  zScheduleListResponse,
   zWebhookListResponse,
   zCreateWebhookRequest,
   zWebhookResponse,

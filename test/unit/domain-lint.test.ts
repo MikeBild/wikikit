@@ -34,6 +34,11 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'stale-claims': 'warn',
       'orphan-concepts': 'warn',
       'unsourced-concepts': 'warn',
+      // warn, not error: a page resting on a promoted answer is legitimate and
+      // the state ends the moment one outside source is cited. An error would
+      // fail CI on the product's own loop, and a rule an operator switches off
+      // catches nothing.
+      'self-derived-only': 'warn',
       'stub-concepts': 'warn',
       'scaffolded-claims': 'warn',
       'empty-concepts': 'info',
@@ -134,6 +139,14 @@ describe('lintSpace', () => {
         { slug: 'unquoted', claims: 3, sources: 0 },
       ],
     },
+    {
+      // self-derived-only asks the adjacent question to unsourced-concepts —
+      // the page HAS evidence, and all of it came out of the wiki's own
+      // answers — so it is told apart by the split its lateral produces
+      // rather than by a table nobody else touches.
+      match: /derived_sources > 0/,
+      rows: [{ slug: 'self-quoting', derived_sources: 2 }],
+    },
   ]
 
   test('collects every rule, orders error → warn → info and counts correctly', async () => {
@@ -148,6 +161,7 @@ describe('lintSpace', () => {
       'orphan-concepts',
       'unsourced-concepts',
       'unsourced-concepts',
+      'self-derived-only',
       'tombstoned-sources',
       'stub-concepts',
       'scaffolded-claims',
@@ -155,12 +169,12 @@ describe('lintSpace', () => {
       'unreviewed-proposals',
       'dangling-sources',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 7, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 8, info: 3 })
 
     // Every rule query is space-scoped with the SAME parameter. (The
     // cross-space-link scan found no [[space:slug]] links, so it issued only
     // its revision scan — no follow-up queries.)
-    expect(calls.length).toBe(14)
+    expect(calls.length).toBe(15)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -224,6 +238,18 @@ describe('lintSpace', () => {
         details: { claims: 3 },
       },
     ])
+
+    // The fix names OUTSIDE the wiki explicitly. "Ingest a source" is what
+    // unsourced-concepts says, and an operator who read that here would
+    // reasonably promote another answer — which is the state, not the cure.
+    expect(byRule.get('self-derived-only')).toEqual({
+      rule: 'self-derived-only',
+      severity: 'warn',
+      message:
+        'concept "self-quoting" rests only on the wiki\'s own answers: all 2 sources its visible claims quote were promoted from an output — ingest a source from outside the wiki and let synthesis quote it',
+      concept_slug: 'self-quoting',
+      details: { derived_sources: 2 },
+    })
 
     expect(byRule.get('tombstoned-sources')).toMatchObject({
       severity: 'warn',

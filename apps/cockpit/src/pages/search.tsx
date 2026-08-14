@@ -682,6 +682,26 @@ function AskPanel({
                   ))}
                 </div>
               ) : null}
+              {read.outputId ? (
+                /*
+                  Where the answer WENT. Every answer is kept as an Output the
+                  moment it is synthesized, and the way back into the wiki —
+                  archiving it as a source and raising a change — lives on that
+                  page rather than here. Deliberately: filing an answer back
+                  makes review work, and an action with a consequence belongs
+                  beside the document it acts on, where somebody can read the
+                  thing before they decide to keep it.
+                */
+                <Link
+                  to="/answers/$id"
+                  params={{ id: read.outputId }}
+                  search={(prev) => prev}
+                  data-testid="search-answer-kept"
+                  className="text-sm underline underline-offset-4"
+                >
+                  This answer is kept — open it to file it back
+                </Link>
+              ) : null}
               {read.sources.length > 0 ? (
                 <div className="border-muted-foreground/40 flex flex-col gap-2 rounded-lg border border-dashed p-3 text-xs">
                   <span className="font-medium">
@@ -786,6 +806,7 @@ function readAnswer(value: unknown): {
   citations: { slug: string; title: string }[]
   sources: { id: string; title: string | null }[]
   missing: boolean
+  outputId: string | null
 } {
   const body = (value ?? {}) as Record<string, unknown>
   const citations = Array.isArray(body.citations) ? body.citations : []
@@ -793,6 +814,11 @@ function readAnswer(value: unknown): {
   return {
     markdown: typeof body.answer_markdown === 'string' ? body.answer_markdown : '',
     missing: body.not_in_knowledge_base === true,
+    // Nullable on the wire, and the null is honest: the answer is synthesized
+    // and paid for before the row is written, so a failed insert must not throw
+    // the response away. Null means "there is nothing to open", never "the
+    // answer is bad" — so the link simply is not offered.
+    outputId: typeof body.output_id === 'string' ? body.output_id : null,
     citations: citations.flatMap((entry) => {
       const record = (entry ?? {}) as Record<string, unknown>
       return typeof record.slug === 'string'

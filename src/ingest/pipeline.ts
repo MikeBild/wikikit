@@ -38,13 +38,13 @@
 // rows are persisted even when the job FAILS afterwards — cost telemetry from
 // day one (plan §15.4) must include the money burned on failed jobs.
 import { randomUUID } from 'node:crypto'
-import type { Config } from '../config.ts'
+import { DEFAULT_INGEST_MAX_QUEUED_PER_SPACE, type Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { getConcept, getConceptIndex } from '../domain/concepts.ts'
 import { latestCharterMarkdown } from '../domain/charter.ts'
 import { findContradictions, getPredicateRegistry, type IncomingClaim } from '../domain/claims.ts'
 import { listActiveDecisionsForDedupe } from '../domain/decisions.ts'
-import { ConflictError, LlmNotConfiguredError } from '../domain/errors.ts'
+import { ConflictError, IngestQueueFullError, LlmNotConfiguredError } from '../domain/errors.ts'
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
 import { createSource, persistSourceChunks, sha256Hex } from '../domain/sources.ts'
 import { recordStreamVersion } from '../domain/source-streams.ts'
@@ -552,6 +552,11 @@ export function createIngestPipeline(
       // Optional hint (meeting/article/note); persisted on the source metadata
       // and passed to synthesis, where 'meeting' turns on decision mining.
       sourceKind: input.source_kind,
+      // Promotion provenance (§Phase 1): the marker rides on the archived
+      // source's metadata so `self-derived-only` can tell knowledge that quotes
+      // the wiki's own answers from knowledge that quotes the world. Read off
+      // the re-parsed input, which is why it had to become part of zIngestInput.
+      derivedFromOutputId: input.derived_from_output_id,
       language: input.language,
     }
     let source
@@ -1105,6 +1110,40 @@ export function createIngestPipeline(
     }
   }
 
+  /**
+   * Backpressure instead of a silent queue (WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE).
+   *
+   * WHAT IS COUNTED, and why it is more than `status = 'queued'`: parked jobs
+   * (quota_blocked) are counted too. They are work that has been accepted and not
+   * done — the provider window is holding them — so leaving them out would let a
+   * space with an exhausted quota accumulate unbounded work behind a cap that
+   * reads zero, which is the exact situation the cap exists for. `running` is NOT
+   * counted: those are draining right now, at most ingestConcurrency of them, and
+   * counting them would make the effective ceiling wobble with the worker's pace.
+   *
+   * WHERE it sits in enqueue: AFTER the content-hash pre-check, before the insert.
+   * A re-submission of content the archive already holds must keep answering
+   * `already_ingested` with its source_id — that is the precise answer, and a
+   * queue-full refusal would replace it with a vaguer one for a call that was
+   * never going to queue anything.
+   *
+   * An ABSENT config field falls back to the shipped ceiling rather than to "no
+   * ceiling" (DEFAULT_INGEST_MAX_QUEUED_PER_SPACE, the same constant the loader
+   * spends): a guard that disappears when a field is missing is not a guard.
+   */
+  async function assertQueueHasRoom(enqueueDb: Db, spaceId: string): Promise<void> {
+    const limit = config.ingestMaxQueuedPerSpace ?? DEFAULT_INGEST_MAX_QUEUED_PER_SPACE
+    if (!Number.isFinite(limit) || limit <= 0) return
+    const { rows } = await enqueueDb.query<{ waiting: number }>(
+      `SELECT count(*)::int AS waiting
+         FROM wk_ingest_jobs
+        WHERE space_id = $1 AND status IN ('queued', 'quota_blocked')`,
+      [spaceId],
+    )
+    const waiting = Number(rows[0]?.waiting ?? 0)
+    if (waiting >= limit) throw new IngestQueueFullError(waiting, limit)
+  }
+
   async function runOnce(): Promise<boolean> {
     // Quota pause: claiming into a known-closed provider window would only
     // turn queued jobs into quota_blocked ones (plus one wasted LLM call
@@ -1181,6 +1220,7 @@ export function createIngestPipeline(
                 raw: body,
                 markdown: body,
                 sourceKind: input.source_kind,
+                derivedFromOutputId: input.derived_from_output_id,
                 language: input.language,
               },
             })
@@ -1199,6 +1239,8 @@ export function createIngestPipeline(
           })
         }
       }
+
+      await assertQueueHasRoom(enqueueDb, spaceId)
 
       const [job] = await enqueueDb.insert<{ id: string }>('wk_ingest_jobs', {
         space_id: spaceId,

@@ -51,6 +51,15 @@ import {
   toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
+import { spaceHealth, type SpaceHealthArgs } from '../domain/health.ts'
+import {
+  getOutput,
+  listOutputs,
+  promoteOutput,
+  recordOutput,
+  renderOutputSource,
+  type OutputKind,
+} from '../domain/outputs.ts'
 import { getSource, isoString, listSources } from '../domain/sources.ts'
 import { listStreams, tombstoneStream } from '../domain/source-streams.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
@@ -75,9 +84,10 @@ import { getCoverageStats, recordConceptRead, recordCoverageGap } from '../domai
 import { answerQuestion } from '../query/answer.ts'
 import { search, searchAcrossImports } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
+import { listSchedules, replaceSchedules } from '../schedule.ts'
 import { ROLE_SCOPES, type RoleName } from './auth.ts'
 import type { Auth, Principal } from './auth.ts'
-import { getIngestJob } from './jobs.ts'
+import { getIngestJob, listIngestJobs, type IngestJobState } from './jobs.ts'
 import { buildOpenApi } from './openapi.ts'
 import { createHash } from 'node:crypto'
 import { readDocsFile } from './docs-embedded.ts'
@@ -235,6 +245,11 @@ export const ROUTES: RouteDef[] = [
         type: 'application/json',
         desc: 'already_ingested (envelope carries source_id) | sync_version_conflict (same version, different content)',
       },
+      429: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'ingest_queue_full — this space already has WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE jobs waiting (envelope carries queued + limit); nothing was queued',
+      },
       503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
     },
   },
@@ -264,6 +279,20 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },
   },
   {
+    method: 'get',
+    path: '/v1/spaces/{space}/ingests',
+    scope: 'knowledge:read',
+    // knowledge:propose ALSO satisfies it: a contributor key can already poll
+    // any single job of its own (GET /v1/ingests/{id} is a propose route), so
+    // refusing it the list of exactly those jobs would be a gap, not a guard.
+    altScopes: ['knowledge:propose'],
+    summary:
+      'List this space’s ingest jobs newest-first — the inbox (?status= queued|running|done|failed|quota_blocked, ?limit=, ?cursor=). Rows are the same shape GET /v1/ingests/{id} serves.',
+    handler: 'listIngestsHandler',
+    request: { params: 'zSpaceParams', query: 'zIngestListQuery' },
+    responses: { 200: { schema: 'zIngestListResponse', type: 'application/json', desc: 'Ingest jobs page' } },
+  },
+  {
     method: 'post',
     path: '/v1/spaces/{space}/ingest/document',
     scope: 'knowledge:propose',
@@ -279,6 +308,11 @@ export const ROUTES: RouteDef[] = [
       },
       415: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'unsupported_document (unknown extension)' },
       422: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'document_extraction_failed (no text layer)' },
+      429: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'ingest_queue_full — the queue is at its per-space ceiling; the extraction ran but nothing was queued',
+      },
     },
   },
   {
@@ -419,6 +453,96 @@ export const ROUTES: RouteDef[] = [
     responses: {
       200: { schema: 'zQueryResponse', type: 'application/json', desc: 'Cited answer' },
       503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
+    },
+  },
+  // Outputs — the fourth place: what the wiki produced, and the door back in.
+  // There is deliberately NO DELETE. Retention collects unpromoted rows
+  // (WIKIKIT_OUTPUT_RETENTION_DAYS) and a promoted one is provenance for a source
+  // that exists forever, so nothing is left for a manual delete to accomplish —
+  // and no scope fits it: `knowledge:propose` would let anything that can write a
+  // proposal erase the record of an answer, while `admin` is credential-level
+  // authority for what would be a routine tidy-up.
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/outputs',
+    scope: 'knowledge:read',
+    summary:
+      'List produced outputs newest-first — answers, scheduled briefings and health reports (?kind=answer|briefing|health, ?limit=, ?cursor=). Rows carry the full markdown.',
+    handler: 'listOutputsHandler',
+    request: { params: 'zSpaceParams', query: 'zOutputListQuery' },
+    responses: { 200: { schema: 'zOutputListResponse', type: 'application/json', desc: 'Outputs page' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/outputs/{id}',
+    scope: 'knowledge:read',
+    summary:
+      'Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages.',
+    handler: 'getOutputHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      200: { schema: 'zOutputResponse', type: 'application/json', desc: 'Output (or text/markdown via Accept)' },
+    },
+  },
+  {
+    method: 'post',
+    path: '/v1/outputs/{id}/promote',
+    scope: 'knowledge:propose',
+    summary:
+      'Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job.',
+    handler: 'promoteOutputHandler',
+    request: { params: 'zIdParams' },
+    responses: {
+      202: {
+        schema: 'zOutputPromotedResponse',
+        type: 'application/json',
+        desc: 'Queued (or the job an earlier promote of this row created); poll /v1/ingests/{id}',
+      },
+      409: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted',
+      },
+      429: {
+        schema: 'zErrorEnvelope',
+        type: 'application/json',
+        desc: 'ingest_queue_full — the queue is at its per-space ceiling; nothing was queued and the output stays unpromoted',
+      },
+      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/health',
+    scope: 'knowledge:read',
+    summary:
+      'Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days).',
+    handler: 'spaceHealthHandler',
+    request: { params: 'zSpaceParams', query: 'zSpaceHealthQuery' },
+    responses: {
+      200: { schema: 'zSpaceHealthResponse', type: 'application/json', desc: 'Space health' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid window (to must be after from)' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/schedules',
+    scope: 'admin',
+    summary: 'Read the recurring briefing/health schedules of this space (at most one per kind)',
+    handler: 'getSchedulesHandler',
+    request: { params: 'zSpaceParams' },
+    responses: { 200: { schema: 'zScheduleListResponse', type: 'application/json', desc: 'Schedules' } },
+  },
+  {
+    method: 'put',
+    path: '/v1/spaces/{space}/schedules',
+    scope: 'admin',
+    summary:
+      'Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out of the body is removed — hence no DELETE route. Idempotent.',
+    handler: 'putSchedulesHandler',
+    request: { params: 'zSpaceParams', body: 'zScheduleSetRequest' },
+    responses: {
+      200: { schema: 'zScheduleListResponse', type: 'application/json', desc: 'Schedules after the write' },
     },
   },
   {
@@ -1059,6 +1183,27 @@ function requireSpaceAccess(
 /** The §1.14 stamp for human/agent-authored proposals. */
 const MANUAL_AGENT_META = { model: 'manual', prompt_version: 'manual' }
 
+/**
+ * A title for the Output an answer becomes — derived from the question, because a
+ * question IS what that row is about and inventing a summary would need the LLM
+ * call the plan explicitly does not make.
+ *
+ * The transport does this and the domain does not, deliberately: `question`
+ * accepts 2000 characters while `title` accepts 500, so SOMEBODY has to shorten,
+ * and a domain function that silently truncated would be guessing on behalf of
+ * every caller (the scheduler's briefings pass a real title and must keep it
+ * verbatim). Whitespace is collapsed so a pasted multi-line question does not
+ * become a multi-line title, and an over-long one is cut on a word boundary with
+ * an ellipsis — the full text stays in `question`, one field away.
+ */
+function deriveOutputTitle(question: string): string {
+  const collapsed = question.replace(/\s+/g, ' ').trim()
+  if (collapsed.length <= 500) return collapsed
+  const cut = collapsed.slice(0, 499)
+  const lastSpace = cut.lastIndexOf(' ')
+  return `${(lastSpace > 400 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`
+}
+
 // ---------------------------------------------------------------------------
 // SSO identity grants (wk_oauth_identities is the single AuthZ truth — 0028)
 // ---------------------------------------------------------------------------
@@ -1314,6 +1459,19 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: wire }
   },
 
+  async listIngestsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, ['knowledge:read', 'knowledge:propose'])
+    const query = input.query as { status?: IngestJobState; limit?: number; cursor?: string }
+    // `cursor` on the wire, `before` in the domain — the same mapping the source
+    // and output lists use; the cursor is opaque, so the two names never meet.
+    const page = await listIngestJobs(deps.db, space.id, {
+      status: query.status,
+      limit: query.limit,
+      before: query.cursor,
+    })
+    return { status: 200, body: page }
+  },
+
   async listSourcesHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const query = input.query as { limit?: number; before?: string }
@@ -1470,7 +1628,115 @@ export const HANDLERS: Record<string, Handler> = {
         void recordCoverageGap(deps.db, space.id, body.question).catch(() => {})
       }
     }
-    return { status: 200, body: answer }
+    // Persist the answer as an Output — the handler, not answerQuestion, because
+    // the synthesis has no business knowing whether its caller keeps the result:
+    // it already returns everything the row needs, and leaving it untouched keeps
+    // the LLM path free of a write it cannot roll back.
+    //
+    // WRITING UNDER knowledge:read is the existing audit-ledger precedent, not a
+    // new liberty: every /query already writes a wk_agent_runs row and every
+    // concept read writes wk_concept_reads, both under read scope. What a read
+    // may not do is change KNOWLEDGE, and an output is not knowledge — it is a
+    // record of what was produced, and promoting it back is a separate act under
+    // knowledge:propose.
+    //
+    // Awaited rather than fire-and-forget (unlike recordCoverageGap above)
+    // because the id is part of the answer; a failure loses the id, never the
+    // answer — see zQueryResponse.output_id on why null is the honest value.
+    let outputId: string | null = null
+    try {
+      const output = await recordOutput(deps.db, space.id, {
+        kind: 'answer',
+        title: deriveOutputTitle(body.question),
+        question: body.question,
+        markdown: answer.answer_markdown,
+        citations: answer.citations,
+        not_in_knowledge_base: answer.not_in_knowledge_base,
+        agent_run_id: answer.agent_run_id,
+      })
+      outputId = output.id
+    } catch (error) {
+      deps.logger.warn('answer produced but not persisted as an output', {
+        space: space.slug,
+        agent_run_id: answer.agent_run_id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+    return { status: 200, body: { ...answer, output_id: outputId } }
+  },
+
+  async listOutputsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { kind?: OutputKind; limit?: number; cursor?: string }
+    const page = await listOutputs(deps.db, space.id, {
+      kind: query.kind,
+      limit: query.limit,
+      before: query.cursor,
+    })
+    return { status: 200, body: page }
+  },
+
+  async getOutputHandler(deps, input) {
+    const output = await getOutput(deps.db, input.params.id!)
+    // Global-by-id (⚠ §4), exactly like getIngestHandler: the id came from
+    // /query or from the list and carries no space, so the row's space_id is
+    // what the key/space match is enforced against.
+    requireSpaceAccess(deps, input, 'knowledge:read', output.space_id)
+    const accept = String(input.req.headers.accept ?? '')
+    if (/\btext\/markdown\b/.test(accept)) {
+      // The promotion rendering, not the bare answer markdown: it is the whole
+      // self-describing document (title, the question that was asked, the answer,
+      // the pages it cited), so what a reviewer reads here is byte-for-byte what
+      // promotion would archive. It is also deterministic, which a response with
+      // a generated-at line would not be.
+      return {
+        status: 200,
+        text: renderOutputSource(output),
+        headers: { 'content-type': 'text/markdown; charset=utf-8' },
+      }
+    }
+    return { status: 200, body: output }
+  },
+
+  async promoteOutputHandler(deps, input) {
+    // Two reads on purpose. Authorization must happen BEFORE any write, and only
+    // the row knows its space — so the space match is checked here, and
+    // promoteOutput re-reads to decide against the CURRENT promotion state (the
+    // read-then-write that makes a duplicate click idempotent).
+    const output = await getOutput(deps.db, input.params.id!)
+    requireSpaceAccess(deps, input, 'knowledge:propose', output.space_id)
+    const result = await promoteOutput(deps.db, { ingest: deps.ingest }, output.id)
+    return {
+      status: 202,
+      body: result,
+      headers: { location: `/v1/ingests/${result.ingest_id}` },
+    }
+  },
+
+  async spaceHealthHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const health = await spaceHealth(deps.db, space.id, input.query as SpaceHealthArgs, {
+      scaffoldingKinds: deps.config.scaffoldingKinds,
+      gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,
+    })
+    // schema_version is stamped HERE and not in the domain — same division as
+    // coverageStatsHandler: the wire contract belongs to the transport, and the
+    // MCP tool and the scheduler consume the same numbers without one.
+    return { status: 200, body: { schema_version: 'wikikit.space-health.v1', ...health } }
+  },
+
+  async getSchedulesHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'admin')
+    return { status: 200, body: { schedules: await listSchedules(deps.db, space.id) } }
+  },
+
+  async putSchedulesHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'admin')
+    // The body was already validated against zScheduleSetRequest (which IS
+    // zScheduleSet); replaceSchedules parses it again because the ingest worker's
+    // rule applies here too — a domain function validates its own arguments,
+    // whichever transport called it.
+    return { status: 200, body: { schedules: await replaceSchedules(deps.db, space.id, input.body) } }
   },
 
   async listProposalsHandler(deps, input) {

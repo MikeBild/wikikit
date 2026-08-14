@@ -51,6 +51,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'wikikit.source.tombstoned',
   'wikikit.proposal.split',
   'wikikit.proposal.changes_requested',
+  'wikikit.health.reported',
 ] as const satisfies readonly WebhookEventType[]
 
 export const zProposalCreatedData = z.object({
@@ -126,6 +127,28 @@ export const zProposalChangesRequestedData = zProposalRejectedData.extend({
   changes_requested: z.literal(true),
 })
 
+/**
+ * The scheduled health report landed (Phase 4). WikiKit sends no mail and never
+ * will — there is no SMTP in a single binary — so delivery is this event plus the
+ * Output row it points at: whoever wants a morning message hangs it on the
+ * webhook.
+ *
+ * The payload carries the SUMMARY an alerting rule needs and nothing more. The
+ * severity census plus the review-queue pair is exactly what a consumer branches
+ * on ("page me when errors > 0 or the oldest pending change passes two weeks");
+ * the report itself is kilobytes of markdown and lives behind `output_id`. Every
+ * other event in this table follows the same rule, which is why none of them
+ * ships a document either.
+ */
+export const zHealthReportedData = z.object({
+  space: z.string(),
+  output_id: z.uuid(),
+  findings: z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() }),
+  pending_proposals: z.number().int(),
+  /** null exactly when pending_proposals is 0 — no queue, no age (never 0). */
+  oldest_pending_days: z.number().int().nullable(),
+})
+
 /** Per-event `data` schema — keyed by the exact wire event name. */
 export const zWebhookPayloads = {
   'wikikit.proposal.created': zProposalCreatedData,
@@ -138,6 +161,7 @@ export const zWebhookPayloads = {
   'wikikit.source.tombstoned': zSourceTombstonedData,
   'wikikit.proposal.split': zProposalSplitData,
   'wikikit.proposal.changes_requested': zProposalChangesRequestedData,
+  'wikikit.health.reported': zHealthReportedData,
 } as const satisfies Record<WebhookEventType, z.ZodType>
 
 /** The full POST body: `{ type, timestamp (ISO 8601), data }`, discriminated on `type`. */
@@ -160,6 +184,7 @@ export const zWebhookEnvelope = z.discriminatedUnion('type', [
     timestamp: z.iso.datetime(),
     data: zProposalChangesRequestedData,
   }),
+  z.object({ type: z.literal('wikikit.health.reported'), timestamp: z.iso.datetime(), data: zHealthReportedData }),
 ])
 export type WebhookEnvelope = z.infer<typeof zWebhookEnvelope>
 

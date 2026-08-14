@@ -383,8 +383,11 @@ function AccountMenu({ signingOut, onSignOut }: { signingOut: boolean; onSignOut
 
 const NAV_KEYS: Record<string, TranslationKey> = {
   '/': 'nav.home',
+  '/inbox': 'nav.inbox',
   '/pages': 'nav.pages',
   '/changes': 'nav.changes',
+  '/answers': 'nav.answers',
+  '/care': 'nav.care',
   '/sources': 'nav.sources',
   '/decisions': 'nav.decisions',
   '/search': 'nav.search',
@@ -406,12 +409,15 @@ function groupKey(id: string): TranslationKey {
 
 const PAGE_KEYS: Record<string, { title: TranslationKey; description: TranslationKey }> = {
   Home: { title: 'nav.home', description: 'page.home.description' },
+  Inbox: { title: 'nav.inbox', description: 'page.inbox.description' },
   Pages: { title: 'nav.pages', description: 'page.pages.description' },
   Changes: { title: 'nav.changes', description: 'page.changes.description' },
+  Answers: { title: 'nav.answers', description: 'page.answers.description' },
+  Care: { title: 'nav.care', description: 'page.care.description' },
   Sources: { title: 'nav.sources', description: 'page.sources.description' },
   Decisions: { title: 'nav.decisions', description: 'page.decisions.description' },
   Search: { title: 'nav.search', description: 'page.search.description' },
-  Charter: { title: 'nav.charter', description: 'page.charter.description' },
+  Guidelines: { title: 'nav.charter', description: 'page.charter.description' },
   Wikis: { title: 'nav.spaces', description: 'page.spaces.description' },
   'API keys': { title: 'nav.apiKeys', description: 'page.apiKeys.description' },
   People: { title: 'nav.identities', description: 'page.identities.description' },

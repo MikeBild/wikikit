@@ -1,4 +1,4 @@
-import { api, unwrap, unwrapAs } from './client'
+import { api, postRaw, unwrap, unwrapAs } from './client'
 
 /**
  * The whole API surface the console reaches, in one object.
@@ -105,7 +105,71 @@ export const wk = {
       unwrapAs<{ ingest_id: string }>(
         api.POST('/v1/spaces/{space}/ingest', { params: { path: { space } }, body: body as never }),
       ),
+    /**
+     * A FILE, and the only call in this facade that does not go through
+     * openapi-fetch — see `postRaw` for why the typed client cannot carry it.
+     *
+     * One file, one call, one job, on purpose. The inbox drops N files as N
+     * independent requests rather than one bundle: each source keeps its own
+     * content hash, its own change proposal and its own review, and a single
+     * proposal holding forty documents is a proposal nobody can decide.
+     */
+    document: (space: string, filename: string, file: Blob) =>
+      postRaw<{ ingest_id: string; status: string }>(
+        '/v1/spaces/{space}/ingest/document'.replace('{space}', encodeURIComponent(space)),
+        { filename },
+        file,
+      ),
+    /**
+     * This wiki's ingest jobs, newest first — the inbox itself.
+     *
+     * `knowledge:read` with `knowledge:propose` as an alternative on the server:
+     * a contributor key can already poll any single job it started, so refusing
+     * it the list of them would be a gap rather than a boundary.
+     */
+    list: (space: string, query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/spaces/{space}/ingests', { params: { path: { space }, query: query as never } })),
     job: (id: string) => unwrap(api.GET('/v1/ingests/{id}', { params: { path: { id } } })),
+  },
+
+  /**
+   * Persisted answers, briefings and health reports — the fourth place.
+   *
+   * `get` and `promote` are global-by-id and NOT space-scoped in their path:
+   * the row itself carries the space, and the transport enforces the key/space
+   * match. That is the same §4 convention `/v1/ingests/{id}` follows, which is
+   * why the two read alike here.
+   */
+  outputs: {
+    list: (space: string, query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/spaces/{space}/outputs', { params: { path: { space }, query: query as never } })),
+    get: (id: string) => unwrap(api.GET('/v1/outputs/{id}', { params: { path: { id } } })),
+    /**
+     * Answers 202 with the ingest job the promotion opened — never a proposal
+     * id, because promotion runs the whole pipeline (content-hash dedup,
+     * grounding guard, contradiction check) and only that job knows whether a
+     * change came out of it. Re-promoting returns the FIRST job's id.
+     */
+    promote: (id: string) =>
+      unwrapAs<{ ingest_id: string }>(api.POST('/v1/outputs/{id}/promote', { params: { path: { id } } })),
+  },
+
+  /**
+   * One composed read of how a wiki is doing: the lint report whole, the
+   * coverage block whole, and the two live queues neither of them measures.
+   * No LLM, no verdict — the thresholds that would produce one are policy.
+   */
+  health: {
+    space: (space: string, query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/spaces/{space}/health', { params: { path: { space }, query: query as never } })),
+  },
+
+  /** The in-process briefing/health worker's timetable. Admin, both ways. */
+  schedules: {
+    get: (space: string) => unwrap(api.GET('/v1/spaces/{space}/schedules', { params: { path: { space } } })),
+    /** A REPLACE, not a patch: the body is the complete set, and a kind left out is switched off. */
+    put: (space: string, body: Record<string, unknown>) =>
+      unwrapAs<unknown>(api.PUT('/v1/spaces/{space}/schedules', { params: { path: { space } }, body: body as never })),
   },
 
   charter: {
@@ -214,6 +278,16 @@ export const keys = {
   change: (id: string) => ['changes', id] as const,
   changeLint: (id: string) => ['changes', id, 'lint'] as const,
   ingestJob: (id: string) => ['ingests', id] as const,
+  // The query slot is part of the key for the same reason it is on sources: the
+  // inbox reads one status filter at a time, and a mutation must invalidate the
+  // window it changed by naming it.
+  ingestJobs: (space: string, query?: unknown) => ['spaces', space, 'ingests', query ?? null] as const,
+  outputs: (space: string, query?: unknown) => ['spaces', space, 'outputs', query ?? null] as const,
+  // No space in the key, because the path has none: an output is addressed by
+  // id and answers its own space_id.
+  output: (id: string) => ['outputs', id] as const,
+  health: (space: string, query?: unknown) => ['spaces', space, 'health', query ?? null] as const,
+  schedules: (space: string) => ['spaces', space, 'schedules'] as const,
   charter: (space: string) => ['spaces', space, 'charter'] as const,
   charterVersions: (space: string) => ['spaces', space, 'charter', 'versions'] as const,
   lint: (space: string) => ['spaces', space, 'lint'] as const,

@@ -1,62 +1,39 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Archive, Plus, Radio, Trash2, X } from 'lucide-react'
+import { Archive, Plus, Radio, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
 import { SectionHeading } from '@/components/context-help'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
-import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/ui/relative-time'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { Spinner } from '@/components/ui/spinner'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
-import { describeFailure } from '@/lib/failure'
-import { fractionOf, isTerminalStatus, liveReadOptions } from '@/lib/live'
-import { isRetrying, readFailure, readPhase } from '@/lib/read-state'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
-import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import { semanticLabel } from '@/lib/presentation'
-import { useI18n } from '@/lib/i18n-context'
-import {
-  EMPTY_INGEST_DRAFT,
-  STREAM_CAP_NOTE,
-  STREAM_CEILING,
-  describeIngest,
-  ingestBody,
-  ingestProblem,
-  sourceLabel,
-  type IngestDraft,
-  type IngestTransport,
-} from '@/pages/sources.logic'
+import { STREAM_CAP_NOTE, STREAM_CEILING, sourceLabel } from '@/pages/sources.logic'
 
 /**
- * The evidence, and the way more of it gets in.
+ * The evidence, once it is in.
  *
  * Sources are the floor the whole product stands on: a concept page may not
  * assert anything that is not quoted verbatim from one of these rows. So this
- * page is deliberately two lists and one action — what is archived, which
- * connectors are feeding it, and "add documents", which is where a wiki grows
- * from.
+ * page is two lists and nothing else — what is archived, and which connectors
+ * are feeding it.
+ *
+ * The way in used to be here as well, as a dialog. It moved to the Inbox, and
+ * that is a decision rather than a tidy-up: a document being added and a
+ * document already archived are different questions asked by people in
+ * different moods, and answering both on one page meant the wiki grew through
+ * a modal on the ARCHIVE. What is left here is read-only by nature — an
+ * editable source would be a knowledge base whose citations can be made true
+ * after the fact, which is the one thing WikiKit exists to prevent.
  */
 
 /** Derived from the facade so a field the server stops sending stops compiling. */
@@ -88,22 +65,6 @@ const KIND_WORDS: Record<string, string> = {
   url: 'Web page',
   import: 'Imported',
 }
-
-/**
- * The five domain states as badge tones.
- *
- * `STATE_TOKEN` in `@/lib/tokens` answers the same question for an SVG stroke,
- * where a Tailwind class cannot reach; this is the `Badge` half of it. Total by
- * construction — `satisfies` makes a state nobody mapped a compile error rather
- * than an `undefined` tone that renders as neutral and quietly loses a failure.
- */
-const BADGE_TONE = {
-  succeeded: 'success',
-  failed: 'danger',
-  running: 'accent',
-  blocked: 'warning',
-  unknown: 'unknown',
-} as const satisfies Record<DomainState, string>
 
 /**
  * The columns, at module scope because not one cell closes over page state.
@@ -181,18 +142,6 @@ export function SourcesPage() {
 
   const [page, setPage] = useState<CursorPage>(firstPage)
   const [streamPage, setStreamPage] = useState<CursorPage>(firstPage)
-  const [adding, setAdding] = useState(false)
-  /**
-   * The ingest jobs this visit started, newest first.
-   *
-   * In component state and not in the URL, which is the exception to "a view is
-   * an address" rather than a lapse: an ingest id addresses a job that is over
-   * in a minute, and a link to a finished one opens a panel saying a thing the
-   * Changes queue says better. A reload loses the panel and loses nothing else
-   * — the work continues on the server and the pages still arrive in Changes,
-   * which is where the operator is being sent anyway.
-   */
-  const [jobs, setJobs] = useState<readonly string[]>([])
 
   const sourcesQuery = useQuery({
     queryKey: keys.sources(space, { before: page.cursor, limit: PAGE_SIZE }),
@@ -297,33 +246,19 @@ export function SourcesPage() {
       title="Sources"
       description="The documents this wiki has archived verbatim. Every claim on every page quotes one of them."
       actions={
-        <DisabledReason reason={mayAdd ? null : 'Needs knowledge:propose'} data-testid="add-documents-reason">
-          <Button data-testid="add-documents" disabled={!mayAdd} onClick={() => setAdding(true)}>
+        // A LINK, not a button: adding a document happens in the Inbox now, and
+        // this page is what the archive holds afterwards. The form used to open
+        // here as a dialog, which put "what is in the archive" and "what is on
+        // its way into it" on one screen and neither of them anywhere else.
+        <Button asChild>
+          <Link to="/inbox" search={(prev) => prev} data-testid="sources-open-inbox">
             <Plus data-icon="inline-start" />
             Add documents
-          </Button>
-        </DisabledReason>
+          </Link>
+        </Button>
       }
     >
       <div className="flex flex-col gap-8">
-        {jobs.length > 0 ? (
-          <section className="flex flex-col gap-3" aria-labelledby="ingest-heading">
-            <h2 id="ingest-heading" className="text-sm font-semibold">
-              Being added
-            </h2>
-            <div className="flex flex-col gap-3">
-              {jobs.map((id, index) => (
-                <IngestJob
-                  key={id}
-                  id={id}
-                  testId={`ingest-job-${index + 1}`}
-                  onDismiss={() => setJobs((open) => open.filter((job) => job !== id))}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         <section className="flex flex-col gap-3" aria-labelledby="sources-heading">
           <h2 id="sources-heading" className="text-sm font-semibold">
             Archive
@@ -404,20 +339,6 @@ export function SourcesPage() {
           />
         </section>
       </div>
-
-      <AddDocuments
-        space={space}
-        open={adding}
-        onOpenChange={setAdding}
-        onQueued={(ingestId) => {
-          setJobs((open) => [ingestId, ...open])
-          // Back to the newest window: the source being archived lands at the
-          // top of the list, and leaving the operator three pages deep would
-          // hide the thing they just added behind two clicks of Previous.
-          setPage(firstPage)
-          setAdding(false)
-        }}
-      />
     </Page>
   )
 }
@@ -484,354 +405,5 @@ function ForgetStream({
         </DisabledReason>
       )}
     </Confirm>
-  )
-}
-
-/**
- * One ingest job, watched until it stops moving.
- *
- * The polling is `liveReadOptions`, not a local `setInterval`: its terminal set
- * is `done | failed` and pointedly NOT `quota_blocked`, which reads settled and
- * resumes by itself. A panel that stopped asking there would leave an operator
- * staring at "paused" on a job that finished overnight.
- */
-function IngestJob({ id, testId, onDismiss }: { id: string; testId: string; onDismiss: () => void }) {
-  const { text } = useI18n()
-  const job = useQuery({
-    queryKey: keys.ingestJob(id),
-    queryFn: () => wk.ingest.job(id),
-    ...liveReadOptions<Awaited<ReturnType<typeof wk.ingest.job>>>((data) => [data.status]),
-  })
-
-  // `readPhase`, not `isError`: a query TanStack is still retrying holds the
-  // server's refusal in `failureReason` while its status is still pending, and
-  // branching on `isError` would keep saying "queued" over an answer that has
-  // already arrived — for the whole retry budget.
-  if (readPhase(job) === 'error') {
-    const error = readFailure(job)
-    const failure = describeFailure({
-      status: error instanceof ApiError ? error.status : null,
-      message: error instanceof Error ? error.message : String(error),
-      actions: error instanceof ApiError ? error.nextBestActions : [],
-      retrying: isRetrying(job),
-    })
-    return (
-      <Alert tone={failure.tone} title={failure.title} actions={failure.actions} data-testid={`${testId}-error`}>
-        {failure.message}
-      </Alert>
-    )
-  }
-
-  // No skeleton for a panel that was created by a click: the operator pressed
-  // Add one moment ago, so "queued" is the truth until the first answer lands
-  // and a shimmering box in its place would be the console pretending it does
-  // not know what it just did.
-  const report = describeIngest(job.data ?? { status: 'queued', proposal_id: null, error: null })
-  const fraction = fractionOf(report.progress?.done, report.progress?.total)
-  const status = job.data?.status ?? 'queued'
-  const settled = isTerminalStatus(status)
-  const state = STATUS_STATE[status] ?? 'unknown'
-
-  return (
-    <div
-      className="border-border bg-card flex flex-col gap-2 rounded-lg border p-3"
-      data-testid={testId}
-      data-status={status}
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        {settled ? null : <Spinner className="text-muted-foreground shrink-0" />}
-        <span className="text-sm font-medium">{text(report.headline)}</span>
-        {/* The word as well as the colour: a status is never conveyed by tone
-            alone (CUI-A11Y-5). */}
-        <Badge tone={BADGE_TONE[state]} data-testid={`${testId}-status`}>
-          {status.replace('_', ' ')}
-        </Badge>
-        <DisabledReason reason={null} label="Dismiss this job" data-testid={`${testId}-dismiss-tooltip`}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="ml-auto"
-            aria-label="Dismiss this job"
-            data-testid={`${testId}-dismiss`}
-            onClick={onDismiss}
-          >
-            <X />
-          </Button>
-        </DisabledReason>
-      </div>
-      <p className="text-muted-foreground text-sm">{text(report.detail)}</p>
-      {/* A count of pages actually finished — never a percentage nobody
-          measured (see fractionOf). The bar only appears alongside it. */}
-      {report.progress ? (
-        <div className="flex flex-col gap-1" data-testid={`${testId}-progress`}>
-          <span className="text-muted-foreground text-xs">
-            {text('{done} of {total} pages written', { done: report.progress.done, total: report.progress.total })}
-          </span>
-          {fraction === null ? null : (
-            <div
-              className="bg-muted h-1 w-full overflow-hidden rounded-full"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={report.progress.total}
-              aria-valuenow={report.progress.done}
-            >
-              <div className="bg-primary h-full transition-all" style={{ width: `${Math.round(fraction * 100)}%` }} />
-            </div>
-          )}
-        </div>
-      ) : null}
-      {report.reviewable ? (
-        <Link
-          to="/changes"
-          data-testid={`${testId}-review`}
-          className="text-sm font-medium underline-offset-4 hover:underline"
-        >
-          Review the change →
-        </Link>
-      ) : null}
-    </div>
-  )
-}
-
-const TRANSPORTS: readonly { id: IngestTransport; label: string; hint: string }[] = [
-  { id: 'markdown', label: 'Markdown', hint: 'Paste a Markdown document — headings, lists and tables are kept.' },
-  { id: 'text', label: 'Plain text', hint: 'Paste anything: a meeting note, an email, a transcript.' },
-  { id: 'url', label: 'Link', hint: 'Give a public https:// address and WikiKit fetches and archives the page.' },
-]
-
-/**
- * Adding documents.
- *
- * A form dialog and NOT a `Confirm`, which is a deliberate reading of "every
- * consequential mutation goes through Confirm" rather than an omission of it.
- * Confirm exists for a decision that lands somewhere it cannot be taken back
- * from — approving a change publishes knowledge, forgetting a stream changes
- * what the lint report says about live claims. Adding a document lands nowhere:
- * it archives bytes and drafts a change proposal, and that proposal is itself
- * the confirmation step, reviewed by a human before one word of it is visible.
- * Stacking an "are you sure" on top of a dialog the operator opened, filled in
- * and pressed Add on would teach them to click through the dialogs that do
- * matter. What Confirm's `details` would have said is on screen here instead,
- * above the button, before the mutation rather than after it.
- */
-function AddDocuments({
-  space,
-  open,
-  onOpenChange,
-  onQueued,
-}: {
-  space: string
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onQueued: (ingestId: string) => void
-}) {
-  const [draft, setDraft] = useState<IngestDraft>(EMPTY_INGEST_DRAFT)
-  const queryClient = useQueryClient()
-
-  const submit = useMutation({
-    mutationFn: () => wk.ingest.submit(space, ingestBody(draft)),
-    onSuccess: (result) => {
-      // The whole space subtree, by prefix, and that is not laziness. A paged
-      // read registers under `keys.sources(space, {before, limit})`, so
-      // `keys.sources(space)` — which spells the query slot `null` — is not a
-      // prefix of it and would invalidate nothing at all. `keys.space(space)`
-      // is the prefix every key in this wiki starts with, which is exactly what
-      // the key table was built for; only the queries actually mounted refetch.
-      void queryClient.invalidateQueries({ queryKey: keys.space(space) })
-      setDraft(EMPTY_INGEST_DRAFT)
-      onQueued(result.ingest_id)
-    },
-  })
-
-  const problem = ingestProblem(draft)
-  const transport = TRANSPORTS.find((option) => option.id === draft.transport) ?? TRANSPORTS[0]
-  const refusal = submit.error
-    ? describeFailure({
-        status: submit.error instanceof ApiError ? submit.error.status : null,
-        message: submit.error instanceof Error ? submit.error.message : String(submit.error),
-        actions: submit.error instanceof ApiError ? submit.error.nextBestActions : [],
-      })
-    : null
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        // A request in the air is never dismissed: the answer is what closes
-        // this, or the operator would be told nothing about an ingest that is
-        // already running.
-        if (submit.isPending) return
-        submit.reset()
-        onOpenChange(next)
-      }}
-    >
-      <DialogContent data-testid="add-documents-dialog" closeDisabled={submit.isPending} className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Add documents</DialogTitle>
-          <DialogDescription>
-            WikiKit archives what you give it verbatim, quotes it claim by claim into pages, and puts those pages in
-            Changes for a human to approve. Nothing becomes visible knowledge here without that approval.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-4 overflow-y-auto">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ingest-transport">What are you adding?</Label>
-            <Select
-              value={draft.transport}
-              onValueChange={(value) => setDraft({ ...draft, transport: value as IngestTransport, content: '' })}
-            >
-              <SelectTrigger id="ingest-transport" className="w-full" data-testid="ingest-transport">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {TRANSPORTS.map((option) => (
-                    <SelectItem key={option.id} value={option.id} data-testid={`ingest-transport-${option.id}`}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <p className="text-muted-foreground text-xs">{transport?.hint}</p>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ingest-content">{draft.transport === 'url' ? 'Address' : 'Document'}</Label>
-            {draft.transport === 'url' ? (
-              <Input
-                id="ingest-content"
-                data-testid="ingest-content"
-                type="url"
-                inputMode="url"
-                placeholder="https://example.com/handbook"
-                value={draft.content}
-                onChange={(event) => setDraft({ ...draft, content: event.target.value })}
-              />
-            ) : (
-              <Textarea
-                id="ingest-content"
-                data-testid="ingest-content"
-                rows={8}
-                className="max-h-64 font-mono text-xs"
-                placeholder="Paste the document here."
-                value={draft.content}
-                onChange={(event) => setDraft({ ...draft, content: event.target.value })}
-              />
-            )}
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ingest-title">Title (optional)</Label>
-            <Input
-              id="ingest-title"
-              data-testid="ingest-title"
-              value={draft.title}
-              placeholder={draft.transport === 'url' ? "The page's own title, if you leave this empty" : 'Untitled'}
-              onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-            />
-          </div>
-
-          <div className="flex flex-col gap-4 sm:flex-row">
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor="ingest-kind">What is it? (optional)</Label>
-              <Select
-                value={draft.sourceKind || 'unstated'}
-                onValueChange={(value) =>
-                  setDraft({ ...draft, sourceKind: value === 'unstated' ? '' : (value as IngestDraft['sourceKind']) })
-                }
-              >
-                <SelectTrigger id="ingest-kind" className="w-full" data-testid="ingest-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="unstated" data-testid="ingest-kind-unstated">
-                      Not stated
-                    </SelectItem>
-                    <SelectItem value="meeting" data-testid="ingest-kind-meeting">
-                      Meeting
-                    </SelectItem>
-                    <SelectItem value="article" data-testid="ingest-kind-article">
-                      Article
-                    </SelectItem>
-                    <SelectItem value="note" data-testid="ingest-kind-note">
-                      Note
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {/* Said out loud because it is the only field here that changes
-                  what synthesis DOES: a meeting is read for explicit decision
-                  statements, and the decision log is fed from them. */}
-              <p className="text-muted-foreground text-xs">A meeting is also read for the decisions it records.</p>
-            </div>
-
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Label htmlFor="ingest-language">Language (optional)</Label>
-              <Select
-                value={draft.language || 'space'}
-                onValueChange={(value) =>
-                  setDraft({ ...draft, language: value === 'space' ? '' : (value as IngestDraft['language']) })
-                }
-              >
-                <SelectTrigger id="ingest-language" className="w-full" data-testid="ingest-language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="space" data-testid="ingest-language-space">
-                      This wiki's language
-                    </SelectItem>
-                    <SelectItem value="en" data-testid="ingest-language-en">
-                      English
-                    </SelectItem>
-                    <SelectItem value="de" data-testid="ingest-language-de">
-                      German
-                    </SelectItem>
-                    <SelectItem value="simple" data-testid="ingest-language-simple">
-                      Unstemmed
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">Only for a document that is not in the wiki's language.</p>
-            </div>
-          </div>
-
-          {refusal ? (
-            <Alert tone={refusal.tone} title={refusal.title} actions={refusal.actions} data-testid="ingest-refusal">
-              {refusal.message}
-            </Alert>
-          ) : null}
-        </div>
-
-        <DialogFooter data-testid="add-documents-footer">
-          <Button
-            variant="outline"
-            data-testid="ingest-cancel"
-            disabled={submit.isPending}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <DisabledReason reason={problem}>
-            {/* The label never changes while the request is in the air
-                (CUI-ACT-5): a spinner beside "Add documents" is what says it is
-                working, and the promise the button made stays on it. */}
-            <Button
-              data-testid="ingest-submit"
-              disabled={problem !== null || submit.isPending}
-              aria-busy={submit.isPending}
-              onClick={() => submit.mutate()}
-            >
-              {submit.isPending ? <Spinner data-icon="inline-start" /> : null}
-              Add documents
-            </Button>
-          </DisabledReason>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }

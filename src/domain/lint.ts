@@ -60,6 +60,7 @@ export type LintRule =
   | 'stale-claims'
   | 'orphan-concepts'
   | 'unsourced-concepts'
+  | 'self-derived-only'
   | 'stub-concepts'
   | 'scaffolded-claims'
   | 'empty-concepts'
@@ -92,6 +93,7 @@ export const LINT_SEVERITY: Record<LintRule, LintSeverity> = {
   'stale-claims': 'warn',
   'orphan-concepts': 'warn',
   'unsourced-concepts': 'warn',
+  'self-derived-only': 'warn',
   'stub-concepts': 'warn',
   'scaffolded-claims': 'warn',
   'empty-concepts': 'info',
@@ -389,6 +391,112 @@ async function unsourcedConcepts(db: Db, spaceId: string, kinds: readonly string
     // equals `claims` by construction, so it would be a second name for a
     // number already here.
     details: { claims: row.claims },
+  }))
+}
+
+// A readable page whose visible claims quote ONLY sources the wiki produced
+// itself: every cited source carries the `derived_from_output_id` stamp that
+// promotion puts on an answer filed back in. Knowledge with no evidence from
+// outside the wiki.
+//
+// WHY the rule exists, and why it is the counterweight to promotion rather than
+// an objection to it. Filing a good answer back into the wiki is the loop
+// closing, and WikiKit deliberately routes it through the ordinary review gate:
+// a human promotes, the pipeline hashes and grounds it, a proposal gets
+// approved. That is all legitimate, and the resulting page is often exactly the
+// page somebody wanted. What is NOT legitimate is the state at the end of a
+// chain of those: an answer synthesized from the wiki becomes a source, the next
+// answer quotes that source, and after two turns the wiki's only witness for
+// something is itself. The review gate stops nonsense entering; it cannot see
+// that the evidence behind a page has quietly become circular, because each
+// individual step looked correct to the reviewer who approved it.
+//
+// WHY nothing else reports it. This page passes every neighbour: the sources
+// exist and are archived verbatim, the claims quote them with real quotes, so
+// `missing-citations` is silent and `unsourced-concepts` is silent — correctly,
+// both of them. `dangling-sources` sees a source that IS cited. Every rule in
+// this file asks whether evidence is present; this is the one that asks where it
+// came from.
+//
+// WHY at least one derived citation AND zero others, rather than "no external
+// source". A page with no citations at all is `unsourced-concepts`' finding and
+// its fix is different (ingest anything at all); reporting the same page under
+// two rules with two different instructions is how an operator learns to read
+// neither. So the rule needs a positive: something here is derived, and nothing
+// here is not.
+//
+// WHY the stamp's PRESENCE and not its value. `jsonb_exists` — the key being
+// there is the statement, and a stamp whose value is JSON null still says the
+// source came out of an output. The rule also cannot care HOW the stamp arrived:
+// promotion writes it, and a client may set `derived_from_output_id` on its own
+// ingest exactly as it sets `source_kind`. Either way the source is declared
+// derived, and this rule reports what the space declares about itself.
+//
+// WHY warn, in the same three-way its neighbours argue:
+//   * NOT error. A page resting on a promoted answer is a legitimate page —
+//     often a distillation somebody wanted kept — and the state is transient by
+//     construction: the moment one claim cites one outside source, the finding
+//     is gone. Failing CI on the product's own loop, on every installation that
+//     uses it, would teach operators to switch the rule off, and a rule switched
+//     off catches nothing.
+//   * NOT info. info is "noticed, nothing expected of you". Something is
+//     expected here and it is one thing, cheaply stated: bring in a source from
+//     outside. The risk it names — the wiki confirming itself — is the one
+//     failure the citation contract exists to prevent, and it would not survive
+//     a section that already prints a line per uncited source.
+// So: warn — somebody should look, nothing is broken.
+//
+// It excludes scaffolding markers because it reports a FAULT, like every other
+// page-level fault rule here (see the header): a reference target quoting the
+// wiki's own answers is furniture, not circular knowledge.
+async function selfDerivedOnly(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+  const { rows } = await db.query<{ slug: string; derived_sources: number }>(
+    // Shaped like `unsourced-concepts` — the same page CTE, the same
+    // CROSS JOIN LATERAL over the page's visible claims — because it asks the
+    // adjacent question and a reader comparing the two should see one query
+    // twice. It cannot reuse EVIDENCE_LATERAL itself: that aggregate counts
+    // sources, and this rule needs them split by provenance, which is a join to
+    // wk_sources that the shared fragment has no reason to carry.
+    //
+    // Visible means verified/disputed, as in `missing-citations` and
+    // `contradictions`: a deprecated claim is already retired, and the evidence
+    // under a retired claim is not what a reader is standing on.
+    `WITH page AS (
+       SELECT c.id, c.slug
+         FROM wk_concepts c
+         JOIN wk_concept_revisions r ON r.id = c.current_revision_id
+        WHERE c.space_id = $1
+          AND ${notScaffolding(kinds)}
+     )
+     SELECT p.slug, ev.derived_sources
+       FROM page p
+       CROSS JOIN LATERAL (
+         SELECT count(DISTINCT s.id) FILTER (WHERE jsonb_exists(s.metadata, 'derived_from_output_id'))::int
+                  AS derived_sources,
+                count(DISTINCT s.id) FILTER (WHERE NOT jsonb_exists(s.metadata, 'derived_from_output_id'))::int
+                  AS outside_sources
+           FROM wk_claims cl
+           JOIN wk_citations ci ON ci.claim_id = cl.id
+           JOIN wk_sources s ON s.id = ci.source_id
+          WHERE cl.space_id = $1
+            AND cl.concept_id = p.id
+            AND cl.status IN ('verified', 'disputed')
+       ) ev
+      WHERE ev.derived_sources > 0 AND ev.outside_sources = 0
+      ORDER BY p.slug`,
+    [spaceId],
+  )
+  return rows.map((row) => ({
+    rule: 'self-derived-only' as const,
+    severity: LINT_SEVERITY['self-derived-only'],
+    // The fix names OUTSIDE explicitly. "Ingest a source" is what
+    // `unsourced-concepts` says, and an operator who read it here would
+    // reasonably promote another answer — which is the state, not the cure.
+    message: `concept "${row.slug}" rests only on the wiki's own answers: all ${row.derived_sources} source${
+      row.derived_sources === 1 ? '' : 's'
+    } its visible claims quote were promoted from an output — ingest a source from outside the wiki and let synthesis quote it`,
+    concept_slug: row.slug,
+    details: { derived_sources: row.derived_sources },
   }))
 }
 
@@ -993,6 +1101,7 @@ export async function lintSpace(db: Db, spaceId: string, options: ScaffoldingOpt
     ...(await staleClaims(db, spaceId)),
     ...(await orphanConcepts(db, spaceId, kinds)),
     ...(await unsourcedConcepts(db, spaceId, kinds)),
+    ...(await selfDerivedOnly(db, spaceId, kinds)),
     ...(await tombstonedSources(db, spaceId)),
     ...(await brokenCrossSpaceLinks(db, spaceId)),
     ...(await stubConcepts(db, spaceId)),
