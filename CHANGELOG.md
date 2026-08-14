@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.0 - 2026-08-14
+
+### Added
+
+- **Every page knows its neighborhood.** New LLM-free read
+  `GET /v1/spaces/{space}/concepts/{slug}/neighbors`
+  (`wikikit.concept-neighbors.v1`): the reviewed relations folded to their far
+  endpoint in BOTH directions — inbound is the backlink surface the concept
+  read never carried, same-space only — each with the resolved page title, plus
+  `same_source`: the same-space concepts whose verified/disputed claims quote
+  the same archived sources, ranked by how many distinct sources the two pages
+  share. The count travels because it IS the argument for the suggestion; pages
+  already related and the page itself are excluded, because the list exists to
+  surface what the relations do not already show. No embeddings — relations and
+  shared citations first. `zConceptResponse` is untouched: agents pin that
+  shape, and the neighborhood is a second, independently-loading read.
+- **The cockpit's Related pages panel becomes the neighborhood.** Three groups
+  — Outgoing, Incoming, and Same sources with its "n shared sources" hint — on
+  a query of their own, so a slow or failing neighborhood read never blanks the
+  document above it. Cross-wiki targets stay inert text (this console cannot
+  address another wiki's page), and an empty neighborhood renders as a
+  statement rather than a panel that silently is not there.
+
 ## 0.39.0 - 2026-08-14
 
 ### Added

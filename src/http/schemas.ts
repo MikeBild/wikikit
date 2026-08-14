@@ -624,6 +624,41 @@ export const zConceptResponse = z.object({
   agent_meta: z.record(z.string(), z.unknown()),
 })
 
+/**
+ * The pages around one page — served by GET .../concepts/{slug}/neighbors and
+ * deliberately NOT folded into zConceptResponse: agents pin that shape, and
+ * the neighborhood is a second, independently-loading read in the console.
+ *
+ * `relations` rows are folded to the FAR endpoint (the page a reader would go
+ * to), both directions — `direction:'in'` is the backlink surface the concept
+ * read never had. `space` is non-null only on an outgoing cross-wiki link;
+ * inbound is same-space by construction (a foreign wiki's relations are its
+ * own knowledge). `same_source` names concepts quoting the same archived
+ * sources, ranked by `shared_sources` — the count is the whole argument, so it
+ * travels. LLM-free on principle: relations and shared citations before any
+ * embedding neighbor.
+ */
+export const zConceptNeighborsResponse = z.strictObject({
+  schema_version: z.literal('wikikit.concept-neighbors.v1'),
+  relations: z.array(
+    z.strictObject({
+      slug: z.string(),
+      title: z.string(),
+      kind: zRelationKind,
+      direction: z.enum(['out', 'in']),
+      space: z.string().nullable(),
+    }),
+  ),
+  same_source: z.array(
+    z.strictObject({
+      slug: z.string(),
+      title: z.string(),
+      /** Distinct shared sources — always ≥1, or the row would not exist. */
+      shared_sources: z.number().int().positive(),
+    }),
+  ),
+})
+
 export const zConceptHistoryResponse = z.object({
   slug: z.string(),
   revisions: z.array(
@@ -1703,6 +1738,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zDecisionResponse,
   zConceptListResponse,
   zConceptResponse,
+  zConceptNeighborsResponse,
   zConceptHistoryResponse,
   zDeletedConceptListResponse,
   zConceptLifecycleResponse,

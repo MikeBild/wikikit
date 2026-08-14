@@ -541,6 +541,49 @@ export function evidenceSummary(claims: readonly ClaimLike[]): string {
   return `${total}, ${uncited} of them with no quote behind it.`
 }
 
+/* ----------------------------------------------------------- the neighborhood */
+
+/** One relation row of the neighbors read, already folded to its far endpoint. */
+export interface NeighborRelation {
+  slug: string
+  title: string
+  kind: string
+  direction: 'out' | 'in'
+  space: string | null
+}
+
+/**
+ * The three groups the panel renders, split here so a test can hold the rule:
+ * direction decides the group, and NOTHING is dropped — a row that fell out of
+ * both groups would be a neighbor the reader never sees.
+ */
+export function neighborGroups(relations: readonly NeighborRelation[]): {
+  outgoing: NeighborRelation[]
+  incoming: NeighborRelation[]
+} {
+  return {
+    outgoing: relations.filter((relation) => relation.direction === 'out'),
+    incoming: relations.filter((relation) => relation.direction === 'in'),
+  }
+}
+
+/**
+ * Empty means ALL THREE groups are empty. A page with only shared-source
+ * neighbors is not an empty neighborhood, and hiding the panel on relations
+ * alone would hide exactly the suggestions the panel exists to surface.
+ */
+export function neighborhoodEmpty(neighbors: {
+  relations: readonly unknown[]
+  same_source: readonly unknown[]
+}): boolean {
+  return neighbors.relations.length === 0 && neighbors.same_source.length === 0
+}
+
+/** The count is the argument for the suggestion, so it is the whole hint. */
+export function sharedSourcesLabel(count: number): string {
+  return `${count} shared ${count === 1 ? 'source' : 'sources'}`
+}
+
 /* -------------------------------------------------------------- the revisions */
 
 /** The part of a revision row this module decides on. */

@@ -30,6 +30,8 @@ export const wk = {
       unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}', { params: { path: { space, slug } } })),
     history: (space: string, slug: string) =>
       unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}/history', { params: { path: { space, slug } } })),
+    neighbors: (space: string, slug: string) =>
+      unwrap(api.GET('/v1/spaces/{space}/concepts/{slug}/neighbors', { params: { path: { space, slug } } })),
     deleted: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/deleted-concepts', { params: { path: { space }, query: query as never } })),
     remove: (space: string, slug: string) =>
@@ -282,6 +284,7 @@ export const keys = {
   concepts: (space: string, query?: unknown) => ['spaces', space, 'concepts', query ?? null] as const,
   concept: (space: string, slug: string) => ['spaces', space, 'concepts', slug] as const,
   conceptHistory: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'history'] as const,
+  conceptNeighbors: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'neighbors'] as const,
   deletedConcepts: (space: string, query?: unknown) => ['spaces', space, 'deleted-concepts', query ?? null] as const,
   decisions: (space: string, query?: unknown) => ['spaces', space, 'decisions', query ?? null] as const,
   decision: (space: string, slug: string) => ['spaces', space, 'decisions', slug] as const,

@@ -115,6 +115,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/concepts`                 | knowledge:read    | List concepts with an `evidence` summary per page, replaced by `not_measured` on a reference target (keyset `?after=`; ETag over the space epoch, 304 on If-None-Match) |
 | GET    | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:read    | Read a concept: markdown + claims + citations + relations |
 | GET    | `/v1/spaces/{space}/concepts/{slug}/history`  | knowledge:read    | Revision history incl. agent_meta (model, prompt version, sources) |
+| GET    | `/v1/spaces/{space}/concepts/{slug}/neighbors` | knowledge:read   | The pages around this one: typed relations in BOTH directions (inbound = backlinks) plus same-space concepts quoting the same archived sources, ranked by shared-source count. LLM-free |
 | GET    | `/v1/spaces/{space}/deleted-concepts`         | knowledge:read    | List deleted concept tombstones for audit and restoration |
 | DELETE | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:propose | Stage page deletion for human review; history retained |
 | POST   | `/v1/spaces/{space}/concepts/{slug}/restore`  | knowledge:propose | Stage restoration of the last visible revision for review |

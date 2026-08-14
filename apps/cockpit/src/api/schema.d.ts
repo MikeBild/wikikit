@@ -399,6 +399,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/spaces/{space}/concepts/{slug}/neighbors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The pages around this one: typed relations in BOTH directions (inbound is the backlink surface the concept read never had) plus same-space concepts quoting the same archived sources, ranked by shared-source count. LLM-free. */
+        get: operations["conceptNeighbors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/spaces/{space}/deleted-concepts": {
         parameters: {
             query?: never;
@@ -1958,6 +1975,24 @@ export interface components {
                     [key: string]: unknown;
                 };
                 created_at: string;
+            }[];
+        };
+        zConceptNeighborsResponse: {
+            /** @constant */
+            schema_version: "wikikit.concept-neighbors.v1";
+            relations: {
+                slug: string;
+                title: string;
+                /** @enum {string} */
+                kind: "related" | "part_of" | "depends_on" | "contradicts" | "supersedes";
+                /** @enum {string} */
+                direction: "out" | "in";
+                space: string | null;
+            }[];
+            same_source: {
+                slug: string;
+                title: string;
+                shared_sources: number;
             }[];
         };
         zDeletedConceptListResponse: {
@@ -5222,6 +5257,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["zConceptHistoryResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    conceptNeighbors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Concept neighborhood */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zConceptNeighborsResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */

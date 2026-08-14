@@ -348,6 +348,29 @@ function stubDb(): Db {
           return [{ slug: 'wikikit', markdown: '# WikiKit\n\nBody.' }]
         }
 
+        // conceptNeighbors: relations with endpoint titles resolved (matched
+        // before the bare active-relations branch below — both name
+        // wk_relations rel and status='active') ------------------------------
+        if (text.includes('AS from_title')) {
+          return [
+            {
+              id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+              from_slug: 'wikikit',
+              from_title: 'WikiKit',
+              to_slug: 'open-knowledge-format',
+              to_title: 'Open Knowledge Format',
+              kind: 'related',
+              from_concept_id: CONCEPT_ID,
+              space: null,
+              created_at: NOW,
+            },
+          ]
+        }
+        // conceptNeighbors: shared-source siblings ---------------------------
+        if (text.includes('AS shared_sources')) {
+          return [{ slug: 'graph-store', title: 'Graph store', shared_sources: 2 }]
+        }
+
         // getConcept relations (active only) --------------------------------
         if (text.includes('FROM wk_relations rel') && text.includes("rel.status = 'active'")) {
           return [{ to_slug: 'open-knowledge-format', kind: 'related', space: null }]
@@ -897,6 +920,12 @@ const CASES: RouteCase[] = [
     template: '/v1/spaces/{space}/concepts/{slug}/history',
     method: 'get',
     url: '/v1/spaces/demo/concepts/wikikit/history',
+    status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/concepts/{slug}/neighbors',
+    method: 'get',
+    url: '/v1/spaces/demo/concepts/wikikit/neighbors',
     status: 200,
   },
   {

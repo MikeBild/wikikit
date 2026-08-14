@@ -44,6 +44,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/spaces/{space}/deleted-concepts', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/concepts/{slug}/history', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/concepts/{slug}/neighbors', 'knowledge:read'],
   ['delete', '/v1/spaces/{space}/concepts/{slug}', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/concepts/{slug}/restore', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/search', 'knowledge:read'],

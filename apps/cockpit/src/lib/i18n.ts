@@ -557,6 +557,13 @@ export const DE_PHRASES = {
   'A word or a phrase': 'Ein Wort oder eine Wortgruppe',
   'Alternatives turned down': 'Verworfene Alternativen',
   'Related pages': 'Verwandte Seiten',
+  // Neighborhood panel — the three groups around a page.
+  Outgoing: 'Ausgehend',
+  Incoming: 'Eingehend',
+  'Same sources': 'Gleiche Quellen',
+  'No neighbors yet': 'Noch keine Nachbarn',
+  'No reviewed relation touches this page, and no other page quotes the sources it quotes.':
+    'Keine geprüfte Verknüpfung berührt diese Seite, und keine andere Seite zitiert dieselben Quellen.',
   'Parent change': 'Übergeordnete Änderung',
   'Decided by': 'Entschieden von',
   'Review changes': 'Änderungen prüfen',
@@ -1432,6 +1439,11 @@ export function translateText(
             ? 'Seite'
             : 'Seiten'
       return `${leading}${amount} ${noun}${trailing}`
+    }
+    const shared = phrase.match(/^(\d+) shared sources?$/)
+    if (shared) {
+      const amount = Number(shared[1])
+      return `${leading}${amount} ${amount === 1 ? 'gemeinsame Quelle' : 'gemeinsame Quellen'}${trailing}`
     }
     const uncited = phrase.match(/^(\d+) uncited$/)
     if (uncited) return `${leading}${uncited[1]} ohne Nachweis${trailing}`

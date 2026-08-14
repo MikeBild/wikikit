@@ -51,6 +51,7 @@ import {
   toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
+import { conceptNeighbors } from '../domain/relations.ts'
 import { spaceHealth, spacesOverview, type SpaceHealthArgs } from '../domain/health.ts'
 import {
   getOutput,
@@ -435,6 +436,18 @@ export const ROUTES: RouteDef[] = [
     handler: 'getConceptHistoryHandler',
     request: { params: 'zConceptParams' },
     responses: { 200: { schema: 'zConceptHistoryResponse', type: 'application/json', desc: 'Revisions' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/concepts/{slug}/neighbors',
+    scope: 'knowledge:read',
+    summary:
+      'The pages around this one: typed relations in BOTH directions (inbound is the backlink surface the concept read never had) plus same-space concepts quoting the same archived sources, ranked by shared-source count. LLM-free.',
+    handler: 'conceptNeighborsHandler',
+    request: { params: 'zConceptParams' },
+    responses: {
+      200: { schema: 'zConceptNeighborsResponse', type: 'application/json', desc: 'Concept neighborhood' },
+    },
   },
   {
     method: 'get',
@@ -1638,6 +1651,14 @@ export const HANDLERS: Record<string, Handler> = {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const revisions = await getConceptHistory(deps.db, space.id, { slug: input.params.slug! })
     return { status: 200, body: { slug: input.params.slug!, revisions } }
+  },
+
+  async conceptNeighborsHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const neighbors = await conceptNeighbors(deps.db, space.id, { slug: input.params.slug! })
+    // schema_version stamped at the transport, as on spaceHealthHandler: the
+    // domain serves the numbers, the wire contract belongs to the route.
+    return { status: 200, body: { schema_version: 'wikikit.concept-neighbors.v1', ...neighbors } }
   },
 
   async listDeletedConceptsHandler(deps, input) {

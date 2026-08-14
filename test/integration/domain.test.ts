@@ -23,7 +23,7 @@ import {
   rejectProposal,
   renderProposalMarkdown,
 } from '../../src/domain/proposals.ts'
-import { listRelations } from '../../src/domain/relations.ts'
+import { conceptNeighbors, listRelations } from '../../src/domain/relations.ts'
 import { createSource, getSource, listSources, sha256Hex } from '../../src/domain/sources.ts'
 import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 
@@ -853,6 +853,83 @@ describe('domain modules (integration)', () => {
     // Findings are grouped by severity: errors first, info last.
     const severities = report.findings.map((finding) => finding.severity)
     expect(severities.indexOf('info')).toBeGreaterThan(severities.lastIndexOf('error'))
+  })
+
+  it('neighborhood: relations resolve titles both directions, siblings rank by shared sources and exclude self and relatives', async () => {
+    const space = await seedSpace('neighbors-space')
+    const src = async (raw: string) => (await createSource(db, space.id, { kind: 'text', raw, markdown: raw })).source
+    const s1 = await src('Shared source one')
+    const s2 = await src('Shared source two')
+    const s3 = await src('Source only delta cites')
+
+    // Distinct predicates per concept, so the exact-frame contradiction
+    // matcher has nothing to say — this test is about citations, not disputes.
+    const concept = (
+      slug: string,
+      title: string,
+      sources: (typeof s1)[],
+      relations: { to_slug: string; kind: 'related' }[] = [],
+    ) => ({
+      slug,
+      title,
+      summary: '',
+      markdown: `# ${title}`,
+      claims: sources.map((source, index) => ({
+        subject: slug,
+        predicate: `cites_${index}`,
+        object: `source-${index}`,
+        confidence: 0.9,
+        citations: [{ source_id: source.id, quote: 'Shared source', locator: '' }],
+      })),
+      relations,
+    })
+
+    const staged = await createProposal(db, space.id, {
+      title: 'Seed the neighborhood',
+      input_hash: sha256Hex('neighborhood-seed'),
+      source_ids: [s1.id, s2.id, s3.id],
+      agent_meta: AGENT_META,
+      concepts: [
+        // alpha is RELATED to delta, so delta must appear as a relation and
+        // NOT as a same-source sibling despite sharing two sources.
+        concept('alpha', 'Alpha', [s1, s2], [{ to_slug: 'delta', kind: 'related' }]),
+        concept('beta', 'Beta', [s1, s2]),
+        concept('gamma', 'Gamma', [s1]),
+        concept('delta', 'Delta', [s1, s2, s3]),
+      ],
+    })
+    await approveProposal(db, { id: staged.proposal_id, reviewer: 'mike' })
+
+    // Ranking is the shared-source count, descending; self and relatives out.
+    const alpha = await conceptNeighbors(db, space.id, { slug: 'alpha' })
+    expect(alpha.relations).toEqual([{ slug: 'delta', title: 'Delta', kind: 'related', direction: 'out', space: null }])
+    expect(alpha.same_source.map((sibling) => [sibling.slug, sibling.shared_sources])).toEqual([
+      ['beta', 2],
+      ['gamma', 1],
+    ])
+
+    // The backlink surface: delta never named alpha, but sees it inbound.
+    const delta = await conceptNeighbors(db, space.id, { slug: 'delta' })
+    expect(delta.relations).toEqual([{ slug: 'alpha', title: 'Alpha', kind: 'related', direction: 'in', space: null }])
+    expect(delta.same_source.map((sibling) => [sibling.slug, sibling.shared_sources])).toEqual([
+      ['beta', 2],
+      ['gamma', 1],
+    ])
+
+    // Staged claims are not knowledge: a pending proposal citing a shared
+    // source changes nothing until a human approves it.
+    await createProposal(db, space.id, {
+      title: 'Stage epsilon',
+      input_hash: sha256Hex('neighborhood-epsilon'),
+      source_ids: [s1.id],
+      agent_meta: AGENT_META,
+      concepts: [concept('epsilon', 'Epsilon', [s1])],
+    })
+    const unchanged = await conceptNeighbors(db, space.id, { slug: 'alpha' })
+    expect(unchanged.same_source.map((sibling) => sibling.slug)).toEqual(['beta', 'gamma'])
+
+    // The 404 contract is getConcept's: no readable page, no neighborhood.
+    await expect(conceptNeighbors(db, space.id, { slug: 'ghost-concept' })).rejects.toBeInstanceOf(NotFoundError)
   })
 
   it('concurrent identical proposals converge on one pending row (dedup index race)', async () => {

@@ -284,6 +284,26 @@ describe('http surface (integration)', () => {
     expect(body.revisions[0]!.agent_meta.model).toBe('fake')
   })
 
+  it('neighbors: a leaf page answers with empty groups, a bogus slug is a clean 404', async () => {
+    // A page with no relations and no co-cited sources has a VALID empty
+    // neighborhood — the empty arrays are the statement, not an error.
+    const res = await fetch(`${base}/v1/spaces/demo/concepts/okf-notes/neighbors`, { headers: bearer(readerKey) })
+    expect(res.status).toBe(200)
+    const neighbors = (await res.json()) as {
+      schema_version: string
+      relations: unknown[]
+      same_source: unknown[]
+    }
+    expect(neighbors.schema_version).toBe('wikikit.concept-neighbors.v1')
+    expect(Array.isArray(neighbors.relations)).toBe(true)
+    expect(Array.isArray(neighbors.same_source)).toBe(true)
+
+    const missing = await fetch(`${base}/v1/spaces/demo/concepts/ghost-concept/neighbors`, {
+      headers: bearer(readerKey),
+    })
+    expect(missing.status).toBe(404)
+  })
+
   it('concept list: ETag = approved epoch, 304 on If-None-Match', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/concepts`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)
