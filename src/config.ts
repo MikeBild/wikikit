@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUILT_IN_SCAFFOLDING_KINDS } from './domain/concepts.ts'
+import { parseDefaultBriefing } from './schedule.ts'
 import { VERSION } from './version.ts'
 
 const moduleRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -165,6 +166,15 @@ export interface Config {
    * `FOR UPDATE SKIP LOCKED`, so N instances already produce one per window.
    */
   readonly schedulerEnabled?: boolean
+  /**
+   * The briefing a newly created wiki is armed with (`WIKIKIT_DEFAULT_BRIEFING`),
+   * already parsed; null means seed nothing.
+   *
+   * Parsed at boot rather than at space creation so a typo refuses to start the
+   * binary instead of surfacing weeks later as a report that fires at a time
+   * nobody chose — and so the value can never be half-valid on one code path.
+   */
+  readonly defaultBriefing?: { at_time: string; timezone: string } | null
   readonly webhookPollMs: number
   readonly webhookTimeoutMs: number
   readonly webhookMaxAttempts: number
@@ -427,6 +437,16 @@ export const DEFAULT_INGEST_MAX_QUEUED_PER_SPACE = 200
  * so a busy /query surface does not grow a table forever.
  */
 export const DEFAULT_OUTPUT_RETENTION_DAYS = 365
+
+/**
+ * What a new wiki's briefing is armed with unless the operator says otherwise.
+ *
+ * Seven in the morning, UTC. The hour is dull on purpose — a suggested time
+ * somebody has to think about is a form they close — and the zone is UTC because
+ * the server has no other zone to know; shipping the author's zone would be
+ * wrong for every other deployment, and silently. `off` disables the seed.
+ */
+export const DEFAULT_BRIEFING_AT = '07:00'
 
 /**
  * The revision kinds an installation stamps on pages that are STRUCTURE rather
@@ -758,6 +778,7 @@ export function loadConfig(): Config {
       max: 3650,
     }),
     schedulerEnabled: bool('WIKIKIT_SCHEDULER_ENABLED', true),
+    defaultBriefing: parseDefaultBriefing(str('WIKIKIT_DEFAULT_BRIEFING', DEFAULT_BRIEFING_AT)),
     webhookPollMs: integer('WIKIKIT_WEBHOOK_POLL_MS', 5000, { min: 250, max: 300_000 }),
     webhookTimeoutMs: integer('WIKIKIT_WEBHOOK_TIMEOUT_MS', 10_000, { min: 1000, max: 60_000 }),
     webhookMaxAttempts: integer('WIKIKIT_WEBHOOK_MAX_ATTEMPTS', 10, { min: 1, max: 20 }),

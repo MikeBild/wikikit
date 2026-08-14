@@ -16,7 +16,14 @@
 // reads, and asserting only UTC would let a broken hop pass whenever the offset
 // happened to agree.
 import { describe, expect, test } from 'bun:test'
-import { computeNextRun, isTimeZone, renderBriefing, zScheduleInput, zScheduleSet } from '../../src/schedule.ts'
+import {
+  computeNextRun,
+  isTimeZone,
+  parseDefaultBriefing,
+  renderBriefing,
+  zScheduleInput,
+  zScheduleSet,
+} from '../../src/schedule.ts'
 
 /** The wall clock a zone shows at this instant — `YYYY-MM-DD, HH:MM`. */
 function wallClock(timeZone: string, instant: Date): string {
@@ -292,5 +299,60 @@ describe('renderBriefing', () => {
     expect(many).toContain('- Change 20')
     expect(many).not.toContain('- Change 21\n')
     expect(many).toContain('…and 10 more')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// WIKIKIT_DEFAULT_BRIEFING
+//
+// One variable carries a time, an optional zone and the off switch, so the
+// parser is the only thing standing between a typo in an env file and a wiki
+// whose report fires at an hour nobody chose. It therefore REFUSES rather than
+// falling back: a silent default here would be a schedule the operator did not
+// write, discovered weeks later.
+describe('parseDefaultBriefing', () => {
+  test('a bare time means that time in UTC — the only zone a server never guesses', () => {
+    expect(parseDefaultBriefing('07:00')).toEqual({ at_time: '07:00', timezone: 'UTC' })
+  })
+
+  test('a zone after the time is honoured, and surrounding whitespace is not content', () => {
+    expect(parseDefaultBriefing('  06:30   Europe/Berlin  ')).toEqual({
+      at_time: '06:30',
+      timezone: 'Europe/Berlin',
+    })
+  })
+
+  test('off and empty both mean seed nothing, and are not confused with a valid time', () => {
+    expect(parseDefaultBriefing('off')).toBeNull()
+    expect(parseDefaultBriefing('OFF')).toBeNull()
+    expect(parseDefaultBriefing('')).toBeNull()
+    expect(parseDefaultBriefing('   ')).toBeNull()
+  })
+
+  test('midnight and the last minute of the day are valid, 24:00 is not', () => {
+    expect(parseDefaultBriefing('00:00')?.at_time).toBe('00:00')
+    expect(parseDefaultBriefing('23:59')?.at_time).toBe('23:59')
+    expect(() => parseDefaultBriefing('24:00')).toThrow(/HH:MM/)
+  })
+
+  test('a malformed time refuses instead of defaulting', () => {
+    for (const bad of ['7:00', '0700', '07:60', 'morning', '07:00:00']) {
+      expect(() => parseDefaultBriefing(bad)).toThrow()
+    }
+  })
+
+  test('an unknown zone refuses — the name is asked of the zone database, not a regex', () => {
+    expect(() => parseDefaultBriefing('07:00 Europe/Berlyn')).toThrow(/unknown IANA time zone/)
+  })
+
+  test('a third word is a mistake, not extra information', () => {
+    expect(() => parseDefaultBriefing('07:00 Europe/Berlin daily')).toThrow(/"HH:MM"/)
+  })
+
+  test('what it returns is exactly what the schedule contract accepts', () => {
+    const spec = parseDefaultBriefing('07:00')!
+    expect(() =>
+      zScheduleInput.parse({ kind: 'briefing', at_time: spec.at_time, weekday: null, timezone: spec.timezone }),
+    ).not.toThrow()
   })
 })

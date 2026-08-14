@@ -115,6 +115,102 @@ async function makeDue(kind: string): Promise<void> {
   )
 }
 
+// ---------------------------------------------------------------------------
+// WIKIKIT_DEFAULT_BRIEFING — a new wiki starts armed
+//
+// WHY this is an integration test and not a unit one: the claim is that the row
+// exists, is enabled and carries a computed next_run_at after an ordinary
+// POST /v1/spaces — that is the seam between the route, the schedule module and
+// the table, and a fake pool can only agree with itself about it. The seed is
+// deliberately best-effort, so the test that matters most is the NEGATIVE one:
+// `off` must leave the wiki with no timetable at all rather than an off row.
+describe('the default briefing on a new wiki (integration)', () => {
+  let seededDb: Database | null = null
+  let seededApp: App | null = null
+  let seededBase = ''
+
+  beforeAll(async () => {
+    if (!integration) return
+    const url = await provisionIntegrationDatabase('wikikit_test_seed_briefing')
+    const config: Config = {
+      ...integrationConfig(url),
+      defaultBriefing: { at_time: '07:00', timezone: 'Europe/Berlin' },
+    }
+    await runMigrations(config)
+    seededDb = createPostgres(config)
+    seededApp = createApp(config, {
+      database: seededDb,
+      llm: createFakeProvider(),
+      logger: createLogger({ level: 'error', write: () => {} }),
+    })
+    await new Promise<void>((resolve) => seededApp!.server.listen(0, '127.0.0.1', resolve))
+    seededBase = `http://127.0.0.1:${(seededApp!.server.address() as { port: number }).port}`
+  })
+
+  afterAll(async () => {
+    if (seededApp) await new Promise<void>((resolve) => seededApp!.server.close(() => resolve()))
+    if (seededDb) await seededDb.close()
+  })
+
+  test.skipIf(!integration)('a wiki created over REST comes back with an armed briefing', async () => {
+    const created = await fetch(`${seededBase}/v1/spaces`, {
+      method: 'POST',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({ slug: 'fresh', name: 'Fresh Space' }),
+    })
+    expect(created.status).toBe(201)
+
+    const res = await fetch(`${seededBase}/v1/spaces/fresh/schedules`, { headers: json(BOOTSTRAP) })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      schedules: {
+        kind: string
+        at_time: string
+        timezone: string
+        weekday: number | null
+        enabled: boolean
+        next_run_at: string | null
+        last_run_at: string | null
+      }[]
+    }
+
+    // Exactly the briefing, never the weekly health report: an empty wiki has
+    // nothing to say in a health document, and the briefing costs no tokens.
+    expect(body.schedules).toHaveLength(1)
+    const [briefing] = body.schedules
+    expect(briefing!.kind).toBe('briefing')
+    expect(briefing!.at_time).toBe('07:00')
+    expect(briefing!.timezone).toBe('Europe/Berlin')
+    expect(briefing!.weekday).toBeNull()
+    expect(briefing!.enabled).toBe(true)
+    // Armed, not merely present — a seeded row with a null next_run_at is
+    // invisible to the claim query and would never fire.
+    expect(briefing!.next_run_at).not.toBeNull()
+    expect(new Date(briefing!.next_run_at!).getTime()).toBeGreaterThan(Date.now())
+    expect(briefing!.last_run_at).toBeNull()
+  })
+
+  test.skipIf(!integration)('the seed is a starting point, not a lock — an operator overwrites it', async () => {
+    await fetch(`${seededBase}/v1/spaces`, {
+      method: 'POST',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({ slug: 'retimed', name: 'Retimed Space' }),
+    })
+    const put = await fetch(`${seededBase}/v1/spaces/retimed/schedules`, {
+      method: 'PUT',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({
+        schedules: [{ kind: 'briefing', at_time: '18:30', weekday: null, timezone: 'UTC', enabled: true }],
+      }),
+    })
+    expect(put.status).toBe(200)
+    const body = (await put.json()) as { schedules: { at_time: string; timezone: string }[] }
+    expect(body.schedules).toHaveLength(1)
+    expect(body.schedules[0]!.at_time).toBe('18:30')
+    expect(body.schedules[0]!.timezone).toBe('UTC')
+  })
+})
+
 describe('the schedule worker (integration)', () => {
   beforeAll(async () => {
     if (!integration) return

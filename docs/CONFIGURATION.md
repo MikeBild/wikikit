@@ -41,6 +41,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`            | Ingest jobs one space may have waiting before enqueue refuses with `429 ingest_queue_full` (1–100 000)             | `200`                                                              |
 | `WIKIKIT_OUTPUT_RETENTION_DAYS`                  | How long an unpromoted output (answer, briefing, health report) is kept; `0` keeps them forever (0–3650)           | `365`                                                              |
 | `WIKIKIT_SCHEDULER_ENABLED`                      | Run the in-process briefing/health worker (schedules stay armed either way)                                        | `true`                                                             |
+| `WIKIKIT_DEFAULT_BRIEFING`                       | Briefing a NEW wiki is armed with: `HH:MM`, `HH:MM <IANA zone>`, or `off` to seed nothing                          | `07:00` (UTC)                                                      |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | Outbox poll interval (ms)                                                                                          | `5000` (`.env.defaults`: `1000`)                                   |
 | `WIKIKIT_WEBHOOK_TIMEOUT_MS`                     | Per-delivery HTTP timeout (ms)                                                                                     | `10000`                                                            |
 | `WIKIKIT_WEBHOOK_MAX_ATTEMPTS`                   | Delivery attempts (exponential backoff + jitter) before a delivery is `dead`                                       | `10`                                                               |
@@ -318,6 +319,35 @@ way the scheduler exists to prevent.
 
 WikiKit sends no e-mail and has no SMTP configuration. Delivery is the output
 row plus the `wikikit.health.reported` webhook; wire a mail step onto that.
+
+### What a new wiki starts with (`WIKIKIT_DEFAULT_BRIEFING`)
+
+A wiki created after this variable exists is armed with a daily briefing
+straight away — `07:00` UTC unless you say otherwise. The reason is the finding
+the scheduler was built for: the number that matters (how long the oldest
+undecided change has been waiting) is exactly the number nobody sees while it
+accrues, and a timetable that has to be switched on by hand is switched on the
+day somebody remembers, which is after it mattered.
+
+Three forms, and nothing else:
+
+| Value                 | Effect                                    |
+| --------------------- | ----------------------------------------- |
+| `07:00`               | 07:00 UTC, daily                          |
+| `07:00 Europe/Berlin` | 07:00 in that IANA zone, daily            |
+| `off` (or empty)      | seed nothing; a new wiki has no timetable |
+
+UTC is the default zone because the server has no other zone to know — a
+product that defaulted to its author's would be wrong for every other
+deployment, and silently. The seeded row is an ordinary schedule: it shows up on
+the console's **Care** page and one edit changes it.
+
+A malformed value **refuses to start the binary** rather than falling back to a
+default nobody wrote — a typo here would otherwise surface weeks later as a
+report firing at an hour nobody chose. Only the briefing is seeded, never the
+weekly health report: the briefing is free, and an empty wiki has nothing to say
+in a health document. Existing wikis are untouched; this is a create-time
+default, not a migration.
 
 ## Reference-target pages (`WIKIKIT_SCAFFOLDING_KINDS`)
 

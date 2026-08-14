@@ -84,7 +84,7 @@ import { getCoverageStats, recordConceptRead, recordCoverageGap } from '../domai
 import { answerQuestion } from '../query/answer.ts'
 import { search, searchAcrossImports } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
-import { listSchedules, replaceSchedules } from '../schedule.ts'
+import { listSchedules, replaceSchedules, seedDefaultBriefing, type DefaultBriefing } from '../schedule.ts'
 import { ROLE_SCOPES, type RoleName } from './auth.ts'
 import type { Auth, Principal } from './auth.ts'
 import { getIngestJob, listIngestJobs, type IngestJobState } from './jobs.ts'
@@ -1049,9 +1049,22 @@ function toSpace(row: SpaceRow): Space {
   }
 }
 
+/**
+ * Create a wiki and arm the briefing it should start with.
+ *
+ * WHY the seed lives HERE and not at the two call sites: both the REST route and
+ * the dev bootstrap create wikis, and "a new wiki has a timetable" is one rule,
+ * not two. Passing the spec in (rather than reading config from a domain
+ * function) keeps that rule explicit at each entry point while leaving exactly
+ * one implementation of it. Omit `defaultBriefing` and nothing is seeded.
+ *
+ * The seed cannot fail the create: see seedDefaultBriefing.
+ */
 export async function createSpace(
   db: Db,
   args: { slug: string; name: string; settings?: Record<string, unknown> },
+  defaultBriefing?: DefaultBriefing | null,
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
 ): Promise<Space> {
   try {
     const [row] = await db.insert<SpaceRow>('wk_spaces', {
@@ -1059,7 +1072,9 @@ export async function createSpace(
       name: args.name,
       settings: JSON.stringify(args.settings ?? {}),
     })
-    return toSpace(row!)
+    const space = toSpace(row!)
+    await seedDefaultBriefing(db, space.id, defaultBriefing ?? null, logger)
+    return space
   } catch (error) {
     // Unique violation → caller mistake, not a server fault. 400 keeps the
     // canonical code table intact (no space-specific 409 code exists in §8.2).
@@ -1265,7 +1280,7 @@ export const HANDLERS: Record<string, Handler> = {
       throw new ForbiddenError('a space-scoped key cannot create spaces')
     }
     const body = input.body as { slug: string; name: string; settings?: Record<string, unknown> }
-    const space = await createSpace(deps.db, body)
+    const space = await createSpace(deps.db, body, deps.config.defaultBriefing, deps.logger)
     return { status: 201, body: space }
   },
 

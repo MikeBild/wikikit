@@ -1,7 +1,7 @@
 {
   "name": "wikikit",
-  "version": "0.35.0",
-  "description": "Headless AI-native knowledge system for humans and agents — Markdown-first knowledge in, structured and agent-ready knowledge out",
+  "version": "0.36.0",
+  "description": "Headless AI-native knowledge system for humans and agents \u2014 Markdown-first knowledge in, structured and agent-ready knowledge out",
   "private": true,
   "type": "module",
   "license": "MIT",
