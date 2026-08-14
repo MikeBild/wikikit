@@ -34,7 +34,7 @@ import {
   NotFoundError,
 } from '../domain/errors.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
-import { spaceHealth } from '../domain/health.ts'
+import { spaceHealth, spacesOverview } from '../domain/health.ts'
 import { lintSpace } from '../domain/lint.ts'
 import { getOutput, listOutputs, promoteOutput } from '../domain/outputs.ts'
 import {
@@ -172,6 +172,8 @@ export const zSearchToolInput = z.object({
 })
 
 export const zSpacesToolInput = z.object({})
+
+export const zOverviewToolInput = z.object({})
 
 export const zGuideToolInput = z.object({})
 
@@ -1081,6 +1083,35 @@ export const TOOLS: McpToolDef[] = [
       // Async-ack contract (§7.1): the pipeline runs LLM calls, so the tool
       // returns the handle and never waits.
       return { status: 'running' as const, ingest_id, poll_with: 'wikikit_ingest_status' as const }
+    },
+  },
+  {
+    name: 'wikikit_overview',
+    description:
+      'One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its ' +
+      'oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports ' +
+      '(provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — ' +
+      'plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the ' +
+      'space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports ' +
+      'numbers and never a verdict: how large a backlog is too large is the operator’s policy.',
+    scope: 'knowledge:read',
+    inputSchema: zOverviewToolInput,
+    annotations: READ_ANNOTATIONS,
+    async execute(deps, principal, input) {
+      zOverviewToolInput.parse(input)
+      // The same visibility rule as wikikit_spaces and the REST handler: a
+      // space-scoped key gets its one-row overview, never an error.
+      const spaces = await deps.db.select<{
+        id: string
+        slug: string
+        name: string
+        settings: Record<string, unknown>
+      }>('wk_spaces', { order: 'slug.asc', limit: 500 })
+      const visible = spaces.filter((space) => !principal.spaceId || principal.spaceId === space.id)
+      const overview = await spacesOverview(deps.db, visible)
+      // The identical wire shape REST serves, version stamp included, so a
+      // client diffing the two surfaces sees one document.
+      return { schema_version: 'wikikit.spaces-overview.v1' as const, ...overview }
     },
   },
 ]

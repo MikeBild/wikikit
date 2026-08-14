@@ -51,7 +51,7 @@ import {
   toProposalWire,
 } from '../domain/proposals.ts'
 import { getDecision, listDecisions } from '../domain/decisions.ts'
-import { spaceHealth, type SpaceHealthArgs } from '../domain/health.ts'
+import { spaceHealth, spacesOverview, type SpaceHealthArgs } from '../domain/health.ts'
 import {
   getOutput,
   listOutputs,
@@ -775,6 +775,22 @@ export const ROUTES: RouteDef[] = [
         type: 'application/json',
         desc: 'Effective knowledge-shaping configuration with per-value provenance',
       },
+    },
+  },
+  {
+    method: 'get',
+    // Global on purpose, and NEVER a literal under /v1/spaces/ (first-match
+    // routing would shadow the {space} segment). /v1/stats/mcp set the
+    // namespace precedent; this is deliberately its first knowledge:read
+    // route — an overview of the wikis a key may see is a read, not an
+    // admin act, and a space-scoped key gets its one-row overview.
+    path: '/v1/stats/overview',
+    scope: 'knowledge:read',
+    summary:
+      'Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict.',
+    handler: 'spacesOverviewHandler',
+    responses: {
+      200: { schema: 'zSpacesOverviewResponse', type: 'application/json', desc: 'Overview of every visible space' },
     },
   },
   {
@@ -1738,6 +1754,18 @@ export const HANDLERS: Record<string, Handler> = {
     // coverageStatsHandler: the wire contract belongs to the transport, and the
     // MCP tool and the scheduler consume the same numbers without one.
     return { status: 200, body: { schema_version: 'wikikit.space-health.v1', ...health } }
+  },
+
+  async spacesOverviewHandler(deps, input) {
+    // The same visibility rule as listSpacesHandler: a space-scoped key gets a
+    // one-row overview of its own wiki, never an error — the overview of what
+    // a key may see is defined by what it may see.
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    const overview = await spacesOverview(deps.db, visible)
+    // schema_version stamped at the transport, as on spaceHealthHandler; the
+    // MCP tool stamps the same literal so the two shapes stay identical.
+    return { status: 200, body: { schema_version: 'wikikit.spaces-overview.v1', ...overview } }
   },
 
   async getSchedulesHandler(deps, input) {

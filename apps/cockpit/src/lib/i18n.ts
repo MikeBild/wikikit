@@ -286,6 +286,15 @@ export const DE_PHRASES = {
   'About webhook addresses': 'Informationen zu Webhook-Adressen',
   'About webhook subscriptions': 'Informationen zu Webhook-Abonnements',
   'About wiki exchange formats': 'Informationen zu Wiki-Austauschformaten',
+  'About the cross-wiki overview': 'Informationen zur wikiübergreifenden Übersicht',
+  'Across every wiki': 'Über alle Wikis',
+  Oldest: 'Älteste',
+  'From generated reports': 'Aus generierten Berichten',
+  'from generated reports': 'aus generierten Berichten',
+  'Every wiki this key can see, summed: changes waiting for a decision, how long the oldest has waited, and how much arrived in the last 7 days.':
+    'Alle für diesen Zugang sichtbaren Wikis, aufsummiert: Änderungen, die auf eine Entscheidung warten, das Alter der ältesten und der Umfang der letzten 7 Tage.',
+  'counts the waiting changes whose every cited source came out of the wiki itself — promoted answers, briefings, care reports. That is provenance, not a verdict: it says where the evidence came from, so distilled human knowledge is not buried under machine-written backlog.':
+    'zählt die wartenden Änderungen, deren sämtliche zitierten Quellen aus dem Wiki selbst stammen — übernommene Antworten, Kurzberichte, Pflegeberichte. Das ist Herkunft, kein Urteil: Es zeigt, woher die Nachweise kommen, damit destilliertes menschliches Wissen nicht unter maschinell erzeugtem Rückstand verschwindet.',
   'About wiki keywords': 'Informationen zu Wiki-Schlüsselwörtern',
   'About wiki purpose': 'Informationen zum Wiki-Zweck',
   'About writing pages by hand': 'Informationen zum manuellen Verfassen von Seiten',

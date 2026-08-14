@@ -251,9 +251,10 @@ tool change or a scope change, rescan or reconnect. Existing OAuth tokens
 retain their original, narrower scopes.
 
 The agent gets `wikikit_guide`, `wikikit_spaces`, `wikikit_briefing`, `wikikit_context`, `wikikit_search`, `wikikit_read`, `wikikit_sources`,
-`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_health`, `wikikit_outputs`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
+`wikikit_decisions`, `wikikit_history`, `wikikit_lint`, `wikikit_health`, `wikikit_overview`, `wikikit_outputs`, `wikikit_charter`, `wikikit_charter_history`, `wikikit_charter_set`, `wikikit_charter_delete`, `wikikit_deleted_concepts`, `wikikit_concept_delete`, `wikikit_concept_restore`, `wikikit_ingest`,
 `wikikit_ingest_status`, `wikikit_propose`, `wikikit_promote_output`, `wikikit_proposals` and
-`wikikit_review_proposal`. `wikikit_health` answers "check this space for
+`wikikit_review_proposal`. `wikikit_overview` says in one call where attention
+is owed across every visible wiki; `wikikit_health` answers "check this space for
 contradictions and gaps" in one call instead of chaining tools;
 `wikikit_promote_output` files a good answer back into the wiki, and it too
 lands as a change somebody approves. The two review tools are visible only with

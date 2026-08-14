@@ -221,7 +221,13 @@ export const NAV: readonly NavEntry[] = [
     icon: FolderKanban,
     scope: 'knowledge:read',
     group: 'installation',
-    api: ['/v1/spaces', '/v1/spaces/{space}', '/v1/spaces/{space}/settings', '/v1/spaces/{space}/export'],
+    api: [
+      '/v1/spaces',
+      '/v1/spaces/{space}',
+      '/v1/spaces/{space}/settings',
+      '/v1/spaces/{space}/export',
+      '/v1/stats/overview',
+    ],
   },
   {
     to: '/api-keys',

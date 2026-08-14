@@ -229,6 +229,24 @@ export const zAgentBriefingResponse = z.object({
   used_tokens: z.number().int(),
   concepts_included: z.array(z.string()),
   concepts_omitted: z.number().int(),
+  /**
+   * The review backlog of the briefed spaces, structured beside the markdown
+   * lines that state it. `oldest_days` is null exactly when `total` is 0, and
+   * per space exactly when that space's `pending` is 0 — the same null-not-zero
+   * discipline as the health surfaces. These are FACT lines: the budget trim
+   * removes pinned concepts, never these.
+   */
+  pending_changes: z.object({
+    total: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+    spaces: z.array(
+      z.object({
+        space: z.string(),
+        pending: z.number().int().nonnegative(),
+        oldest_days: z.number().int().nullable(),
+      }),
+    ),
+  }),
 })
 
 export const zAgentContextResponse = zAgentBriefingResponse.extend({
@@ -1547,6 +1565,44 @@ export const zSpaceHealthResponse = z.strictObject({
   }),
 })
 
+/**
+ * The cross-wiki overview (§4 src/domain/health.ts spacesOverview): one row per
+ * space the key may see, with the review backlog, its age, the derived share,
+ * the 7-day pulse and the visible page count — plus server-side totals so no
+ * client sums eight rows its own way. Same refusals as zSpaceHealthResponse:
+ * no verdict, no percentages, and every absent age is null, never 0.
+ */
+export const zSpacesOverviewResponse = z.strictObject({
+  schema_version: z.literal('wikikit.spaces-overview.v1'),
+  generated_at: z.iso.datetime(),
+  /** `oldest_days` is the max over the rows — null exactly when nothing anywhere is pending. */
+  totals: z.strictObject({
+    pending: z.number().int().nonnegative(),
+    pending_derived: z.number().int().nonnegative(),
+    created_7d: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+  }),
+  items: z.array(
+    z.strictObject({
+      space: z.string(),
+      name: z.string(),
+      /** `settings.purpose || settings.description || null` — what the wiki says it is for. */
+      purpose: z.string().nullable(),
+      /**
+       * `pending_derived` = pending proposals whose EVERY cited source is
+       * stamped `derived_from_output_id`. Provenance, never a quality verdict.
+       */
+      review_queue: z.strictObject({
+        pending: z.number().int().nonnegative(),
+        oldest_days: z.number().int().nullable(),
+        pending_derived: z.number().int().nonnegative(),
+      }),
+      created_7d: z.number().int().nonnegative(),
+      concepts: z.number().int().nonnegative(),
+    }),
+  ),
+})
+
 // ---------------------------------------------------------------------------
 // Name → schema index (introspection surface for openapi.ts + drift tests)
 // ---------------------------------------------------------------------------
@@ -1619,6 +1675,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zLintResponse,
   zSpaceHealthQuery,
   zSpaceHealthResponse,
+  zSpacesOverviewResponse,
   zScheduleSetRequest,
   zScheduleResponse,
   zScheduleListResponse,

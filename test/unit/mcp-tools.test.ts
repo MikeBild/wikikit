@@ -49,6 +49,8 @@ const READ_TOOLS = [
   // asked "check for contradictions and gaps" does not chain two tools.
   'wikikit_outputs',
   'wikikit_health',
+  // The cross-wiki read: where is attention owed, before opening one wiki.
+  'wikikit_overview',
 ]
 // Charter mutations are admin-scoped (human-owned configuration, not knowledge).
 const ADMIN_TOOLS = ['wikikit_charter_set', 'wikikit_charter_delete']
@@ -188,12 +190,12 @@ describe('scope-gated visibility', () => {
   })
 
   test('review tools require knowledge:review; approve implies it; admin and * see the full palette', () => {
-    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(21)
+    expect(visibleTools(['knowledge:read', 'knowledge:propose'])).toHaveLength(22)
     expect(visibleTools(['knowledge:review']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     expect(visibleTools(['knowledge:approve']).map((tool) => tool.name)).toEqual(REVIEW_TOOLS)
     // admin implies knowledge scopes (§5.2) AND is the direct scope of the charter mutations.
-    expect(visibleTools(['admin'])).toHaveLength(25)
-    expect(visibleTools(['*'])).toHaveLength(25)
+    expect(visibleTools(['admin'])).toHaveLength(26)
+    expect(visibleTools(['*'])).toHaveLength(26)
     expect(visibleTools([])).toHaveLength(0)
   })
 

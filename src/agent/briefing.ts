@@ -1,4 +1,5 @@
 import type { Db } from '../db/postgres.ts'
+import { reviewOverview } from '../domain/health.ts'
 
 export const DEFAULT_BRIEFING_BUDGET_TOKENS = 1200
 export const MIN_BRIEFING_BUDGET_TOKENS = 500
@@ -11,6 +12,18 @@ export interface BriefingSpace {
   settings: Record<string, unknown>
 }
 
+/**
+ * The review backlog of the briefed spaces. `oldest_days` is null exactly when
+ * nothing is pending — the null-not-zero discipline of the health surfaces —
+ * and `spaces` carries every briefed space, measured zeros included, so a
+ * consumer can tell "no backlog" from "not asked".
+ */
+export interface PendingChanges {
+  total: number
+  oldest_days: number | null
+  spaces: { space: string; pending: number; oldest_days: number | null }[]
+}
+
 export interface AgentBriefingResult {
   markdown: string
   spaces: string[]
@@ -18,6 +31,7 @@ export interface AgentBriefingResult {
   used_tokens: number
   concepts_included: string[]
   concepts_omitted: number
+  pending_changes: PendingChanges
 }
 
 interface BriefingEntry {
@@ -41,8 +55,9 @@ function configuredSlugs(settings: Record<string, unknown>): string[] {
   return raw.filter((slug): slug is string => typeof slug === 'string').slice(0, max)
 }
 
-function render(spaces: BriefingSpace[], entries: BriefingEntry[], omitted: number): string {
+function render(spaces: BriefingSpace[], entries: BriefingEntry[], omitted: number, pending: PendingChanges): string {
   const spaceList = spaces.map((space) => `\`${space.slug}\``).join(', ')
+  const bySlug = new Map(pending.spaces.map((entry) => [entry.space, entry]))
   const lines = [
     `# WikiKit session briefing — spaces: ${spaceList}`,
     '',
@@ -55,12 +70,28 @@ function render(spaces: BriefingSpace[], entries: BriefingEntry[], omitted: numb
     lines.push('', `## ${space.name} (\`${space.slug}\`)`)
     if (selected.length === 0) {
       lines.push('- No pinned briefing concepts; search this space on demand.')
-      continue
     }
     for (const entry of selected) {
       const summary = entry.summary.trim().replace(/\s+/g, ' ').slice(0, 320)
       lines.push(`- ${entry.slug}: ${entry.title}${summary ? ` — ${summary}` : ''}`)
     }
+    // The backlog, in renderBriefing's own words (src/schedule.ts) so the
+    // session hook and the scheduled report state one fact in one voice. A
+    // space with nothing pending gets NO line: an absent backlog is not a
+    // sentence worth a reader's morning.
+    const backlog = bySlug.get(space.slug)
+    if (backlog && backlog.pending > 0) {
+      lines.push(`- ${backlog.pending} change(s) pending review.`)
+      if (backlog.oldest_days !== null) lines.push(`- Oldest: ${backlog.oldest_days} day(s) old.`)
+    }
+  }
+  if (spaces.length > 1 && pending.total > 0) {
+    lines.push(
+      '',
+      `Across these spaces: ${pending.total} change(s) pending review${
+        pending.oldest_days !== null ? `; oldest ${pending.oldest_days} day(s) old` : ''
+      }.`,
+    )
   }
   if (omitted > 0) lines.push('', `- … ${omitted} briefing concept(s) omitted for the token budget.`)
   return lines.join('\n')
@@ -87,9 +118,32 @@ export async function buildAgentBriefing(
     entries.push(...rows.map((row) => ({ space: space.slug, ...row, primary: index === 0 })))
   }
 
+  // Only the briefed spaces — the caller chose them, this function enumerates
+  // nothing. reviewOverview is the same measurement the overview surfaces use,
+  // so the briefing can never disagree with them about a backlog.
+  const overview = await reviewOverview(
+    db,
+    spaces.map((space) => space.id),
+  )
+  const pendingSpaces = spaces.map((space) => {
+    const row = overview.get(space.id)
+    return { space: space.slug, pending: row?.pending ?? 0, oldest_days: row?.oldest_days ?? null }
+  })
+  const pending: PendingChanges = {
+    total: pendingSpaces.reduce((sum, entry) => sum + entry.pending, 0),
+    oldest_days: pendingSpaces.reduce<number | null>(
+      (oldest, entry) => (entry.oldest_days === null ? oldest : Math.max(oldest ?? 0, entry.oldest_days)),
+      null,
+    ),
+    spaces: pendingSpaces,
+  }
+
   const selected = [...entries]
   let omitted = 0
-  let markdown = render(spaces, selected, omitted)
+  let markdown = render(spaces, selected, omitted, pending)
+  // The trim removes pinned CONCEPTS only, never the fact lines above: a
+  // backlog squeezed out by a tight budget would be the one morning the number
+  // mattered most.
   while (estimatedTokens(markdown) > budget && selected.length > 0) {
     const secondary = selected
       .map((entry, index) => ({ entry, index }))
@@ -97,7 +151,7 @@ export async function buildAgentBriefing(
       .find(({ entry }) => !entry.primary)
     selected.splice(secondary?.index ?? selected.length - 1, 1)
     omitted += 1
-    markdown = render(spaces, selected, omitted)
+    markdown = render(spaces, selected, omitted, pending)
   }
   return {
     markdown,
@@ -108,5 +162,6 @@ export async function buildAgentBriefing(
     // space each concept came from.
     concepts_included: selected.map((entry) => `${entry.space}:${entry.slug}`),
     concepts_omitted: omitted,
+    pending_changes: pending,
   }
 }

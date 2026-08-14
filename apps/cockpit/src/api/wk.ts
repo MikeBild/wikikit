@@ -155,6 +155,16 @@ export const wk = {
   },
 
   /**
+   * The cross-wiki overview: per visible wiki the review backlog with the age
+   * of its oldest change, the derived share, the 7-day pulse and the page
+   * count, with totals summed server-side. Space-less on purpose — it is the
+   * one read about ALL the wikis, and a space-scoped key gets one row.
+   */
+  overview: {
+    get: () => unwrap(api.GET('/v1/stats/overview')),
+  },
+
+  /**
    * One composed read of how a wiki is doing: the lint report whole, the
    * coverage block whole, and the two live queues neither of them measures.
    * No LLM, no verdict — the thresholds that would produce one are policy.
@@ -297,6 +307,9 @@ export const keys = {
   identities: () => ['identities'] as const,
   stats: (space: string, kind: string) => ['spaces', space, 'stats', kind] as const,
   mcpStats: () => ['stats', 'mcp'] as const,
+  // No space in it, like mcpStats: switching wiki must not invalidate the one
+  // answer that is about all of them.
+  overview: () => ['stats', 'overview'] as const,
   // No space in it, and that is the point: switching wiki must not invalidate
   // an answer that was never about a wiki.
   knowledgeConfig: () => ['installation', 'knowledge-config'] as const,

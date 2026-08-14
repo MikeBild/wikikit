@@ -151,6 +151,9 @@ function emptyBriefing(budget: number): AgentBriefingResult {
     used_tokens: Math.ceil(Buffer.byteLength(markdown, 'utf8') / 4),
     concepts_included: [],
     concepts_omitted: 0,
+    // No spaces selected means no backlog was measured — an empty list, not
+    // a claim that nothing is pending anywhere.
+    pending_changes: { total: 0, oldest_days: null, spaces: [] },
   }
 }
 

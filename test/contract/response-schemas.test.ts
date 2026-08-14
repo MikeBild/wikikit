@@ -258,6 +258,15 @@ function stubDb(): Db {
         if (text.includes('AS inbound_relations')) return [{ slug: 'wikikit', title: 'WikiKit', inbound_relations: 4 }]
         if (text.includes('FROM wk_coverage_gaps')) return [{ lexeme: 'sofa', count: 2 }]
 
+        // Cross-wiki overview (reviewOverview) — grouped per space, so the
+        // rows carry space_id. Matched BEFORE the space-health branch below:
+        // both statements alias a pending count. The concepts census reuses
+        // the same GROUP BY shape.
+        if (text.includes('AS pending_derived')) {
+          return [{ space_id: SPACE_ID, pending: 3, oldest_days: 21, created_7d: 2, pending_derived: 1 }]
+        }
+        if (text.includes('AS concepts')) return [{ space_id: SPACE_ID, concepts: 4 }]
+
         // Composed health (spaceHealth) — the two live queues it measures
         // itself. Both are populated so the nullable ages travel as numbers;
         // the null side of each pair is gated in the domain and asserted there.
@@ -905,6 +914,7 @@ const CASES: RouteCase[] = [
   // The composed maintenance read: lint + coverage + the two live queues, with
   // no verdict on top. strictObject, so a field the handler invents fails here.
   { template: '/v1/spaces/{space}/health', method: 'get', url: '/v1/spaces/demo/health', status: 200 },
+  { template: '/v1/stats/overview', method: 'get', url: '/v1/stats/overview', status: 200 },
   { template: '/v1/spaces/{space}/schedules', method: 'get', url: '/v1/spaces/demo/schedules', status: 200 },
   {
     // PUT is a REPLACE and answers the same shape GET does: the complete set

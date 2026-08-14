@@ -79,6 +79,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['put', '/v1/identities/{provider}/{subject}', 'admin'],
   ['delete', '/v1/identities/{provider}/{subject}', 'admin'],
   ['get', '/v1/installation/knowledge-config', 'admin'],
+  ['get', '/v1/stats/overview', 'knowledge:read'],
   ['get', '/v1/stats/mcp', 'admin'],
   ['get', '/v1/spaces/{space}/stats/http', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/usage', 'knowledge:read'],

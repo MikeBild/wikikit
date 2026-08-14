@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { Download, Plus, Settings2 } from 'lucide-react'
 import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
@@ -7,6 +8,7 @@ import { Confirm } from '@/components/confirm'
 import { FieldLabel, SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
+import { Fact } from '@/components/fact'
 import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,10 +37,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
+import { useI18n } from '@/lib/i18n-context'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
-import { compareText, compareTime } from '@/lib/table-view'
+import { compareNumber, compareText, compareTime } from '@/lib/table-view'
 import { toast } from '@/lib/toast'
+import { paramName } from '@/lib/url-filters'
+import { waitedDays } from '@/pages/care.logic'
+import { count } from '@/pages/home.logic'
+import { attentionOrder, backlogSplit, mergeOverview, type OverviewItem } from '@/pages/spaces.logic'
 
 /**
  * ┌──────────────────────────────────────────────────────────────────────────┐
@@ -66,6 +73,15 @@ import { toast } from '@/lib/toast'
  */
 
 type Space = NonNullable<Awaited<ReturnType<typeof wk.spaces.list>>['items'][number]>
+
+type Overview = Awaited<ReturnType<typeof wk.overview.get>>
+
+/**
+ * A table row: the space's identity, plus the overview numbers once THAT read
+ * has answered. `ov` stays null while the overview is in flight or refused —
+ * the number cells draw dashes, and the table never blanks (spaces.logic.ts).
+ */
+type Row = Space & { current: boolean; ov: OverviewItem | null }
 
 /** Mirrors SPACE_LANGUAGES in src/http/schemas.ts — the server rejects anything else. */
 const LANGUAGES = [
@@ -121,7 +137,7 @@ function splitList(value: string): string[] {
     .filter((entry) => entry.length > 0)
 }
 
-const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
+const COLUMNS: readonly DataColumn<Row>[] = [
   {
     id: 'wiki',
     label: 'Wiki',
@@ -141,6 +157,38 @@ const COLUMNS: readonly DataColumn<Space & { current: boolean }>[] = [
         <span className="text-muted-foreground truncate">{space.name}</span>
       </div>
     ),
+  },
+  {
+    id: 'waiting',
+    // The same word Care uses for the same queue: changes waiting for a person.
+    label: 'Waiting',
+    descFirst: true,
+    compare: (left, right) => compareNumber(left.ov?.review_queue.pending, right.ov?.review_queue.pending),
+    cell: (space) => <WaitingCell slug={space.slug} queue={space.ov?.review_queue ?? null} />,
+  },
+  {
+    id: 'oldest',
+    label: 'Oldest',
+    priority: 'secondary',
+    descFirst: true,
+    compare: (left, right) => compareNumber(left.ov?.review_queue.oldest_days, right.ov?.review_queue.oldest_days),
+    cell: (space) => <WaitedCell days={space.ov?.review_queue.oldest_days ?? null} />,
+  },
+  {
+    id: 'recent',
+    label: 'Last 7 days',
+    priority: 'optional',
+    descFirst: true,
+    compare: (left, right) => compareNumber(left.ov?.created_7d, right.ov?.created_7d),
+    cell: (space) => <span className="tabular-nums">{count(space.ov?.created_7d)}</span>,
+  },
+  {
+    id: 'pages',
+    label: 'Pages',
+    priority: 'optional',
+    descFirst: true,
+    compare: (left, right) => compareNumber(left.ov?.concepts, right.ov?.concepts),
+    cell: (space) => <span className="tabular-nums">{count(space.ov?.concepts)}</span>,
   },
   {
     id: 'purpose',
@@ -229,8 +277,18 @@ export function SpacesPage() {
   const { view, setView } = useTableView('spaces', COLUMNS)
 
   const spaces = useQuery({ queryKey: keys.spaces(), queryFn: () => wk.spaces.list() })
+  // Second, independent read (Home discipline): identity renders the moment
+  // the space list answers, and an overview that is slow or refused fills
+  // dashes into the number columns instead of blanking the table.
+  const overview = useQuery({ queryKey: keys.overview(), queryFn: () => wk.overview.get() })
 
-  const rows = (spaces.data?.items ?? []).map((space) => ({ ...space, current: space.slug === current }))
+  // Attention order — oldest wait first — is the DEFAULT order; a sort the
+  // operator picks through the header overrides it inside the table.
+  const rows = attentionOrder(mergeOverview(spaces.data?.items ?? [], overview.data)).map(({ space, ov }) => ({
+    ...space,
+    current: space.slug === current,
+    ov,
+  }))
 
   return (
     <Page
@@ -246,6 +304,8 @@ export function SpacesPage() {
       }
     >
       <div className="flex flex-col gap-6">
+        <TotalsStrip overview={overview} />
+
         <DataTable
           testId="spaces"
           columns={COLUMNS}
@@ -266,6 +326,124 @@ export function SpacesPage() {
 
       {creating ? <CreateDialog onClose={() => setCreating(false)} /> : null}
     </Page>
+  )
+}
+
+/**
+ * The review backlog of one wiki, linked straight to the work.
+ *
+ * The count is a LINK to that wiki's changes queue, already filtered to
+ * pending — the number is an instruction, and an instruction should land where
+ * the work is. A measured zero renders as a plain 0 (nothing to open); an
+ * unmeasured queue is the dash (CUI-SEV-2). The second badge splits off the
+ * changes resting entirely on generated reports — provenance, so the reader
+ * can see distilled human knowledge hiding behind machine-report stacks, never
+ * a judgement about either kind.
+ */
+function WaitingCell({
+  slug,
+  queue,
+}: {
+  slug: string
+  queue: { pending: number; oldest_days: number | null; pending_derived: number } | null
+}) {
+  const { text } = useI18n()
+  if (!queue) return <span className="text-muted-foreground">—</span>
+  if (queue.pending === 0) return <span className="tabular-nums">0</span>
+  const split = backlogSplit(queue)
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Link
+        to="/changes"
+        search={{ space: slug, [paramName('changes', 'status')]: 'pending' }}
+        data-testid={`space-waiting-${slug}`}
+        className="font-medium tabular-nums underline-offset-4 hover:underline"
+      >
+        {count(queue.pending)}
+      </Link>
+      {split.derived > 0 ? (
+        <Badge tone="neutral" data-testid={`space-derived-${slug}`}>
+          {count(split.derived)} {text('from generated reports')}
+        </Badge>
+      ) : null}
+    </div>
+  )
+}
+
+/** A whole-day wait in a cell: the em dash when there is nothing to say (CUI-SEV-2). */
+function WaitedCell({ days }: { days: number | null }) {
+  const { text } = useI18n()
+  const waited = waitedDays(days)
+  return <span className="tabular-nums">{waited.phrase === null ? '—' : text(waited.phrase, waited.values)}</span>
+}
+
+/**
+ * The installation's whole backlog, summed by the server — no client sums
+ * eight rows its own way. Its own `DataState` over the overview read, so a
+ * refusal is stated exactly once, here, while the table below keeps rendering
+ * identity with dashes.
+ */
+function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
+  const { text } = useI18n()
+  return (
+    <I18nText>
+      <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4" data-testid="spaces-totals">
+        <SectionHeading
+          helpTitle="About the cross-wiki overview"
+          help={
+            <>
+              <p>
+                Every wiki this key can see, summed: changes waiting for a decision, how long the oldest has waited, and
+                how much arrived in the last 7 days.
+              </p>
+              <p>
+                <strong className="text-foreground font-medium">From generated reports</strong> counts the waiting
+                changes whose every cited source came out of the wiki itself — promoted answers, briefings, care
+                reports. That is provenance, not a verdict: it says where the evidence came from, so distilled human
+                knowledge is not buried under machine-written backlog.
+              </p>
+            </>
+          }
+          testId="spaces-totals-help"
+        >
+          Across every wiki
+        </SectionHeading>
+        <DataState testId="spaces-overview" query={overview} skeleton={<TotalsSkeleton />}>
+          {(data) => {
+            const oldest = waitedDays(data.totals.oldest_days)
+            return (
+              <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Fact testId="overview-pending" label="Waiting" value={count(data.totals.pending)} />
+                <Fact
+                  testId="overview-derived"
+                  label="From generated reports"
+                  value={count(data.totals.pending_derived)}
+                />
+                <Fact
+                  testId="overview-oldest"
+                  label="The oldest has waited"
+                  value={oldest.phrase === null ? '—' : text(oldest.phrase, oldest.values)}
+                />
+                <Fact testId="overview-recent" label="Last 7 days" value={count(data.totals.created_7d)} />
+              </dl>
+            )
+          }}
+        </DataState>
+      </section>
+    </I18nText>
+  )
+}
+
+function TotalsSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true" aria-label="Loading">
+      {[0, 1, 2, 3].map((index) => (
+        <div key={index} className="flex flex-col gap-1">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-5 w-12" />
+        </div>
+      ))}
+    </div>
   )
 }
 

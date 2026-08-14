@@ -67,6 +67,7 @@ describe('MCP manifest contract', () => {
       'wikikit_outputs',
       'wikikit_health',
       'wikikit_promote_output',
+      'wikikit_overview',
     ])
   })
 

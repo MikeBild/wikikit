@@ -52,6 +52,14 @@ spaces, or repository manifest is required:
 4. Use `wikikit_search` and `wikikit_read` for full knowledge only when the task
    needs it. Use provenance and history tools when the origin matters.
 
+For a maintenance pass, start with `wikikit_overview`: one LLM-free read
+listing every visible wiki with its review backlog, the age of the oldest
+pending change, the share of pending changes derived from the wiki's own
+generated reports, 7-day activity and the visible page count. Pick the space
+that needs attention there, then call `wikikit_health` on that one space —
+chaining `wikikit_health` across every space answers the same question in ten
+calls.
+
 There is no primary/secondary-space ceiling. Any visible spaces can be active
 together. An explicit `manual_spaces` list always wins over automatic routing.
 For clients or hooks that accept natural prompt conventions, users may write

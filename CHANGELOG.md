@@ -6,7 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.36.0 - 2026-08-14
+## 0.37.0 - 2026-08-14
+
+### Added
+
+- **The number that counts now lives in one place.** With nine wikis, the only
+  figure that decides an operator's morning — how many changes are waiting, and
+  how long the oldest has waited — was scattered across eight per-space pages.
+  `GET /v1/stats/overview` and `wikikit_overview` answer it in one LLM-free
+  read: per visible space the review backlog with the age of its oldest change,
+  proposal activity over the last 7 days and the visible page count, with
+  totals summed server-side and a one-row answer for a space-scoped key. Each
+  backlog also says how much of it is **derived** — pending changes whose every
+  cited source is stamped `derived_from_output_id`, the mark promotion leaves on
+  an answer filed back in. That split is provenance, never a quality verdict:
+  distilled human knowledge hiding behind a stack of machine reports is exactly
+  what the overview exists to make visible. No verdict anywhere, and every
+  absent age is `null`, never `0` — the same discipline as the health read.
+- **The Wikis page carries the numbers, not just the names.** The cockpit's
+  cross-wiki list gains sortable columns for the open backlog (linked straight
+  to the filtered changes queue of that wiki), the age of its oldest change,
+  the 7-day pulse and the page count, with a totals strip above the table and
+  attention order — oldest wait first — as the default. Identity renders
+  before numbers; an overview read that fails leaves dashes, never a blanked
+  table.
+- **The session briefing states the backlog.** `GET /v1/agent/briefing` (and
+  `/v1/agent/context`, which inherits the field) now carries
+  `pending_changes: { total, oldest_days, spaces }` and prints the same two
+  lines the scheduled briefing already uses — "N change(s) pending review." /
+  "Oldest: D day(s) old." — per briefed space, with a sum line across several.
+  A space with nothing pending gets no line, and the token-budget trim removes
+  pinned concepts only, never these fact lines.
 
 ### Added
 

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.36.0",
+    "version": "0.37.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -2739,6 +2739,40 @@
         "x-required-scope": "admin"
       }
     },
+    "/v1/stats/overview": {
+      "get": {
+        "summary": "Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict.",
+        "operationId": "spacesOverview",
+        "responses": {
+          "200": {
+            "description": "Overview of every visible space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSpacesOverviewResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
     "/v1/stats/mcp": {
       "get": {
         "summary": "Global privacy-safe MCP sessions, protocol operations, tools, outcomes and latency",
@@ -4042,9 +4076,49 @@
           "budget_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
           "used_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
           "concepts_included": { "type": "array", "items": { "type": "string" } },
-          "concepts_omitted": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 }
+          "concepts_omitted": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "pending_changes": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "spaces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "space": { "type": "string" },
+                    "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "oldest_days": {
+                      "anyOf": [
+                        { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["space", "pending", "oldest_days"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["total", "oldest_days", "spaces"],
+            "additionalProperties": false
+          }
         },
-        "required": ["markdown", "spaces", "budget_tokens", "used_tokens", "concepts_included", "concepts_omitted"],
+        "required": [
+          "markdown",
+          "spaces",
+          "budget_tokens",
+          "used_tokens",
+          "concepts_included",
+          "concepts_omitted",
+          "pending_changes"
+        ],
         "additionalProperties": false
       },
       "zAgentContextRequest": {
@@ -4076,6 +4150,38 @@
           "used_tokens": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
           "concepts_included": { "type": "array", "items": { "type": "string" } },
           "concepts_omitted": { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+          "pending_changes": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "spaces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "space": { "type": "string" },
+                    "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "oldest_days": {
+                      "anyOf": [
+                        { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["space", "pending", "oldest_days"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["total", "oldest_days", "spaces"],
+            "additionalProperties": false
+          },
           "selection_mode": { "type": "string", "enum": ["manual", "automatic"] },
           "matches": {
             "type": "array",
@@ -4099,6 +4205,7 @@
           "used_tokens",
           "concepts_included",
           "concepts_omitted",
+          "pending_changes",
           "selection_mode",
           "matches"
         ],
@@ -6495,6 +6602,65 @@
           }
         },
         "required": ["schema_version", "version", "scaffolding_kinds"],
+        "additionalProperties": false
+      },
+      "zSpacesOverviewResponse": {
+        "type": "object",
+        "properties": {
+          "schema_version": { "type": "string", "const": "wikikit.spaces-overview.v1" },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "pending_derived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "created_7d": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": ["pending", "pending_derived", "created_7d", "oldest_days"],
+            "additionalProperties": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "space": { "type": "string" },
+                "name": { "type": "string" },
+                "purpose": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "review_queue": {
+                  "type": "object",
+                  "properties": {
+                    "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "oldest_days": {
+                      "anyOf": [
+                        { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                        { "type": "null" }
+                      ]
+                    },
+                    "pending_derived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["pending", "oldest_days", "pending_derived"],
+                  "additionalProperties": false
+                },
+                "created_7d": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "concepts": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["space", "name", "purpose", "review_queue", "created_7d", "concepts"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["schema_version", "generated_at", "totals", "items"],
         "additionalProperties": false
       },
       "zUsageStatsResponse": {
