@@ -106,8 +106,8 @@ describe('agent briefing', () => {
       [
         {
           id: '1',
-          slug: 'contentkit',
-          name: 'ContentKit',
+          slug: 'gardening',
+          name: 'Gardening',
           settings: { agent_briefing: { concept_slugs: ['a', 'b', 'c', 'd', 'e'] } },
         },
       ],
