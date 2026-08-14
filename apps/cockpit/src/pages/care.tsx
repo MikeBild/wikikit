@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck, Clock } from 'lucide-react'
+import { CircleCheck, Clock, FileText } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { Confirm } from '@/components/confirm'
-import { SectionHeading } from '@/components/context-help'
+import { ContextHelp, SectionHeading } from '@/components/context-help'
 import { DataState, RowSkeleton } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -27,8 +28,10 @@ import { count, durationHours, staleShare, windowLabel } from '@/pages/home.logi
 import { groupFindings, type LintFinding } from '@/pages/system.logic'
 import {
   backlogStanding,
+  displayFindings,
   draftsFrom,
   findingTarget,
+  ruleWhy,
   scheduleBody,
   scheduleProblem,
   waitedDays,
@@ -102,6 +105,10 @@ export function CarePage() {
           {(data) => {
             const backlog = backlogStanding(data.review_queue.pending)
             const when = windowLabel(data.window.from, data.window.to)
+            // One queue, one row: the census note of a change that also has a
+            // stale warning is folded into that warning (care.logic.ts). The
+            // counts strip above the list keeps the full census.
+            const display = displayFindings(data.lint.findings)
             return (
               <div className="flex flex-col gap-8">
                 <section className="flex flex-col gap-3" aria-labelledby="care-queues-heading">
@@ -152,7 +159,7 @@ export function CarePage() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <dl className="grid grid-cols-3 gap-3">
+                        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           <Fact testId="care-queue-depth" label="In the queue" value={count(data.ingest_queue.depth)} />
                           <Fact
                             testId="care-queue-parked"
@@ -163,6 +170,24 @@ export function CarePage() {
                             testId="care-queue-oldest"
                             label="Longest wait"
                             value={phrase(text, waitedHours(data.ingest_queue.oldest_queued_hours))}
+                          />
+                          {/*
+                            Parked thoughts, beside the queue and never inside
+                            it: a captured note waits for a decision, not for a
+                            worker. The age is the fact the stale-captures rule
+                            turns into a warning at thirty days.
+                          */}
+                          <Fact
+                            testId="care-queue-captured"
+                            label="Parked thoughts"
+                            value={count(data.ingest_queue.captured)}
+                            hint={
+                              data.ingest_queue.oldest_captured_days === null
+                                ? undefined
+                                : text('oldest: {age}', {
+                                    age: phrase(text, waitedDays(data.ingest_queue.oldest_captured_days)),
+                                  })
+                            }
                           />
                         </dl>
                       </CardContent>
@@ -203,7 +228,7 @@ export function CarePage() {
                             <Fact testId="care-warnings" label="Warnings" value={count(data.lint.counts.warn)} />
                             <Fact testId="care-notes" label="Notes" value={count(data.lint.counts.info)} />
                           </dl>
-                          {groupFindings(data.lint.findings).map((group) => (
+                          {groupFindings(display.shown).map((group) => (
                             <section key={group.severity} className="flex flex-col gap-2" aria-label={group.many}>
                               <div className="flex items-center gap-2">
                                 <Badge tone={group.tone}>{group.many}</Badge>
@@ -228,6 +253,13 @@ export function CarePage() {
                               ) : null}
                             </section>
                           ))}
+                          {display.folded > 0 ? (
+                            <p className="text-muted-foreground text-xs" data-testid="care-folded-note">
+                              {text('A change waiting past two weeks appears once, as a warning ({count} folded).', {
+                                count: display.folded,
+                              })}
+                            </p>
+                          ) : null}
                         </div>
                       )}
                     </CardContent>
@@ -280,6 +312,23 @@ export function CarePage() {
           }}
         </DataState>
 
+        <section className="flex flex-col gap-3" aria-labelledby="care-reports-heading">
+          <SectionHeading
+            id="care-reports-heading"
+            helpTitle="About kept reports"
+            help={
+              <p>
+                Every scheduled care run keeps its report here, under Answers — including a run that found nothing,
+                because an empty report is information: it says somebody looked.
+              </p>
+            }
+            testId="care-reports-help"
+          >
+            Kept care reports
+          </SectionHeading>
+          <Reports space={space} />
+        </section>
+
         <section className="flex flex-col gap-3" aria-labelledby="care-schedule-heading">
           <SectionHeading
             id="care-schedule-heading"
@@ -313,12 +362,14 @@ export function CarePage() {
 }
 
 /**
- * One finding, as a row that goes somewhere.
+ * One finding, as a three-part row: what the linter said, why it counts, and
+ * where the fix happens.
  *
  * The link is the reason this page is worth opening twice. A finding that names
  * nothing renders as plain text rather than as a dead link — see
  * `findingTarget`, which answers `null` rather than sending the reader to a
- * list to hunt.
+ * list to hunt. The "why it counts" help sits BESIDE the link, not inside it:
+ * a popover trigger nested in a link would be two controls fighting one click.
  */
 function Finding({
   finding,
@@ -328,6 +379,7 @@ function Finding({
   testId: string
 }) {
   const target = findingTarget(finding)
+  const why = ruleWhy(finding.rule)
   const body = (
     <>
       <span className="font-mono text-[11px] tracking-tight">{finding.rule}</span>
@@ -335,53 +387,61 @@ function Finding({
     </>
   )
   const shell = 'flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-xs sm:flex-row sm:items-baseline sm:gap-3'
-  const linked = `hover:bg-muted focus-visible:ring-ring/50 transition-colors focus-visible:ring-3 focus-visible:outline-none ${shell}`
+  const linked = `hover:bg-muted focus-visible:ring-ring/50 transition-colors focus-visible:ring-3 focus-visible:outline-none min-w-0 flex-1 ${shell}`
 
-  if (target?.kind === 'page')
-    return (
-      <li>
-        <Link
-          to="/pages/$slug"
-          params={{ slug: target.slug }}
-          search={(prev) => prev}
-          data-testid={testId}
-          className={linked}
-        >
-          {body}
-        </Link>
-      </li>
+  const inner =
+    target?.kind === 'page' ? (
+      <Link
+        to="/pages/$slug"
+        params={{ slug: target.slug }}
+        search={(prev) => prev}
+        data-testid={testId}
+        className={linked}
+      >
+        {body}
+      </Link>
+    ) : target?.kind === 'change' ? (
+      <Link
+        to="/changes/$id"
+        params={{ id: target.id }}
+        search={(prev) => prev}
+        data-testid={testId}
+        className={linked}
+      >
+        {body}
+      </Link>
+    ) : target?.kind === 'source' ? (
+      <Link
+        to="/sources/$id"
+        params={{ id: target.id }}
+        search={(prev) => prev}
+        data-testid={testId}
+        className={linked}
+      >
+        {body}
+      </Link>
+    ) : target?.kind === 'inbox' ? (
+      <Link to="/inbox" search={(prev) => prev} data-testid={testId} className={linked}>
+        {body}
+      </Link>
+    ) : target?.kind === 'charter' ? (
+      <Link to="/charter" search={(prev) => prev} data-testid={testId} className={linked}>
+        {body}
+      </Link>
+    ) : (
+      <div className={`min-w-0 flex-1 ${shell}`} data-testid={testId}>
+        {body}
+      </div>
     )
-  if (target?.kind === 'change')
-    return (
-      <li>
-        <Link
-          to="/changes/$id"
-          params={{ id: target.id }}
-          search={(prev) => prev}
-          data-testid={testId}
-          className={linked}
-        >
-          {body}
-        </Link>
-      </li>
-    )
-  if (target?.kind === 'source')
-    return (
-      <li>
-        <Link
-          to="/sources/$id"
-          params={{ id: target.id }}
-          search={(prev) => prev}
-          data-testid={testId}
-          className={linked}
-        >
-          {body}
-        </Link>
-      </li>
-    )
+
   return (
-    <li className={shell} data-testid={testId}>
-      {body}
+    <li className="flex items-start gap-1">
+      {inner}
+      {why ? (
+        <ContextHelp title="Why it counts" testId={`${testId}-why`}>
+          <p>{why}</p>
+        </ContextHelp>
+      ) : null}
     </li>
   )
 }
@@ -423,6 +483,59 @@ function GapTopics({ gaps }: { gaps: { enabled: boolean; items: readonly { lexem
         </div>
       </div>
     </I18nText>
+  )
+}
+
+/** How many kept reports the section lists — the history is a trail, not an archive browser. */
+const REPORTS_SHOWN = 8
+
+/**
+ * The kept care reports — the visible record that maintenance actually ran.
+ *
+ * Its own read beside the health query, like the schedule form below: the
+ * report history must not blank the live numbers when it is slow, and the live
+ * numbers must not blank the history. Each row is an output under Answers,
+ * where the whole document is read — this section only answers "when did
+ * somebody last look".
+ */
+function Reports({ space }: { space: string }) {
+  const query = { kind: 'health', limit: REPORTS_SHOWN } as const
+  const reports = useQuery({ queryKey: keys.outputs(space, query), queryFn: () => wk.outputs.list(space, query) })
+  return (
+    <Card data-testid="care-reports-card">
+      <CardContent>
+        <DataState testId="care-reports" query={reports} skeleton={<RowSkeleton rows={3} columns={2} />}>
+          {(data) =>
+            data.items.length === 0 ? (
+              <EmptyState
+                icon={FileText}
+                framed={false}
+                title="No report kept yet"
+                description="The first scheduled care run files its report here — switch one on in the timetable below."
+                data-testid="care-reports-empty"
+              />
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {data.items.map((report, index) => (
+                  <li key={report.id}>
+                    <Link
+                      to="/answers/$id"
+                      params={{ id: report.id }}
+                      search={(prev) => prev}
+                      data-testid={`care-report-${index + 1}`}
+                      className="hover:bg-muted focus-visible:ring-ring/50 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-md px-2 py-1.5 text-xs transition-colors focus-visible:ring-3 focus-visible:outline-none"
+                    >
+                      <span className="min-w-0 font-medium">{report.title}</span>
+                      <RelativeTime value={report.created_at} className="text-muted-foreground" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </DataState>
+      </CardContent>
+    </Card>
   )
 }
 

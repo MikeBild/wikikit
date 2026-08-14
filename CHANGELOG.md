@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.39.0 - 2026-08-14
+
+### Added
+
+- **Lint learns rhythm and three new rules.** Every rule now carries a fixed
+  tier beside its fixed severity: `?tier=quick` (also on `wikikit_lint` and
+  `wikikit_health`) runs only the queue/inbox/charter pulse — cheap counts an
+  operator can ask for on every visit — while the default `deep` runs the full
+  knowledge scan and is a strict superset, so the rhythms nest instead of
+  forking. Scheduled health runs pass `deep` explicitly: the persisted report
+  is the full protocol even if the default ever becomes overridable. The new
+  rules: `stale-proposals` (warn) names the pending changes older than 14 days
+  with `{proposal_id, title, days_open}` — the age is what turns a queue into a
+  backlog, and the `unreviewed-proposals` census stays beside it;
+  `stale-captures` (warn) names thoughts parked past 30 days, because capture
+  deliberately bypasses every gate and needs a pressure valve — an old inbox
+  item is a signal, not an error; `missing-charter` (info) fires when no
+  current charter revision exists, so the absence of a steering document is a
+  visible choice rather than an accident.
+- **Health counts the parked thoughts.** The composed health read's ingest
+  queue gains `captured` and `oldest_captured_days` (null when nothing is
+  parked, days because the wait that matters is the thirty-day one) — beside
+  `depth`, never inside it, exactly like `quota_blocked`: a parked thought
+  waits for a decision, not for a worker. The scheduled health report renders
+  the same facts.
+- **Care findings become three-part rows, and the reports get a shelf.** Every
+  finding on the cockpit's Care page now answers all three questions: what the
+  linter said, why it counts (a per-rule explanation behind a help icon, in
+  both languages), and where the fix happens — stale changes route to the
+  change, parked thoughts to the Inbox, the missing charter to Guidelines. A
+  change that also has a stale warning appears once, as the warning, with the
+  folded census rows stated rather than hidden. The ingest-queue card shows the
+  parked count with its oldest age, and a new "Kept care reports" section lists
+  the persisted health reports — including the empty ones, because an empty
+  report is information: it says somebody looked.
+
 ## 0.38.0 - 2026-08-14
 
 ### Added

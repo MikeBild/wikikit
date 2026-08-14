@@ -162,13 +162,23 @@ describe('cross-wiki overview (integration)', () => {
     await seedProposal(alphaId, { sourceIds: [outside, derived], ageDays: 21 })
     await seedProposal(alphaId, { sourceIds: [derived] })
     await seedProposal(alphaId, { status: 'approved', ageDays: 3 })
-    // Two pages, one of them not yet visible (no current revision).
-    await db.insert('wk_concepts', {
+    // Two pages, one of them not yet visible (no current revision). The
+    // visible one needs a REAL revision row — current_revision_id carries a
+    // foreign key, so a made-up id is a constraint violation, not a shortcut.
+    const [visible] = await db.insert<{ id: string }>('wk_concepts', {
       space_id: alphaId,
       slug: 'visible-page',
       title: 'Visible',
-      current_revision_id: randomUUID(),
     })
+    const [revision] = await db.insert<{ id: string }>('wk_concept_revisions', {
+      space_id: alphaId,
+      concept_id: visible!.id,
+      rev: 1,
+      status: 'current',
+      title: 'Visible',
+      markdown: '# Visible\n\nProse.',
+    })
+    await db.query(`UPDATE wk_concepts SET current_revision_id = $2 WHERE id = $1`, [visible!.id, revision!.id])
     await db.insert('wk_concepts', { space_id: alphaId, slug: 'proposed-only', title: 'Proposed' })
 
     const mint = async (name: string, scopes: string[], space?: string) => {

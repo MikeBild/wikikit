@@ -58,7 +58,11 @@ pending change, the share of pending changes derived from the wiki's own
 generated reports, 7-day activity and the visible page count. Pick the space
 that needs attention there, then call `wikikit_health` on that one space —
 chaining `wikikit_health` across every space answers the same question in ten
-calls.
+calls. Both `wikikit_lint` and `wikikit_health` take `tier`: `'quick'` runs
+only the queue/inbox/charter pulse rules (stale changes, parked thoughts, the
+unreviewed census, uncited sources, a missing charter), the default `'deep'`
+runs the full knowledge scan — deep is a strict superset, so a quick pass never
+replaces a deep one, it only comes cheaper and more often.
 
 To park a thought without processing it, call `wikikit_ingest` with
 `capture: true`: the text is stored verbatim as a captured job — no LLM call,

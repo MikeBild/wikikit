@@ -525,7 +525,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days). */
+        /** Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest, parked thoughts included) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=, ?tier=quick|deep; window defaults to the last 30 days, tier to deep). */
         get: operations["spaceHealth"];
         put?: never;
         post?: never;
@@ -680,7 +680,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly */
+        /** Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly. ?tier=quick runs only the queue/inbox/charter pulse rules; the default deep runs everything */
         get: operations["lint"];
         put?: never;
         post?: never;
@@ -2091,7 +2091,7 @@ export interface components {
             lint: {
                 findings: {
                     /** @enum {string} */
-                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
                     /** @enum {string} */
                     severity: "error" | "warn" | "info";
                     message: string;
@@ -2150,6 +2150,8 @@ export interface components {
                 running: number;
                 quota_blocked: number;
                 oldest_queued_hours: number | null;
+                captured: number;
+                oldest_captured_days: number | null;
             };
         };
         zScheduleListResponse: {
@@ -2444,7 +2446,7 @@ export interface components {
         zLintResponse: {
             findings: {
                 /** @enum {string} */
-                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links";
+                rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
                 message: string;
@@ -5799,6 +5801,7 @@ export interface operations {
                 from?: string;
                 to?: string;
                 top?: number;
+                tier?: "quick" | "deep";
             };
             header?: never;
             path: {
@@ -6599,7 +6602,9 @@ export interface operations {
     };
     lint: {
         parameters: {
-            query?: never;
+            query?: {
+                tier?: "quick" | "deep";
+            };
             header?: never;
             path: {
                 space: string;

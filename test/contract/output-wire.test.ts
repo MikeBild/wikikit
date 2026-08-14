@@ -157,7 +157,15 @@ describe('zSpaceHealthResponse: a census, never a verdict', () => {
       gap_topics: { enabled: true, items: [{ lexeme: 'sofa', count: 2 }] },
     },
     review_queue: { pending: 436, oldest_days: 21 },
-    ingest_queue: { depth: 3, queued: 2, running: 1, quota_blocked: 0, oldest_queued_hours: 4.5 },
+    ingest_queue: {
+      depth: 3,
+      queued: 2,
+      running: 1,
+      quota_blocked: 0,
+      oldest_queued_hours: 4.5,
+      captured: 2,
+      oldest_captured_days: 31,
+    },
   }
 
   test('the whole composed shape parses', () => {
@@ -181,7 +189,16 @@ describe('zSpaceHealthResponse: a census, never a verdict', () => {
     const quiet = {
       ...health,
       review_queue: { pending: 0, oldest_days: null },
-      ingest_queue: { depth: 0, queued: 0, running: 0, quota_blocked: 0, oldest_queued_hours: null },
+      // captured follows the same null discipline: no parked thought, no age.
+      ingest_queue: {
+        depth: 0,
+        queued: 0,
+        running: 0,
+        quota_blocked: 0,
+        oldest_queued_hours: null,
+        captured: 0,
+        oldest_captured_days: null,
+      },
       coverage: { ...health.coverage, review_latency: { ...health.coverage.review_latency, median_hours: null } },
     }
     expect(zSpaceHealthResponse.safeParse(quiet).success).toBe(true)

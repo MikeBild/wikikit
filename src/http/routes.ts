@@ -550,7 +550,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/spaces/{space}/health',
     scope: 'knowledge:read',
     summary:
-      'Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=; window defaults to the last 30 days).',
+      'Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest, parked thoughts included) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=, ?tier=quick|deep; window defaults to the last 30 days, tier to deep).',
     handler: 'spaceHealthHandler',
     request: { params: 'zSpaceParams', query: 'zSpaceHealthQuery' },
     responses: {
@@ -674,9 +674,10 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/lint',
     scope: 'knowledge:read',
-    summary: 'Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly',
+    summary:
+      'Knowledge health findings (contradictions, missing citations, ...) — LLM-free, CI-friendly. ?tier=quick runs only the queue/inbox/charter pulse rules; the default deep runs everything',
     handler: 'lintHandler',
-    request: { params: 'zSpaceParams' },
+    request: { params: 'zSpaceParams', query: 'zLintQuery' },
     responses: { 200: { schema: 'zLintResponse', type: 'application/json', desc: 'Findings + counts' } },
   },
   {
@@ -1941,7 +1942,8 @@ export const HANDLERS: Record<string, Handler> = {
 
   async lintHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const report = await lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
+    const { tier } = input.query as { tier: 'quick' | 'deep' }
+    const report = await lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds, tier })
     return { status: 200, body: report }
   },
 

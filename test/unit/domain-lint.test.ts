@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
-import { LINT_SEVERITY, lintSpace } from '../../src/domain/lint.ts'
+import { LINT_SEVERITY, RULE_TIERS, lintSpace } from '../../src/domain/lint.ts'
 
 interface Call {
   sql: string
@@ -46,7 +46,37 @@ describe('severity mapping (fixed by contract — do not tune)', () => {
       'dangling-sources': 'info',
       'tombstoned-sources': 'warn',
       'broken-cross-space-links': 'warn',
+      // info, not warn: a wiki without a charter is a legitimate wiki.
+      'missing-charter': 'info',
+      // warn beside the info census: the age is what turns a queue into a
+      // backlog, and both lines exist so a surface can group them.
+      'stale-proposals': 'warn',
+      'stale-captures': 'warn',
     })
+  })
+
+  test('the tier table is exhaustive and quick is the queue/inbox/charter pulse', () => {
+    expect(RULE_TIERS).toEqual({
+      contradictions: 'deep',
+      'missing-citations': 'deep',
+      'broken-relations': 'deep',
+      'stale-claims': 'deep',
+      'orphan-concepts': 'deep',
+      'unsourced-concepts': 'deep',
+      'self-derived-only': 'deep',
+      'stub-concepts': 'deep',
+      'scaffolded-claims': 'deep',
+      'empty-concepts': 'deep',
+      'unreviewed-proposals': 'quick',
+      'dangling-sources': 'quick',
+      'tombstoned-sources': 'deep',
+      'broken-cross-space-links': 'deep',
+      'missing-charter': 'quick',
+      'stale-proposals': 'quick',
+      'stale-captures': 'quick',
+    })
+    // Every rule has a severity AND a tier — one union, two exhaustive tables.
+    expect(Object.keys(RULE_TIERS).sort()).toEqual(Object.keys(LINT_SEVERITY).sort())
   })
 })
 
@@ -101,10 +131,21 @@ describe('lintSpace', () => {
     { match: /r\.markdown ~ '\^\[\[:space:\]\]\*\$'/, rows: [{ slug: 'blank' }] },
     { match: /SELECT 1 FROM wk_relations rel/, rows: [{ slug: 'lonely' }] },
     { match: /SELECT 1 FROM wk_claims cl/, rows: [{ slug: 'stub' }] },
+    // Before the generic proposals route: the stale rule reads the same table
+    // and is told apart by the age column only it computes.
+    {
+      match: /AS days_open/,
+      rows: [{ id: 'prop-2', title: 'Forgotten one', days_open: 21 }],
+    },
     {
       match: /FROM wk_change_proposals/,
       rows: [{ id: 'prop-1', title: 'Pending one', created_at: new Date('2026-07-01T00:00:00Z') }],
     },
+    {
+      match: /status = 'captured'/,
+      rows: [{ id: 'job-1', title: 'A parked note', days_parked: 45 }],
+    },
+    // No wk_charter_revisions route: the empty answer IS the missing charter.
     {
       match: /st\.deleted_at IS NOT NULL/,
       rows: [
@@ -165,16 +206,19 @@ describe('lintSpace', () => {
       'tombstoned-sources',
       'stub-concepts',
       'scaffolded-claims',
+      'stale-proposals',
+      'stale-captures',
       'empty-concepts',
       'unreviewed-proposals',
       'dangling-sources',
+      'missing-charter',
     ])
-    expect(report.counts).toEqual({ error: 3, warn: 8, info: 3 })
+    expect(report.counts).toEqual({ error: 3, warn: 10, info: 4 })
 
     // Every rule query is space-scoped with the SAME parameter. (The
     // cross-space-link scan found no [[space:slug]] links, so it issued only
     // its revision scan — no follow-up queries.)
-    expect(calls.length).toBe(15)
+    expect(calls.length).toBe(18)
     for (const call of calls.slice(1)) {
       expect(call.sql).toContain('space_id = $1')
       expect(call.values[0]).toBe('space-1')
@@ -257,14 +301,59 @@ describe('lintSpace', () => {
       concept_slug: 'okf',
       details: { source_id: 'src-9', external_source_id: 'gdrive:file123' },
     })
+
+    // The stale warning carries what the census note cannot: the age, plus the
+    // proposal id the care page folds the census row into.
+    expect(byRule.get('stale-proposals')).toEqual({
+      rule: 'stale-proposals',
+      severity: 'warn',
+      message: 'proposal "Forgotten one" has waited 21 days for a review',
+      details: { proposal_id: 'prop-2', title: 'Forgotten one', days_open: 21 },
+    })
+    // The wording is part of the contract: an old inbox item is a signal.
+    expect(byRule.get('stale-captures')).toEqual({
+      rule: 'stale-captures',
+      severity: 'warn',
+      message:
+        'captured thought "A parked note" has been parked 45 days — an old inbox item is a signal, not an error: process it or discard it',
+      details: { ingest_id: 'job-1', days_parked: 45 },
+    })
+    expect(byRule.get('missing-charter')).toEqual({
+      rule: 'missing-charter',
+      severity: 'info',
+      message:
+        'this space has no charter: nothing steers synthesis or tells an agent what belongs here — write one when the wiki has a purpose worth stating',
+    })
   })
 
-  test('a clean space reports zero findings and zero counts', async () => {
-    const { db } = fakeDb([])
+  test('a clean space with a current charter reports zero findings and zero counts', async () => {
+    // The charter row is the one thing a CLEAN space must positively have:
+    // every other rule is silent on empty answers, missing-charter fires on one.
+    const { db } = fakeDb([{ match: /wk_charter_revisions/, rows: [{ found: 1 }] }])
     expect(await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })).toEqual({
       findings: [],
       counts: { error: 0, warn: 0, info: 0 },
     })
+  })
+
+  test('tier quick runs exactly the quick rules — a strict subset of deep', async () => {
+    const { db, calls } = fakeDb(routes)
+    const quick = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS, tier: 'quick' })
+    expect(quick.findings.map((finding) => finding.rule)).toEqual([
+      'stale-proposals',
+      'stale-captures',
+      'unreviewed-proposals',
+      'dangling-sources',
+      'missing-charter',
+    ])
+    expect(quick.counts).toEqual({ error: 0, warn: 2, info: 3 })
+    // No settings read and no page-level scan: the pulse never pays for the
+    // deep rules it does not run.
+    expect(calls.some((call) => call.sql.includes('"wk_spaces"'))).toBe(false)
+
+    const deep = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
+    const deepRules = new Set(deep.findings.map((finding) => finding.rule))
+    for (const finding of quick.findings) expect(deepRules.has(finding.rule)).toBe(true)
   })
 
   test('contradictions pairs ALL visible claims (0021: context + interval + normalized object)', async () => {

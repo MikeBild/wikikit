@@ -85,7 +85,7 @@ export interface SpaceHealth {
    * own defaults is a caption that eventually contradicts the numbers under it.
    */
   window: { from: string; to: string }
-  /** The 14 rules, whole, with the severity census — see src/domain/lint.ts. */
+  /** The requested lint tier, whole, with the severity census — see src/domain/lint.ts. */
   lint: LintReport
   coverage: SpaceHealthCoverage
   /**
@@ -104,6 +104,13 @@ export interface SpaceHealth {
    * that silently omitted it would report an idle queue to an operator whose
    * ingest has stopped moving. `oldest_queued_hours` is null when nothing is
    * queued.
+   *
+   * `captured` counts the parked thoughts — also beside `depth`, never inside
+   * it: a captured row is not work in flight, it is a note waiting for a human
+   * to decide whether it becomes work at all. `oldest_captured_days` is null
+   * when nothing is parked, and in DAYS rather than hours because a parked
+   * thought waiting since this morning is fine and one waiting a month is the
+   * stale-captures signal.
    */
   ingest_queue: {
     depth: number
@@ -111,6 +118,8 @@ export interface SpaceHealth {
     running: number
     quota_blocked: number
     oldest_queued_hours: number | null
+    captured: number
+    oldest_captured_days: number | null
   }
 }
 
@@ -126,6 +135,9 @@ const zSpaceHealthArgs = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   top: z.coerce.number().int().min(1).max(25).default(5),
+  // Threaded to lintSpace, whose default is already deep — restated here so the
+  // three transports validate the same vocabulary once.
+  tier: z.enum(['quick', 'deep']).optional(),
 })
 
 export type SpaceHealthArgs = z.input<typeof zSpaceHealthArgs>
@@ -174,7 +186,10 @@ export async function spaceHealth(
   if (to <= from) throw new ValidationError("'to' must be after 'from'")
   const window = { from: from.toISOString(), to: to.toISOString() }
 
-  const lint = await lintSpace(db, spaceId, { scaffoldingKinds: deps.scaffoldingKinds })
+  const lint = await lintSpace(db, spaceId, {
+    scaffoldingKinds: deps.scaffoldingKinds,
+    tier: input.tier ?? 'deep',
+  })
   const coverage = await getCoverageStats(db, spaceId, { ...window, top: input.top })
 
   // Deliberately the same query shape coverage.ts uses for open disputes:
@@ -204,20 +219,29 @@ export async function spaceHealth(
   // it is healthy, so a queue stuck since this morning would print "0 days" —
   // a number that reads like reassurance. One decimal, matching
   // coverage.review_latency.median_hours.
+  // Captured rows are counted in the same statement but never in `depth`: a
+  // parked thought is not in flight, and its age is read in DAYS off the same
+  // min() FILTER shape — the review queue's unit, because the wait that matters
+  // is the one stale-captures warns about at thirty days.
   const [ingest] = (
     await db.query<{
       queued: number
       running: number
       quota_blocked: number
       oldest_queued_hours: number | null
+      captured: number
+      oldest_captured_days: number | null
     }>(
       `SELECT count(*) FILTER (WHERE status = 'queued')::int AS queued,
               count(*) FILTER (WHERE status = 'running')::int AS running,
               count(*) FILTER (WHERE status = 'quota_blocked')::int AS quota_blocked,
               round((extract(epoch FROM now() - min(created_at) FILTER (WHERE status = 'queued')) / 3600)::numeric, 1)::float
-                AS oldest_queued_hours
+                AS oldest_queued_hours,
+              count(*) FILTER (WHERE status = 'captured')::int AS captured,
+              floor(extract(epoch FROM now() - min(created_at) FILTER (WHERE status = 'captured')) / 86400)::int
+                AS oldest_captured_days
          FROM wk_ingest_jobs
-        WHERE space_id = $1 AND status IN ('queued', 'running', 'quota_blocked')`,
+        WHERE space_id = $1 AND status IN ('queued', 'running', 'quota_blocked', 'captured')`,
       [spaceId],
     )
   ).rows
@@ -225,6 +249,7 @@ export async function spaceHealth(
   const pending = review?.pending ?? 0
   const queued = ingest?.queued ?? 0
   const running = ingest?.running ?? 0
+  const captured = ingest?.captured ?? 0
   return {
     window,
     lint,
@@ -247,6 +272,8 @@ export async function spaceHealth(
       running,
       quota_blocked: ingest?.quota_blocked ?? 0,
       oldest_queued_hours: queued ? (ingest?.oldest_queued_hours ?? null) : null,
+      captured,
+      oldest_captured_days: captured ? (ingest?.oldest_captured_days ?? null) : null,
     },
   }
 }

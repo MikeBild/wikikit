@@ -221,7 +221,13 @@ export const zDecisionsToolInput = z.object({
 
 export const zHistoryToolInput = z.object({ space: zSpaceSlug, slug: zConceptSlug })
 
-export const zLintToolInput = z.object({ space: zSpaceSlug })
+export const zLintToolInput = z.object({
+  space: zSpaceSlug,
+  tier: z
+    .enum(['quick', 'deep'])
+    .optional()
+    .describe("'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule"),
+})
 
 /** No output_id → the newest page of outputs; output_id → that one output. */
 export const zOutputsToolInput = z.object({
@@ -240,6 +246,10 @@ export const zHealthToolInput = z.object({
   from: z.iso.datetime().optional().describe('Window start (ISO 8601); default 30 days before `to`'),
   to: z.iso.datetime().optional().describe('Window end (ISO 8601); default now'),
   top: z.number().int().min(1).max(25).optional().describe('How many hub pages and gap topics to list (default 5)'),
+  tier: z
+    .enum(['quick', 'deep'])
+    .optional()
+    .describe("Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything"),
 })
 
 /**
@@ -578,14 +588,15 @@ export const TOOLS: McpToolDef[] = [
     name: 'wikikit_lint',
     description:
       'Knowledge-base health findings: contradictions, missing citations, broken relations, stale ' +
-      'claims, orphans. LLM-free and CI-consumable.',
+      'claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. ' +
+      "tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     scope: 'knowledge:read',
     inputSchema: zLintToolInput,
     annotations: READ_ANNOTATIONS,
     async execute(deps, principal, input) {
       const args = zLintToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
-      return lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds })
+      return lintSpace(deps.db, space.id, { scaffoldingKinds: deps.config.scaffoldingKinds, tier: args.tier ?? 'deep' })
     },
   },
   {
@@ -1044,7 +1055,7 @@ export const TOOLS: McpToolDef[] = [
       return spaceHealth(
         deps.db,
         space.id,
-        { from: args.from, to: args.to, top: args.top },
+        { from: args.from, to: args.to, top: args.top, tier: args.tier },
         {
           scaffoldingKinds: deps.config.scaffoldingKinds,
           gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,

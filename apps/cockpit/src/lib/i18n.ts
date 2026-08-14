@@ -1278,6 +1278,55 @@ export const DE_PHRASES = {
   '{count} days': '{count} Tage',
   'under an hour': 'unter einer Stunde',
   '{count} h': '{count} Std.',
+  // Care — the maturing surfaces of 0.39.0: the parked-thoughts facts, the
+  // per-rule "why it counts" help, the fold of stale vs. census proposal rows
+  // and the kept-reports history.
+  'Parked thoughts': 'Geparkte Gedanken',
+  'oldest: {age}': 'älteste: {age}',
+  'A change waiting past two weeks appears once, as a warning ({count} folded).':
+    'Eine Änderung, die länger als zwei Wochen wartet, erscheint einmal — als Warnung ({count} zusammengefasst).',
+  'Why it counts': 'Warum es zählt',
+  'About kept reports': 'Informationen zu aufbewahrten Berichten',
+  'Every scheduled care run keeps its report here, under Answers — including a run that found nothing, because an empty report is information: it says somebody looked.':
+    'Jeder geplante Pflegelauf bewahrt seinen Bericht hier unter „Antworten“ auf — auch ein Lauf ohne Befund, denn ein leerer Bericht ist Information: Er sagt, dass jemand nachgesehen hat.',
+  'Kept care reports': 'Aufbewahrte Pflegeberichte',
+  'No report kept yet': 'Noch kein Bericht aufbewahrt',
+  'The first scheduled care run files its report here — switch one on in the timetable below.':
+    'Der erste geplante Pflegelauf legt seinen Bericht hier ab — einschaltbar im Zeitplan darunter.',
+  'Two visible claims assert different things about the same frame. Readers cannot tell which one the wiki means until a person deprecates one side.':
+    'Zwei sichtbare Aussagen behaupten Unterschiedliches über denselben Rahmen. Bis ein Mensch eine Seite zurückzieht, bleibt offen, was das Wiki meint.',
+  'A visible claim quotes no source, so nobody can check it. Verifiable quotes are the whole promise of this wiki.':
+    'Eine sichtbare Aussage zitiert keine Quelle und ist damit nicht nachprüfbar. Belegte Zitate sind das Versprechen dieses Wikis.',
+  'A link points at a page that cannot be read. Whoever follows it lands nowhere.':
+    'Ein Verweis zeigt auf eine Seite, die nicht lesbar ist. Wer ihm folgt, landet im Leeren.',
+  'The claim describes a window that has closed. It needs re-verification or retirement.':
+    'Die Aussage beschreibt ein abgelaufenes Zeitfenster und braucht eine neue Bestätigung oder den Ruhestand.',
+  'No link leads to or from this page, so graph navigation never finds it. Sometimes that is fine; usually a relation is missing.':
+    'Kein Verweis führt zu dieser Seite oder von ihr weg; die Graph-Navigation findet sie nie. Manchmal ist das in Ordnung, meist fehlt eine Beziehung.',
+  'No archived document stands behind this page. Adding a source lets synthesis quote real evidence.':
+    'Hinter dieser Seite steht kein archiviertes Dokument. Mit einer neuen Quelle kann die Synthese echte Belege zitieren.',
+  'Every source this page quotes came out of the wiki itself. Without outside evidence the wiki is confirming itself.':
+    'Jede Quelle dieser Seite stammt aus dem Wiki selbst. Ohne Belege von außen bestätigt sich das Wiki nur selbst.',
+  'The page is blank in every sense: no text, no claims, no links. Delete it or give it content.':
+    'Die Seite ist in jeder Hinsicht leer: kein Text, keine Aussagen, keine Verweise. Löschen oder füllen.',
+  'The page is marked as a reference target yet holds real claims. Until one of the two is fixed, its evidence is withheld from the index.':
+    'Die Seite ist als Referenzziel markiert und trägt trotzdem echte Aussagen. Bis eines von beiden korrigiert ist, fehlt ihr Nachweis im Index.',
+  'The page states nothing checkable. Fine for a stub — worth knowing about.':
+    'Die Seite enthält nichts Nachprüfbares. Für einen Platzhalter in Ordnung — aber gut zu wissen.',
+  'A change is waiting for a decision. Nothing becomes visible knowledge until a person makes it.':
+    'Eine Änderung wartet auf eine Entscheidung. Nichts wird sichtbares Wissen, bevor ein Mensch sie trifft.',
+  'An archived document no claim quotes. Often just a change still waiting for review.':
+    'Ein archiviertes Dokument, das keine Aussage zitiert. Oft nur eine Änderung, die noch auf ihre Freigabe wartet.',
+  'The claim quotes a document deleted upstream. The archived copy remains valid evidence; whether the claim stays is a human call.':
+    'Die Aussage zitiert ein Dokument, das am Ursprungsort gelöscht wurde. Die archivierte Kopie bleibt gültiger Beleg; ob die Aussage bleibt, entscheidet ein Mensch.',
+  'A link into another wiki reaches no readable page there. The link convention is documentation; fixing it keeps documents honest.':
+    'Ein Verweis in ein anderes Wiki erreicht dort keine lesbare Seite. Die Verweis-Konvention ist Dokumentation; die Korrektur hält Dokumente ehrlich.',
+  'Nothing steers what belongs in this wiki. Guidelines are optional — this note makes their absence a choice, not an accident.':
+    'Nichts steuert, was in dieses Wiki gehört. Leitlinien sind freiwillig — diese Notiz macht ihr Fehlen zu einer Entscheidung statt zu einem Zufall.',
+  'This change has waited more than two weeks. Age is what turns a queue into a backlog.':
+    'Diese Änderung wartet seit mehr als zwei Wochen. Erst das Alter macht aus einer Warteschlange einen Rückstand.',
+  'This thought has been parked for over a month. An old inbox item is a signal, not an error — process it or discard it.':
+    'Dieser Gedanke ist seit über einem Monat geparkt. Ein alter Eintrag im Eingang ist ein Signal, kein Fehler — verarbeiten oder verwerfen.',
   'About scheduled reports': 'Informationen zu geplanten Berichten',
   'WikiKit runs these itself, in its own process. Each one writes an entry under Answers; nothing is emailed, and a briefing costs no model tokens because it is an assembly of counts and titles.':
     'WikiKit führt diese im eigenen Prozess aus. Jeder Lauf erzeugt einen Eintrag unter „Antworten“; es wird nichts per E-Mail versendet, und ein Kurzbericht verbraucht keine Modell-Tokens, weil er nur aus Zahlen und Titeln besteht.',

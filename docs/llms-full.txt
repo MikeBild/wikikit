@@ -123,7 +123,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read    | What this wiki produced, newest-first: answers, scheduled briefings, health reports (`?kind=answer\|briefing\|health`, `?limit=`, `?cursor=`); rows carry the full markdown |
 | GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
 | POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | File an output back into the wiki: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Idempotent — a second promote returns the first job |
-| GET    | `/v1/spaces/{space}/health`                   | knowledge:read    | Composed maintenance report in one LLM-free read: lint findings + severity census, coverage, the review queue with the age of its oldest change, the live ingest queue. No verdict — the counts are the answer |
+| GET    | `/v1/spaces/{space}/health`                   | knowledge:read    | Composed maintenance report in one LLM-free read: lint findings + severity census (`?tier=quick\|deep`, default deep), coverage, the review queue with the age of its oldest change, the live ingest queue incl. parked thoughts. No verdict — the counts are the answer |
 | GET    | `/v1/spaces/{space}/schedules`                | admin             | The recurring briefing/health schedules of this space (at most one per kind) |
 | PUT    | `/v1/spaces/{space}/schedules`                | admin             | Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out is removed — hence no DELETE route. Idempotent |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
@@ -134,7 +134,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/proposals/{id}/split`                    | knowledge:review  | Split a pending proposal: full per-concept split, or defer a subset into one child |
 | POST   | `/v1/proposals/{id}/request-changes`          | knowledge:review  | Terminal reject with a mandatory revision note — agents re-propose against the feedback |
 | GET    | `/v1/proposals/{id}/lint`                     | knowledge:read    | Lint the STAGED content of one proposal (uncited claims, collisions, stale base, dangling links) |
-| GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly |
+| GET    | `/v1/spaces/{space}/lint`                     | knowledge:read    | Knowledge health findings — LLM-free, CI-friendly; `?tier=quick` runs only the pulse rules, default `deep` runs everything |
 | GET    | `/v1/spaces/{space}/export`                   | knowledge:read    | Export the space as a zip bundle (`?format=md\|okf`) |
 | POST   | `/v1/spaces/{space}/import`                   | knowledge:propose | Import a bundle (zip): sources archived, knowledge staged as ONE proposal |
 | GET    | `/v1/spaces/{space}/webhooks`                 | admin             | List webhook endpoints |
@@ -650,8 +650,8 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_sources` | knowledge:read | Provenance chain down to original sources (by concept slug or source_id) | true | false | true | false |
 | `wikikit_decisions` | knowledge:read | Decision log: one decision by slug, or list all active/superseded | true | false | true | false |
 | `wikikit_history` | knowledge:read | Revisions incl. agent_meta (model, prompt version) | true | false | true | false |
-| `wikikit_lint` | knowledge:read | Knowledge health findings | true | false | true | false |
-| `wikikit_health` | knowledge:read | One LLM-free read of how a wiki is doing: every lint finding with a severity census, the coverage block, the review queue WITH the age of its oldest change, and the live ingest queue. Reports numbers, never a verdict | true | false | true | false |
+| `wikikit_lint` | knowledge:read | Knowledge health findings; `tier:'quick'` runs only the pulse rules, default `'deep'` everything | true | false | true | false |
+| `wikikit_health` | knowledge:read | One LLM-free read of how a wiki is doing: every lint finding with a severity census (`tier` as in `wikikit_lint`), the coverage block, the review queue WITH the age of its oldest change, and the live ingest queue incl. parked thoughts. Reports numbers, never a verdict | true | false | true | false |
 | `wikikit_overview` | knowledge:read | One LLM-free read across every visible wiki: per space the review backlog with the age of its oldest change, the derived share of pending changes (provenance, not a verdict), 7-day proposal activity and the visible page count, plus server-side totals. Overview first, then `wikikit_health` on the space that needs attention | true | false | true | false |
 | `wikikit_outputs` | knowledge:read | What the wiki produced: past grounded answers plus scheduled briefings and health reports; omit `output_id` to list (`kind` narrows), pass it to read one whole. NOT knowledge — derived artifacts | true | false | true | false |
 | `wikikit_promote_output` | knowledge:propose | File an output back in as a source marked derived from the wiki itself; runs the ORDINARY pipeline (dedup, grounding guard, contradiction detection) and ends in one proposal a HUMAN approves → `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | false |
@@ -775,24 +775,40 @@ history does not travel.
 ## 10. Knowledge lint
 
 `GET /v1/spaces/{space}/lint` — LLM-free SQL checks, CI-consumable
-(`{findings: [{rule, severity, message, concept_slug?, claim_id?, details?}], counts}`):
+(`{findings: [{rule, severity, message, concept_slug?, claim_id?, details?}], counts}`).
+Each rule also carries a fixed tier: `?tier=quick` runs only the
+queue/inbox/charter pulse rules, the default `deep` runs everything — deep is a
+strict superset of quick, so the rhythms nest instead of forking.
 
-| Rule | Severity |
-|------|----------|
-| `contradictions` | error |
-| `missing-citations` | error |
-| `broken-relations` | error |
-| `stale-claims` | warn |
-| `orphan-concepts` | warn |
-| `unsourced-concepts` | warn |
-| `self-derived-only` | warn |
-| `stub-concepts` | warn |
-| `scaffolded-claims` | warn |
-| `tombstoned-sources` | warn |
-| `broken-cross-space-links` | warn |
-| `empty-concepts` | info |
-| `unreviewed-proposals` | info |
-| `dangling-sources` | info |
+| Rule | Severity | Tier |
+|------|----------|------|
+| `contradictions` | error | deep |
+| `missing-citations` | error | deep |
+| `broken-relations` | error | deep |
+| `stale-claims` | warn | deep |
+| `orphan-concepts` | warn | deep |
+| `unsourced-concepts` | warn | deep |
+| `self-derived-only` | warn | deep |
+| `stub-concepts` | warn | deep |
+| `scaffolded-claims` | warn | deep |
+| `tombstoned-sources` | warn | deep |
+| `broken-cross-space-links` | warn | deep |
+| `stale-proposals` | warn | quick |
+| `stale-captures` | warn | quick |
+| `empty-concepts` | info | deep |
+| `unreviewed-proposals` | info | quick |
+| `dangling-sources` | info | quick |
+| `missing-charter` | info | quick |
+
+`stale-proposals` flags pending changes older than 14 days, with
+`details: {proposal_id, title, days_open}` — the age is what turns a queue into
+a backlog. `unreviewed-proposals` stays as the census of everything waiting;
+the two deliberately overlap and a surface listing both should group them.
+`stale-captures` flags thoughts parked longer than 30 days: an old inbox item
+is a signal, not an error — capture bypasses every gate on purpose, and this
+rule is the pressure valve. `missing-charter` (info) fires when the space has
+no current charter revision, so the absence of a steering document is a visible
+choice rather than an accident.
 
 `unsourced-concepts` is the page-level evidence rule: a readable page across
 whose visible claims there is not one citation — no archived document stands
@@ -819,8 +835,11 @@ which is the state rather than the cure.
 The composed read `GET /v1/spaces/{space}/health` (and `wikikit_health`) serves
 this whole report unchanged, plus the coverage block and the two live queues —
 changes waiting for a human with the age of the oldest, and ingest work still in
-flight. It is the same `lintSpace()` call, never a second count, so the two
-surfaces cannot disagree about one space.
+flight, with the parked thoughts counted beside the queue (`captured`,
+`oldest_captured_days` — null when nothing is parked). It accepts the same
+`tier` and is the same `lintSpace()` call, never a second count, so the two
+surfaces cannot disagree about one space. Scheduled health runs always pass
+tier deep: the persisted report is the full protocol.
 
 `stub-concepts` is the page-level emptiness rule: a readable page with no body
 text, no visible claims, and no active relation in either direction — titled, in

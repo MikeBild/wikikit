@@ -542,6 +542,41 @@ describe('http surface (integration)', () => {
     expect(report.counts.error).toBe(0)
   })
 
+  it('health counts parked thoughts beside the queue, and ?tier=quick narrows lint', async () => {
+    // The capture lifecycle above left exactly one parked twin behind.
+    const health = (await (await fetch(`${base}/v1/spaces/demo/health`, { headers: bearer(readerKey) })).json()) as {
+      ingest_queue: { depth: number; captured: number; oldest_captured_days: number | null }
+      lint: { findings: { rule: string }[] }
+    }
+    expect(health.ingest_queue.captured).toBe(1)
+    // Parked today: a measured zero age, not a null — null is reserved for an
+    // empty parking lot.
+    expect(health.ingest_queue.oldest_captured_days).toBe(0)
+    // Beside the depth, never inside it: the parked row waits for a decision,
+    // not for a worker.
+    expect(health.ingest_queue.depth).toBe(0)
+
+    const QUICK_RULES = [
+      'unreviewed-proposals',
+      'dangling-sources',
+      'missing-charter',
+      'stale-proposals',
+      'stale-captures',
+    ]
+    const quick = (await (
+      await fetch(`${base}/v1/spaces/demo/lint?tier=quick`, { headers: bearer(readerKey) })
+    ).json()) as { findings: { rule: string }[] }
+    const deep = (await (await fetch(`${base}/v1/spaces/demo/lint`, { headers: bearer(readerKey) })).json()) as {
+      findings: { rule: string }[]
+    }
+    for (const finding of quick.findings) expect(QUICK_RULES).toContain(finding.rule)
+    // Quick ⊂ deep: every quick finding also appears in the full scan.
+    const deepRules = new Set(deep.findings.map((finding) => finding.rule))
+    for (const finding of quick.findings) expect(deepRules.has(finding.rule)).toBe(true)
+    // The demo space writes no charter, so the pulse has at least one finding.
+    expect(quick.findings.some((finding) => finding.rule === 'missing-charter')).toBe(true)
+  })
+
   // Regression guard: /mcp must be mounted by the REAL createApp composition
   // root, not just by the isolated mount tests. A prod deploy 404'd POST /mcp
   // because the mount wiring lived only in a docstring — this initialize check

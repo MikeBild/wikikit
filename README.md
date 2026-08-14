@@ -329,7 +329,8 @@ object` with a confidence, citations (verbatim quote + locator) and a
   moved and what is waiting, and a health report; delivery is the output plus a
   `wikikit.health.reported` webhook, because a single binary has no SMTP.
 - **LLM-free core:** full-text search, lint (contradictions, missing
-  citations, stale claims — CI-friendly), the composed health read,
+  citations, stale claims, stale changes, parked thoughts — CI-friendly, with
+  a quick pulse tier and a deep full-scan tier), the composed health read,
   export/import all work without any LLM configured.
 - **Any of three LLM providers:** Anthropic, OpenAI or Google — one config
   value (`WIKIKIT_LLM_PROVIDER`), no code change, via the Vercel AI SDK.

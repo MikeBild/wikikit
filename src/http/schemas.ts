@@ -1010,6 +1010,13 @@ const zLintFinding = z.object({
     'dangling-sources',
     'tombstoned-sources',
     'broken-cross-space-links',
+    // The quick-tier maturity rules (0.39.0): the absent steering document, the
+    // pending changes a fortnight old beside the unreviewed-proposals census,
+    // and the parked thoughts a month old — the pressure valve capture needs
+    // because nothing else ever pushes back on the inbox.
+    'missing-charter',
+    'stale-proposals',
+    'stale-captures',
   ]),
   severity: z.enum(['error', 'warn', 'info']),
   message: z.string(),
@@ -1020,6 +1027,14 @@ const zLintFinding = z.object({
 
 /** The severity census — a count per level, never a verdict. */
 const zLintCounts = z.object({ error: z.number().int(), warn: z.number().int(), info: z.number().int() })
+
+/**
+ * `tier` picks the lint rhythm: 'quick' runs only the queue-and-inbox pulse
+ * rules (RULE_TIERS in src/domain/lint.ts), 'deep' — the default, and a strict
+ * superset — runs everything. The counts are a census of the rules that RAN,
+ * so a quick report saying zero is not a deep report saying zero.
+ */
+export const zLintQuery = z.object({ tier: z.enum(['quick', 'deep']).default('deep') })
 
 export const zLintResponse = z.object({
   findings: z.array(zLintFinding),
@@ -1541,6 +1556,8 @@ export const zSpaceHealthQuery = z.object({
   from: z.iso.datetime().optional(),
   to: z.iso.datetime().optional(),
   top: z.coerce.number().int().min(1).max(25).default(5),
+  /** The lint rhythm the embedded report runs at — see zLintQuery. Default deep. */
+  tier: z.enum(['quick', 'deep']).optional(),
 })
 
 /**
@@ -1587,6 +1604,14 @@ export const zSpaceHealthResponse = z.strictObject({
     running: z.number().int().nonnegative(),
     quota_blocked: z.number().int().nonnegative(),
     oldest_queued_hours: z.number().nullable(),
+    /**
+     * Parked thoughts, beside `depth` like `quota_blocked`: a captured row is
+     * not work in flight. `oldest_captured_days` is null iff `captured` is 0 —
+     * and in DAYS, because the wait that matters is the thirty-day one the
+     * stale-captures rule warns about.
+     */
+    captured: z.number().int().nonnegative(),
+    oldest_captured_days: z.number().int().nullable(),
   }),
 })
 
@@ -1699,6 +1724,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zRequestChangesRequest,
   zRequestChangesResponse,
   zProposalLintResponse,
+  zLintQuery,
   zLintResponse,
   zSpaceHealthQuery,
   zSpaceHealthResponse,

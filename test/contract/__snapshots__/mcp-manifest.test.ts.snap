@@ -401,13 +401,21 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -615,6 +623,14 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
         "to": {
@@ -1692,13 +1708,21 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -2479,6 +2503,14 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
         "to": {
@@ -3072,13 +3104,21 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -4018,6 +4058,14 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
         "to": {
@@ -4517,13 +4565,21 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans. LLM-free and CI-consumable.",
+    "description": "Knowledge-base health findings: contradictions, missing citations, broken relations, stale claims, orphans, stale changes and parked thoughts. LLM-free and CI-consumable. tier:'quick' runs only the queue/inbox/charter pulse rules; the default 'deep' runs everything.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "'quick' runs only the queue/inbox/charter pulse rules; 'deep' (default) runs every rule",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
       },
@@ -5463,6 +5519,14 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "tier": {
+          "description": "Lint rhythm for the embedded report: 'quick' pulse rules only, 'deep' (default) everything",
+          "enum": [
+            "quick",
+            "deep",
+          ],
           "type": "string",
         },
         "to": {

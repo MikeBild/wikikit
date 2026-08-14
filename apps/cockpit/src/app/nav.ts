@@ -174,8 +174,10 @@ export const NAV: readonly NavEntry[] = [
     group: 'wiki',
     // `knowledge:read` reveals it, and the schedule controls inside are admin.
     // Same reading as the changes queue: seeing what the wiki needs is not the
-    // same right as deciding when a report runs.
-    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules'],
+    // same right as deciding when a report runs. The outputs list feeds the
+    // kept-reports history (kind='health'); reading one whole report happens on
+    // the Answers page, which declares the by-id path.
+    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules', '/v1/spaces/{space}/outputs'],
   },
   {
     to: '/sources',
