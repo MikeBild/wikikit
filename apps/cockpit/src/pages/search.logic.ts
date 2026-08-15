@@ -9,6 +9,7 @@
  * a test loads it, which is the pressure that keeps these rules provable.
  */
 import { pageEvidence, type EvidenceCounts, type NotMeasured, type PageEvidence } from '@/pages/page.logic'
+import type { FilterSpec } from '@/lib/url-filters'
 
 /**
  * How many hits this console asks for PER TIER.
@@ -46,6 +47,146 @@ export const RESULT_LIMIT = 25
 export function resultCeilingNote(loaded: number, unit: 'hits' | 'excerpts'): string | null {
   if (loaded < RESULT_LIMIT) return null
   return `Only the ${RESULT_LIMIT} highest-ranked ${unit} are shown and there may be more — the list does not go further, so narrower words are what reach them.`
+}
+
+/* --------------------------------------------- narrowing the archived tier */
+
+/**
+ * The two filters that narrow archived sources — and NOTHING else on the page.
+ *
+ * `zSearchQuery` takes them as `evidence_from`/`evidence_to` and
+ * `evidence_source_kind`, and the server applies them to the source-evidence
+ * arm alone: an approved hit is dated by the review that published it and typed
+ * `concept|claim`, so neither an arrival window nor a document kind is a
+ * question it can answer. That is why they are addressed `evidence_*` here too
+ * — a reader who shares the URL is sharing a claim about one half of the page.
+ *
+ * Closed alphabets, like every other filter this console offers: the age is
+ * three windows the console converts to an instant, the kind is the alphabet a
+ * client may declare on ingest. Anything else in the address falls back to
+ * "do not narrow", which is what an unset filter already means.
+ */
+export const EVIDENCE_FILTERS: readonly FilterSpec[] = [
+  { key: 'evidence_age', values: ['7d', '30d', '90d'], fallback: 'any' },
+  { key: 'evidence_kind', values: ['meeting', 'article', 'note'], fallback: 'any' },
+]
+
+/** The age windows in the order the control offers them; `any` is the neutral head. */
+export const EVIDENCE_AGE_WINDOWS = ['any', '7d', '30d', '90d'] as const
+
+/** The kinds in the order the control offers them; `any` is the neutral head. */
+export const EVIDENCE_KIND_VALUES = ['any', 'meeting', 'article', 'note'] as const
+
+export const EVIDENCE_AGE_LABEL: Readonly<Record<string, string>> = {
+  any: 'Any time',
+  '7d': 'Archived in the last 7 days',
+  '30d': 'Archived in the last 30 days',
+  '90d': 'Archived in the last 90 days',
+}
+
+export const EVIDENCE_KIND_LABEL: Readonly<Record<string, string>> = {
+  any: 'Any kind',
+  meeting: 'Meetings',
+  article: 'Articles',
+  note: 'Written notes',
+}
+
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * Day counts for the age alphabet; anything else is "do not narrow".
+ *
+ * Not the pages index's `CHANGE_WINDOWS`, though the numbers match today: that
+ * one is a window over when a PAGE last changed, this one over when a SOURCE
+ * arrived, and folding them together would make a future change to either one
+ * silently move the other.
+ */
+const EVIDENCE_AGE_DAYS: Readonly<Record<string, number>> = { '7d': 7, '30d': 30, '90d': 90 }
+
+/**
+ * What the two filters add to the search request.
+ *
+ * Empty in `approved_only`, and that is the whole reason this takes the mode:
+ * with no archived tier in the answer there is nothing for these to narrow, so
+ * sending them would put a condition in the address that changes no result —
+ * a filter a reader could set, share and never see act.
+ *
+ * The age becomes an INSTANT here rather than a window on the wire, for the
+ * reason `pages.tsx` computes its cut-off from the shared clock: `7d` read at
+ * the server would move every time the request was repeated, and two searches
+ * a reader believes are the same search would answer differently. The caller
+ * passes `now` — reading the wall clock inside a render is what that rule
+ * exists to prevent.
+ *
+ * And the instant is floored to the HOUR, which is not cosmetic: this object
+ * becomes part of the react-query key, and a cut-off that moved once a second
+ * would make every second's render a different query — a search re-fetched
+ * sixty times a minute for a boundary nobody can perceive. An hour-aligned
+ * edge on a seven-day window is precision the filter never claimed.
+ *
+ * `evidence_to` is deliberately never sent. The control offers "archived
+ * within the last N days", which has no upper edge; the parameter exists on the
+ * wire for callers with a closed window and this console has no control that
+ * would fill it honestly.
+ */
+export function evidenceQuery(
+  mode: 'approved_only' | 'approved_then_sources',
+  age: string,
+  sourceKind: string,
+  now: number,
+): { evidence_from?: string; evidence_source_kind?: string } {
+  if (mode !== 'approved_then_sources') return {}
+  const days = EVIDENCE_AGE_DAYS[age]
+  const since = Math.floor((now - (days ?? 0) * DAY_MS) / HOUR_MS) * HOUR_MS
+  return {
+    ...(days === undefined ? {} : { evidence_from: new Date(since).toISOString() }),
+    ...(sourceKind === 'any' || !EVIDENCE_KIND_LABEL[sourceKind] ? {} : { evidence_source_kind: sourceKind }),
+  }
+}
+
+/**
+ * The filters currently narrowing the archive, in the operator's words.
+ *
+ * An empty result under a filter reads as "this wiki holds nothing on the
+ * subject" unless the page says what it was narrowed by — and on THIS page the
+ * mistaken reading is expensive, because the reader's next move is to conclude
+ * the archive is silent and go ask a person instead.
+ */
+export function activeEvidenceFilters(
+  mode: 'approved_only' | 'approved_then_sources',
+  age: string,
+  sourceKind: string,
+): string[] {
+  if (mode !== 'approved_then_sources') return []
+  return [
+    ...(EVIDENCE_AGE_DAYS[age] === undefined ? [] : [EVIDENCE_AGE_LABEL[age]!]),
+    ...(sourceKind === 'any' || !EVIDENCE_KIND_LABEL[sourceKind] ? [] : [EVIDENCE_KIND_LABEL[sourceKind]!]),
+  ]
+}
+
+/**
+ * Why nothing came back — and the rule is that a narrowed search never blames
+ * the words.
+ *
+ * Three worlds, and they are three different next moves: search elsewhere,
+ * widen the tier, or drop the filter. Saying "nothing contains those words"
+ * over a filtered archive would send a reader to rewrite a query that was
+ * never the problem.
+ */
+export function searchEmptyDescription(
+  mode: 'approved_only' | 'approved_then_sources',
+  age: string,
+  sourceKind: string,
+): string {
+  if (mode === 'approved_only') {
+    return 'No approved page or claim contains those words. The archived sources behind this wiki have not been searched.'
+  }
+  const active = activeEvidenceFilters(mode, age, sourceKind)
+  if (active.length === 0) return 'Neither the approved pages nor the archived sources contain those words.'
+  return `No approved page or claim contains those words, and the archived sources were narrowed to ${active
+    .map((label) => label.toLowerCase())
+    .join(' and ')} — widening that is what reaches the rest of the archive.`
 }
 
 /**

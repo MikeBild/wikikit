@@ -30,6 +30,27 @@ and this project adheres to
   `{sources, indexed, unindexed, index_days}`. It is reported whether or not a
   window is set, so the size of the decision is visible before it is made rather
   than after a sweep; `index_days` is null when sources stay indexed forever.
+- **The archived tier can be narrowed — and only that tier.**
+  `GET /v1/spaces/{space}/search`, `POST /v1/spaces/{space}/query` and
+  `wikikit_search` take `evidence_from`, `evidence_to` (ISO instants with
+  offset, half-open, over when a source was archived) and
+  `evidence_source_kind` (`meeting|article|note`). They narrow the
+  `source_evidence` hits; the approved arm is answered with the same statement
+  and the same values whether they are set or not, because the two tiers share
+  no clock — a page is dated by its review, a source by its arrival — and no
+  kind alphabet. A filter also does not switch the tier on: narrowing an arm
+  and asking for it are two different requests. Migration 0040 pushes the
+  predicates into both arms of the hybrid function BEFORE their candidate cut,
+  so a filtered search still returns a full page instead of one starved by
+  fusion over unfiltered candidates. In the console the two controls sit beside
+  the tier switch, appear only where they can act, and an empty result names
+  the filter instead of blaming the search words.
+  Two limits, stated rather than smoothed over: `source_kind` is present only
+  where the ingesting client declared one, so filtering by it drops every
+  source that never named itself — most connector-fed material among them —
+  and there is deliberately no `report` value. "Machine-fed versus hand-filed"
+  is a `stream_id` question and is noted as a follow-up rather than smuggled
+  into this alphabet.
 
 ## 0.40.0 - 2026-08-15
 

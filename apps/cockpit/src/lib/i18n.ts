@@ -552,6 +552,23 @@ export const DE_PHRASES = {
   'Also search archived sources': 'Auch archivierte Quellen durchsuchen',
   'What to search': 'Suchbereich',
   'Which tiers to search': 'Zu durchsuchende Ebenen',
+  // The two evidence-tier filters. Their labels say "archived", never
+  // "changed": the window is over when a source ARRIVED, and the German has to
+  // keep that apart from the pages index's "Geändert innerhalb".
+  'Archived within': 'Archiviert innerhalb',
+  'Kind of source': 'Art der Quelle',
+  'Archived in the last 7 days': 'In den letzten 7 Tagen archiviert',
+  'Archived in the last 30 days': 'In den letzten 30 Tagen archiviert',
+  'Archived in the last 90 days': 'In den letzten 90 Tagen archiviert',
+  'Any kind': 'Beliebige Art',
+  Meetings: 'Besprechungen',
+  Articles: 'Artikel',
+  // Not "Notes": that phrase is already this catalog's "Hinweise" elsewhere,
+  // and one English string cannot mean two German things.
+  'Written notes': 'Notizen',
+  'Search the whole archive': 'Gesamtes Archiv durchsuchen',
+  'Only sources whose sender declared a kind can match; sources that declared none are left out.':
+    'Nur Quellen mit angegebener Art können passen; Quellen ohne Angabe bleiben außen vor.',
   'Ask instead of searching': 'Frage beantworten lassen',
   'Answer this question': 'Diese Frage beantworten',
   'A word or a phrase': 'Ein Wort oder eine Wortgruppe',

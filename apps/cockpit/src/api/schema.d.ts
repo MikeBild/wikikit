@@ -2053,6 +2053,12 @@ export interface components {
             top_k: number;
             /** @enum {string} */
             mode?: "approved_only" | "approved_then_sources";
+            /** Format: date-time */
+            evidence_from?: string;
+            /** Format: date-time */
+            evidence_to?: string;
+            /** @enum {string} */
+            evidence_source_kind?: "meeting" | "article" | "note";
         };
         zQueryResponse: {
             answer_markdown: string;
@@ -5542,6 +5548,9 @@ export interface operations {
                 limit?: number;
                 mode?: "approved_only" | "approved_then_sources";
                 include_imports?: boolean;
+                evidence_from?: string;
+                evidence_to?: string;
+                evidence_source_kind?: "meeting" | "article" | "note";
             };
             header?: never;
             path: {

@@ -1715,12 +1715,18 @@ export const HANDLERS: Record<string, Handler> = {
 
   async searchHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
+    // Spelled out field for field, and every field of zSearchQuery must be
+    // here: the cast is what the search functions receive, so a field this
+    // block forgets is dropped without a type error and without a 400.
     const query = input.query as {
       q: string
       kind?: 'concept' | 'claim'
       limit?: number
       mode?: 'approved_only' | 'approved_then_sources'
       include_imports?: boolean
+      evidence_from?: string
+      evidence_to?: string
+      evidence_source_kind?: 'meeting' | 'article' | 'note'
     }
     if (query.include_imports && input.principal!.spaceId) {
       throw new ForbiddenError('this key is scoped to a single space and cannot search imported spaces')
@@ -1739,7 +1745,15 @@ export const HANDLERS: Record<string, Handler> = {
 
   async queryHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
-    const body = input.body as { question: string; top_k?: number; mode?: 'approved_only' | 'approved_then_sources' }
+    // Field for field, like the search query above and for the same reason.
+    const body = input.body as {
+      question: string
+      top_k?: number
+      mode?: 'approved_only' | 'approved_then_sources'
+      evidence_from?: string
+      evidence_to?: string
+      evidence_source_kind?: 'meeting' | 'article' | 'note'
+    }
     const answer = await answerQuestion(deps.db, space.id, deps.llm, body, {
       vector: deps.vector,
       scaffoldingKinds: deps.config.scaffoldingKinds,

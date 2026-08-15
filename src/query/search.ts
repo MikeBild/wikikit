@@ -42,6 +42,16 @@ const zSearchArgs = z.object({
   // enforce identical caps.
   limit: z.number().int().min(1).max(50).default(20),
   mode: z.enum(['approved_only', 'approved_then_sources']).default('approved_only'),
+  // Evidence-tier filters, and the `evidence_` prefix is the contract: they
+  // narrow the archived source chunks and NOTHING else. Approved retrieval is
+  // dated by review and typed by concept|claim, so neither an arrival window
+  // nor a transport kind has a meaning there. Half-open [from, to).
+  evidence_from: z.iso.datetime({ offset: true }).optional(),
+  evidence_to: z.iso.datetime({ offset: true }).optional(),
+  // The alphabet a client may declare on ingest (ingest/acquire.ts). Absent on
+  // every source that never declared one, which is most connector-fed material
+  // — so this filter excludes rather than classifies.
+  evidence_source_kind: z.enum(['meeting', 'article', 'note']).optional(),
 })
 
 export type SearchArgs = z.input<typeof zSearchArgs>
@@ -281,10 +291,20 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
 
   // Source-evidence tier: only when the caller opts in, and only for
   // unfiltered searches — a kind filter names the approved shapes explicitly.
+  // The evidence filters deliberately do NOT reach this gate: narrowing a tier
+  // is not the same act as switching it on, and a request that filtered an
+  // arm it never asked for would be answering a question nobody put.
   if (input.mode === 'approved_then_sources' && !input.kind) {
+    const evidenceFilters = [input.evidence_from ?? null, input.evidence_to ?? null, input.evidence_source_kind ?? null]
     const chunkRows = embedding
-      ? await db.call<SourceChunkRow>('wk_search_sources_hybrid', [spaceId, input.q, embedding, input.limit])
-      : await db.call<SourceChunkRow>('wk_search_sources', [spaceId, input.q, input.limit])
+      ? await db.call<SourceChunkRow>('wk_search_sources_hybrid', [
+          spaceId,
+          input.q,
+          embedding,
+          input.limit,
+          ...evidenceFilters,
+        ])
+      : await db.call<SourceChunkRow>('wk_search_sources', [spaceId, input.q, input.limit, ...evidenceFilters])
     for (const row of chunkRows) {
       hits.push({
         kind: 'source_chunk',

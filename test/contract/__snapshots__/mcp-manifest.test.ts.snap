@@ -181,6 +181,27 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "evidence_from": {
+          "description": "Narrows the ARCHIVED-SOURCE tier only: ignore evidence archived before this instant. Approved hits are unaffected, and this does not switch the tier on",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "evidence_source_kind": {
+          "description": "Narrows the archived-source tier only, to sources whose ingesting client DECLARED this kind. Sources that declared none are excluded, so this filter is an exclusion rather than a classification",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
+        "evidence_to": {
+          "description": "Narrows the archived-source tier only: ignore evidence archived at or after this instant",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
         "include_imports": {
           "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
           "type": "boolean",
@@ -1492,6 +1513,27 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "evidence_from": {
+          "description": "Narrows the ARCHIVED-SOURCE tier only: ignore evidence archived before this instant. Approved hits are unaffected, and this does not switch the tier on",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "evidence_source_kind": {
+          "description": "Narrows the archived-source tier only, to sources whose ingesting client DECLARED this kind. Sources that declared none are excluded, so this filter is an exclusion rather than a classification",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
+        "evidence_to": {
+          "description": "Narrows the archived-source tier only: ignore evidence archived at or after this instant",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
         "include_imports": {
           "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
           "type": "boolean",
@@ -2892,6 +2934,27 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "evidence_from": {
+          "description": "Narrows the ARCHIVED-SOURCE tier only: ignore evidence archived before this instant. Approved hits are unaffected, and this does not switch the tier on",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "evidence_source_kind": {
+          "description": "Narrows the archived-source tier only, to sources whose ingesting client DECLARED this kind. Sources that declared none are excluded, so this filter is an exclusion rather than a classification",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
+        "evidence_to": {
+          "description": "Narrows the archived-source tier only: ignore evidence archived at or after this instant",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
         "include_imports": {
           "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
           "type": "boolean",
@@ -4357,6 +4420,27 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "evidence_from": {
+          "description": "Narrows the ARCHIVED-SOURCE tier only: ignore evidence archived before this instant. Approved hits are unaffected, and this does not switch the tier on",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "evidence_source_kind": {
+          "description": "Narrows the archived-source tier only, to sources whose ingesting client DECLARED this kind. Sources that declared none are excluded, so this filter is an exclusion rather than a classification",
+          "enum": [
+            "meeting",
+            "article",
+            "note",
+          ],
+          "type": "string",
+        },
+        "evidence_to": {
+          "description": "Narrows the archived-source tier only: ignore evidence archived at or after this instant",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
         "include_imports": {
           "description": "Also search the spaces declared in this space’s settings.imports; every hit carries its origin space. Requires a key that can see all spaces (space-scoped keys get 403)",
           "type": "boolean",

@@ -10,6 +10,7 @@ import { Page } from '@/app/shell'
 import { SegmentedControl } from '@/components/controls'
 import { SectionHeading } from '@/components/context-help'
 import { DataState } from '@/components/data-state'
+import { useNow } from '@/hooks/use-now'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { EmptyState } from '@/components/empty-state'
 import { I18nText } from '@/components/i18n-text'
@@ -17,15 +18,29 @@ import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Spinner } from '@/components/ui/spinner'
 import { describeFailure } from '@/lib/failure'
+import { useI18n } from '@/lib/i18n-context'
 import { useSpace } from '@/lib/space'
 import { semanticLabel } from '@/lib/presentation'
 import type { FilterSpec } from '@/lib/url-filters'
 import { rendersAsDash, type EvidenceCounts, type NotMeasured } from '@/pages/page.logic'
-import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '@/pages/search.logic'
+import {
+  EVIDENCE_AGE_LABEL,
+  EVIDENCE_AGE_WINDOWS,
+  EVIDENCE_FILTERS,
+  EVIDENCE_KIND_LABEL,
+  EVIDENCE_KIND_VALUES,
+  RESULT_LIMIT,
+  activeEvidenceFilters,
+  evidenceQuery,
+  hitEvidence,
+  resultCeilingNote,
+  searchEmptyDescription,
+} from '@/pages/search.logic'
 
 /**
  * Search, in two tiers — and the tier is the whole point.
@@ -94,10 +109,15 @@ const MODE_OPTIONS: readonly { id: ModeChoice; label: string }[] = [
  * `mode` and `kind` are closed alphabets the server declares, so they go through
  * the URL-filter machinery; `approved_only` is the server's own default and is
  * therefore the neutral value that is never written to the address.
+ *
+ * The two evidence filters join them from `search.logic`, where what they mean
+ * and what they become on the wire is decided — they are listed here so all
+ * four share one decode of one address.
  */
 const FILTERS: readonly FilterSpec[] = [
   { key: 'kind', values: ['concept', 'claim'], fallback: 'all' },
   { key: 'mode', values: ['approved_then_sources'], fallback: 'approved_only' },
+  ...EVIDENCE_FILTERS,
 ]
 
 export function SearchPage() {
@@ -110,10 +130,26 @@ export function SearchPage() {
   const q = typeof search.q === 'string' ? search.q.trim().slice(0, MAX_QUERY) : ''
 
   const { filters, setFilters } = useUrlFilters('search', FILTERS)
+  const { text } = useI18n()
   const kind = (filters.kind ?? 'all') as KindChoice
   const mode = (filters.mode ?? 'approved_only') as ModeChoice
+  const evidenceAge = filters.evidence_age ?? 'any'
+  const evidenceKind = filters.evidence_kind ?? 'any'
+  // The shared clock, for the reason the pages index gives: `7d` becomes an
+  // instant here, and reading the wall clock during a render would move that
+  // instant on every repaint — two searches a reader believes are one search.
+  const now = useNow()
 
-  const params = useMemo(() => ({ q, limit: RESULT_LIMIT, mode, ...(kind === 'all' ? {} : { kind }) }), [q, mode, kind])
+  const params = useMemo(
+    () => ({
+      q,
+      limit: RESULT_LIMIT,
+      mode,
+      ...(kind === 'all' ? {} : { kind }),
+      ...evidenceQuery(mode, evidenceAge, evidenceKind, now),
+    }),
+    [q, mode, kind, evidenceAge, evidenceKind, now],
+  )
 
   const results = useQuery({
     queryKey: keys.search(space, params),
@@ -135,8 +171,22 @@ export function SearchPage() {
    * somebody presses the button and never otherwise.
    */
   const ask = useMutation({
-    mutationFn: (input: { question: string; mode: ModeChoice }) =>
-      wk.search.ask(space, { question: input.question, top_k: ANSWER_TOP_K, mode: input.mode }),
+    // The evidence filters ride along, because the answer sits UNDER the list
+    // they narrowed: an Ask panel leaning on excerpts the list beside it
+    // excluded would quote material the reader has been told is out of scope.
+    mutationFn: (input: {
+      question: string
+      mode: ModeChoice
+      evidence_from?: string
+      evidence_source_kind?: string
+    }) =>
+      wk.search.ask(space, {
+        question: input.question,
+        top_k: ANSWER_TOP_K,
+        mode: input.mode,
+        ...(input.evidence_from ? { evidence_from: input.evidence_from } : {}),
+        ...(input.evidence_source_kind ? { evidence_source_kind: input.evidence_source_kind } : {}),
+      }),
   })
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -197,7 +247,58 @@ export function SearchPage() {
               data-testid="search-mode"
               onChange={(next) => setFilters({ mode: next })}
             />
+            {/*
+              Hidden in `approved_only`, not disabled and not merely inert.
+              These two narrow the archived tier and nothing else, so with that
+              tier switched off they are an address a reader can set, share and
+              never see act — a control that answers nothing is worse than an
+              absent one. Switching the tier on brings them back carrying
+              whatever the address already said.
+            */}
+            {mode === 'approved_then_sources' ? (
+              <>
+                <Select value={evidenceAge} onValueChange={(next) => setFilters({ evidence_age: next })}>
+                  <SelectTrigger size="sm" aria-label={text('Archived within')} data-testid="search-evidence-age">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {EVIDENCE_AGE_WINDOWS.map((window) => (
+                        <SelectItem key={window} value={window} data-testid={`search-evidence-age-${window}`}>
+                          {text(EVIDENCE_AGE_LABEL[window] ?? window)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <Select value={evidenceKind} onValueChange={(next) => setFilters({ evidence_kind: next })}>
+                  <SelectTrigger size="sm" aria-label={text('Kind of source')} data-testid="search-evidence-kind">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {EVIDENCE_KIND_VALUES.map((value) => (
+                        <SelectItem key={value} value={value} data-testid={`search-evidence-kind-${value}`}>
+                          {text(EVIDENCE_KIND_LABEL[value] ?? value)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </>
+            ) : null}
           </div>
+          {/*
+            The honest limit, printed where the control is rather than in the
+            documentation: a source carries a kind only when the client that
+            ingested it declared one, so narrowing by kind drops every source
+            that never named itself — which is most machine-fed material.
+          */}
+          {mode === 'approved_then_sources' && evidenceKind !== 'any' ? (
+            <p className="text-muted-foreground text-xs" data-testid="search-evidence-kind-note">
+              Only sources whose sender declared a kind can match; sources that declared none are left out.
+            </p>
+          ) : null}
         </form>
 
         {q === '' ? (
@@ -221,11 +322,10 @@ export function SearchPage() {
                 icon={SearchX}
                 data-testid="search-empty"
                 title={`Nothing matches “${q}”`}
-                description={
-                  mode === 'approved_only'
-                    ? 'No approved page or claim contains those words. The archived sources behind this wiki have not been searched.'
-                    : 'Neither the approved pages nor the archived sources contain those words.'
-                }
+                // Three worlds, three next moves — and a narrowed archive is
+                // never described as words that failed to match. `search.logic`
+                // owns which sentence this is.
+                description={searchEmptyDescription(mode, evidenceAge, evidenceKind)}
                 action={
                   mode === 'approved_only' ? (
                     <Button
@@ -235,6 +335,15 @@ export function SearchPage() {
                       onClick={() => setFilters({ mode: 'approved_then_sources' })}
                     >
                       Also search archived sources
+                    </Button>
+                  ) : activeEvidenceFilters(mode, evidenceAge, evidenceKind).length > 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="search-clear-evidence-filters"
+                      onClick={() => setFilters({ evidence_age: 'any', evidence_kind: 'any' })}
+                    >
+                      Search the whole archive
                     </Button>
                   ) : undefined
                 }
@@ -255,11 +364,25 @@ export function SearchPage() {
           // query retires the old answer without an effect and without a stale
           // paragraph sitting under a different question.
           answer={
-            ask.data !== undefined && ask.variables?.question === q && ask.variables.mode === mode
+            ask.data !== undefined &&
+            ask.variables?.question === q &&
+            ask.variables.mode === mode &&
+            // Same rule extended to the filters: an answer produced over a
+            // wider archive is not an answer to the narrowed page now on
+            // screen, so it retires the moment either filter moves.
+            ask.variables.evidence_from === params.evidence_from &&
+            ask.variables.evidence_source_kind === params.evidence_source_kind
               ? ask.data
               : undefined
           }
-          onAsk={() => ask.mutate({ question: q, mode })}
+          onAsk={() =>
+            ask.mutate({
+              question: q,
+              mode,
+              evidence_from: params.evidence_from,
+              evidence_source_kind: params.evidence_source_kind,
+            })
+          }
         />
       </div>
     </Page>

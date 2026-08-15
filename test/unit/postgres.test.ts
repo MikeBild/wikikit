@@ -208,11 +208,15 @@ describe('call() — whitelisted SQL functions', () => {
     expect(calls[0]!.values).toEqual(['space-1', 'okf', null, 20])
   })
 
-  test('wk_search_sources fills limit=20 default (never LIMIT NULL)', async () => {
+  test('wk_search_sources fills limit=20 and three NULL evidence filters', async () => {
     const { db, calls } = makeFixture()
     await db.call('wk_search_sources', ['space-1', 'rollout'])
-    expect(calls[0]!.sql).toBe('SELECT * FROM public.wk_search_sources($1, $2, $3)')
-    expect(calls[0]!.values).toEqual(['space-1', 'rollout', 20])
+    expect(calls[0]!.sql).toBe('SELECT * FROM public.wk_search_sources($1, $2, $3, $4, $5, $6)')
+    // NULL is the function's own default and reads as "do not narrow" — an
+    // unfiltered call must stay the unfiltered query it always was.
+    expect(calls[0]!.values).toEqual(['space-1', 'rollout', 20, null, null, null])
+    await db.call('wk_search_sources', ['space-1', 'rollout', 25, '2026-08-01T00:00:00Z', null, 'meeting'])
+    expect(calls[1]!.values).toEqual(['space-1', 'rollout', 25, '2026-08-01T00:00:00Z', null, 'meeting'])
     await expect(db.call('wk_search_sources', ['s'])).rejects.toThrow('wk_search_sources expects')
   })
 
@@ -222,8 +226,10 @@ describe('call() — whitelisted SQL functions', () => {
     expect(calls[0]!.sql).toBe('SELECT * FROM public.wk_search_hybrid($1, $2, $3, $4, $5)')
     expect(calls[0]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', null, 20])
     await db.call('wk_search_sources_hybrid', ['space-1', 'okf', '[0.1,0.2]', 5])
-    expect(calls[1]!.sql).toBe('SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4)')
-    expect(calls[1]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', 5])
+    expect(calls[1]!.sql).toBe('SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4, $5, $6, $7)')
+    expect(calls[1]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', 5, null, null, null])
+    await db.call('wk_search_sources_hybrid', ['space-1', 'okf', '[0.1,0.2]', 5, null, null, 'note'])
+    expect(calls[2]!.values).toEqual(['space-1', 'okf', '[0.1,0.2]', 5, null, null, 'note'])
     await expect(db.call('wk_search_hybrid', ['s', 'q'])).rejects.toThrow('wk_search_hybrid expects')
     await expect(db.call('wk_search_sources_hybrid', ['s', 'q'])).rejects.toThrow('wk_search_sources_hybrid expects')
   })

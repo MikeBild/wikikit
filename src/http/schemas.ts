@@ -95,6 +95,18 @@ export const zSearchQuery = z.object({
   // 0023: additionally search the spaces declared in settings.imports.
   // Space-scoped keys get a deterministic 403 (they see exactly one space).
   include_imports: z.coerce.boolean().optional(),
+  // Evidence-tier filters — they narrow the archived source chunks only, and
+  // approved retrieval is answered byte-identically with or without them. They
+  // do not switch the tier on: without mode=approved_then_sources there is no
+  // evidence arm for them to narrow, and they are silently inert.
+  // Half-open [evidence_from, evidence_to) over the source's ARCHIVE time.
+  evidence_from: z.iso.datetime({ offset: true }).optional(),
+  evidence_to: z.iso.datetime({ offset: true }).optional(),
+  // Present on a source only when the ingesting client declared it, so this
+  // filter excludes every source that never named a kind — most connector-fed
+  // material among them. There is deliberately no 'report' value; see
+  // CONTRACTS §4.2 for why "machine-fed vs hand-filed" is a different question.
+  evidence_source_kind: z.enum(['meeting', 'article', 'note']).optional(),
 })
 
 export const zProposalListQuery = z.object({
@@ -766,6 +778,12 @@ export const zQueryRequest = z.object({
   question: z.string().min(1).max(2000),
   top_k: z.number().int().min(1).max(50).default(8),
   mode: z.enum(['approved_only', 'approved_then_sources']).optional(),
+  // The same three evidence filters /search takes, and they are here so the
+  // Ask panel cannot answer over a wider archive than the list beside it: the
+  // retrieval half of an answer must see the evidence the reader can see.
+  evidence_from: z.iso.datetime({ offset: true }).optional(),
+  evidence_to: z.iso.datetime({ offset: true }).optional(),
+  evidence_source_kind: z.enum(['meeting', 'article', 'note']).optional(),
 })
 
 export const zQueryResponse = z.object({

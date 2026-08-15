@@ -169,6 +169,24 @@ export const zSearchToolInput = z.object({
       'Also search the spaces declared in this space\u2019s settings.imports; every hit carries its origin space. ' +
         'Requires a key that can see all spaces (space-scoped keys get 403)',
     ),
+  evidence_from: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe(
+      'Narrows the ARCHIVED-SOURCE tier only: ignore evidence archived before this instant. ' +
+        'Approved hits are unaffected, and this does not switch the tier on',
+    ),
+  evidence_to: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe('Narrows the archived-source tier only: ignore evidence archived at or after this instant'),
+  evidence_source_kind: z
+    .enum(['meeting', 'article', 'note'])
+    .optional()
+    .describe(
+      'Narrows the archived-source tier only, to sources whose ingesting client DECLARED this kind. ' +
+        'Sources that declared none are excluded, so this filter is an exclusion rather than a classification',
+    ),
 })
 
 export const zSpacesToolInput = z.object({})
@@ -469,7 +487,18 @@ export const TOOLS: McpToolDef[] = [
     async execute(deps, principal, input) {
       const args = zSearchToolInput.parse(input)
       const space = await resolveSpace(deps.db, principal, args.space)
-      const searchArgs = { q: args.q, kind: args.kind, limit: args.limit, mode: args.mode }
+      // Field by field rather than a spread: `space` and `include_imports` are
+      // this transport's own arguments and SearchArgs has no home for them, so
+      // a new filter is only wired once it is named here.
+      const searchArgs = {
+        q: args.q,
+        kind: args.kind,
+        limit: args.limit,
+        mode: args.mode,
+        evidence_from: args.evidence_from,
+        evidence_to: args.evidence_to,
+        evidence_source_kind: args.evidence_source_kind,
+      }
       const searchDeps = { llm: deps.llm, vector: deps.vector, scaffoldingKinds: deps.config.scaffoldingKinds }
       if (args.include_imports) {
         if (principal.spaceId) {

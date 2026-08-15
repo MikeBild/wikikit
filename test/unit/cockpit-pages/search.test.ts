@@ -13,7 +13,16 @@
 // are allowed to make it, and what the answer means, are the rules below.
 import { describe, expect, test } from 'bun:test'
 import { pageEvidence, rendersAsDash } from '../../../apps/cockpit/src/pages/page.logic.ts'
-import { RESULT_LIMIT, hitEvidence, resultCeilingNote } from '../../../apps/cockpit/src/pages/search.logic.ts'
+import { decodeFilters, encodeFilters } from '../../../apps/cockpit/src/lib/url-filters.ts'
+import {
+  EVIDENCE_FILTERS,
+  RESULT_LIMIT,
+  activeEvidenceFilters,
+  evidenceQuery,
+  hitEvidence,
+  resultCeilingNote,
+  searchEmptyDescription,
+} from '../../../apps/cockpit/src/pages/search.logic.ts'
 import { zSearchQuery } from '../../../src/http/schemas.ts'
 
 describe('the ceiling note', () => {
@@ -297,5 +306,89 @@ describe('the limit the console asks for', () => {
     // gives and then printing the count as though it were complete.
     expect(() => zSearchQuery.parse({ q: 'anything', limit: 51 })).toThrow()
     expect(RESULT_LIMIT).toBeLessThanOrEqual(50)
+  })
+})
+
+// The two filters that narrow the archived tier — as an ADDRESS and as a
+// sentence.
+//
+// Both halves matter for the same reason. A narrowed search is a claim about
+// what this wiki holds, and the reader has to be able to hand that claim to
+// somebody (the address) and to tell a narrowed silence from a real one (the
+// sentence). Getting the second wrong is the expensive one: "nothing contains
+// those words" over an archive filtered to the last seven days sends a reader
+// to rewrite a query that was never the problem, or to conclude the archive is
+// empty and go ask a person.
+describe('narrowing the archived tier', () => {
+  const NOW = Date.parse('2026-08-14T12:34:56.000Z')
+
+  test('is an address, and the neutral value is never written to it', () => {
+    const written = encodeFilters('search', EVIDENCE_FILTERS, { evidence_age: '30d', evidence_kind: 'any' })
+    expect(written['search.evidence_age']).toBe('30d')
+    // `any` means "do not narrow", which is what an unset parameter already
+    // says — a default view keeps a clean URL.
+    expect(written['search.evidence_kind']).toBeUndefined()
+  })
+
+  test('round-trips through the URL it wrote', () => {
+    const values = { evidence_age: '7d', evidence_kind: 'meeting' }
+    const address = encodeFilters('search', EVIDENCE_FILTERS, values)
+    expect(decodeFilters('search', EVIDENCE_FILTERS, address)).toEqual(values)
+  })
+
+  test('falls back rather than forwarding a value the server never declared', () => {
+    // A link that outlived a release, or a hand-edited address. The unfiltered
+    // list is the honest reading of it — and the request stays one the server
+    // can answer.
+    const decoded = decodeFilters('search', EVIDENCE_FILTERS, {
+      'search.evidence_age': '5y',
+      'search.evidence_kind': 'report',
+    })
+    expect(decoded).toEqual({ evidence_age: 'any', evidence_kind: 'any' })
+    expect(evidenceQuery('approved_then_sources', '5y', 'report', NOW)).toEqual({})
+  })
+
+  test('sends an instant rather than a window, floored to the hour', () => {
+    const query = evidenceQuery('approved_then_sources', '7d', 'note', NOW)
+    expect(query.evidence_source_kind).toBe('note')
+    // Seven days back from 12:00, not from 12:34:56: the cut-off is part of the
+    // query key, and one that moved every second would re-fetch the same search
+    // sixty times a minute.
+    expect(query.evidence_from).toBe('2026-08-07T12:00:00.000Z')
+    expect(zSearchQuery.parse({ q: 'anything', ...query }).evidence_from).toBe(query.evidence_from)
+  })
+
+  test('has no closed upper edge to send — the control never offers one', () => {
+    // `evidence_to` exists on the wire for callers with a bounded window. This
+    // console offers "within the last N days", which has no far end, so it must
+    // not invent one.
+    expect(Object.keys(evidenceQuery('approved_then_sources', '30d', 'any', NOW))).toEqual(['evidence_from'])
+  })
+
+  test('sends nothing in approved_only, where there is no archive to narrow', () => {
+    // The controls are hidden there. This is the same decision at the request:
+    // a parameter that changes no result is a filter a reader could set, share
+    // and never see act.
+    expect(evidenceQuery('approved_only', '7d', 'meeting', NOW)).toEqual({})
+    expect(activeEvidenceFilters('approved_only', '7d', 'meeting')).toEqual([])
+  })
+
+  test('names the filter instead of blaming the words', () => {
+    const narrowed = searchEmptyDescription('approved_then_sources', '7d', 'meeting')
+    for (const label of activeEvidenceFilters('approved_then_sources', '7d', 'meeting')) {
+      expect(narrowed.toLowerCase()).toContain(label.toLowerCase())
+    }
+    // The sentence that must NOT appear over a narrowed archive.
+    expect(narrowed).not.toContain('Neither the approved pages nor the archived sources contain those words.')
+  })
+
+  test('keeps the three empty states three different sentences', () => {
+    const unsearched = searchEmptyDescription('approved_only', 'any', 'any')
+    const wide = searchEmptyDescription('approved_then_sources', 'any', 'any')
+    const narrowed = searchEmptyDescription('approved_then_sources', '90d', 'any')
+    // Three worlds, three next moves: search elsewhere, widen the tier, drop
+    // the filter. Collapsing any two of them loses a way out.
+    expect(new Set([unsearched, wide, narrowed]).size).toBe(3)
+    expect(unsearched).toContain('have not been searched')
   })
 })

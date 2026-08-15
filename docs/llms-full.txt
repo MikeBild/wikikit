@@ -119,8 +119,8 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/deleted-concepts`         | knowledge:read    | List deleted concept tombstones for audit and restoration |
 | DELETE | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:propose | Stage page deletion for human review; history retained |
 | POST   | `/v1/spaces/{space}/concepts/{slug}/restore`  | knowledge:propose | Stage restoration of the last visible revision for review |
-| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list |
-| POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key). The answer is kept as an output; the response additively carries `output_id` (null only if the row could not be written) |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list. `?mode=approved_then_sources` appends the archived-source tier, and `?evidence_from=`/`?evidence_to=` (ISO instants, half-open) plus `?evidence_source_kind=meeting\|article\|note` narrow THAT tier only — approved hits are answered identically with the filters set |
+| POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key). Takes the same `evidence_*` filters as search, so an answer never leans on archived sources the list beside it excluded. The answer is kept as an output; the response additively carries `output_id` (null only if the row could not be written) |
 | GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read    | What this wiki produced, newest-first: answers, scheduled briefings, health reports (`?kind=answer\|briefing\|health`, `?limit=`, `?cursor=`); rows carry the full markdown |
 | GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
 | POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | File an output back into the wiki: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Idempotent — a second promote returns the first job |
@@ -276,6 +276,21 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
   installation.
   Nothing else is needed to interpret an absence — the meaning is fixed by the
   contract — but it answers WHY a particular row has none.
+- **Narrowing the archived tier:** with `mode=approved_then_sources`, three
+  optional parameters narrow the `source_evidence` hits and nothing else:
+  `evidence_from`/`evidence_to` (ISO instants with offset, half-open, over when
+  a source was ARCHIVED) and `evidence_source_kind` (`meeting|article|note`).
+  Approved hits are answered identically with them set — the two tiers share no
+  clock (a page is dated by its review, a source by its arrival) and no kind
+  alphabet, and a curated page does not become untrue because it is old. The
+  filters do not switch the tier on: without the mode they are inert. Two
+  limits worth knowing before relying on them: a source carries `source_kind`
+  only where the ingesting client declared one, so `evidence_source_kind=note`
+  drops every source that never named itself — most connector-fed material
+  among them, which makes this an exclusion rather than a classification; and
+  there is no `report` value, so "machine-fed, not hand-filed" is not
+  expressible here at all. `POST .../query` takes the same three, so a grounded
+  answer never leans on archive a narrowed search excluded.
 - **Async ingest:** `POST .../ingest` answers `202` with
   `{ingest_id, status:"queued"}` and `Location: /v1/ingests/{id}`; poll until
   `done` (carries `source_id`; `proposal_id` is nullable when no affected or new
@@ -669,7 +684,7 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_spaces` | knowledge:read | Discover spaces visible to the current key | true | false | true | false |
 | `wikikit_briefing` | knowledge:read | Compact budgeted orientation for an ordered set of spaces | true | false | true | false |
 | `wikikit_context` | knowledge:read | Select relevant spaces from the current task, or honor an explicit manual space list | true | false | true | false |
-| `wikikit_search` | knowledge:read | Ranked FTS hits (raw evidence, no synthesis) | true | false | true | false |
+| `wikikit_search` | knowledge:read | Ranked FTS hits (raw evidence, no synthesis); `mode`, `include_imports` and the three `evidence_*` filters mirror the REST query | true | false | true | false |
 | `wikikit_read` | knowledge:read | Full concept: markdown + claims + citations + relations + rev | true | false | true | false |
 | `wikikit_sources` | knowledge:read | Provenance chain down to original sources (by concept slug or source_id) | true | false | true | false |
 | `wikikit_decisions` | knowledge:read | Decision log: one decision by slug, or list all active/superseded | true | false | true | false |

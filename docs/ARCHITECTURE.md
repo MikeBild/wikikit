@@ -292,12 +292,22 @@ functions are declared more than once (run the grep for the current answer):
 | `wk_apply_proposal(uuid,text,text,text)`      | 0010, 0027              | **0027**  |
 | `wk_reject_proposal(uuid,text,text,text)`     | 0010, 0027              | **0027**  |
 | `wk_split_proposal(uuid,text,text[],text)`    | 0020, 0027              | **0027**  |
+| `wk_search_sources(uuid,text,int,…)`          | 0017, 0040              | **0040**  |
+| `wk_search_sources_hybrid(uuid,text,text,…)`  | 0018, 0040              | **0040**  |
 
-Every one of these is a same-signature `create or replace`, so exactly one body
+All but the last two are same-signature `create or replace`, so exactly one body
 exists per function and the later file is authoritative. None of them created an
 accidental overload — that would be the dangerous case, because Postgres would
 keep _both_ bodies and resolve by argument type. When you add an argument you
 are creating a new function, not replacing one; 0010 is the worked example.
+
+The last two are that other case, handled deliberately: 0040 appends three
+defaulted filter parameters to the source-search functions, which is a new
+signature, so it **drops** the earlier one in the same file. Leaving it would
+not have been conservative — a call with the old argument count matches both
+candidates, and Postgres answers `function is not unique` rather than picking
+the older body. With one function left, its defaults answer the old call
+exactly as before.
 
 Three traps this directory already contains:
 

@@ -145,8 +145,11 @@ describe('search', () => {
     // concept hit sits between the two tier queries, and pinning positions
     // would make every future statement look like a contract change.
     const sources = calls.find((call) => call.sql.includes('wk_search_sources'))!
-    expect(sources.sql).toContain('FROM public.wk_search_sources($1, $2, $3)')
-    expect(sources.values).toEqual([SPACE, 'okf', 7])
+    expect(sources.sql).toContain('FROM public.wk_search_sources($1, $2, $3, $4, $5, $6)')
+    // The three evidence filters ride as trailing NULLs on every unfiltered
+    // search — the SQL default, and the reason an unfiltered call still
+    // produces the unfiltered plan.
+    expect(sources.values).toEqual([SPACE, 'okf', 7, null, null, null])
     expect(hits.map((hit) => hit.tier)).toEqual(['approved', 'source_evidence'])
     expect(hits[1]).toEqual({
       kind: 'source_chunk',
@@ -172,6 +175,78 @@ describe('search', () => {
       { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
     )
     expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
+  })
+
+  // The evidence filters, and the contract is as much about what they DO NOT
+  // touch as about what they narrow. Approved retrieval has no arrival clock
+  // and no transport kind, so a filtered search must reach wk_search with the
+  // same statement and the same values a bare search does — anything else
+  // would mean the two tiers had quietly been given one clock.
+  test('the evidence filters travel as positional args on the source call only', async () => {
+    const { db, calls } = fakeDb([
+      { match: 'wk_search($1', rows: [CONCEPT_ROW] },
+      { match: 'wk_search_sources($1', rows: [CHUNK_ROW] },
+    ])
+    await search(
+      db,
+      SPACE,
+      {
+        q: 'okf',
+        mode: 'approved_then_sources',
+        limit: 7,
+        evidence_from: '2026-08-01T00:00:00Z',
+        evidence_to: '2026-08-08T00:00:00+02:00',
+        evidence_source_kind: 'meeting',
+      },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
+    const sources = calls.find((call) => call.sql.includes('wk_search_sources'))!
+    expect(sources.values).toEqual([SPACE, 'okf', 7, '2026-08-01T00:00:00Z', '2026-08-08T00:00:00+02:00', 'meeting'])
+  })
+
+  test('the approved arm is byte-identical with and without the filters', async () => {
+    const approvedCall = async (args: Parameters<typeof search>[2]) => {
+      const { db, calls } = fakeDb([
+        { match: 'wk_search($1', rows: [CONCEPT_ROW] },
+        { match: 'wk_search_sources($1', rows: [CHUNK_ROW] },
+      ])
+      await search(db, SPACE, args, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
+      return calls.find((call) => call.sql.includes('FROM public.wk_search('))!
+    }
+    const plain = await approvedCall({ q: 'okf', mode: 'approved_then_sources', limit: 7 })
+    const filtered = await approvedCall({
+      q: 'okf',
+      mode: 'approved_then_sources',
+      limit: 7,
+      evidence_from: '2026-08-01T00:00:00Z',
+      evidence_source_kind: 'note',
+    })
+    // Statement AND values: a filter reaching the approved arm would show up
+    // as a widened statement or as an extra positional argument, and both are
+    // the same defect.
+    expect(filtered.sql).toBe(plain.sql)
+    expect(filtered.values).toEqual(plain.values)
+  })
+
+  test('a filter never switches the evidence tier on — approved_only stays one statement', async () => {
+    const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [CONCEPT_ROW] }])
+    await search(
+      db,
+      SPACE,
+      { q: 'okf', mode: 'approved_only', evidence_from: '2026-08-01T00:00:00Z', evidence_source_kind: 'note' },
+      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
+    )
+    // Narrowing a tier and switching it on are two different acts. A filter
+    // that implied the mode would answer a question the caller never put.
+    expect(calls.some((call) => call.sql.includes('wk_search_sources'))).toBe(false)
+  })
+
+  test('a malformed evidence instant is refused at the boundary, before any SQL', async () => {
+    const { db, calls } = fakeDb([{ match: 'wk_search($1', rows: [] }])
+    await expect(
+      search(db, SPACE, { q: 'okf', evidence_from: 'last tuesday' }, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS }),
+    ).rejects.toThrow()
+    expect(calls.length).toBe(0)
   })
 
   test('a source-titleless chunk falls back to heading, then a placeholder title', async () => {
@@ -412,7 +487,9 @@ describe('search — hybrid dispatch', () => {
     expect(calls[0]!.sql).toContain('FROM public.wk_search_hybrid($1, $2, $3, $4, $5)')
     expect(calls[0]!.values[2]).toBe('[0.25,0.5]')
     // By statement rather than by index, for the same reason as above.
-    expect(calls.some((call) => call.sql.includes('FROM public.wk_search_sources_hybrid($1, $2, $3, $4)'))).toBe(true)
+    expect(
+      calls.some((call) => call.sql.includes('FROM public.wk_search_sources_hybrid($1, $2, $3, $4, $5, $6, $7)')),
+    ).toBe(true)
     expect(hits.map((hit) => hit.matched_via)).toEqual(['both', 'vector'])
   })
 

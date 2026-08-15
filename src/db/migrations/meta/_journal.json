@@ -241,6 +241,12 @@
       "tag": "0039_wk_superseded_proposals",
       "when": 1785049200000,
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "tag": "0040_wk_search_sources_filters",
+      "when": 1785052800000,
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,11 @@ const zAnswerArgs = z.object({
   question: z.string().min(1).max(2000),
   top_k: z.number().int().min(1).max(50).default(8),
   mode: z.enum(['approved_only', 'approved_then_sources']).default('approved_only'),
+  // Forwarded to search untouched — see the retrieval call below for why an
+  // answer may not read a wider archive than a bare /search would.
+  evidence_from: z.iso.datetime({ offset: true }).optional(),
+  evidence_to: z.iso.datetime({ offset: true }).optional(),
+  evidence_source_kind: z.enum(['meeting', 'article', 'note']).optional(),
 })
 
 export type AnswerArgs = z.input<typeof zAnswerArgs>
@@ -87,10 +92,21 @@ export async function answerQuestion(
   // approved_then_sources mode the same call also returns the labeled
   // source-chunk tier (appended after all approved hits). Hybrid ranking
   // engages automatically when pgvector + an embedding provider are present.
+  // The evidence filters ride along for the same reason scaffoldingKinds does:
+  // an answer and the search shown beside it must read the same archive. A
+  // panel answering over sources the list next to it filtered away would be
+  // citing material the reader was told is out of scope.
   const hits = await search(
     db,
     spaceId,
-    { q: input.question, limit: input.top_k, mode: input.mode },
+    {
+      q: input.question,
+      limit: input.top_k,
+      mode: input.mode,
+      evidence_from: input.evidence_from,
+      evidence_to: input.evidence_to,
+      evidence_source_kind: input.evidence_source_kind,
+    },
     { llm, vector: deps.vector, scaffoldingKinds: deps.scaffoldingKinds },
   )
   const slugs = [...new Set(hits.flatMap((hit) => (hit.slug ? [hit.slug] : [])))]

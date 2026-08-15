@@ -60,6 +60,45 @@ describe('migrations (integration)', () => {
     expect(reviewChannel.rows[0]?.is_nullable).toBe('YES') // historical reviews stay unknown/null
   })
 
+  it('leaves exactly ONE source-search function per name, widened by defaults', async () => {
+    // 0040 appends three defaulted filter parameters, which is a new signature
+    // rather than a replacement — so it drops the earlier one in the same file.
+    // Leaving both would not be conservative: a call with the old argument
+    // count matches both candidates and Postgres answers 'function is not
+    // unique' rather than choosing the older body. One function, whose
+    // defaults answer the old three-argument call exactly as before.
+    await runMigrations({ databaseUrl: url })
+    const fns = await client.query<{ proname: string; pronargs: number; pronargdefaults: number }>(
+      `SELECT proname, pronargs, pronargdefaults
+         FROM pg_proc JOIN pg_namespace n ON n.oid = pronamespace
+        WHERE n.nspname = 'public'
+          AND proname IN ('wk_search_sources', 'wk_search_sources_hybrid')
+        ORDER BY proname`,
+    )
+    const lexical = fns.rows.filter((row) => row.proname === 'wk_search_sources')
+    expect(lexical.length).toBe(1)
+    expect(Number(lexical[0]!.pronargs)).toBe(6)
+    // limit + from + to + source_kind: every argument the pre-0040 caller did
+    // not pass still has a default, which is what keeps that call working.
+    expect(Number(lexical[0]!.pronargdefaults)).toBe(4)
+
+    // The hybrid twin exists only where pgvector does (0018's guard, repeated
+    // in 0040), so its absence is a valid schema rather than a failure.
+    const hybrid = fns.rows.filter((row) => row.proname === 'wk_search_sources_hybrid')
+    expect(hybrid.length).toBeLessThanOrEqual(1)
+    for (const row of hybrid) {
+      expect(Number(row.pronargs)).toBe(7)
+      expect(Number(row.pronargdefaults)).toBe(4)
+    }
+
+    // The old call shape still resolves — the compatibility claim, made
+    // against the database rather than asserted in a comment.
+    const legacy = await client.query(
+      `SELECT * FROM public.wk_search_sources('00000000-0000-4000-8000-000000000000'::uuid, 'anything', 5)`,
+    )
+    expect(legacy.rows).toEqual([])
+  })
+
   it('is idempotent — a second run skips everything', async () => {
     const report = await runMigrations({ databaseUrl: url })
     expect(report.applied).toEqual([])

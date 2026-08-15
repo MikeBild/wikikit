@@ -150,14 +150,17 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
     result: (response) => response.rows,
   },
   wk_search_sources_hybrid: {
-    sql: 'SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4)',
+    sql: 'SELECT * FROM public.wk_search_sources_hybrid($1, $2, $3, $4, $5, $6, $7)',
     normalize: (args) => {
-      if (args.length < 3 || args.length > 4) {
+      if (args.length < 3 || args.length > 7) {
         throw new Error(
-          `wk_search_sources_hybrid expects [space_id, query, embedding, limit?] — got ${args.length} args`,
+          `wk_search_sources_hybrid expects [space_id, query, embedding, limit?, from?, to?, source_kind?] — got ${args.length} args`,
         )
       }
-      return [args[0], args[1], args[2], args[3] ?? 20]
+      // The three evidence filters are absent far more often than they are
+      // set, and NULL is what the function reads as "do not narrow" — so an
+      // unfiltered call keeps producing the pre-filter plan.
+      return [args[0], args[1], args[2], args[3] ?? 20, args[4] ?? null, args[5] ?? null, args[6] ?? null]
     },
     result: (response) => response.rows,
   },
@@ -198,13 +201,17 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },
   wk_search_sources: {
-    sql: 'SELECT * FROM public.wk_search_sources($1, $2, $3)',
+    sql: 'SELECT * FROM public.wk_search_sources($1, $2, $3, $4, $5, $6)',
     normalize: (args) => {
-      if (args.length < 2 || args.length > 3) {
-        throw new Error(`wk_search_sources expects [space_id, query, limit?] — got ${args.length} args`)
+      if (args.length < 2 || args.length > 6) {
+        throw new Error(
+          `wk_search_sources expects [space_id, query, limit?, from?, to?, source_kind?] — got ${args.length} args`,
+        )
       }
       // Same LIMIT NULL guard as wk_search: mirror the SQL default here.
-      return [args[0], args[1], args[2] ?? 20]
+      // The evidence filters mirror theirs the same way — NULL is the SQL
+      // default and means "do not narrow", never "match nothing".
+      return [args[0], args[1], args[2] ?? 20, args[3] ?? null, args[4] ?? null, args[5] ?? null]
     },
     result: (response) => response.rows,
   },
