@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { buildAgentBriefing } from '../agent/briefing.ts'
 import { buildAgentContext } from '../agent/context.ts'
-import type { Config } from '../config.ts'
+import { DEFAULT_SOURCE_INDEX_DAYS, type Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import { recordConceptRead } from '../domain/coverage.ts'
 import { getConcept, getConceptHistory, toConceptResponse } from '../domain/concepts.ts'
@@ -1064,6 +1064,7 @@ export const TOOLS: McpToolDef[] = [
         {
           scaffoldingKinds: deps.config.scaffoldingKinds,
           gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,
+          sourceIndexDays: deps.config.sourceIndexDays ?? DEFAULT_SOURCE_INDEX_DAYS,
         },
       )
     },

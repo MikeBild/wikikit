@@ -40,6 +40,7 @@ instead of producing a half-configured server.
 | `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | Wall-clock ceiling for one ingest job; over it the run is aborted and fails with `error.code=timeout` (1 min–24 h) | `5400000`                                                          |
 | `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`            | Ingest jobs one space may have waiting before enqueue refuses with `429 ingest_queue_full` (1–100 000)             | `200`                                                              |
 | `WIKIKIT_OUTPUT_RETENTION_DAYS`                  | How long an unpromoted output (answer, briefing, health report) is kept; `0` keeps them forever (0–3650)           | `365`                                                              |
+| `WIKIKIT_SOURCE_INDEX_DAYS`                      | How long an archived source stays in the retrieval index; `0` keeps every source indexed forever (0–3650)          | `0` (indexed forever)                                              |
 | `WIKIKIT_SCHEDULER_ENABLED`                      | Run the in-process briefing/health worker (schedules stay armed either way)                                        | `true`                                                             |
 | `WIKIKIT_DEFAULT_BRIEFING`                       | Briefing a NEW wiki is armed with: `HH:MM`, `HH:MM <IANA zone>`, or `off` to seed nothing                          | `07:00` (UTC)                                                      |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | Outbox poll interval (ms)                                                                                          | `5000` (`.env.defaults`: `1000`)                                   |
@@ -300,6 +301,54 @@ as "delete everything" because the sweep refuses to compute a zero-day window.
 A **promoted** output is never collected at any setting: its markdown already
 lives on as an archived source, and the row is the link from that source back to
 the answer it came from.
+
+## The retrieval index window for sources (`WIKIKIT_SOURCE_INDEX_DAYS`)
+
+An installation whose ingest is automated archives evidence faster than anybody
+reads it — a connector filing a report every hour is a few hundred sources a
+week — and what grows with it is the retrieval index: chunk text plus its
+full-text vectors. This variable bounds that index, and nothing else.
+
+`0` is the default and it means **indexed forever**: the feature is off until
+you ask for it. That is the inverse of `WIKIKIT_OUTPUT_RETENTION_DAYS`, where an
+absent value means the shipped 365 days. The asymmetry is deliberate — an output
+is regenerable, while a source is evidence somebody archived on purpose, and a
+window that started running the day you upgraded would take material out of
+retrieval that nobody chose to lose.
+
+Set a number and an hourly sweep drops the chunks of sources older than it. What
+goes is the derived index; what stays is everything else:
+
+- **The archive is never touched.** `wk_sources` is verbatim and forever. The
+  source keeps its row, its raw bytes, its markdown, its version history and its
+  place in every supersedes chain; `GET /v1/spaces/{space}/sources/{id}` answers
+  exactly as before.
+- **It is reversible.** `persistSourceChunks` is idempotent and the backfill scan
+  worker re-chunks anything it finds unchunked, so widening the window again — or
+  setting it back to `0` — brings the index back.
+
+A source is **never** unindexed while any of these is true, however old it is:
+
+| Spared because…                                               | Why                                                                      |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| a claim cites it                                              | a reviewer follows the citation back to the chunk                        |
+| a **pending or approved** proposal names it in `source_ids`   | it is the evidence a human is about to weigh a staged change against     |
+| it is the head of a sync stream (`latest_source_id`)          | the head is a connector's current truth about a document, not history    |
+| an ingest job on it is `queued`, `running` or `quota_blocked` | that job is still going to chunk it                                      |
+| it is stamped `derived_from_output_id`                        | the overview's `pending_derived` and the self-derived lint rule count it |
+
+What you give up is stated once, in `docs/CONTRACTS.md` §1.15, where the
+`wk_search_sources` tier says "Everything archived is searchable here BY
+DESIGN". That sentence now reads: everything archived is searchable **for as
+long as it is indexed, and the operator sets that window**. Concretely, a source
+whose chunks are gone stops appearing in `mode=approved_then_sources` results and
+can no longer be cited by `chunk_id` — until it is re-indexed. Approved knowledge
+is untouched either way: the window bounds the evidence tier, and a curated page
+does not become less true because its source left the index.
+
+`GET /v1/spaces/{space}/health` reports the `archive` block —
+`{sources, indexed, unindexed, index_days}` — whether or not a window is set, so
+the size of the decision is visible before you make it.
 
 ## Scheduled maintenance (`WIKIKIT_SCHEDULER_ENABLED`)
 

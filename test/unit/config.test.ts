@@ -3,7 +3,7 @@
 // process.env by design (downstream libs read it), so isolation matters.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { loadConfig } from '../../src/config.ts'
+import { DEFAULT_SOURCE_INDEX_DAYS, loadConfig } from '../../src/config.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 
 // Deleted (and restored) per test. Isolation needs BOTH this list and
@@ -44,6 +44,7 @@ const MANAGED = [
   'WIKIKIT_USAGE_TELEMETRY_ENABLED',
   'WIKIKIT_USAGE_HMAC_SECRET',
   'WIKIKIT_USAGE_RETENTION_DAYS',
+  'WIKIKIT_SOURCE_INDEX_DAYS',
   'WIKIKIT_OAUTH_PROVIDERS',
   'WIKIKIT_OAUTH_ALLOWED_SCOPES',
   'WIKIKIT_OAUTH_OPERATOR_SESSION_ABSOLUTE_TTL_MS',
@@ -95,6 +96,19 @@ describe('zero-config dev defaults', () => {
 
   test('webhook private targets allowed by default in dev', () => {
     expect(loadConfig().webhookAllowPrivateTargets).toBe(true)
+  })
+
+  test('the source index window ships OFF: 0 = indexed forever, the inverse of output retention', () => {
+    // The one default in this file whose 0 does not mean "unset": an
+    // installation nobody configured keeps every archived source findable,
+    // while outputs expire after a year unless an operator says otherwise.
+    expect(loadConfig().sourceIndexDays).toBe(DEFAULT_SOURCE_INDEX_DAYS)
+    expect(DEFAULT_SOURCE_INDEX_DAYS).toBe(0)
+    expect(loadConfig().outputRetentionDays).toBe(365)
+    process.env.WIKIKIT_SOURCE_INDEX_DAYS = '90'
+    expect(loadConfig().sourceIndexDays).toBe(90)
+    process.env.WIKIKIT_SOURCE_INDEX_DAYS = '3651'
+    expect(() => loadConfig()).toThrow()
   })
 
   test('usage telemetry is opt-in with a bounded default retention', () => {

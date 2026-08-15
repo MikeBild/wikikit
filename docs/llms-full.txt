@@ -860,7 +860,11 @@ The composed read `GET /v1/spaces/{space}/health` (and `wikikit_health`) serves
 this whole report unchanged, plus the coverage block and the two live queues —
 changes waiting for a human with the age of the oldest, and ingest work still in
 flight, with the parked thoughts counted beside the queue (`captured`,
-`oldest_captured_days` — null when nothing is parked). It accepts the same
+`oldest_captured_days` — null when nothing is parked). Beside those queues it
+reports `archive` — `{sources, indexed, unindexed, index_days}`, the archive
+against the retrieval index, published whether or not a window is set so the
+size of the decision is visible before it is made; `index_days` is null when
+sources stay indexed forever. It accepts the same
 `tier` and is the same `lintSpace()` call, never a second count, so the two
 surfaces cannot disagree about one space. Scheduled health runs always pass
 tier deep: the persisted report is the full protocol.
@@ -930,6 +934,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_INGEST_MAX_RUNTIME_MS` | wall-clock ceiling per job; over it → failed with `timeout` | `5400000` |
 | `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` | waiting jobs (`queued` + `quota_blocked`) per space before enqueue answers 429 `ingest_queue_full` | `200` |
 | `WIKIKIT_OUTPUT_RETENTION_DAYS` | how long an UNPROMOTED output is kept (hourly sweep); `0` keeps forever, a promoted output is never collected | `365` |
+| `WIKIKIT_SOURCE_INDEX_DAYS` | how long an archived source stays in the retrieval index (hourly sweep drops `wk_source_chunks`, never `wk_sources`); a cited source, one named by a pending/approved proposal, a stream head, one with an unfinished ingest job or one derived from an output is never unindexed; re-indexing is possible at any time | `0` (indexed forever) |
 | `WIKIKIT_SCHEDULER_ENABLED` | run the in-process briefing/health worker; off leaves schedules saved and armed | `true` |
 | `WIKIKIT_DEFAULT_BRIEFING` | the briefing a newly created wiki is armed with — `HH:MM`, `HH:MM <IANA zone>`, or `off`; a malformed value refuses to boot | `07:00` (UTC) |
 | `WIKIKIT_WEBHOOK_POLL_MS` | outbox poll interval | `5000` (dev file: `1000`) |

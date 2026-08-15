@@ -121,6 +121,24 @@ export interface SpaceHealth {
     captured: number
     oldest_captured_days: number | null
   }
+  /**
+   * The archive against the retrieval index: how many sources this wiki keeps,
+   * how many of them search can still reach, and the window the index sweep
+   * runs under (`index_days`, null when sources are indexed forever — the
+   * default, WIKIKIT_SOURCE_INDEX_DAYS).
+   *
+   * Announced in advance, not after the fact. The block is reported whether or
+   * not a window is set and whether or not a sweep has ever run, so an operator
+   * sizes the decision — this much evidence, this much of it findable — before
+   * making it, instead of learning what a window does from an archive that has
+   * already left the index. `index_days` travels with the numbers for the same
+   * reason `window` travels with `coverage`: a reader must never have to assume
+   * which window the counts belong to.
+   *
+   * `sources` = `indexed` + `unindexed` by construction. The bytes are never at
+   * stake: an unindexed source is still archived verbatim and can be re-indexed.
+   */
+  archive: { sources: number; indexed: number; unindexed: number; index_days: number | null }
 }
 
 // zod at the boundary (house rule): REST query strings, an MCP tool's arguments
@@ -155,6 +173,13 @@ export type SpaceHealthArgs = z.input<typeof zSpaceHealthArgs>
  */
 export interface SpaceHealthDeps extends ScaffoldingOptions {
   readonly gapTopicsEnabled: boolean
+  /**
+   * The installation's source index window in days, 0 meaning "indexed forever"
+   * — reported as `archive.index_days`, and the caller's read of
+   * `config.sourceIndexDays` for the same reason `gapTopicsEnabled` is: the
+   * domain measures, the composition root knows what was configured.
+   */
+  readonly sourceIndexDays: number
 }
 
 /** Thirty days — the window a maintenance report describes when nobody says. */
@@ -246,10 +271,26 @@ export async function spaceHealth(
     )
   ).rows
 
+  // The archive census, one statement: every source, and the ones a chunk row
+  // still points at. EXISTS rather than a join on wk_source_chunks — a source
+  // has many chunks and this counts sources, not rows.
+  const [archive] = (
+    await db.query<{ sources: number; indexed: number }>(
+      `SELECT count(*)::int AS sources,
+              count(*) FILTER (
+                WHERE EXISTS (SELECT 1 FROM wk_source_chunks c WHERE c.source_id = s.id))::int AS indexed
+         FROM wk_sources s
+        WHERE s.space_id = $1`,
+      [spaceId],
+    )
+  ).rows
+
   const pending = review?.pending ?? 0
   const queued = ingest?.queued ?? 0
   const running = ingest?.running ?? 0
   const captured = ingest?.captured ?? 0
+  const sources = archive?.sources ?? 0
+  const indexed = archive?.indexed ?? 0
   return {
     window,
     lint,
@@ -274,6 +315,17 @@ export async function spaceHealth(
       oldest_queued_hours: queued ? (ingest?.oldest_queued_hours ?? null) : null,
       captured,
       oldest_captured_days: captured ? (ingest?.oldest_captured_days ?? null) : null,
+    },
+    archive: {
+      sources,
+      indexed,
+      // Subtracted, never counted a second time: two FILTERs over the same
+      // table could disagree under a concurrent write, and a census whose parts
+      // do not add up to its total is worse than a slightly stale one.
+      unindexed: sources - indexed,
+      // 0 is a window nobody set, and the block refuses to print it as one —
+      // the same rule the ages above follow.
+      index_days: deps.sourceIndexDays > 0 ? deps.sourceIndexDays : null,
     },
   }
 }

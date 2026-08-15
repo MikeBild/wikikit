@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.40.0",
+    "version": "0.41.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -5832,9 +5832,25 @@
               "oldest_captured_days"
             ],
             "additionalProperties": false
+          },
+          "archive": {
+            "type": "object",
+            "properties": {
+              "sources": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "indexed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "unindexed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "index_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": ["sources", "indexed", "unindexed", "index_days"],
+            "additionalProperties": false
           }
         },
-        "required": ["schema_version", "window", "lint", "coverage", "review_queue", "ingest_queue"],
+        "required": ["schema_version", "window", "lint", "coverage", "review_queue", "ingest_queue", "archive"],
         "additionalProperties": false
       },
       "zScheduleListResponse": {

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.41.0 - 2026-08-15
+
+### Added
+
+- **An index window for evidence, with the archive left intact.**
+  `WIKIKIT_SOURCE_INDEX_DAYS` (default `0` — indexed forever, so the feature is
+  off until an operator asks for it) drops the retrieval chunks of aged sources
+  on an hourly sweep. Machine-written reports arrive by the hundred each week
+  and every one of them stays searchable forever; the obvious fix — deleting old
+  sources — is the one thing this product promised never to do, and it would
+  have cost two foreign-key loosenings and the provenance they carry. So the
+  bytes stay: `wk_sources` is untouched, only `wk_source_chunks` goes, and
+  because `persistSourceChunks` is idempotent a source can be re-indexed at any
+  time. A source is spared while any claim cites it, while a pending or approved
+  proposal names it, while it is the head of a sync stream, while an ingest job
+  is queued or running or parked on a quota, and always if it was derived from
+  an output. The one sentence this amends: everything archived is searchable —
+  now for as long as it is indexed, and the operator sets that window.
+- **The health surface says how much of the archive search can still reach.**
+  `GET /v1/spaces/{space}/health` (and `wikikit_health`, and the scheduled health
+  report) gains an `archive` block beside `ingest_queue`:
+  `{sources, indexed, unindexed, index_days}`. It is reported whether or not a
+  window is set, so the size of the decision is visible before it is made rather
+  than after a sweep; `index_days` is null when sources stay indexed forever.
+
 ## 0.40.0 - 2026-08-15
 
 ### Added

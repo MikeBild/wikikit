@@ -1663,6 +1663,21 @@ export const zSpaceHealthResponse = z.strictObject({
     captured: z.number().int().nonnegative(),
     oldest_captured_days: z.number().int().nullable(),
   }),
+  /**
+   * The archive against the retrieval index — reported before any sweep runs,
+   * not after one: `sources` is everything archived, `indexed` the part search
+   * can still reach, and `index_days` the window the sweep uses
+   * (`WIKIKIT_SOURCE_INDEX_DAYS`), null when sources stay indexed forever. The
+   * window travels with the counts for the same reason `window` travels with
+   * `coverage`. `sources` = `indexed` + `unindexed`; unindexing never touches
+   * the archived bytes, and a source can be re-indexed.
+   */
+  archive: z.strictObject({
+    sources: z.number().int().nonnegative(),
+    indexed: z.number().int().nonnegative(),
+    unindexed: z.number().int().nonnegative(),
+    index_days: z.number().int().nullable(),
+  }),
 })
 
 /**

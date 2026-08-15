@@ -59,6 +59,7 @@ import {
   type SpaceHealthDeps,
 } from './domain/health.ts'
 import { isoString } from './domain/sources.ts'
+import { DEFAULT_SOURCE_INDEX_DAYS } from './config.ts'
 
 const DAY_MS = 86_400_000
 
@@ -499,8 +500,8 @@ export interface SchedulerDeps {
 
 /**
  * The slice of Config this worker reads. Named fields rather than the whole
- * Config so the dependency is visible: two of the three are not the scheduler's
- * own settings at all but installation facts spaceHealth requires, and passing
+ * Config so the dependency is visible: only the first is the scheduler's own
+ * setting, the rest are installation facts spaceHealth requires, and passing
  * them through here keeps this module from inventing its own defaults for them
  * (the reason `scaffoldingKinds` is required in Config in the first place).
  */
@@ -509,6 +510,8 @@ export interface SchedulerConfig {
   readonly schedulerEnabled?: boolean
   readonly scaffoldingKinds: readonly string[]
   readonly coverageGapTopicsEnabled?: boolean
+  /** WIKIKIT_SOURCE_INDEX_DAYS; absent falls back to DEFAULT_SOURCE_INDEX_DAYS (0 = indexed forever). */
+  readonly sourceIndexDays?: number
 }
 
 interface ClaimedSchedule extends ScheduleRow {
@@ -964,6 +967,7 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
       {
         scaffoldingKinds: config.scaffoldingKinds,
         gapTopicsEnabled: config.coverageGapTopicsEnabled === true,
+        sourceIndexDays: config.sourceIndexDays ?? DEFAULT_SOURCE_INDEX_DAYS,
       },
     )
     const markdown = renderHealth(health, { timezone: schedule.timezone, instant })

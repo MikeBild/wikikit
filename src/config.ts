@@ -157,6 +157,20 @@ export interface Config {
    */
   readonly outputRetentionDays?: number
   /**
+   * How long an archived source stays in the RETRIEVAL INDEX (wk_source_chunks)
+   * before the hourly sweep drops its chunks; 0 keeps every source indexed
+   * forever. The archived bytes are never touched — wk_sources is verbatim and
+   * forever — so a swept source can be re-indexed at any time.
+   *
+   * Optional like the two fields above, but the fallback is INVERTED: an absent
+   * field means "indexed forever", not the shipped number. There is no shipped
+   * number to fall back to — DEFAULT_SOURCE_INDEX_DAYS is 0 — because narrowing
+   * what a wiki can find is an operator's decision, and a default that silently
+   * made evidence unfindable would be the one kind of default this product
+   * cannot ship.
+   */
+  readonly sourceIndexDays?: number
+  /**
    * Whether the in-process schedule worker claims due briefing/health runs.
    * Default true, and an absent value counts as true: a wiki nobody has given a
    * schedule to has no due rows, so the loop is a cheap poll, and an operator who
@@ -437,6 +451,20 @@ export const DEFAULT_INGEST_MAX_QUEUED_PER_SPACE = 200
  * so a busy /query surface does not grow a table forever.
  */
 export const DEFAULT_OUTPUT_RETENTION_DAYS = 365
+
+/**
+ * The shipped source INDEX window, spent by the loader default and by the hourly
+ * sweeper in src/app.ts when the field is absent — the same named-constant
+ * argument as the two above, with the opposite value.
+ *
+ * 0, and 0 means indexed forever: the feature is off until an operator asks for
+ * it. Outputs default to a year because an output is regenerable; a source is
+ * evidence somebody archived on purpose, and a window that started running the
+ * day a wiki was upgraded would take material out of retrieval that nobody
+ * chose to lose. An operator who sets a number has decided which of their
+ * evidence stays findable.
+ */
+export const DEFAULT_SOURCE_INDEX_DAYS = 0
 
 /**
  * What a new wiki's briefing is armed with unless the operator says otherwise.
@@ -774,6 +802,13 @@ export function loadConfig(): Config {
     // is 0 rather than 1 (cleanupOutputs refuses to compute a zero-day window,
     // so 0 can never be read as "delete everything").
     outputRetentionDays: integer('WIKIKIT_OUTPUT_RETENTION_DAYS', DEFAULT_OUTPUT_RETENTION_DAYS, {
+      min: 0,
+      max: 3650,
+    }),
+    // Same floor and ceiling as the retention window above, and 0 is again the
+    // "keep everything" spelling — but here 0 is also the DEFAULT: an
+    // installation nobody configured indexes every source forever.
+    sourceIndexDays: integer('WIKIKIT_SOURCE_INDEX_DAYS', DEFAULT_SOURCE_INDEX_DAYS, {
       min: 0,
       max: 3650,
     }),

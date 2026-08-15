@@ -592,7 +592,10 @@ RETURNS jsonb;  -- {space_id, revisions:int, claims:int, chunks:int}
 
 -- Ranked FTS over archived source chunks (wk_source_chunks) — the
 -- 'source_evidence' retrieval tier. Everything archived is searchable here
--- BY DESIGN: the tier surfaces not-yet-curated material and is composed in
+-- BY DESIGN, for as long as it is INDEXED: the operator sets that window
+-- (WIKIKIT_SOURCE_INDEX_DAYS, default 0 = forever), unindexAgedSources drops
+-- the chunks of aged sources and the archived bytes stay untouched. The tier
+-- surfaces not-yet-curated material and is composed in
 -- TypeScript strictly AFTER approved hits, only when the caller passes
 -- mode=approved_then_sources. Never merged with wk_search: ts_rank values
 -- across corpora are not comparable; the tier separation IS the
@@ -923,6 +926,14 @@ export function createSource(
     markdown: string
   },
 ): Promise<{ source: Source; created: boolean }> // created=false on hash hit (idempotent) → HTTP layer answers 409 already_ingested
+// Retrieval index window (WIKIKIT_SOURCE_INDEX_DAYS), hourly sweep, global
+// across spaces. DELETEs wk_source_chunks — NEVER wk_sources — for sources older
+// than the window, and only those that no claim cites, that no pending/approved
+// proposal names in source_ids (a uuid[] with no FK: this clause is the only
+// guard), that head no sync stream, that carry no queued/running/quota_blocked
+// ingest job and no derived_from_output_id. days <= 0 = indexed forever and
+// issues no statement. Reversible: persistSourceChunks is idempotent.
+export function unindexAgedSources(db: Db, days: number): Promise<number> // chunk rows deleted
 
 // src/domain/concepts.ts
 export function listConcepts(
@@ -1098,7 +1109,7 @@ export function spaceHealth(
   spaceId: string,
   // window defaults to the last 30 days, top to 5, tier to 'deep' (threaded to lintSpace)
   args: { from?: string; to?: string; top?: number; tier?: 'quick' | 'deep' },
-  deps: { scaffoldingKinds: readonly string[]; gapTopicsEnabled: boolean },
+  deps: { scaffoldingKinds: readonly string[]; gapTopicsEnabled: boolean; sourceIndexDays: number },
 ): Promise<SpaceHealth>
 export interface SpaceHealth {
   window: { from: string; to: string } // echoed, never assumed by the caller
@@ -1115,6 +1126,16 @@ export interface SpaceHealth {
     oldest_queued_hours: number | null
     captured: number // parked thoughts — beside depth too: waiting for a decision, not a worker
     oldest_captured_days: number | null // null iff captured is 0; DAYS — the 30-day stale-captures wait
+  }
+  // The archive against the retrieval index, announced BEFORE any sweep rather
+  // than after one: reported whether or not a window is set, so the size of the
+  // decision is visible while it is still a decision. sources = indexed +
+  // unindexed; unindexing never touches the archived bytes.
+  archive: {
+    sources: number
+    indexed: number
+    unindexed: number
+    index_days: number | null // WIKIKIT_SOURCE_INDEX_DAYS; null = indexed forever
   }
 }
 // The cross-wiki measurement — one producer for GET /v1/stats/overview, the
@@ -2358,6 +2379,7 @@ Readers (search, concept reads, export) only ever see `current` revisions and
 | `WIKIKIT_INGEST_MAX_RUNTIME_MS`                  | `5400000`                                                          | 1 min–24 h; per-job wall-clock ceiling (`timeout`)                                                      |
 | `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`            | `200`                                                              | 1–100000; waiting jobs per space, then 429 `ingest_queue_full`                                          |
 | `WIKIKIT_OUTPUT_RETENTION_DAYS`                  | `365`                                                              | 0–3650; `0` keeps forever; UNPROMOTED outputs only                                                      |
+| `WIKIKIT_SOURCE_INDEX_DAYS`                      | `0` (indexed forever)                                              | 0–3650; `0` = every source stays indexed; drops wk_source_chunks only, never wk_sources                 |
 | `WIKIKIT_SCHEDULER_ENABLED`                      | `true`                                                             | in-process briefing/health worker; off leaves rows armed                                                |
 | `WIKIKIT_DEFAULT_BRIEFING`                       | `07:00`                                                            | `HH:MM` \| `HH:MM <IANA zone>` \| `off`; parsed AT BOOT, throws on a bad value; seeds the briefing only |
 | `WIKIKIT_WEBHOOK_POLL_MS`                        | `5000` (dev default file: `1000`)                                  |                                                                                                         |
@@ -2390,11 +2412,17 @@ query answer 503 `llm_not_configured`, naming **that** provider's key, while
 every LLM-free feature keeps working. `NODE_ENV` is read from the process environment only and so has no row in
 `.env.example`.
 
-`WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` and `WIKIKIT_OUTPUT_RETENTION_DAYS` are
-optional on `Config` only because unit tests build one by hand; an absent field
-falls back to the shipped constant (`DEFAULT_INGEST_MAX_QUEUED_PER_SPACE`,
-`DEFAULT_OUTPUT_RETENTION_DAYS` in `src/config.ts`), never to "no ceiling" or
+`WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE`, `WIKIKIT_OUTPUT_RETENTION_DAYS` and
+`WIKIKIT_SOURCE_INDEX_DAYS` are optional on `Config` only because unit tests
+build one by hand; an absent field falls back to the shipped constant
+(`DEFAULT_INGEST_MAX_QUEUED_PER_SPACE`, `DEFAULT_OUTPUT_RETENTION_DAYS`,
+`DEFAULT_SOURCE_INDEX_DAYS` in `src/config.ts`), never to "no ceiling" or
 "keep forever" — a guard that disappears when a field is missing is not a guard.
+The index window INVERTS that reading and is the one place the rule has to be
+read carefully: `DEFAULT_SOURCE_INDEX_DAYS` **is** 0, so an absent field falls
+back to "indexed forever" rather than to a number. Nothing disappears when it is
+missing — the guarded thing is retrieval breadth, and the shipped answer is to
+keep all of it.
 There is no spelling for an unlimited queue: the floor is 1, because a
 deployment that wants more work in flight should say how much more. Retention's
 floor IS 0, and 0 means keep forever — `cleanupOutputs` refuses to compute a

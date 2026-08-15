@@ -15,6 +15,7 @@ import {
   persistSourceChunks,
   resolveChunkCitation,
   sha256Hex,
+  unindexAgedSources,
 } from '../../src/domain/sources.ts'
 
 interface Call {
@@ -225,5 +226,45 @@ describe('resolveChunkCitation', () => {
   test('404s an unknown or foreign chunk id', async () => {
     const { db } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [] }])
     await expect(resolveChunkCitation(db, 'space-1', 'ghost')).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('unindexAgedSources', () => {
+  test('deletes chunks only, and only for a source nobody is still using', async () => {
+    const { db, calls } = fakeDb([{ match: /DELETE FROM wk_source_chunks/, rows: [{ deleted: 12 }] }])
+    expect(await unindexAgedSources(db, 90)).toBe(12)
+    const sql = calls[0]!.sql
+    // The archive is verbatim and forever: the window bounds the derived index
+    // and nothing else.
+    expect(sql).toContain('DELETE FROM wk_source_chunks')
+    expect(sql).not.toContain('DELETE FROM wk_sources')
+    expect(sql).toContain("created_at < now() - ($1::int * interval '1 day')")
+    // `source_ids` is a uuid[] with NO foreign key behind it, so this clause is
+    // the only thing standing between a staged change and its evidence — and
+    // approved proposals count, not just pending ones.
+    expect(sql).toContain('ANY(p.source_ids)')
+    expect(sql).toContain("p.status IN ('pending', 'approved')")
+    // The other four guards, each naming somebody still using the source.
+    expect(sql).toContain('FROM wk_citations')
+    expect(sql).toContain('st.latest_source_id = s.id')
+    expect(sql).toContain("j.status IN ('queued', 'running', 'quota_blocked')")
+    expect(sql).toContain("jsonb_exists(s.metadata, 'derived_from_output_id')")
+    expect(calls[0]!.values).toEqual([90])
+  })
+
+  test('days <= 0 keeps every source indexed and issues no statement at all', async () => {
+    // The shipped default. Computing a zero-day window instead would empty the
+    // retrieval index of every space at once.
+    for (const days of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const { db, calls } = fakeDb([{ match: /DELETE FROM wk_source_chunks/, rows: [{ deleted: 99 }] }])
+      expect(await unindexAgedSources(db, days)).toBe(0)
+      expect(calls.length, `days=${days} issued SQL`).toBe(0)
+    }
+  })
+
+  test('a fractional window is floored, never passed through as a float', async () => {
+    const { db, calls } = fakeDb([{ match: /DELETE FROM wk_source_chunks/, rows: [{ deleted: 0 }] }])
+    await unindexAgedSources(db, 30.9)
+    expect(calls[0]!.values).toEqual([30])
   })
 })

@@ -7,7 +7,7 @@
 // handler and workers deterministically; start() adds the runtime concerns —
 // migrations, dev bootstrap, listen, worker start, signal-driven drain.
 import type { Server } from 'node:http'
-import { DEFAULT_OUTPUT_RETENTION_DAYS, loadConfig, type Config } from './config.ts'
+import { DEFAULT_OUTPUT_RETENTION_DAYS, DEFAULT_SOURCE_INDEX_DAYS, loadConfig, type Config } from './config.ts'
 import { createPostgres, type Database } from './db/postgres.ts'
 import { runMigrations } from './db/migrate.ts'
 import { createChunkBackfill, type ChunkBackfill } from './ingest/chunker.ts'
@@ -18,6 +18,7 @@ import type { LlmProvider } from './llm/provider.ts'
 import { createLogger, type Logger } from './logger.ts'
 import { createMetrics, type Metrics } from './metrics.ts'
 import { cleanupOutputs } from './domain/outputs.ts'
+import { unindexAgedSources } from './domain/sources.ts'
 import { createScheduler, type Scheduler } from './schedule.ts'
 import type { Db } from './db/postgres.ts'
 import { createOutboxWorker, type OutboxWorker } from './webhooks.ts'
@@ -102,6 +103,64 @@ function createRetentionSweeper(deps: { db: Db; logger: Logger; config: Config }
   }
 }
 
+/**
+ * The source index window, on its own hourly timer.
+ *
+ * A literal sibling of the sweeper above rather than a shared abstraction: the
+ * two collect different things under different windows with different defaults
+ * (a year vs. forever), and the one argument that matters is the same one — a
+ * sweep must not hang off another feature's timer. Hanging this on the retention
+ * sweeper would silently make the index window conditional on
+ * WIKIKIT_OUTPUT_RETENTION_DAYS being non-zero, which is exactly the class of
+ * bug the comment above records.
+ *
+ * The domain owns the DELETE (unindexAgedSources, global across spaces) and this
+ * file owns when it runs; a failed sweep is warned and swallowed, never allowed
+ * to take the timer with it.
+ */
+interface SourceIndexSweeper {
+  start(): void
+  stop(): void
+  /** One sweep now; returns chunk rows deleted. The deterministic handle for tests. */
+  sweep(): Promise<number>
+}
+
+function createSourceIndexSweeper(deps: { db: Db; logger: Logger; config: Config }): SourceIndexSweeper {
+  let timer: ReturnType<typeof setInterval> | undefined
+  // Absent falls back to DEFAULT_SOURCE_INDEX_DAYS, which is 0 — the inversion
+  // against the retention window above: no window until an operator sets one
+  // (see Config.sourceIndexDays).
+  const indexDays = deps.config.sourceIndexDays ?? DEFAULT_SOURCE_INDEX_DAYS
+  async function sweep(): Promise<number> {
+    try {
+      const deleted = await unindexAgedSources(deps.db, indexDays)
+      if (deleted > 0) {
+        deps.logger.info('unindexed aged sources', { chunks_deleted: deleted, index_days: indexDays })
+      }
+      return deleted
+    } catch (error) {
+      deps.logger.warn('source index sweep failed', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return 0
+    }
+  }
+  return {
+    sweep,
+    start() {
+      // 0 = indexed forever: no timer at all rather than an hourly no-op.
+      if (timer || indexDays <= 0) return
+      void sweep()
+      timer = setInterval(() => void sweep(), 60 * 60 * 1000)
+      timer.unref?.()
+    },
+    stop() {
+      if (timer) clearInterval(timer)
+      timer = undefined
+    },
+  }
+}
+
 export interface App {
   server: Server
   state: { draining: boolean }
@@ -115,6 +174,8 @@ export interface App {
   scheduler: Scheduler
   /** Hourly wk_outputs retention sweep (see createRetentionSweeper). */
   retention: RetentionSweeper
+  /** Hourly wk_source_chunks index sweep (see createSourceIndexSweeper). */
+  sourceIndex: SourceIndexSweeper
   database: Database
   auth: Auth
   logger: Logger
@@ -201,6 +262,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
   // and a restart loses nothing but the poll it was in.
   const scheduler = deps.scheduler ?? createScheduler({ db, logger }, config)
   const retention = createRetentionSweeper({ db, logger, config })
+  const sourceIndex = createSourceIndexSweeper({ db, logger, config })
   const state = { draining: false }
   // Filled by start() after migrations (createApp is inert and sync); until
   // probed, retrieval behaves lexically — the safe floor.
@@ -361,6 +423,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
     embedder,
     scheduler,
     retention,
+    sourceIndex,
     database,
     auth,
     logger,
@@ -377,6 +440,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       mcp.stop() // stop the session sweeper + close live MCP sessions
       usage.stop()
       retention.stop()
+      sourceIndex.stop()
       outbox.stop()
       chunker.stop()
       embedder.stop()
@@ -468,11 +532,12 @@ export async function start(config: Config = loadConfig()): Promise<App> {
   // pgvector schema objects to write into.
   if (config.embeddingConfigured && app.vector.available) app.embedder.start()
   app.usage.start()
-  // No config conditional on either: start() self-guards on
-  // WIKIKIT_SCHEDULER_ENABLED, and the sweeper skips its timer when retention is
-  // 0 — the decision belongs next to the flag it reads, not here.
+  // No config conditional on any of the three: start() self-guards on
+  // WIKIKIT_SCHEDULER_ENABLED, and each sweeper skips its timer when its own
+  // window is 0 — the decision belongs next to the flag it reads, not here.
   app.scheduler.start()
   app.retention.start()
+  app.sourceIndex.start()
   logger.info('wikikit listening', {
     url: `http://${config.host}:${config.port}`,
     version: config.version,

@@ -2193,6 +2193,12 @@ export interface components {
                 captured: number;
                 oldest_captured_days: number | null;
             };
+            archive: {
+                sources: number;
+                indexed: number;
+                unindexed: number;
+                index_days: number | null;
+            };
         };
         zScheduleListResponse: {
             schedules: {

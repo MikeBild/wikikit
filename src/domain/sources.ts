@@ -308,6 +308,67 @@ export async function persistSourceChunks(
 }
 
 /**
+ * The index window (WIKIKIT_SOURCE_INDEX_DAYS), called from the hourly sweep in
+ * src/app.ts. Deletes RETRIEVAL CHUNKS for aged sources and returns how many
+ * chunk rows went; the archive itself is never touched.
+ *
+ * WHY chunks and never wk_sources: the archive is verbatim and forever
+ * (migration 0036 argues it against wk_outputs, and the ingest job and the
+ * supersedes chain both point at it with NO ACTION). What actually grows is the
+ * derived index — chunk text plus its GIN vectors — and dropping it is
+ * reversible: persistSourceChunks is idempotent and the backfill scan worker
+ * re-chunks anything it finds unchunked, so an operator who narrows the window
+ * too far widens it again and the index comes back.
+ *
+ * A source loses its chunks only when EVERY one of these holds, because each
+ * one names somebody who is still using it:
+ *   - older than the window (wk_sources.created_at, on wk_sources_space_created_idx),
+ *   - cited by no claim — a citation resolves quotes against the archive and the
+ *     chunk is what a reviewer follows back,
+ *   - named by no pending or approved proposal. `source_ids` is a uuid[] with NO
+ *     foreign key behind it, so this clause is the only thing standing between a
+ *     staged change and the evidence a human is about to weigh it against,
+ *   - not the head of a sync stream (wk_source_streams.latest_source_id): the
+ *     head is the connector's current truth about a document, not history,
+ *   - carrying no job in queued/running/quota_blocked — a parked or in-flight
+ *     ingest is still going to chunk, and unindexing under it would race,
+ *   - not stamped derived_from_output_id: those sources are counted by
+ *     `pending_derived` in the overview and by the self-derived-only lint rule,
+ *     and silently moving that number is a measurement changing itself.
+ *
+ * days <= 0 means indexed forever — the default, and the reason this returns
+ * before issuing any statement rather than computing a zero-day window, which
+ * would empty the whole index.
+ */
+export async function unindexAgedSources(db: Db, days: number): Promise<number> {
+  if (!Number.isFinite(days) || days <= 0) return 0
+  const { rows } = await db.query<{ deleted: number }>(
+    `WITH deleted AS (
+       DELETE FROM wk_source_chunks c
+        WHERE c.source_id IN (
+                SELECT s.id
+                  FROM wk_sources s
+                 WHERE s.created_at < now() - ($1::int * interval '1 day')
+                   AND NOT jsonb_exists(s.metadata, 'derived_from_output_id')
+                   AND NOT EXISTS (SELECT 1 FROM wk_citations ct WHERE ct.source_id = s.id)
+                   AND NOT EXISTS (
+                         SELECT 1 FROM wk_change_proposals p
+                          WHERE p.status IN ('pending', 'approved') AND s.id = ANY(p.source_ids))
+                   AND NOT EXISTS (
+                         SELECT 1 FROM wk_source_streams st WHERE st.latest_source_id = s.id)
+                   AND NOT EXISTS (
+                         SELECT 1 FROM wk_ingest_jobs j
+                          WHERE j.source_id = s.id
+                            AND j.status IN ('queued', 'running', 'quota_blocked'))
+              )
+        RETURNING 1
+     ) SELECT count(*)::int AS deleted FROM deleted`,
+    [Math.floor(days)],
+  )
+  return Number(rows[0]?.deleted ?? 0)
+}
+
+/**
  * Resolve a source-chunk citation to the canonical {source_id, quote} pair
  * the staging write understands. The chunk content IS a verbatim slice of the
  * archived source, so the quote contract holds by construction. Space-scoped:

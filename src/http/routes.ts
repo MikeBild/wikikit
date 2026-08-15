@@ -18,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { captureSession } from '../agent/sessions.ts'
 import { buildAgentBriefing } from '../agent/briefing.ts'
 import { buildAgentContext } from '../agent/context.ts'
-import type { Config } from '../config.ts'
+import { DEFAULT_SOURCE_INDEX_DAYS, type Config } from '../config.ts'
 import type { Db } from '../db/postgres.ts'
 import {
   BUILT_IN_SCAFFOLDING_KINDS,
@@ -1844,6 +1844,7 @@ export const HANDLERS: Record<string, Handler> = {
     const health = await spaceHealth(deps.db, space.id, input.query as SpaceHealthArgs, {
       scaffoldingKinds: deps.config.scaffoldingKinds,
       gapTopicsEnabled: deps.config.coverageGapTopicsEnabled === true,
+      sourceIndexDays: deps.config.sourceIndexDays ?? DEFAULT_SOURCE_INDEX_DAYS,
     })
     // schema_version is stamped HERE and not in the domain — same division as
     // coverageStatsHandler: the wire contract belongs to the transport, and the

@@ -166,6 +166,9 @@ describe('zSpaceHealthResponse: a census, never a verdict', () => {
       captured: 2,
       oldest_captured_days: 31,
     },
+    // The archive against the retrieval index, announced whether or not a
+    // window is set. sources = indexed + unindexed.
+    archive: { sources: 40, indexed: 31, unindexed: 9, index_days: 90 },
   }
 
   test('the whole composed shape parses', () => {
@@ -200,6 +203,9 @@ describe('zSpaceHealthResponse: a census, never a verdict', () => {
         oldest_captured_days: null,
       },
       coverage: { ...health.coverage, review_latency: { ...health.coverage.review_latency, median_hours: null } },
+      // index_days follows the same discipline: a window nobody set is null,
+      // never the 0 the loader holds.
+      archive: { sources: 0, indexed: 0, unindexed: 0, index_days: null },
     }
     expect(zSpaceHealthResponse.safeParse(quiet).success).toBe(true)
     // …but never a NEGATIVE count, which is the one thing a census cannot be.
