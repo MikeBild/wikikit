@@ -956,6 +956,29 @@ export function createIngestPipeline(
       decisions: proposalDecisions,
     })
 
+    // 8. Retire what this version replaced. A new stream version supersedes the
+    // previous head, which makes any proposal still pending on that predecessor
+    // a competitor to its own replacement — and for a coding session it is
+    // strictly obsolete, because the longer transcript contained everything the
+    // shorter one did. Done HERE, after the replacement exists, so the queue is
+    // never briefly empty; done in SQL (0039) because proposal state changes
+    // belong in SQL functions; a no-op when nothing is pending.
+    if (source.supersedes_source_id) {
+      const [outcome] = await db.call<{ retired: number }>('wk_retire_superseded_proposals', [
+        job.space_id,
+        source.supersedes_source_id,
+        `superseded by a newer capture of the same source stream (source ${source.id})`,
+      ])
+      if (outcome && outcome.retired > 0) {
+        logger.info('retired proposals superseded by a newer stream version', {
+          ingest_id: job.id,
+          source_id: source.id,
+          superseded_source_id: source.supersedes_source_id,
+          retired: outcome.retired,
+        })
+      }
+    }
+
     return { sourceId: source.id, proposalId: proposal_id }
   }
 

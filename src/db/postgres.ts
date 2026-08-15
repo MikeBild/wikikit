@@ -70,6 +70,7 @@ export type WhitelistedFn =
   | 'wk_space_search_config'
   | 'wk_split_proposal'
   | 'wk_request_changes'
+  | 'wk_retire_superseded_proposals'
 
 /** Outbox event names (CONTRACTS §6.1) — the payload `type` field and wk_outbox_events.event_type. */
 export type WebhookEventType =
@@ -181,6 +182,18 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
         )
       }
       return [args[0], args[1], args[2], args[3] ?? 'rest']
+    },
+    result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
+  },
+  // The one whitelisted function no human triggers: the worker calls it when a
+  // new stream version supersedes a head whose proposal is still pending (0039).
+  wk_retire_superseded_proposals: {
+    sql: 'SELECT public.wk_retire_superseded_proposals($1, $2, $3) AS result',
+    normalize: (args) => {
+      if (args.length < 2 || args.length > 3) {
+        throw new Error(`wk_retire_superseded_proposals expects [space_id, source_id, note?] — got ${args.length} args`)
+      }
+      return [args[0], args[1], args[2] ?? null]
     },
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },

@@ -58,7 +58,19 @@ try {
   if ($transcript.Length -gt 200000) { $transcript = $transcript.Substring($transcript.Length - 200000) }
   if (-not $transcript) { Write-WikikitLog 'empty transcript'; exit 0 }
 
-  $json = @{ transcript = $transcript } | ConvertTo-Json -Depth 4
+  # The host's session id, when it gave one. This hook fires on every turn-end
+  # its host offers, and every firing posts the SAME transcript grown longer.
+  # Sending the id makes those captures versions of ONE source stream instead of
+  # a new source and a new competing proposal per turn. Clamped to the server's
+  # 200-char ceiling (deterministic, so it still names one stream) rather than
+  # risking a 400 that would drop the capture; absent → the pre-stream behavior.
+  $body = @{ transcript = $transcript }
+  $sessionId = [string]$payload.session_id
+  if ($sessionId) {
+    if ($sessionId.Length -gt 200) { $sessionId = $sessionId.Substring(0, 200) }
+    $body.session_id = $sessionId
+  }
+  $json = $body | ConvertTo-Json -Depth 4
 
   [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
   $space = [uri]::EscapeDataString($env:WIKIKIT_SPACE)

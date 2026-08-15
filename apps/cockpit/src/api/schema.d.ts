@@ -1745,6 +1745,8 @@ export interface components {
             /** @description The coding-agent session transcript; over-long input keeps its tail */
             transcript: string;
             title?: string;
+            /** @description The coding agent’s own session id — repeated captures of it become versions of one source stream */
+            session_id?: string;
         };
         zCaptureSessionResponse: {
             /**

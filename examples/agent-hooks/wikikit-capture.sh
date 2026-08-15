@@ -60,7 +60,16 @@ transcript=$(jq -rs '
 
 [ -n "$transcript" ] || { log "empty transcript"; exit 0; }
 
-body=$(jq -n --arg t "$transcript" '{transcript: $t}' 2>/dev/null) || exit 0
+# The host's session id, when it gave one. This hook fires on every turn-end
+# its host offers (Codex has no SessionEnd — `Stop` fires after each turn), and
+# every firing posts the SAME transcript grown longer. Sending the id makes
+# those captures versions of ONE source stream instead of a new source and a
+# new competing proposal per turn. Absent → the server behaves as it always did.
+# Clamped to the server's 200-char ceiling rather than risking a 400 that would
+# drop the whole capture; the clamp is deterministic, so it still names one stream.
+session_id=$(printf '%s' "$payload" | jq -r '(.session_id // "") | .[0:200]' 2>/dev/null)
+body=$(jq -n --arg t "$transcript" --arg s "$session_id" \
+  '{transcript: $t} + (if $s == "" then {} else {session_id: $s} end)' 2>/dev/null) || exit 0
 
 # No --fail: it discards the response body, and on 4xx/5xx the body IS the
 # answer (the error envelope naming what to fix). The status code rides on the

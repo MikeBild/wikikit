@@ -101,7 +101,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | DELETE | `/v1/spaces/{space}/charter`                  | admin             | Delete the charter (supersede current revision; history retained). Idempotent |
 | POST   | `/v1/spaces/{space}/ingest`                   | knowledge:propose | Ingest a source (markdown\|text\|url) — async, `202` + `Location` to poll; `capture:true` parks it instead (`200 {status:"captured"}` — no LLM, no queue slot); `evidence:true` archives and indexes it as citable evidence only (done with `proposal_id` null, no model call) |
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
-| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal |
+| POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal; optional `session_id` makes repeated captures versions of ONE source stream |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
 | POST   | `/v1/ingests/{id}/process`                    | knowledge:propose | Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here; `409 ingest_not_captured` on any other status |
 | POST   | `/v1/ingests/{id}/discard`                    | knowledge:propose | Discard a captured note — terminal, the row stays in the job list for the record |
@@ -442,6 +442,13 @@ Stale-base protection: every proposed revision remembers the revision it was
 synthesized against; approving a proposal whose base is no longer current
 fails with `409 stale_base` instead of clobbering newer knowledge.
 
+Supersede-retire: when a source stream's new version supersedes the previous
+head, proposals still pending on that predecessor flip to terminal `failed`
+with a review note naming the newer source, the moment the replacement is
+staged. The head is current truth, so those proposals could only ever have
+been burned on `stale_base` at review time. Approved, rejected, failed and
+split proposals are never touched.
+
 ---
 
 ## 5. Ingest pipeline & LLM usage
@@ -630,7 +637,15 @@ SessionEnd/Stop hook
 posts the transcript to `POST /v1/spaces/{space}/agent/sessions`, which distils
 ONLY durable rules a human explicitly taught and stages them as a proposal.
 A routine session answers `no_learnings` and writes nothing; the transcript is
-distilled and dropped, never archived. Claude Code, Codex and Cursor expose
+distilled and dropped, never archived. Those hooks fire on every turn-end their
+host offers, posting the same transcript grown longer each time, so the body
+carries an optional `session_id`: captures sharing one become versions of a
+single source stream keyed `agent-session:<session_id>` (supersedes chain, one
+head), a re-capture whose learnings did not change answers `already_captured`,
+and the predecessor's still-pending proposal is retired the moment the newer
+one is staged. No `source_version` is sent — content-hash dedup decides
+sameness, and distillation is not deterministic enough for a transcript-derived
+marker. Captures without a `session_id` behave exactly as before. Claude Code, Codex and Cursor expose
 equivalent lifecycle events; example hook scripts ship as `.sh`/`.ps1` pairs
 (`examples/agent-hooks/`, scripts `wikikit-briefing`/`wikikit-context`/
 `wikikit-capture`) and every server serves its own agent hooks installer at

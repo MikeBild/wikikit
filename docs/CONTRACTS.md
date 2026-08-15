@@ -104,6 +104,23 @@ semantics. Endpoints: `GET /v1/spaces/{space}/source-streams`
 (knowledge:read), `DELETE /v1/spaces/{space}/source-streams/{external_source_id}`
 (knowledge:propose, idempotent tombstone).
 
+**Supersede-retire.** The head is current truth, so a proposal still `pending`
+on a superseded predecessor is a competitor to its own replacement. The moment
+the new version's proposal is staged, the worker calls
+`wk_retire_superseded_proposals(space_id, supersedes_source_id, note)` (§1.15):
+pending proposals whose `source_ids` contain the predecessor flip to `failed`
+with a review note naming the newer source. Approved, rejected, failed and
+split rows are never touched, and nothing pending is a no-op. Without it a
+reviewer meets both versions in the queue and burns the older one on
+`stale_base` (§9.2) — this is the same auto-termination, moved to the moment
+the replacement exists.
+
+**Coding sessions are a stream** (§5.5): a session capture carrying a
+`session_id` uses the stream key `agent-session:<session_id>`, so the same
+session's growing transcript is versions of one document instead of a new
+source per turn-end. There the retire rule is not merely reasonable but
+provable: the longer transcript contains everything the shorter one did.
+
 ### 1.3 `wk_concepts`
 
 ```sql
@@ -623,6 +640,19 @@ RETURNS jsonb;  -- {parent:{id,status}, children:[{proposal_id, concepts}]}
 -- on feedback IS a new proposal.
 CREATE FUNCTION wk_request_changes(p_proposal_id uuid, p_reviewer text, p_note text, p_review_channel text DEFAULT 'rest')
 RETURNS jsonb;  -- reject result || {changes_requested: true}
+
+-- Supersede-retire (0039) — the one whitelisted function no human triggers.
+-- The worker calls it right after staging the proposal for a stream version
+-- that superseded a head (§1.2a): PENDING proposals whose source_ids contain
+-- the predecessor flip to terminal 'failed' with the note, freeing their
+-- (space_id, input_hash) pending-dedup slot. Guarded on status = 'pending',
+-- so approved/rejected/failed/split rows are untouched; nothing pending is a
+-- no-op. Staged rows are left as-is (a 'proposed' revision under no pending
+-- proposal is invisible to every reader) and no outbox event is emitted —
+-- wikikit.proposal.* reports review decisions, and nobody reviewed anything.
+-- Error: 'space_id_and_source_id_required'.
+CREATE FUNCTION wk_retire_superseded_proposals(p_space_id uuid, p_source_id uuid, p_note text DEFAULT NULL)
+RETURNS jsonb;  -- {source_id, retired:int, proposal_ids:[uuid,...]}
 ```
 
 ---
@@ -664,6 +694,7 @@ export type WhitelistedFn =
   | 'wk_reindex_space'
   | 'wk_split_proposal'
   | 'wk_request_changes'
+  | 'wk_retire_superseded_proposals'
 
 export interface Database {
   db: Db
@@ -1760,7 +1791,7 @@ generate one with scopes `['*']`, print **once** to stdout.
 ## 5.5 Session capture (`src/agent/sessions.ts`)
 
 ```ts
-export const zCaptureSessionArgs: z.ZodType<{ transcript: string; title?: string }>
+export const zCaptureSessionArgs: z.ZodType<{ transcript: string; title?: string; session_id?: string }>
 export interface CaptureResult {
   status: 'no_learnings' | 'queued' | 'already_captured'
   ingest_id: string | null
@@ -1775,6 +1806,7 @@ export function captureSession(
 ): Promise<CaptureResult>
 export function capTranscript(transcript: string): string // keeps the TAIL over 200k chars
 export function renderLearnings(learnings: DistillOutput['learnings']): string
+export function sessionStreamKey(sessionId: string): string // `agent-session:${sessionId}`
 ```
 
 Binding behavior:
@@ -1797,6 +1829,25 @@ Binding behavior:
   rule renders identical markdown → the same content hash → `already_captured`,
   never a duplicate proposal. A hook that fires after every session depends on
   this being a success rather than a 409.
+- **`session_id` makes one session one document.** Hooks fire on every turn-end
+  their host offers, and each firing posts the SAME transcript grown longer —
+  never a new one. With a `session_id` the capture is enqueued with
+  `external_source_id = sessionStreamKey(session_id)` = `agent-session:<id>`,
+  so growth lands as versions of one stream (§1.2a): a supersedes chain, one
+  head pointer, and the predecessor's pending proposal retired (see §1.2a). The
+  id is opaque and client-minted; WikiKit only namespaces it, because
+  `external_source_id` is one flat space shared with every connector.
+- **No `source_version` is sent.** `recordStreamVersion` accepts a versionless
+  stream and content-hash dedup already decides sameness, so a hook has nothing
+  truthful to put there. A transcript-derived marker would be actively wrong:
+  distillation is not deterministic, so the same transcript can render
+  different learnings — "same version, different content" → `409
+sync_version_conflict` on an ordinary re-capture.
+- **`already_captured` covers both convergence paths.** Without a `session_id`
+  it is the content-hash `409` (`already_ingested`), with one it is the sync
+  fast-path's `{status:'unchanged'}`. Both mean "these learnings are already
+  archived", so `CaptureResult` is byte-identical either way and a hook needs
+  no branch. Captures without a `session_id` behave exactly as before.
 - No API key → `LlmNotConfiguredError` (503) before any write.
 
 ---
@@ -2250,8 +2301,15 @@ version columns and supersedes chains, and a blind retry converges (200
 pending ──wk_apply_proposal──▶ approved   (terminal)
     │
     ├──wk_reject_proposal────▶ rejected   (terminal)
-    └──(apply raises stale_base and the caller marks it)──▶ failed (terminal)
+    ├──(apply raises stale_base and the caller marks it)──▶ failed (terminal)
+    └──wk_retire_superseded_proposals────────────────────▶ failed (terminal)
+       (a newer version of the same source stream was staged — §1.2a)
 ```
+
+Both writers of `failed` say the same thing — this can no longer become
+knowledge — and both free the `(space_id, input_hash)` pending-dedup slot. The
+difference is only when it is discovered: `stale_base` at review time,
+supersede-retire at the moment the replacement is staged.
 
 ### 9.3 Revision / claim / relation status flips (inside the SQL functions only)
 

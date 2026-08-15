@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.0 - 2026-08-15
+
+### Added
+
+- **A coding session is one document, not fourteen.** `POST
+/v1/spaces/{space}/agent/sessions` accepts an optional `session_id` — the
+  coding agent's own — and captures carrying it become versions of a single
+  source stream keyed `agent-session:<session_id>`. Hooks fire on every
+  turn-end their host offers, and each time they post the same transcript
+  grown longer, so one afternoon could archive a dozen near-identical sources
+  and stack a dozen competing proposals on the review queue. Now the growth
+  lands as a supersedes chain on one stream, and a re-capture whose learnings
+  did not change answers `already_captured` through the sync fast-path instead
+  of forking. No `source_version` is sent: content-hash dedup already decides
+  sameness, and a transcript-derived marker would 409 whenever the distiller
+  worded the same rules differently. Captures without a `session_id` behave
+  exactly as before.
+
+### Changed
+
+- **A superseded capture no longer leaves a competitor behind.** When a new
+  stream version supersedes the previous head, proposals still pending on that
+  predecessor are terminated as `failed` the moment the replacement is staged,
+  with a review note naming the newer source (new SQL function
+  `wk_retire_superseded_proposals`, migration 0039). They were obsolete by
+  construction — the newer transcript contains everything the older one saw —
+  and previously survived until a reviewer opened one and burned it on
+  `stale_base`. Approved, rejected, failed and split proposals are never
+  touched.
+
 ## 0.39.0 - 2026-08-14
 
 ### Added

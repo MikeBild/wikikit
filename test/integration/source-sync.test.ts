@@ -1,6 +1,7 @@
 // Source-sync contract against real Postgres: the full connector matrix —
 // first push, idempotent re-push, version conflict, new version with
-// supersedes chain, content revert, tombstone + resurrect — plus the
+// supersedes chain (and the predecessor's pending proposal retired with it),
+// content revert, tombstone + resurrect — plus the
 // tombstoned-sources lint surfacing. wk_sources stays append-only throughout;
 // only wk_source_streams mutates. Gated behind RUN_INTEGRATION=1.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -126,6 +127,19 @@ describe('source-sync contract (integration)', () => {
 
     const [source] = await db.select<{ supersedes_source_id: string }>('wk_sources', { id: `eq.${secondSourceId}` })
     expect(source!.supersedes_source_id).toBe(firstSourceId)
+
+    // Supersede-retire: the head is current truth, so v1's proposal is not left
+    // in the queue to compete with its own replacement and burn on stale_base.
+    const rows = await db.select<{ status: string; review_note: string | null; source_ids: string[] }>(
+      'wk_change_proposals',
+      { space_id: `eq.${spaceId}`, order: 'created_at.asc' },
+    )
+    const pending = rows.filter((row) => row.status === 'pending')
+    expect(pending.length).toBe(1)
+    expect(pending[0]!.source_ids).toEqual([secondSourceId])
+    const retired = rows.find((row) => row.source_ids.includes(firstSourceId))!
+    expect(retired.status).toBe('failed')
+    expect(retired.review_note).toContain('superseded by a newer capture')
   })
 
   it('a content revert moves the head pointer back without a new archive row', async () => {

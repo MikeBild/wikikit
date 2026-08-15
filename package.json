@@ -1,6 +1,6 @@
 {
   "name": "wikikit",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "description": "Headless AI-native knowledge system for humans and agents \u2014 Markdown-first knowledge in, structured and agent-ready knowledge out",
   "private": true,
   "type": "module",

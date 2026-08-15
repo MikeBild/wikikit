@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.39.0",
+    "version": "0.40.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -4615,7 +4615,13 @@
             "minLength": 1,
             "description": "The coding-agent session transcript; over-long input keeps its tail"
           },
-          "title": { "type": "string", "maxLength": 500 }
+          "title": { "type": "string", "maxLength": 500 },
+          "session_id": {
+            "description": "The coding agent’s own session id — repeated captures of it become versions of one source stream",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
         },
         "required": ["transcript"]
       },

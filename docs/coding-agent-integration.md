@@ -205,6 +205,20 @@ transcripts often contain secrets and unfinished reasoning.
 Captured rules enter the normal ChangeProposal review gate. Re-teaching the
 same rule converges on the same content hash instead of piling up duplicates.
 
+Send the agent's own session id as `session_id`. Lifecycle hooks fire on every
+turn-end their host offers — Codex `Stop` fires after each agent turn — and each
+firing posts the same transcript grown longer, so without an id one afternoon
+becomes a dozen unrelated sources and a dozen competing proposals. With one,
+the captures are versions of a single source stream keyed
+`agent-session:<session_id>`: the growth is a supersedes chain, a re-capture
+whose learnings did not change answers `already_captured`, and the previous
+version's still-pending proposal is retired when the newer one is staged. The
+id is opaque to WikiKit — any stable per-session string works.
+
+```json
+{ "transcript": "...", "title": "wikikit — stream the session captures", "session_id": "019fe665-…" }
+```
+
 ## Review
 
 An agent may stage with `knowledge:propose`, but publishing remains a distinct

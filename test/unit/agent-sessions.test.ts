@@ -2,7 +2,13 @@
 // actually taught. The load-bearing behavior is the FILTER — a routine session
 // must cost one cheap call and write nothing — so that is what these pin.
 import { describe, expect, test } from 'bun:test'
-import { captureSession, capTranscript, renderLearnings } from '../../src/agent/sessions.ts'
+import {
+  captureSession,
+  capTranscript,
+  renderLearnings,
+  sessionStreamKey,
+  zCaptureSessionArgs,
+} from '../../src/agent/sessions.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { ConflictError, LlmNotConfiguredError } from '../../src/domain/errors.ts'
 import type { IngestPipeline } from '../../src/ingest/pipeline.ts'
@@ -25,15 +31,18 @@ function fakeDb(): Db & { runs: Record<string, unknown>[] } {
   } as unknown as Db & { runs: Record<string, unknown>[] }
 }
 
-/** Records enqueues; `fail` makes it throw like a content-hash hit. */
-function fakeIngest(fail?: Error): IngestPipeline & { enqueued: unknown[] } {
+/**
+ * Records enqueues; `fail` makes it throw like a content-hash hit, `result`
+ * replaces the queued ack (the sync fast-path answers `unchanged` instead).
+ */
+function fakeIngest(fail?: Error, result?: unknown): IngestPipeline & { enqueued: unknown[] } {
   const enqueued: unknown[] = []
   return {
     enqueued,
     async enqueue(_db: Db, _spaceId: string, args: unknown) {
       if (fail) throw fail
       enqueued.push(args)
-      return { ingest_id: INGEST_ID }
+      return result ?? { ingest_id: INGEST_ID }
     },
   } as unknown as IngestPipeline & { enqueued: unknown[] }
 }
@@ -113,6 +122,53 @@ describe('captureSession', () => {
     expect(result).toMatchObject({ status: 'already_captured', ingest_id: null, learnings: 1 })
   })
 
+  test('a session_id turns the capture into a versioned source stream', async () => {
+    const db = fakeDb()
+    const ingest = fakeIngest()
+    const llm = createFakeProvider({ distill: () => LEARNING })
+
+    await captureSession(
+      db,
+      'space-1',
+      { llm, ingest },
+      { transcript: 'human: no — always let CI deploy', session_id: 'sess-42' },
+    )
+
+    const args = ingest.enqueued[0] as { external_source_id?: string; source_version?: string }
+    expect(args.external_source_id).toBe('agent-session:sess-42')
+    // Deliberately versionless: a hook has no upstream revision marker, and a
+    // transcript-derived one would 409 the moment the distiller worded the
+    // same rules differently.
+    expect(args.source_version).toBeUndefined()
+  })
+
+  test('without a session_id nothing about the enqueue changes (older hooks keep working)', async () => {
+    const db = fakeDb()
+    const ingest = fakeIngest()
+    const llm = createFakeProvider({ distill: () => LEARNING })
+
+    await captureSession(db, 'space-1', { llm, ingest }, { transcript: 'human: no — always let CI deploy' })
+
+    expect(ingest.enqueued[0]).not.toHaveProperty('external_source_id')
+  })
+
+  test('the sync fast-path reports already_captured, not a second queued ingest', async () => {
+    const db = fakeDb()
+    // What enqueue answers when the stream already holds these exact bytes.
+    const ingest = fakeIngest(undefined, { status: 'unchanged', source_id: 'src-1', stream_id: 'stream-1' })
+    const llm = createFakeProvider({ distill: () => LEARNING })
+
+    const result = await captureSession(
+      db,
+      'space-1',
+      { llm, ingest },
+      { transcript: 'human: no — always let CI deploy', session_id: 'sess-42' },
+    )
+
+    // Byte-identical to the streamless dedup answer: the hook needs no branch.
+    expect(result).toMatchObject({ status: 'already_captured', ingest_id: null, learnings: 1 })
+  })
+
   test('a non-dedup ingest failure propagates instead of being reported as captured', async () => {
     const db = fakeDb()
     const ingest = fakeIngest(new Error('database on fire'))
@@ -134,6 +190,33 @@ describe('captureSession', () => {
     expect(error).toBeInstanceOf(LlmNotConfiguredError)
     expect(error.message).toContain('OPENAI_API_KEY')
     expect(db.runs).toEqual([])
+  })
+})
+
+describe('zCaptureSessionArgs', () => {
+  test('session_id is optional — the pre-stream wire body still parses', () => {
+    expect(zCaptureSessionArgs.parse({ transcript: 'x' }).session_id).toBeUndefined()
+  })
+
+  test('an over-long session id is refused rather than truncated into a wrong stream', () => {
+    expect(zCaptureSessionArgs.safeParse({ transcript: 'x', session_id: 'a'.repeat(201) }).success).toBe(false)
+    expect(zCaptureSessionArgs.safeParse({ transcript: 'x', session_id: 'a'.repeat(200) }).success).toBe(true)
+    expect(zCaptureSessionArgs.safeParse({ transcript: 'x', session_id: '' }).success).toBe(false)
+  })
+})
+
+describe('sessionStreamKey', () => {
+  test('namespaces the client id — a host session id must not collide with a connector document id', () => {
+    expect(sessionStreamKey('019fe665')).toBe('agent-session:019fe665')
+  })
+
+  test('is stable: the same session always addresses the same stream', () => {
+    expect(sessionStreamKey('abc')).toBe(sessionStreamKey('abc'))
+    expect(sessionStreamKey('abc')).not.toBe(sessionStreamKey('abd'))
+  })
+
+  test('stays inside the 500-char external_source_id ceiling at the id cap', () => {
+    expect(sessionStreamKey('a'.repeat(200)).length).toBeLessThanOrEqual(500)
   })
 })
 

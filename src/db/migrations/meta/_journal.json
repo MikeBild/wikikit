@@ -235,6 +235,12 @@
       "tag": "0038_wk_capture",
       "when": 1785045600000,
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "tag": "0039_wk_superseded_proposals",
+      "when": 1785049200000,
+      "breakpoints": true
     }
   ]
 }
