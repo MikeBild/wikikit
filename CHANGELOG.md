@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.43.2 - 2026-08-16
+
+### Fixed
+
+- **A source or space language now governs the proposal, not only search.**
+  `language: de` previously selected German stemming while classify,
+  synthesis and decision extraction were still free to write English pages.
+  `en` and `de` now reach every proposal-producing prompt. Synthesized pages
+  and decisions pass a deterministic language-dominance check; one explicitly
+  marked repair call is allowed and audited, and a second mismatch fails the
+  ingest without staging invalid prose. Technical identifiers, controlled
+  predicates and verbatim citations remain unchanged. `simple` stays
+  language-neutral.
+
 ## 0.43.1 - 2026-08-16
 
 ### Fixed
