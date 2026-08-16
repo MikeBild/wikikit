@@ -492,6 +492,29 @@ async function devBootstrap(app: App): Promise<void> {
   await app.auth.ensureDevBootstrapKey(app.logger)
 }
 
+/**
+ * Startup report for the optional hybrid ranker. Neither half gates boot —
+ * availability must never decide whether the server comes up. The one
+ * combination that earns a warning is a configured embedding provider with no
+ * extension to write into: that deployment looks fully equipped from its
+ * environment and degrades to lexical retrieval in silence.
+ */
+export function reportVectorCapability(
+  logger: Logger,
+  state: { embeddingConfigured: boolean; available: boolean },
+): void {
+  if (state.available) {
+    // Hybrid needs both halves; the flag says which one this probe just secured.
+    logger.info('pgvector available', { hybrid_retrieval: state.embeddingConfigured })
+    return
+  }
+  if (!state.embeddingConfigured) return
+  logger.warn(
+    'an embedding provider is configured but pgvector is absent; retrieval stays lexical and no embeddings are produced',
+    { remedy: 'install pgvector as an OS package, then run migrations — 0041 creates the objects 0018 skipped' },
+  )
+}
+
 /** runMigrations → createApp → dev bootstrap → listen → workers → signal-driven graceful drain. */
 export async function start(config: Config = loadConfig()): Promise<App> {
   const logger = createLogger({
@@ -525,6 +548,10 @@ export async function start(config: Config = loadConfig()): Promise<App> {
   } catch {
     app.vector.available = false
   }
+  reportVectorCapability(logger, {
+    embeddingConfigured: config.embeddingConfigured === true,
+    available: app.vector.available,
+  })
   app.outbox.start()
   app.ingest.start()
   app.chunker.start()
@@ -542,6 +569,7 @@ export async function start(config: Config = loadConfig()): Promise<App> {
     url: `http://${config.host}:${config.port}`,
     version: config.version,
     llm_configured: config.llmConfigured,
+    vector_available: app.vector.available,
     migrations_applied: report.applied.length,
   })
 

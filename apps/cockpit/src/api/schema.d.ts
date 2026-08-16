@@ -2024,6 +2024,8 @@ export interface components {
                 kind: "concept" | "claim" | "source_chunk";
                 /** @enum {string} */
                 tier: "approved" | "source_evidence";
+                /** @enum {string} */
+                matched_via?: "lexical" | "vector" | "both";
                 slug: string | null;
                 claim_id: string | null;
                 title: string;

@@ -278,7 +278,7 @@ exact signature**:
 grep -rn "function public.wk_split_proposal" src/db/migrations/*.sql | tail -1
 ```
 
-This is not an exception; it is how the directory works. As of 0032 these
+This is not an exception; it is how the directory works. As of 0041 these
 functions are declared more than once (run the grep for the current answer):
 
 | Function (signature)                          | Declared in             | Live body |
@@ -292,24 +292,35 @@ functions are declared more than once (run the grep for the current answer):
 | `wk_apply_proposal(uuid,text,text,text)`      | 0010, 0027              | **0027**  |
 | `wk_reject_proposal(uuid,text,text,text)`     | 0010, 0027              | **0027**  |
 | `wk_split_proposal(uuid,text,text[],text)`    | 0020, 0027              | **0027**  |
+| `wk_search_hybrid(uuid,text,text,text,int)`   | 0018, 0041              | **0041**  |
 | `wk_search_sources(uuid,text,int,…)`          | 0017, 0040              | **0040**  |
-| `wk_search_sources_hybrid(uuid,text,text,…)`  | 0018, 0040              | **0040**  |
+| `wk_search_sources_hybrid(uuid,text,text,…)`  | 0018, 0040, 0041        | **0041**  |
 
-All but the last two are same-signature `create or replace`, so exactly one body
-exists per function and the later file is authoritative. None of them created an
-accidental overload — that would be the dangerous case, because Postgres would
-keep _both_ bodies and resolve by argument type. When you add an argument you
-are creating a new function, not replacing one; 0010 is the worked example.
+Most are same-signature `create or replace`, so exactly one body exists per
+function and the later file is authoritative. None of them created an accidental
+overload — that would be the dangerous case, because Postgres would keep _both_
+bodies and resolve by argument type. When you add an argument you are creating a
+new function, not replacing one; 0010 is the worked example.
 
-The last two are that other case, handled deliberately: 0040 appends three
-defaulted filter parameters to the source-search functions, which is a new
-signature, so it **drops** the earlier one in the same file. Leaving it would
-not have been conservative — a call with the old argument count matches both
-candidates, and Postgres answers `function is not unique` rather than picking
-the older body. With one function left, its defaults answer the old call
-exactly as before.
+`wk_search_sources` and `wk_search_sources_hybrid` are that other case, handled
+deliberately: 0040 appends three defaulted filter parameters to the
+source-search functions, which is a new signature, so it **drops** the earlier
+one in the same file. Leaving it would not have been conservative — a call with
+the old argument count matches both candidates, and Postgres answers `function
+is not unique` rather than picking the older body. With one function left, its
+defaults answer the old call exactly as before.
 
-Three traps this directory already contains:
+The third declaration on the two hybrid functions is not evolution at all. 0018
+wraps every vector object in a pgvector guard, so a host without the extension
+records 0018 as applied having created nothing — and since an applied tag is
+never re-executed, installing pgvector afterwards cannot bring those objects
+into being. 0041 replays them under the same guard, taking the source-hybrid
+body verbatim from 0040 rather than 0018: replaying 0018's would restore the
+four-argument signature that `src/db/postgres.ts` no longer calls. 0018 and 0040
+stay authoritative for a fresh install; on a host that had pgvector all along,
+0041 replaces each object with the definition already standing there.
+
+Four traps this directory already contains:
 
 - `wk_split_proposal` in **0020** validates `review_channel` against
   `('rest','mcp_elicitation')`. 0027 widened that whitelist to include
@@ -323,6 +334,10 @@ Three traps this directory already contains:
   never been redeclared, so there the number still matches.
 - `wk_search_config()` is declared in 0001 and **dropped** in 0016. It has no
   live definition at all.
+- A **guarded** migration is journalled as applied whether or not its guard let
+  anything through. 0018 creates no vector object on a host without pgvector,
+  yet its tag is recorded, so the schema a tag implies is not always the schema
+  a database has. Repairing that needs a new tag (0041), never a re-run.
 
 Redeclaring in full — rather than patching the earlier file — is the right call
 precisely because the history is append-only. A migration is a record of an

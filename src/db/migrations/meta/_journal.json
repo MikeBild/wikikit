@@ -247,6 +247,12 @@
       "tag": "0040_wk_search_sources_filters",
       "when": 1785052800000,
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "tag": "0041_wk_embeddings_repair",
+      "when": 1785056400000,
+      "breakpoints": true
     }
   ]
 }

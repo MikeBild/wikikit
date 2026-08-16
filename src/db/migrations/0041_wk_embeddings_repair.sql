@@ -1,46 +1,33 @@
--- Optional embeddings — a SECOND ranker for retrieval, never a replacement.
+-- Repair path for an installation that gained pgvector AFTER 0018 was
+-- journalled. It creates nothing new: it restores the objects 0018 and 0040
+-- would have created had the extension been available when they ran.
 --
---   * Lexical FTS (0016/0017) stays the deterministic floor: everything
---     vector-related in this migration is wrapped in a pgvector guard and
---     no-ops cleanly on a server without the extension. TypeScript only ever
---     calls the hybrid functions after a startup capability probe AND with a
---     configured embedding provider — retrieval never fails because of
---     embeddings, it silently stays lexical.
---   * wk_embeddings is a SIDE table (one row per object × model), not
---     columns on the hot tables: one guarded object instead of three guarded
---     ALTERs, uniform for revisions/claims/source chunks, and hot-table
---     shapes stay identical across deployments with and without pgvector.
---   * Fusion is Reciprocal Rank Fusion (k=60) over RANK POSITIONS, computed
---     in SQL: rrf = 1/(60+lex_pos) + 1/(60+vec_pos), with coalesce so a
---     hit found by only one arm still ranks (partially-embedded corpora stay
---     correct during backfill). Deterministic and explainable — matched_via
---     reports which arm(s) found each hit.
---   * Visibility is restated in BOTH arms (current revisions, visible claim
---     statuses): proposed content stays invisible by construction in the
---     vector arm too, not by filter discipline.
---   * Dimensions are pinned to 1536 (text-embedding-3-small native;
---     gemini requested at 1536) — the provider layer refuses mismatched
---     models loudly.
-
--- Unconditional: the audit ledger learns the 'embed' kind (adjudicate has
--- been allowed since 0002). Must land before the embedder worker ships.
-alter table public.wk_agent_runs
-  drop constraint if exists wk_agent_runs_kind_check;
-
-alter table public.wk_agent_runs
-  add constraint wk_agent_runs_kind_check
-  check (kind in ('classify', 'synthesize', 'answer', 'distill', 'adjudicate', 'embed'));
-
--- Everything below requires pgvector. A deployment without it gets a clean
--- no-op, and this tag is journalled as applied all the same — the runner never
--- re-executes a recorded tag, so adding pgvector later cannot bring these
--- objects into being from here. 0041 is the repair path for that host.
--- Restoring a post-0018 dump onto a server without pgvector is out of scope
--- (documented).
+-- WHY a new tag rather than re-running 0018. The runner never re-executes a
+-- recorded tag — a matching hash is skipped and a drifted hash is backfilled
+-- in place, without running the file (src/db/migrate.ts). A host that ran 0018
+-- while pgvector was absent has 0018 recorded and none of its guarded objects,
+-- and no re-run of migrations will ever create them. A tag the journal has not
+-- seen is the only thing the runner will execute.
+--
+-- WHY the bodies are duplicated. 0018 and 0040 remain authoritative for a
+-- fresh install: they run in order and produce exactly this shape. This file
+-- is the repair path only, and on a host that already owns the objects it
+-- replaces them with definitions identical to the ones already there.
+--
+-- WHY wk_search_sources_hybrid is copied from 0040 and not from 0018. 0040
+-- dropped 0018's four-argument signature and redeclared it with seven;
+-- src/db/postgres.ts pins the seven-argument call. Replaying 0018's body here
+-- would leave the narrow signature standing and break every
+-- approved_then_sources search. The copy is verbatim so the two cannot
+-- diverge.
+--
+-- Every statement is idempotent (if not exists / or replace) and the whole
+-- block carries 0018's guard: without the extension this is a clean no-op and
+-- retrieval stays lexical.
 do $guard$
 begin
   if not exists (select 1 from pg_available_extensions where name = 'vector') then
-    raise notice 'pgvector not available — skipping wk_embeddings (retrieval stays lexical)';
+    raise notice 'pgvector not available — skipping wk_embeddings repair (retrieval stays lexical)';
     return;
   end if;
 
@@ -61,7 +48,6 @@ begin
 
   execute 'create index if not exists wk_embeddings_hnsw_idx on public.wk_embeddings using hnsw (embedding vector_cosine_ops)';
   execute 'create index if not exists wk_embeddings_space_idx on public.wk_embeddings (space_id)';
-
   -- Hybrid search over approved knowledge: wk_search's lexical arms + a
   -- cosine-distance arm over wk_embeddings, fused by RRF. Same visibility
   -- joins as wk_search, same headline pass; new columns rank (= rrf score)
@@ -209,13 +195,18 @@ begin
     $body$
   $fn$;
 
-  -- Hybrid over the source-evidence tier (wk_source_chunks), same fusion.
+  -- Source-evidence tier — body verbatim from 0040 (see header).
+  execute 'drop function if exists public.wk_search_sources_hybrid(uuid, text, text, int)';
+
   execute $fn$
     create or replace function public.wk_search_sources_hybrid(
       p_space_id uuid,
       p_query text,
       p_embedding text,
-      p_limit int default 20
+      p_limit int default 20,
+      p_from timestamptz default null,
+      p_to timestamptz default null,
+      p_source_kind text default null
     )
     returns table (
       source_id uuid,
@@ -241,9 +232,13 @@ begin
         select ch.id as chunk_id, ts_rank(ch.search_vector, query.ts) as lex_rank,
                row_number() over (order by ts_rank(ch.search_vector, query.ts) desc) as pos
         from wk_source_chunks ch
+        join wk_sources s on s.id = ch.source_id
         cross join query
         where ch.space_id = p_space_id
           and ch.search_vector @@ query.ts
+          and (p_from is null or s.created_at >= p_from)
+          and (p_to is null or s.created_at < p_to)
+          and (p_source_kind is null or s.metadata->>'source_kind' = p_source_kind)
         order by lex_rank desc
         limit (p_limit * 4)
       ),
@@ -251,9 +246,14 @@ begin
         select e.object_id as chunk_id,
                row_number() over (order by e.embedding <=> query.emb) as pos
         from wk_embeddings e
+        join wk_source_chunks ch on ch.id = e.object_id
+        join wk_sources s on s.id = ch.source_id
         cross join query
         where e.space_id = p_space_id
           and e.object_kind = 'source_chunk'
+          and (p_from is null or s.created_at >= p_from)
+          and (p_to is null or s.created_at < p_to)
+          and (p_source_kind is null or s.metadata->>'source_kind' = p_source_kind)
         order by (e.embedding <=> query.emb) asc
         limit (p_limit * 4)
       ),

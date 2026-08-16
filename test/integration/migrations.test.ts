@@ -106,6 +106,64 @@ describe('migrations (integration)', () => {
     expect(await detectMigrationDrift(client)).toEqual({ unknown_in_db: [], missing_in_db: [] })
   })
 
+  it('0041 repairs a host that gained pgvector after 0018 was journalled', async () => {
+    // The state this migration exists for: 0018 ran while the extension was
+    // unavailable, so its guard created nothing and its tag was recorded all
+    // the same. Because a recorded tag is never re-executed, only a tag the
+    // journal has not seen can create those objects. Dropping them and
+    // forgetting the repair tag reproduces that host exactly.
+    const repair = EMBEDDED_MIGRATIONS.find((migration) => migration.tag === '0041_wk_embeddings_repair')
+    expect(repair, 'the repair migration must ship in the embedded bundle').toBeDefined()
+
+    const availability = await client.query(`SELECT 1 FROM pg_available_extensions WHERE name = 'vector'`)
+    const pgvector = availability.rows.length > 0
+
+    await client.query(`DROP FUNCTION IF EXISTS public.wk_search_hybrid(uuid,text,text,text,int)`)
+    await client.query(
+      `DROP FUNCTION IF EXISTS public.wk_search_sources_hybrid(uuid,text,text,int,timestamptz,timestamptz,text)`,
+    )
+    await client.query(`DROP TABLE IF EXISTS public.wk_embeddings`)
+    await client.query(`DELETE FROM public.wk_migrations WHERE tag = '0041_wk_embeddings_repair'`)
+
+    const report = await runMigrations({ databaseUrl: url })
+    expect(report.applied).toEqual(['0041_wk_embeddings_repair'])
+
+    const shape = async () => {
+      const fns = await client.query<{ proname: string; pronargs: number }>(
+        `SELECT proname, pronargs
+           FROM pg_proc JOIN pg_namespace n ON n.oid = pronamespace
+          WHERE n.nspname = 'public' AND proname IN ('wk_search_hybrid', 'wk_search_sources_hybrid')
+          ORDER BY proname`,
+      )
+      const indexes = await client.query(`SELECT indexname FROM pg_indexes WHERE tablename = 'wk_embeddings'`)
+      return { fns: fns.rows, indexes: indexes.rows.length }
+    }
+
+    const repaired = await shape()
+    if (!pgvector) {
+      // Without the extension the file is a clean no-op — it is journalled as
+      // applied and the schema is unchanged, which is a valid schema.
+      expect(repaired.fns).toEqual([])
+      expect(repaired.indexes).toBe(0)
+      return
+    }
+
+    // Exactly one of each function, and the source twin at SEVEN arguments:
+    // replaying 0018's four-argument body instead of 0040's would leave a
+    // signature src/db/postgres.ts no longer calls, breaking every
+    // approved_then_sources search.
+    expect(repaired.fns.map((row) => row.proname)).toEqual(['wk_search_hybrid', 'wk_search_sources_hybrid'])
+    expect(Number(repaired.fns[0]!.pronargs)).toBe(5)
+    expect(Number(repaired.fns[1]!.pronargs)).toBe(7)
+    expect(repaired.indexes).toBe(4) // pkey + unique + hnsw + space
+
+    // Idempotent: the repair also runs on a host that already has everything,
+    // which is every host that had pgvector before 0018 ran. Replayed
+    // statement-for-statement it must add nothing and duplicate nothing.
+    for (const statement of repair!.statements) await client.query(statement)
+    expect(await shape()).toEqual(repaired)
+  })
+
   it('the query layer knows exactly the tables the migrations made', async () => {
     // TABLES in src/db/postgres.ts is hand-written, and this is the only thing
     // that holds it to reality. assertKnownWkIdentifiers scans the text of

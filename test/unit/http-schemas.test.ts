@@ -14,6 +14,7 @@ import {
   zReadyResponse,
   zReviewRequest,
   zSearchQuery,
+  zSearchResponse,
   zUpdateSpaceSettingsRequest,
   zUpsertIdentityRequest,
 } from '../../src/http/schemas.ts'
@@ -54,6 +55,42 @@ describe('http schemas', () => {
       source_id: '00000000-0000-0000-0000-000000000001',
     })
     expect((parsed as Record<string, unknown>).source_id).toBe('00000000-0000-0000-0000-000000000001')
+  })
+
+  test('search hits carry matched_via when the hybrid ranker answered, and omit it otherwise', () => {
+    // The three values are produced by the fusion CASE in 0018/0040/0041; the
+    // wire may not invent a fourth. Absence is meaningful: a deployment
+    // without pgvector or without an embedding provider ran one arm, and
+    // naming it would imply a choice was made between two.
+    const hit = {
+      kind: 'concept',
+      tier: 'approved',
+      slug: 'wikikit',
+      claim_id: null,
+      title: 'WikiKit',
+      headline: '<mark>WikiKit</mark>',
+      rank: 0.42,
+      source_id: null,
+      chunk_id: null,
+      url: null,
+      heading: null,
+      space: 'demo',
+    }
+    const response = (matched_via?: string) => ({
+      hits: [matched_via === undefined ? hit : { ...hit, matched_via }],
+      searched_spaces: ['demo'],
+    })
+
+    expect(zSearchResponse.safeParse(response()).success).toBe(true)
+    for (const value of ['lexical', 'vector', 'both']) {
+      expect(zSearchResponse.safeParse(response(value)).success).toBe(true)
+    }
+    expect(zSearchResponse.safeParse(response('hybrid')).success).toBe(false)
+    expect(zSearchResponse.safeParse(response('')).success).toBe(false)
+
+    const parsed = zSearchResponse.parse(response('both'))
+    expect(parsed.hits[0]!.matched_via).toBe('both')
+    expect(zSearchResponse.parse(response()).hits[0]!.matched_via).toBeUndefined()
   })
 
   test('space settings validate the retrieval-critical language key, stay free-form otherwise', () => {

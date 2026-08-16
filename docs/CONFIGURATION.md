@@ -302,6 +302,35 @@ A **promoted** output is never collected at any setting: its markdown already
 lives on as an archived source, and the row is the link from that source back to
 the answer it came from.
 
+## Hybrid retrieval needs pgvector on the host first (`WIKIKIT_EMBEDDING_PROVIDER`)
+
+Setting a provider and a key is the second half of enabling hybrid retrieval.
+The first half happens outside WikiKit: **pgvector must be installed as an
+operating-system package on the database host** — `postgresql-18-pgvector` on
+Debian and Ubuntu, or a Postgres image that already carries it — before any
+`create extension vector` can succeed. Without the package the extension is not
+merely disabled, it is unavailable, and every vector object WikiKit ships is
+guarded so that the schema still migrates cleanly.
+
+The consequence to know before you upgrade a running installation: migration
+0018 records itself as applied even when its guard skipped everything, and the
+migration runner never re-executes a recorded tag. **Installing pgvector later
+and re-running migrations therefore does not create the missing objects** —
+0018 is already in the journal and will be skipped. Migration 0041 exists for
+exactly that host: it is a new tag, so the runner executes it, and it creates
+the extension, `wk_embeddings` and both hybrid search functions. It is a no-op
+where pgvector is still absent and a no-op where the objects already exist, so
+running it costs nothing either way.
+
+Until both halves are in place retrieval stays lexical, which is the designed
+floor rather than a failure — search, read and lint work identically. The one
+combination worth watching is a configured provider on a host without the
+extension: that deployment looks equipped and silently produces no embeddings.
+Boot names it, so check the log rather than guessing — the listening line
+carries `vector_available`, and a configured-but-unavailable pairing raises a
+warning that says retrieval stays lexical. Neither ever stops the server
+starting.
+
 ## The retrieval index window for sources (`WIKIKIT_SOURCE_INDEX_DAYS`)
 
 An installation whose ingest is automated archives evidence faster than anybody

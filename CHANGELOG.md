@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.42.0 - 2026-08-16
+
+### Fixed
+
+- **A wiki that gained pgvector after its first boot can finally have it.**
+  Migration 0018 wraps every vector object in a guard, so a database whose host
+  had no pgvector recorded 0018 as applied having created nothing — no
+  `wk_embeddings`, no hybrid search functions. Installing the extension later
+  fixed nothing, because the runner never re-executes a recorded tag: a
+  matching hash is skipped and a drifted hash is backfilled in place. The
+  instruction 0018 itself gave — "re-run migrations" — was advice this codebase
+  cannot take, and that sentence is corrected. `0041_wk_embeddings_repair` is
+  the supported path: a tag the journal has not seen, guarded exactly like
+  0018, idempotent throughout, and therefore a no-op both where pgvector is
+  still absent and where the objects already stand. It takes the
+  source-evidence body verbatim from 0040 rather than replaying 0018's, because
+  0040 dropped the four-argument signature for a seven-argument one and the
+  runtime pins the wider call — a repair that replayed 0018 alone would have
+  restored the narrow function and broken every `approved_then_sources` search.
+  0018 and 0040 remain authoritative for a fresh install.
+
+### Added
+
+- **Degrading to lexical retrieval is no longer silent.** The listening line
+  reports `vector_available` beside `llm_configured`, and a configured
+  embedding provider on a host without pgvector now raises a warning that names
+  the consequence rather than the symptom: retrieval stays lexical and no
+  embeddings are produced. That combination is the one worth interrupting for,
+  because the deployment looks fully equipped from its environment alone and
+  says nothing while doing half the work. Availability still never gates
+  startup — the server boots either way, which is the existing doctrine and not
+  something an observability change gets to revisit.
+- **`matched_via` is now part of the response contract.** The hybrid SQL has
+  always reported which arm found a hit (`lexical`, `vector` or `both`), the
+  code has always carried it and CONTRACTS has always documented it, but the
+  field was missing from `zSearchResponse` and so never reached OpenAPI or a
+  generated client. It is optional by design: a lexical-only deployment omits
+  it rather than reporting an arm that was never chosen.
+
 ## 0.41.0 - 2026-08-15
 
 ### Added

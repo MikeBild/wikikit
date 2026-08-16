@@ -728,6 +728,11 @@ export const zSearchResponse = z.object({
       // archived source chunk (not yet curated). Approved hits always come
       // first — tiers are ranked independently, never interleaved.
       tier: z.enum(['approved', 'source_evidence']),
+      // Which arm(s) of the hybrid ranker found the hit. Absent on every
+      // lexical-only search — a deployment without pgvector or without an
+      // embedding provider has one arm, and naming it would imply a choice was
+      // made. Present, it explains a rank that lexical scoring alone cannot.
+      matched_via: z.enum(['lexical', 'vector', 'both']).optional(),
       slug: z.string().nullable(),
       claim_id: z.uuid().nullable(),
       title: z.string(),

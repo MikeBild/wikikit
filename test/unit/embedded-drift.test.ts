@@ -58,4 +58,32 @@ describe('embedded migrations drift', () => {
     const search = EMBEDDED_MIGRATIONS.find((migration) => migration.tag === '0001_wk_search')!
     expect(search.sql).toContain('create or replace function public.wk_search(')
   })
+
+  test('the pgvector repair ships guarded and idempotent — checkable without a database', () => {
+    // 0041 exists because a recorded tag is never re-executed, so a host that
+    // ran 0018 without pgvector can never get those objects from 0018. Two
+    // properties make shipping it safe everywhere, and both are textual: it
+    // no-ops where the extension is unavailable, and it can run on a host that
+    // already has every object.
+    const repair = EMBEDDED_MIGRATIONS.find((migration) => migration.tag === '0041_wk_embeddings_repair')!
+    expect(repair, 'the repair migration must be journalled and embedded').toBeDefined()
+    expect(repair.sql).toContain("pg_available_extensions where name = 'vector'")
+    expect(repair.sql).toContain('create extension if not exists vector')
+    expect(repair.sql).toContain('create table if not exists public.wk_embeddings')
+    expect(repair.sql).toContain('create index if not exists wk_embeddings_hnsw_idx')
+    expect(repair.sql).toContain('create index if not exists wk_embeddings_space_idx')
+    expect(repair.sql).toContain('create or replace function public.wk_search_hybrid(')
+    expect(repair.sql).toContain('create or replace function public.wk_search_sources_hybrid(')
+
+    // The source twin must be 0040's SEVEN-argument body, never 0018's four:
+    // src/db/postgres.ts pins the wider call, so a repair carrying the narrow
+    // signature would break every approved_then_sources search.
+    const sourcesHybrid = repair.sql.slice(
+      repair.sql.indexOf('create or replace function public.wk_search_sources_hybrid('),
+    )
+    expect(sourcesHybrid).toContain('p_source_kind text default null')
+    const live = EMBEDDED_MIGRATIONS.find((migration) => migration.tag === '0040_wk_search_sources_filters')!
+    const bodyOf = (sql: string) => sql.slice(sql.indexOf('as $body$'), sql.lastIndexOf('$body$'))
+    expect(bodyOf(sourcesHybrid)).toBe(bodyOf(live.sql.slice(live.sql.indexOf('wk_search_sources_hybrid('))))
+  })
 })

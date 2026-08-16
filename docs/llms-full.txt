@@ -119,7 +119,7 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/deleted-concepts`         | knowledge:read    | List deleted concept tombstones for audit and restoration |
 | DELETE | `/v1/spaces/{space}/concepts/{slug}`          | knowledge:propose | Stage page deletion for human review; history retained |
 | POST   | `/v1/spaces/{space}/concepts/{slug}/restore`  | knowledge:propose | Stage restoration of the last visible revision for review |
-| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list. `?mode=approved_then_sources` appends the archived-source tier, and `?evidence_from=`/`?evidence_to=` (ISO instants, half-open) plus `?evidence_source_kind=meeting\|article\|note` narrow THAT tier only — approved hits are answered identically with the filters set |
+| GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list. `?mode=approved_then_sources` appends the archived-source tier, and `?evidence_from=`/`?evidence_to=` (ISO instants, half-open) plus `?evidence_source_kind=meeting\|article\|note` narrow THAT tier only — approved hits are answered identically with the filters set. Hits carry `matched_via` (`lexical`/`vector`/`both`) when the hybrid ranker answered, and omit it otherwise |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key). Takes the same `evidence_*` filters as search, so an answer never leans on archived sources the list beside it excluded. The answer is kept as an output; the response additively carries `output_id` (null only if the row could not be written) |
 | GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read    | What this wiki produced, newest-first: answers, scheduled briefings, health reports (`?kind=answer\|briefing\|health`, `?limit=`, `?cursor=`); rows carry the full markdown |
 | GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
@@ -939,7 +939,7 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_MODEL_SYNTHESIS` | synthesis model | `claude-sonnet-5` |
 | `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation | `claude-haiku-4-5` |
 | `WIKIKIT_MODEL_ANSWER` | grounded-answer model | `claude-sonnet-5` |
-| `WIKIKIT_EMBEDDING_PROVIDER` | optional hybrid-retrieval embedding provider: `none`/`openai`/`google` | `none` (lexical-only) |
+| `WIKIKIT_EMBEDDING_PROVIDER` | optional hybrid-retrieval embedding provider: `none`/`openai`/`google`; also needs pgvector installed on the database host as an OS package | `none` (lexical-only) |
 | `WIKIKIT_MODEL_EMBEDDING` | embedding model (must produce 1536-dim vectors) | `text-embedding-3-small` |
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
 | `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
@@ -1007,7 +1007,12 @@ client secrets in the production secret store, never in the repository.
   `--migrate` migrates and exits, `--version` prints the version.
 - **Self-migrating boot:** every start (and `--migrate`) applies the embedded
   SQL migrations under a Postgres advisory lock before HTTP opens; a migration
-  failure keeps `/ready` down so the deploy health gate rolls back.
+  failure keeps `/ready` down so the deploy health gate rolls back. A recorded
+  tag is never re-executed, so a guarded migration that skipped its body (0018,
+  behind pgvector) stays skipped forever — installing pgvector afterwards needs
+  the new tag 0041, which creates what 0018 could not and no-ops everywhere
+  else. Boot reports `vector_available` and warns when an embedding provider is
+  configured without the extension; neither gates startup.
 - **Cockpit:** the one human interface, served by this same process at
   `/cockpit` and built into the same artifact — a space reads as a wiki, a
   concept as a Markdown page, and an edit becomes a change proposal somebody
