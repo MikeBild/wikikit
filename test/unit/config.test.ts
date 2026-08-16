@@ -21,11 +21,16 @@ const MANAGED = [
   'WIKIKIT_KEY_PEPPER',
   'WIKIKIT_BOOTSTRAP_API_KEY',
   'DEPLOYMENT_ENVIRONMENT',
+  'WIKIKIT_LLM_PROVIDER',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'OPENAI_API_KEY',
+  'GOOGLE_GENERATIVE_AI_API_KEY',
   'WIKIKIT_MODEL_SYNTHESIS',
   'WIKIKIT_MODEL_CLASSIFY',
   'WIKIKIT_MODEL_ANSWER',
+  'WIKIKIT_EMBEDDING_PROVIDER',
+  'WIKIKIT_MODEL_EMBEDDING',
   'WIKIKIT_MAX_BODY_BYTES',
   'WIKIKIT_MAX_INGEST_TOKENS',
   'WIKIKIT_INGEST_CONCURRENCY',
@@ -491,6 +496,101 @@ describe('the operator session ceiling', () => {
     const hours = /least\(absolute_expires_at, now\(\) \+ interval '(\d+) hours'\)/.exec(server)?.[1]
     expect(hours, 'the renewing UPDATE no longer states its idle window as an hours interval').toBeDefined()
     expect(Number(hours) * 60 * 60 * 1000).toBe(IDLE_MS)
+  })
+})
+
+describe('a model id belonging to another provider', () => {
+  // The provider switch that survived boot and died on the first query: model
+  // ids do not carry across providers, /ready only proves a key is present,
+  // and the caller who paid for the mismatch had already been told 202/200.
+  const FOREIGN: Record<string, string> = {
+    WIKIKIT_MODEL_SYNTHESIS: 'claude-sonnet-5',
+    WIKIKIT_MODEL_CLASSIFY: 'claude-haiku-4-5',
+    WIKIKIT_MODEL_ANSWER: 'claude-sonnet-5',
+  }
+  const OPENAI_MODELS: Record<string, string> = {
+    WIKIKIT_MODEL_SYNTHESIS: 'gpt-5',
+    WIKIKIT_MODEL_CLASSIFY: 'gpt-5-mini',
+    WIKIKIT_MODEL_ANSWER: 'gpt-5',
+  }
+
+  for (const setting of Object.keys(FOREIGN)) {
+    test(`${setting} naming a foreign provider fails the boot`, () => {
+      Object.assign(process.env, OPENAI_MODELS, {
+        WIKIKIT_LLM_PROVIDER: 'openai',
+        [setting]: FOREIGN[setting]!,
+      })
+      expect(() => loadConfig()).toThrow(new RegExp(`^${setting}=${FOREIGN[setting]!}`))
+    })
+  }
+
+  test('the message names the setting, the model, both providers and the two repairs', () => {
+    Object.assign(process.env, OPENAI_MODELS, {
+      WIKIKIT_LLM_PROVIDER: 'openai',
+      WIKIKIT_MODEL_ANSWER: 'gemini-3-pro',
+    })
+    expect(() => loadConfig()).toThrow(
+      'WIKIKIT_MODEL_ANSWER=gemini-3-pro is a model id for google, but WIKIKIT_LLM_PROVIDER=openai — ' +
+        'set WIKIKIT_MODEL_ANSWER to a model id for openai, or set WIKIKIT_LLM_PROVIDER=google',
+    )
+  })
+
+  test('an id no provider claims boots — the check catches a mismatch, it does not keep a model registry', () => {
+    // The asymmetry is the point: WikiKit runs as a binary for months, so a
+    // model id released after this build must never be what stops a boot.
+    Object.assign(process.env, {
+      WIKIKIT_LLM_PROVIDER: 'openai',
+      WIKIKIT_MODEL_SYNTHESIS: 'a-model-that-does-not-exist-yet',
+      WIKIKIT_MODEL_CLASSIFY: 'openai/gpt-6-nano',
+      WIKIKIT_MODEL_ANSWER: 'anthropic.claude-sonnet-9',
+    })
+    expect(loadConfig().modelSynthesis).toBe('a-model-that-does-not-exist-yet')
+  })
+
+  test('every pairing WikiKit has shipped still boots', () => {
+    Object.assign(process.env, OPENAI_MODELS, { WIKIKIT_LLM_PROVIDER: 'openai' })
+    expect(loadConfig().llmProvider).toBe('openai')
+
+    Object.assign(process.env, FOREIGN, { WIKIKIT_LLM_PROVIDER: 'anthropic' })
+    expect(loadConfig().modelClassify).toBe('claude-haiku-4-5')
+
+    Object.assign(process.env, {
+      WIKIKIT_LLM_PROVIDER: 'google',
+      WIKIKIT_MODEL_SYNTHESIS: 'gemini-3-pro',
+      WIKIKIT_MODEL_CLASSIFY: 'gemini-3-flash',
+      WIKIKIT_MODEL_ANSWER: 'gemini-3-pro',
+    })
+    expect(loadConfig().llmProvider).toBe('google')
+
+    // The defaults alone, which are anthropic ids on the anthropic default.
+    for (const name of ['WIKIKIT_LLM_PROVIDER', ...Object.keys(FOREIGN)]) delete process.env[name]
+    expect(loadConfig().modelAnswer).toBe('claude-sonnet-5')
+  })
+
+  test('the embedding model answers to its own provider, and only while one is selected', () => {
+    // Same mismatch, quieter: the embedder is a background worker, so the
+    // foreign id would surface as log noise rather than as a failed request.
+    process.env.OPENAI_API_KEY = 'sk-test'
+    process.env.WIKIKIT_EMBEDDING_PROVIDER = 'openai'
+    process.env.WIKIKIT_MODEL_EMBEDDING = 'gemini-embedding-001'
+    expect(() => loadConfig()).toThrow(
+      'WIKIKIT_MODEL_EMBEDDING=gemini-embedding-001 is a model id for google, but ' +
+        'WIKIKIT_EMBEDDING_PROVIDER=openai — set WIKIKIT_MODEL_EMBEDDING to a model id for openai, ' +
+        'or set WIKIKIT_EMBEDDING_PROVIDER=google',
+    )
+
+    // 'none' carries the value but sends it nowhere, so it cannot be wrong.
+    process.env.WIKIKIT_EMBEDDING_PROVIDER = 'none'
+    expect(loadConfig().modelEmbedding).toBe('gemini-embedding-001')
+
+    // Both shipped embedding defaults, each under the provider it defaults for.
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = 'g-test'
+    process.env.WIKIKIT_EMBEDDING_PROVIDER = 'google'
+    expect(loadConfig().embeddingConfigured).toBe(true)
+
+    process.env.WIKIKIT_EMBEDDING_PROVIDER = 'openai'
+    process.env.WIKIKIT_MODEL_EMBEDDING = 'text-embedding-3-small'
+    expect(loadConfig().modelEmbedding).toBe('text-embedding-3-small')
   })
 })
 

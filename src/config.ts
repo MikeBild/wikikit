@@ -662,6 +662,54 @@ export const LLM_PROVIDER_KEY_ENV: Record<LlmProviderName, string> = {
   google: 'GOOGLE_GENERATIVE_AI_API_KEY',
 }
 
+/**
+ * Which provider a model id names, or undefined when the id has a shape this
+ * build does not recognise.
+ *
+ * A heuristic, and the asymmetry is deliberate: a recognised FOREIGN id refuses
+ * the boot, an unrecognised id passes. WikiKit ships as a binary an operator
+ * runs for months, so a guard holding a list of valid model names would reject
+ * the first id released after the build — costing more boots than the mismatch
+ * it prevents. This catches an obvious mismatch; it is not a model registry and
+ * it never rules on whether a model exists.
+ *
+ * Anchored at the start of the id so a namespaced routing id (`anthropic.claude-…`,
+ * a gateway prefix) reads as unrecognised rather than as a claim about a
+ * provider WikiKit does not itself route to.
+ */
+const MODEL_ID_PROVIDERS: readonly (readonly [RegExp, LlmProviderName])[] = [
+  [/^claude-/i, 'anthropic'],
+  [/^(gpt-|o[0-9])/i, 'openai'],
+  [/^gemini-/i, 'google'],
+]
+
+function providerNamedByModelId(model: string): LlmProviderName | undefined {
+  const id = model.trim()
+  return MODEL_ID_PROVIDERS.find(([shape]) => shape.test(id))?.[1]
+}
+
+/**
+ * Model ids do not carry across providers: the selected provider 404s an id
+ * belonging to another one. Nothing before this made that a boot failure, so
+ * the mistake was accepted by config, reported healthy by /ready, and paid for
+ * by the first caller whose request had already been accepted.
+ *
+ * Only settings whose model is actually READ are checked — an unused default
+ * must not refuse a boot for a call that will never be made.
+ */
+function requireModelMatchesProvider(
+  setting: string,
+  model: string,
+  provider: LlmProviderName,
+  providerSetting: string,
+): void {
+  const named = providerNamedByModelId(model)
+  if (named === undefined || named === provider) return
+  throw new Error(
+    `${setting}=${model} is a model id for ${named}, but ${providerSetting}=${provider} — set ${setting} to a model id for ${provider}, or set ${providerSetting}=${named}`,
+  )
+}
+
 export function loadConfig(): Config {
   loadEnvironment()
   const production = process.env.NODE_ENV === 'production'
@@ -681,6 +729,19 @@ export function loadConfig(): Config {
   }
   const llmApiKey = providerKeys[llmProvider]
 
+  // The three call kinds each name their own model, and each is read on a live
+  // request — so each is checked against the selected provider at boot.
+  const modelSynthesis = str('WIKIKIT_MODEL_SYNTHESIS', 'claude-sonnet-5')
+  const modelClassify = str('WIKIKIT_MODEL_CLASSIFY', 'claude-haiku-4-5')
+  const modelAnswer = str('WIKIKIT_MODEL_ANSWER', 'claude-sonnet-5')
+  for (const [setting, model] of [
+    ['WIKIKIT_MODEL_SYNTHESIS', modelSynthesis],
+    ['WIKIKIT_MODEL_CLASSIFY', modelClassify],
+    ['WIKIKIT_MODEL_ANSWER', modelAnswer],
+  ] as const) {
+    requireModelMatchesProvider(setting, model, llmProvider, 'WIKIKIT_LLM_PROVIDER')
+  }
+
   // Embedding provider (hybrid retrieval ranker). Separate knob from the LLM
   // provider: anthropic cannot embed, and lexical-only deployments are
   // first-class ('none' default). A named provider without its key fails the
@@ -693,6 +754,24 @@ export function loadConfig(): Config {
   if (embeddingProvider !== 'none' && !providerKeys[embeddingProvider]) {
     throw new Error(
       `WIKIKIT_EMBEDDING_PROVIDER=${embeddingProvider} requires ${LLM_PROVIDER_KEY_ENV[embeddingProvider]}`,
+    )
+  }
+  // 1536 dimensions is pinned in the wk_embeddings schema — both defaults
+  // produce (or are configured to produce) 1536-dim vectors.
+  const modelEmbedding = str(
+    'WIKIKIT_MODEL_EMBEDDING',
+    embeddingProvider === 'google' ? 'gemini-embedding-001' : 'text-embedding-3-small',
+  )
+  // Same mismatch, quieter failure: the embedder is a background worker, so a
+  // foreign id shows up as retrying errors in the log rather than as a 500 a
+  // caller can see. Checked only when a provider is selected — with 'none' the
+  // value is carried but never sent anywhere.
+  if (embeddingProvider !== 'none') {
+    requireModelMatchesProvider(
+      'WIKIKIT_MODEL_EMBEDDING',
+      modelEmbedding,
+      embeddingProvider,
+      'WIKIKIT_EMBEDDING_PROVIDER',
     )
   }
 
@@ -782,9 +861,9 @@ export function loadConfig(): Config {
     // Surfaced so the AI SDK anthropic provider (and the e2e stub) can point at
     // a non-default base URL; honored only when provider=anthropic.
     anthropicBaseUrl: str('ANTHROPIC_BASE_URL').replace(/\/$/, ''),
-    modelSynthesis: str('WIKIKIT_MODEL_SYNTHESIS', 'claude-sonnet-5'),
-    modelClassify: str('WIKIKIT_MODEL_CLASSIFY', 'claude-haiku-4-5'),
-    modelAnswer: str('WIKIKIT_MODEL_ANSWER', 'claude-sonnet-5'),
+    modelSynthesis,
+    modelClassify,
+    modelAnswer,
     maxBodyBytes: integer('WIKIKIT_MAX_BODY_BYTES', 10 * 1024 * 1024, { min: 1024, max: 250 * 1024 * 1024 }),
     maxIngestTokens: integer('WIKIKIT_MAX_INGEST_TOKENS', 100_000, { min: 1000, max: 1_000_000 }),
     ingestConcurrency: integer('WIKIKIT_INGEST_CONCURRENCY', 2, { min: 1, max: 16 }),
@@ -853,12 +932,7 @@ export function loadConfig(): Config {
     version: VERSION,
     llmConfigured: llmApiKey.length > 0,
     embeddingProvider,
-    // 1536 dimensions is pinned in the wk_embeddings schema — both defaults
-    // produce (or are configured to produce) 1536-dim vectors.
-    modelEmbedding: str(
-      'WIKIKIT_MODEL_EMBEDDING',
-      embeddingProvider === 'google' ? 'gemini-embedding-001' : 'text-embedding-3-small',
-    ),
+    modelEmbedding,
     embeddingApiKey: embeddingProvider === 'none' ? '' : providerKeys[embeddingProvider],
     embeddingApiKeyEnv:
       embeddingProvider === 'none' ? 'WIKIKIT_EMBEDDING_PROVIDER' : LLM_PROVIDER_KEY_ENV[embeddingProvider],

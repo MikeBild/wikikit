@@ -496,7 +496,10 @@ The LLM runs through the Vercel AI SDK; the provider is config-selected
 (`WIKIKIT_LLM_PROVIDER` = `anthropic` (default) / `openai` / `google`) and only
 its API key has no default. Switching provider also means setting the three
 `WIKIKIT_MODEL_*` variables, whose defaults are Anthropic model ids that other
-providers 404 on. The structured-output JSON schema is WikiKit's own, shaped to
+providers 404 on — config refuses to boot when a model id recognisably belongs
+to a provider other than the selected one, naming the setting, both providers
+and the repair, while an id of unrecognised shape is allowed through so a model
+newer than the binary can never block a start. The structured-output JSON schema is WikiKit's own, shaped to
 the strictest provider: every property key appears in `required`, with optional
 ones nullable so a model can decline a field instead of inventing one. Without
 a key every LLM-free feature (search, read, history, lint, export, import,
@@ -941,11 +944,11 @@ Invalid values fail the boot, not the request.
 | `OPENAI_API_KEY` | key for the `openai` provider | (unset) |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | key for the `google` provider | (unset) |
 | `ANTHROPIC_BASE_URL` | Anthropic API base (test stubs); honored when provider is `anthropic` | (empty) |
-| `WIKIKIT_MODEL_SYNTHESIS` | synthesis model; default is an Anthropic id — set per provider | `claude-sonnet-5` |
-| `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation; set per provider | `claude-haiku-4-5` |
-| `WIKIKIT_MODEL_ANSWER` | grounded-answer model; default is an Anthropic id — set per provider | `claude-sonnet-5` |
+| `WIKIKIT_MODEL_SYNTHESIS` | synthesis model; default is an Anthropic id — set per provider, a foreign id fails the boot | `claude-sonnet-5` |
+| `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation; set per provider, a foreign id fails the boot | `claude-haiku-4-5` |
+| `WIKIKIT_MODEL_ANSWER` | grounded-answer model; default is an Anthropic id — set per provider, a foreign id fails the boot | `claude-sonnet-5` |
 | `WIKIKIT_EMBEDDING_PROVIDER` | optional hybrid-retrieval embedding provider: `none`/`openai`/`google`; also needs pgvector installed on the database host as an OS package | `none` (lexical-only) |
-| `WIKIKIT_MODEL_EMBEDDING` | embedding model (must produce 1536-dim vectors) | `text-embedding-3-small` |
+| `WIKIKIT_MODEL_EMBEDDING` | embedding model (must produce 1536-dim vectors); checked against `WIKIKIT_EMBEDDING_PROVIDER` at boot unless that is `none` | `text-embedding-3-small` |
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |
 | `WIKIKIT_MAX_INGEST_TOKENS` | chunking threshold for large sources | `100000` |
 | `WIKIKIT_INGEST_CONCURRENCY` | parallel ingest workers (1–16) | `2` |

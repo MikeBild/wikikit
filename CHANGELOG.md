@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.43.1 - 2026-08-16
+
+### Fixed
+
+- **A model id from the wrong provider now fails the boot, not the first
+  query.** `WIKIKIT_LLM_PROVIDER=openai` with the shipped `WIKIKIT_MODEL_*`
+  defaults — which are Anthropic ids — was accepted by config, reported
+  `ready` with `llm_configured: true`, and then returned HTTP 500 on the first
+  real query, after the request had been accepted and the caller had waited.
+  Model ids do not carry across providers, and nothing checked that the
+  configured model belonged to the configured provider. Each of
+  `WIKIKIT_MODEL_SYNTHESIS`, `WIKIKIT_MODEL_CLASSIFY` and `WIKIKIT_MODEL_ANSWER`
+  is now checked at config parse time, and a mismatch refuses the boot naming
+  the setting, the model, the provider it belongs to, the selected provider and
+  both repairs.
+
+  The check is a shape heuristic (`claude-…` anthropic, `gpt-…`/`o…` openai,
+  `gemini-…` google) and it is one-sided on purpose: an id matching none of
+  them PASSES. WikiKit ships as a binary an operator runs for months, so a
+  guard that rejected tomorrow's model name would cost more boots than the
+  mismatch it prevents — this catches an obvious mismatch, it does not maintain
+  a registry of valid models.
+
+- **`WIKIKIT_MODEL_EMBEDDING` is held to `WIKIKIT_EMBEDDING_PROVIDER` the same
+  way.** The exposure is identical and the failure quieter: the embedder is a
+  background worker, so a Google embedding id under `openai` never surfaced as
+  a failed request, only as retries in the log. Checked only while a provider
+  is selected — under `none` the value is carried and sent nowhere, so it
+  cannot be wrong and must not refuse a boot.
+
 ## 0.43.0 - 2026-08-16
 
 ### Fixed
