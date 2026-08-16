@@ -31,7 +31,29 @@ begin
     return;
   end if;
 
-  execute 'create extension if not exists vector';
+  -- Availability is not permission. The package can be installed while the
+  -- application role may not run CREATE EXTENSION — pgvector is not a trusted
+  -- extension, so on a least-privilege database this statement raises
+  -- insufficient_privilege. Unhandled it aborts the migration, and a migration
+  -- that aborts refuses the boot: an OPTIONAL second ranker would take the
+  -- server down. Catching it keeps the promise the guard above makes — no
+  -- pgvector, no hybrid, lexical retrieval, a running server. The operator
+  -- fixes it by creating the extension once as a superuser; the next boot then
+  -- finds it present and this statement is a no-op.
+  begin
+    execute 'create extension if not exists vector';
+  exception
+    when insufficient_privilege then
+      raise notice 'pgvector is installed but this role may not create it — retrieval stays lexical until a superuser runs CREATE EXTENSION vector';
+  end;
+
+  -- The only question that matters from here on: does the `vector` type exist?
+  -- Everything below names it, and asking pg_extension rather than trusting the
+  -- statement above keeps one gate for every way the creation can have failed.
+  if not exists (select 1 from pg_extension where extname = 'vector') then
+    raise notice 'pgvector not installed — skipping wk_embeddings repair (retrieval stays lexical)';
+    return;
+  end if;
 
   execute $ddl$
     create table if not exists public.wk_embeddings (

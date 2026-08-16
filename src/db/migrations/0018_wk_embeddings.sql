@@ -44,7 +44,26 @@ begin
     return;
   end if;
 
-  execute 'create extension if not exists vector';
+  -- Availability is not permission: pgvector is not a trusted extension, so a
+  -- least-privilege application role raises insufficient_privilege here even
+  -- though the package is installed. Unhandled that aborts the migration and
+  -- therefore the boot — an optional ranker taking the server down. Existing
+  -- installations never re-run this file; they are repaired by 0041, which
+  -- carries the same handler. This copy protects a FRESH install.
+  begin
+    execute 'create extension if not exists vector';
+  exception
+    when insufficient_privilege then
+      raise notice 'pgvector is installed but this role may not create it — retrieval stays lexical until a superuser runs CREATE EXTENSION vector';
+  end;
+
+  -- One gate for every way the creation can have failed: the rest of this block
+  -- names the `vector` type, so ask whether it exists rather than trusting the
+  -- statement above.
+  if not exists (select 1 from pg_extension where extname = 'vector') then
+    raise notice 'pgvector not installed — skipping wk_embeddings (retrieval stays lexical)';
+    return;
+  end if;
 
   execute $ddl$
     create table if not exists public.wk_embeddings (

@@ -103,8 +103,15 @@ $$;
 -- must skip this block cleanly rather than fail the migration.
 do $guard$
 begin
-  if not exists (select 1 from pg_available_extensions where name = 'vector') then
-    raise notice 'pgvector not available — skipping wk_search_sources_hybrid filters (retrieval stays lexical)';
+  -- INSTALLED, not merely available: the function signature below names the
+  -- `vector` type, which exists only once the extension has actually been
+  -- created. Guarding on pg_available_extensions asks whether the OS package is
+  -- present — a host can have the package while no role ever ran
+  -- CREATE EXTENSION, and then this block aborts the migration and the boot
+  -- with `type "vector" does not exist`. 0018/0041 attempt the creation;
+  -- everything that merely USES the type asks pg_extension.
+  if not exists (select 1 from pg_extension where extname = 'vector') then
+    raise notice 'pgvector not installed — skipping wk_search_sources_hybrid filters (retrieval stays lexical)';
     return;
   end if;
 

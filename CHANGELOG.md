@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.42.1 - 2026-08-16
+
+### Fixed
+
+- **An optional ranker can no longer refuse the boot.** The pgvector guard
+  checked whether the extension was _available_ but not whether the role was
+  allowed to create it. pgvector is not a trusted extension, so on a
+  least-privilege database — the ordinary case, where the application owns its
+  schema but is not a superuser — `CREATE EXTENSION` raised
+  `insufficient_privilege`, the migration aborted, and the server refused to
+  start. A feature the product calls optional took the whole service down.
+  Both the original migration and the repair now catch that one error, log
+  what an operator has to do about it, and leave retrieval lexical. The fix
+  for the underlying condition is unchanged and one line: a superuser runs
+  `CREATE EXTENSION vector` once, and the next boot picks it up.
+
 ## 0.42.0 - 2026-08-16
 
 ### Fixed
