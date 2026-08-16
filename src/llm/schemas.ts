@@ -93,6 +93,18 @@ export interface AdjudicateInput {
 // here turns a would-be SQL constraint violation into a typed LLM output error.
 const zSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,126}$/, 'slug must be lowercase kebab-case (max 127 chars)')
 
+// An array the model may decline to supply. OpenAI's structured outputs reject
+// a schema whose `required` omits any property key, so the wire schema lists
+// every key (see toOutputJsonSchema) — declining has to be expressible in the
+// VALUE instead, as null. Absent and null both normalize to [] here, so the
+// inferred type stays a plain array and no reader ever sees null.
+const zDeclinableArray = <T extends z.ZodType>(item: T) =>
+  z
+    .array(item)
+    .nullable()
+    .default([])
+    .transform((value) => value ?? [])
+
 export const zClassifyOutput = z.object({
   affected: z.array(zSlug),
   new: z.array(z.object({ slug: zSlug, title: z.string().min(1).max(500) })),
@@ -135,20 +147,18 @@ export type SynthesizeOutput = z.infer<typeof zSynthesizeOutput>
 // decisions.v1). They are advisory: the pipeline validates both against the
 // list it actually passed in and treats an unknown slug as "new decision".
 export const zExtractDecisionsOutput = z.object({
-  decisions: z
-    .array(
-      z.object({
-        slug: zSlug,
-        title: z.string().min(1).max(500),
-        context: z.string().min(1),
-        decision: z.string().min(1),
-        rationale: z.string(),
-        alternatives: z.array(z.string()),
-        duplicate_of: zSlug.nullable().default(null),
-        updates: zSlug.nullable().default(null),
-      }),
-    )
-    .default([]),
+  decisions: zDeclinableArray(
+    z.object({
+      slug: zSlug,
+      title: z.string().min(1).max(500),
+      context: z.string().min(1),
+      decision: z.string().min(1),
+      rationale: z.string(),
+      alternatives: z.array(z.string()),
+      duplicate_of: zSlug.nullable().default(null),
+      updates: zSlug.nullable().default(null),
+    }),
+  ),
 })
 export type ExtractDecisionsOutput = z.infer<typeof zExtractDecisionsOutput>
 
@@ -156,9 +166,8 @@ export const zAnswerOutput = z.object({
   answer_markdown: z.string().min(1),
   cited_slugs: z.array(z.string()),
   not_in_knowledge_base: z.boolean(),
-  // Source-evidence citations: archive source ids the answer
-  // leaned on. Defaulted so provider outputs missing the field stay valid.
-  cited_source_ids: z.array(z.string()).default([]),
+  // Source-evidence citations: archive source ids the answer leaned on.
+  cited_source_ids: zDeclinableArray(z.string()),
 })
 export type AnswerOutput = z.infer<typeof zAnswerOutput>
 
@@ -172,15 +181,13 @@ export type AnswerOutput = z.infer<typeof zAnswerOutput>
 // one: it is the evidence a reviewer checks the rule against, and the ingest
 // pipeline's grounding guard drops any claim whose quote it cannot find.
 export const zDistillOutput = z.object({
-  learnings: z
-    .array(
-      z.object({
-        title: z.string().min(1).max(200),
-        rule: z.string().min(1),
-        quote: z.string().min(1),
-      }),
-    )
-    .default([]),
+  learnings: zDeclinableArray(
+    z.object({
+      title: z.string().min(1).max(200),
+      rule: z.string().min(1),
+      quote: z.string().min(1),
+    }),
+  ),
 })
 export type DistillOutput = z.infer<typeof zDistillOutput>
 
@@ -214,7 +221,31 @@ const UNSUPPORTED_KEYWORDS = [
   'pattern',
   'minItems',
   'maxItems',
+  // Every key is emitted as required, so a wire-level default can never fire;
+  // the zod parse is what fills an omitted or null field in.
+  'default',
 ] as const
+
+/** Extend a property schema to admit null, whatever shape it already has. Idempotent. */
+function widenToNullable(node: Record<string, unknown>): Record<string, unknown> {
+  if (node.type === 'null') return node
+  if (Array.isArray(node.type)) {
+    return node.type.includes('null') ? node : { ...node, type: [...node.type, 'null'] }
+  }
+  if (Array.isArray(node.anyOf)) {
+    const alternatives = node.anyOf as Record<string, unknown>[]
+    return alternatives.some((alt) => alt?.type === 'null')
+      ? node
+      : { ...node, anyOf: [...alternatives, { type: 'null' }] }
+  }
+  if (typeof node.type === 'string') return { ...node, type: [node.type, 'null'] }
+  // Keyword-only nodes (enum, $ref, bare {}) cannot take a type union.
+  const { description, ...constraint } = node
+  return {
+    ...(description === undefined ? {} : { description }),
+    anyOf: [constraint, { type: 'null' }],
+  }
+}
 
 function sanitize(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(sanitize)
@@ -224,20 +255,43 @@ function sanitize(node: unknown): unknown {
     if ((UNSUPPORTED_KEYWORDS as readonly string[]).includes(key)) continue
     out[key] = sanitize(value)
   }
-  // Structured outputs require every object to close itself off — zod v4 emits
-  // this already, but we enforce it defensively so a future schema tweak
-  // (e.g. z.looseObject) cannot silently ship an open schema.
-  if (out.type === 'object') out.additionalProperties = false
+  if (out.type === 'object') {
+    // Structured outputs require every object to close itself off — zod v4 emits
+    // this already, but we enforce it defensively so a future schema tweak
+    // (e.g. z.looseObject) cannot silently ship an open schema.
+    out.additionalProperties = false
+    // OpenAI rejects a schema whose `required` omits any key in `properties`;
+    // optionality is expressible only as a nullable value. Enforced here rather
+    // than per schema so no author has to remember the rule: every key is
+    // listed, and a key zod treats as optional is widened to accept null.
+    const properties = out.properties as Record<string, Record<string, unknown>> | undefined
+    if (properties) {
+      const required = new Set((out.required as string[] | undefined) ?? [])
+      out.properties = Object.fromEntries(
+        Object.entries(properties).map(([key, value]) => [key, required.has(key) ? value : widenToNullable(value)]),
+      )
+      out.required = Object.keys(properties)
+    }
+  }
   return out
 }
 
 /**
- * Render a zod schema as the JSON schema for `output_config.format`
- * (type json_schema, additionalProperties:false on every object, no
- * unsupported constraint keywords, no $schema envelope).
+ * Render a zod schema as the JSON schema for the provider's structured-output
+ * format: every object closed, every property key in `required` with optional
+ * ones nullable, no unsupported constraint keywords, no $schema envelope.
+ *
+ * Derived from the INPUT projection — what the model must emit — so a zod
+ * `.default()` does not misreport an optional field as one the model always
+ * supplies. Mirrors the AI SDK's own draft-7/inline conversion options so this
+ * schema differs from the SDK's only where it is deliberately stricter.
+ *
+ * `io: 'input'` is mandatory, not a preference: zDeclinableArray ends in a
+ * transform, and the output projection of a transform has no JSON Schema
+ * representation — zod throws.
  */
 export function toOutputJsonSchema(schema: z.ZodType): Record<string, unknown> {
-  const json = z.toJSONSchema(schema) as Record<string, unknown>
+  const json = z.toJSONSchema(schema, { target: 'draft-7', io: 'input', reused: 'inline' }) as Record<string, unknown>
   delete json.$schema
   return sanitize(json) as Record<string, unknown>
 }

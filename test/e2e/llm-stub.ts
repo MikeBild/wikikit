@@ -24,7 +24,8 @@ export interface StubCall {
   rendered: string
   /** Anthropic prompt caching: set by the SDK from providerOptions. */
   cacheControl: unknown
-  /** The structured-output schema the SDK derived from our zod object. */
+  /** The structured-output schema — ours (toOutputJsonSchema), not the SDK's
+   *  derivation of the zod object, which omits optional keys from `required`. */
   schema: Record<string, unknown>
   parts: number
 }

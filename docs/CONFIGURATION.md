@@ -27,9 +27,9 @@ instead of producing a half-configured server.
 | `OPENAI_API_KEY`                                 | Key for `openai` provider (used when `WIKIKIT_LLM_PROVIDER=openai`)                                                | (unset)                                                            |
 | `GOOGLE_GENERATIVE_AI_API_KEY`                   | Key for `google` provider (used when `WIKIKIT_LLM_PROVIDER=google`)                                                | (unset)                                                            |
 | `ANTHROPIC_BASE_URL`                             | Anthropic API base override (test stubs, proxies); honored when provider is `anthropic`                            | (empty)                                                            |
-| `WIKIKIT_MODEL_SYNTHESIS`                        | Model for concept synthesis (one call per affected concept)                                                        | `claude-sonnet-5`                                                  |
+| `WIKIKIT_MODEL_SYNTHESIS`                        | Model for concept synthesis (one call per affected concept). Default is an Anthropic id — set it per provider      | `claude-sonnet-5`                                                  |
 | `WIKIKIT_MODEL_CLASSIFY`                         | Cheap/filter model: source classification (one call per ingest) **and** session distillation (one per capture)     | `claude-haiku-4-5`                                                 |
-| `WIKIKIT_MODEL_ANSWER`                           | Model for grounded Q&A (`POST .../query`)                                                                          | `claude-sonnet-5`                                                  |
+| `WIKIKIT_MODEL_ANSWER`                           | Model for grounded Q&A (`POST .../query`). Default is an Anthropic id — set it per provider                        | `claude-sonnet-5`                                                  |
 | `WIKIKIT_EMBEDDING_PROVIDER`                     | Optional hybrid-retrieval embedding provider: `none` \| `openai` \| `google`; needs pgvector + provider key        | `none` (retrieval stays lexical)                                   |
 | `WIKIKIT_MODEL_EMBEDDING`                        | Embedding model — must produce 1536-dim vectors (the `wk_embeddings` pin)                                          | `text-embedding-3-small` (google: `gemini-embedding-001`)          |
 | `WIKIKIT_MAX_BODY_BYTES`                         | Max request body size → `413` (1 KiB – 250 MiB)                                                                    | `10485760` (10 MiB)                                                |
@@ -530,6 +530,32 @@ The provider API keys are the only settings with no default: `ANTHROPIC_API_KEY`
 `WIKIKIT_LLM_PROVIDER` is read — without it every LLM-free feature (search,
 read, history, lint, export, import, review) works normally, while ingest and
 query answer `503 llm_not_configured` naming the key that provider needs.
+
+## Switching the LLM provider
+
+`WIKIKIT_LLM_PROVIDER` accepts `anthropic` (default), `openai` or `google`.
+Switching is configuration, never a code change — but it takes **five**
+variables, not two, because the three model defaults are Anthropic model ids
+that every other provider rejects with a 404:
+
+```bash
+WIKIKIT_LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+WIKIKIT_MODEL_SYNTHESIS=gpt-5
+WIKIKIT_MODEL_CLASSIFY=gpt-5-mini
+WIKIKIT_MODEL_ANSWER=gpt-5
+```
+
+The same five apply to `google` with `GOOGLE_GENERATIVE_AI_API_KEY` and Gemini
+model ids. `/ready` reports `llm_configured: true` as soon as the key for the
+selected provider is present — it proves the key was supplied, not that the
+model ids are valid for that provider, so verify with one real ingest and one
+real query after switching.
+
+Prompt caching is Anthropic-only; on `openai` and `google` the system prompt is
+sent uncached, which raises input-token cost per call but changes no behavior.
+Embeddings are a separate switch (`WIKIKIT_EMBEDDING_PROVIDER`) because
+Anthropic serves no embedding model.
 
 ## Production guards
 

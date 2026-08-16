@@ -24,6 +24,11 @@ mock.module('ai', () => ({
     if (nextThrow) throw nextThrow
     return nextResult
   },
+  // Mirrors the SDK helper: resolves the lazy schema and keeps the validator,
+  // so a test can inspect the exact bytes the provider would put on the wire.
+  jsonSchema(schema: unknown, options?: { validate?: unknown }) {
+    return { jsonSchema: typeof schema === 'function' ? (schema as () => unknown)() : schema, ...options }
+  },
 }))
 
 // Import AFTER the mock is registered.
@@ -134,6 +139,47 @@ describe('aisdk provider', () => {
     nextResult = okResult({ affected: [], new: [] }, { finishReason: 'content-filter' })
     const provider = createLlmProvider(makeConfig())
     await expect(provider.classify(classifyInput)).rejects.toBeInstanceOf(LlmRefusedError)
+  })
+
+  // Regression (PROD, openai): the provider handed generateObject a bare zod
+  // object, so the SDK derived the wire schema itself and left zod-optional
+  // keys out of `required` — OpenAI rejects that outright with "'required' is
+  // required to be supplied and to be an array including every key in
+  // properties. Missing 'cited_source_ids'". Every query 500'd. The wire schema
+  // must come from toOutputJsonSchema, which lists every key.
+  test('answer: the schema on the wire satisfies OpenAI strict mode', async () => {
+    nextResult = okResult({
+      answer_markdown: 'a',
+      cited_slugs: [],
+      not_in_knowledge_base: false,
+      cited_source_ids: [],
+    })
+    const provider = createLlmProvider(makeConfig({ llmProvider: 'openai', modelAnswer: 'gpt-x' }))
+    await provider.answer({ question: 'q', evidence: [] })
+
+    const wire = (lastArgs!.schema as { jsonSchema: { properties: Record<string, unknown>; required: string[] } })
+      .jsonSchema
+    expect(wire.required).toContain('cited_source_ids')
+    expect([...wire.required].sort()).toEqual(Object.keys(wire.properties).sort())
+  })
+
+  // Swapping the zod schema for a JSON schema moved validation off the SDK's
+  // automatic zod path onto our validator — so it has to still run, and still
+  // apply zod's normalisation (null → []).
+  test('the wire schema still validates through zod, normalising a declined array', async () => {
+    nextResult = okResult({ affected: [], new: [] })
+    const provider = createLlmProvider(makeConfig({ llmProvider: 'openai', modelAnswer: 'gpt-x' }))
+    await provider.answer({ question: 'q', evidence: [] })
+
+    const validate = (lastArgs!.schema as { validate: (v: unknown) => { success: boolean; value?: unknown } }).validate
+    expect(validate({ answer_markdown: 'a', cited_slugs: [], not_in_knowledge_base: false })).toMatchObject({
+      success: true,
+      value: { cited_source_ids: [] },
+    })
+    expect(
+      validate({ answer_markdown: 'a', cited_slugs: [], not_in_knowledge_base: false, cited_source_ids: null }),
+    ).toMatchObject({ success: true, value: { cited_source_ids: [] } })
+    expect(validate({ cited_slugs: [] }).success).toBe(false)
   })
 
   test('NoObjectGeneratedError → LlmOutputInvalidError', async () => {

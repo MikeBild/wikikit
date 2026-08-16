@@ -23,7 +23,7 @@
 //   flaky call no longer fails an ingest job on the first blip.
 // - Lazy model construction: an unconfigured provider (no key) is a valid object
 //   that throws LlmNotConfiguredError on use — the 503 path.
-import { embedMany, generateObject, NoObjectGeneratedError, type LanguageModel } from 'ai'
+import { embedMany, generateObject, jsonSchema, NoObjectGeneratedError, type LanguageModel, type Schema } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
@@ -56,6 +56,7 @@ import {
   zDistillOutput,
   zExtractDecisionsOutput,
   zSynthesizeOutput,
+  toOutputJsonSchema,
   type AdjudicateInput,
   type AdjudicateOutput,
   type AnswerInput,
@@ -70,6 +71,9 @@ import {
   type SynthesizeOutput,
 } from './schemas.ts'
 import type { z } from 'zod'
+// The AI SDK types a hand-supplied wire schema as JSONSchema7; our walker
+// returns a plain record, so the cast at the boundary needs the same name.
+import type { JSONSchema7 } from 'json-schema'
 
 // Output ceilings per call kind (maxOutputTokens): classify emits tiny JSON;
 // synthesis carries a full page body; answers are a few paragraphs.
@@ -85,6 +89,27 @@ const MAX_TOKENS = {
 interface PromptModule<I> {
   system: string
   render(input: I): string
+}
+
+// The wire schema is OURS, not the SDK's. Handed a bare zod object the SDK
+// derives the JSON schema itself and omits zod-optional keys from `required` —
+// which OpenAI rejects outright, so the provider switch only ever worked on
+// Anthropic. Pairing toOutputJsonSchema (the constrained wire shape) with the
+// zod parse (the semantic check) keeps both halves of the boundary.
+const wireSchemas = new WeakMap<z.ZodType, Schema<unknown>>()
+
+function wireSchema<T>(schema: z.ZodType<T>): Schema<T> {
+  let wire = wireSchemas.get(schema)
+  if (!wire) {
+    wire = jsonSchema<unknown>(() => toOutputJsonSchema(schema) as JSONSchema7, {
+      validate: (value) => {
+        const parsed = schema.safeParse(value)
+        return parsed.success ? { success: true, value: parsed.data } : { success: false, error: parsed.error }
+      },
+    })
+    wireSchemas.set(schema, wire)
+  }
+  return wire as Schema<T>
 }
 
 /** A resolved provider: a model factory + whether it supports Anthropic-style prompt caching. */
@@ -185,7 +210,7 @@ export function createLlmProvider(
     try {
       result = await generateObject({
         model: p.model(args.model),
-        schema: args.schema,
+        schema: wireSchema(args.schema),
         ...promptFields(p, args.prompt, rendered),
         maxOutputTokens: MAX_TOKENS[args.kind],
         maxRetries: 2,
@@ -293,7 +318,9 @@ export function createLlmProvider(
         // No prompt module: the version constant + joined inputs are the
         // canonical hashed form ('embed.v1' is an audit label, not a prompt).
         prompt_version: 'embed.v1',
-        input_hash: computeInputHash('embed.v1', '', input.texts.join('\n ')),
+        // NUL terminates the separator so no input text can forge a batch
+        // boundary and collide with a different batch's hash.
+        input_hash: computeInputHash('embed.v1', '', input.texts.join('\n\0')),
         usage: { input_tokens: result.usage?.tokens ?? 0, output_tokens: 0 },
         duration_ms,
       }

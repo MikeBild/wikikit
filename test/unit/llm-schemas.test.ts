@@ -9,6 +9,8 @@ import {
   zAdjudicateOutput,
   zAnswerOutput,
   zClassifyOutput,
+  zDistillOutput,
+  zExtractDecisionsOutput,
   zSynthesizeOutput,
 } from '../../src/llm/schemas.ts'
 import { loadLlmFixture } from '../helpers/fake-provider.ts'
@@ -85,12 +87,16 @@ describe('toOutputJsonSchema (structured outputs wire schema)', () => {
     for (const value of Object.values(node)) walk(value, visit)
   }
 
-  for (const [name, schema] of [
+  const ALL = [
     ['zClassifyOutput', zClassifyOutput],
     ['zSynthesizeOutput', zSynthesizeOutput],
     ['zAnswerOutput', zAnswerOutput],
     ['zAdjudicateOutput', zAdjudicateOutput],
-  ] as const) {
+    ['zExtractDecisionsOutput', zExtractDecisionsOutput],
+    ['zDistillOutput', zDistillOutput],
+  ] as const
+
+  for (const [name, schema] of ALL) {
     test(`${name}: closed objects, no unsupported keywords, no $schema envelope`, () => {
       const json = toOutputJsonSchema(schema)
       expect(json.$schema).toBeUndefined()
@@ -98,8 +104,8 @@ describe('toOutputJsonSchema (structured outputs wire schema)', () => {
       walk(json, (obj) => {
         if (obj.type === 'object') {
           expect(obj.additionalProperties).toBe(false)
-          // every property must be required — structured outputs cannot
-          // express optionality, and our output contracts have none
+          // OpenAI rejects a schema whose `required` omits any key in
+          // `properties`; optionality is carried by the value being nullable.
           expect(Object.keys((obj.properties as Record<string, unknown>) ?? {}).sort()).toEqual(
             ([...((obj.required as string[]) ?? [])] as string[]).sort(),
           )
@@ -108,6 +114,56 @@ describe('toOutputJsonSchema (structured outputs wire schema)', () => {
       })
     })
   }
+
+  // The exact PROD failure: WIKIKIT_LLM_PROVIDER=openai returned HTTP 500 on
+  // every query with "'required' is required to be supplied and to be an array
+  // including every key in properties. Missing 'cited_source_ids'".
+  test('answer: cited_source_ids is required AND declinable as null', () => {
+    const json = toOutputJsonSchema(zAnswerOutput) as {
+      required: string[]
+      properties: Record<string, { anyOf?: { type?: string }[] }>
+    }
+    expect(json.required).toContain('cited_source_ids')
+    expect(json.required.sort()).toEqual(Object.keys(json.properties).sort())
+    // Required but nullable: the model can still decline rather than invent
+    // citations, which in a verbatim-quote knowledge base is the failure that
+    // matters most.
+    expect(json.properties.cited_source_ids!.anyOf).toContainEqual({ type: 'null' })
+  })
+
+  test('a property zod treats as optional is widened to accept null', () => {
+    const json = toOutputJsonSchema(zSynthesizeOutput) as {
+      properties: { claims: { items: { required: string[]; properties: Record<string, { anyOf?: unknown[] }> } } }
+    }
+    const claim = json.properties.claims.items
+    for (const key of ['valid_from', 'valid_until', 'context']) {
+      expect(claim.required).toContain(key)
+      expect(claim.properties[key]!.anyOf).toContainEqual({ type: 'null' })
+    }
+  })
+
+  // `default` cannot fire once every key is required, and strict-mode schema
+  // validation is unforgiving about keywords it does not expect.
+  test('no default keyword survives onto the wire', () => {
+    for (const [, schema] of ALL) walk(toOutputJsonSchema(schema), (obj) => expect(obj.default).toBeUndefined())
+  })
+
+  // Each of these reaches a reader that would throw on a raw null:
+  // answer.ts `new Set(...)`, pipeline.ts `for...of`, sessions.ts `.length`.
+  test('a declined array round-trips to [] rather than null', () => {
+    expect(
+      zAnswerOutput.parse({
+        answer_markdown: 'a',
+        cited_slugs: [],
+        not_in_knowledge_base: false,
+        cited_source_ids: null,
+      }).cited_source_ids,
+    ).toEqual([])
+    expect(zExtractDecisionsOutput.parse({ decisions: null }).decisions).toEqual([])
+    expect(zDistillOutput.parse({ learnings: null }).learnings).toEqual([])
+    // Omitted entirely still works — the Anthropic path relies on it.
+    expect(zDistillOutput.parse({}).learnings).toEqual([])
+  })
 
   test('stripped constraints are still enforced client-side by zod', () => {
     // The wire schema drops minimum/maximum for confidence — the zod parse

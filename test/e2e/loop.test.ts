@@ -176,6 +176,10 @@ describe('e2e: real SDK against a stub Anthropic endpoint', () => {
     expect(classify.schema.type).toBe('object')
     expect(classify.schema.additionalProperties).toBe(false)
     expect(Object.keys(classify.schema.properties as object).sort()).toEqual(['affected', 'new'])
+    // Every property key in `required` — OpenAI rejects anything less, and the
+    // anthropic path has to stay identical, so it is asserted where the real
+    // SDK serializes it rather than only where we generate it.
+    expect((classify.schema.required as string[]).sort()).toEqual(['affected', 'new'])
     expect(classify.model).toBe('claude-haiku-4-5')
     expect(classify.maxTokens).toBe(2048)
   })

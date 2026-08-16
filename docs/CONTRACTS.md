@@ -799,6 +799,18 @@ array), so every later call reads the cached prefix. `ANTHROPIC_BASE_URL`
 honored for the anthropic provider (test stub). Every call the caller persists
 to `wk_agent_runs`, including fresh + cache-read token usage.
 
+The JSON schema on the wire is WikiKit's own (`toOutputJsonSchema`), not the AI
+SDK's derivation of the zod object, because the SDK's projection omits
+zod-optional keys from `required` and OpenAI's structured outputs reject that
+outright. One walker enforces the whole contract for every schema: every object
+gets `additionalProperties: false`, every key in `properties` is listed in
+`required`, and a key zod treats as optional is widened to accept `null` —
+optionality is carried by the VALUE, so a model may still decline a field
+rather than invent one. Constraint keywords the grammar compiler rejects
+(`minLength`, `pattern`, `minimum`, …) and `default` are stripped; the zod
+parse after the response is what still enforces them. That parse also
+normalizes a declined array (`null`) back to `[]`, so no reader sees `null`.
+
 ### 3.2 Input/output types (zod schemas live in `src/llm/schemas.ts`)
 
 ```ts

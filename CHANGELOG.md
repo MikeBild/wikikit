@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.43.0 - 2026-08-16
+
+### Fixed
+
+- **The provider switch now actually switches.** `WIKIKIT_LLM_PROVIDER` has
+  offered `anthropic | openai | google` all along, but on `openai` the service
+  booted clean, reported `llm_configured: true`, and then failed every
+  `POST /v1/spaces/{space}/query` with HTTP 500: OpenAI's structured outputs
+  require that every key in `properties` also appear in `required`, and the
+  answer schema left `cited_source_ids` out. The provider had been handing the
+  AI SDK a bare zod object and letting the SDK derive the wire schema, whose
+  input projection drops any key carrying a `.default()`. Anthropic tolerates
+  the omission, so a declared capability failed on first real use.
+
+  The wire schema is now WikiKit's own, built by the one walker that already
+  enforced `additionalProperties: false`: it lists every property key in
+  `required` and widens the genuinely optional ones to accept `null`.
+  Optionality lives in the value, not in the key — the model can still decline
+  a field instead of inventing one, which for `cited_source_ids` in a
+  verbatim-quote knowledge base is the failure that matters most. A declined
+  array parses back to `[]`, so nothing downstream ever sees `null`.
+
+### Changed
+
+- **Switching provider is documented as the five variables it really takes.**
+  The three `WIKIKIT_MODEL_*` defaults are Anthropic model ids that OpenAI and
+  Google 404 on, so setting provider and key alone yields a green `/ready` and
+  a broken wiki. `docs/CONFIGURATION.md` now spells out the full switch and
+  notes that `llm_configured` proves a key was supplied, not that the model
+  ids suit the provider.
+
 ## 0.42.1 - 2026-08-16
 
 ### Fixed
