@@ -67,7 +67,7 @@ export interface Source extends SourceSummary {
   raw_content: string
   markdown: string
   metadata: Record<string, unknown>
-  /** Per-source retrieval-language override (null = space default). */
+  /** Per-source search and generated-prose language override (null = space default). */
   language: 'en' | 'de' | 'simple' | null
   /** Sync-contract provenance (migration 0019); null for non-connector sources. */
   stream_id: string | null
@@ -134,9 +134,9 @@ const zCreateSourceArgs = z.object({
   // whose rows the retention sweep collects. Absent → not recorded, and the
   // absence is what `self-derived-only` reads as "evidence from outside".
   derivedFromOutputId: z.uuid().optional(),
-  // Per-source language override for the retrieval index (wk_sources.language
-  // column, migration 0016). A real column, not metadata: retrieval-critical.
-  // Absent → null → the space's settings.language decides.
+  // Per-source language override for retrieval and generated proposal prose.
+  // It remains a real column because it affects reproducible indexing and LLM
+  // output. Absent → null → the space's settings.language decides.
   language: z.enum(['en', 'de', 'simple']).optional(),
   // Sync-contract columns (migration 0019) — write-once, set ONLY by
   // recordStreamVersion inside its stream-locked transaction. Direct callers

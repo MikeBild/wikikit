@@ -54,6 +54,7 @@ import {
 import { computeInputHash, createProposal, type CreateProposalArgs } from '../domain/proposals.ts'
 import { createSource, persistSourceChunks, sha256Hex } from '../domain/sources.ts'
 import { recordStreamVersion } from '../domain/source-streams.ts'
+import { generateWithLanguageRepair, type GeneratedLanguage } from '../llm/language.ts'
 import type { LlmProvider, LlmRunMeta } from '../llm/provider.ts'
 import { hasWikiKitProvenance } from '../markdown.ts'
 import { PROMPT_VERSIONS } from '../llm/prompts/index.ts'
@@ -64,6 +65,13 @@ import { fitTokenBudget } from './chunk.ts'
 
 export type IngestRequest = IngestInput
 export { zIngestInput }
+
+interface SpaceRuntime {
+  slug: string
+  predicates: string[]
+  charter: string
+  language?: GeneratedLanguage
+}
 
 /** Sync fast-path result: nothing new for the LLM — the stream head advanced (or already pointed here). */
 export interface IngestUnchanged {
@@ -254,7 +262,7 @@ export function createIngestPipeline(
       wakers.add(wake)
     })
 
-  async function loadSpace(spaceId: string): Promise<{ slug: string; predicates: string[]; charter: string }> {
+  async function loadSpace(spaceId: string): Promise<SpaceRuntime> {
     const [space] = await db.select<{ slug: string; settings: Record<string, unknown> }>('wk_spaces', {
       id: `eq.${spaceId}`,
       limit: 1,
@@ -267,7 +275,9 @@ export function createIngestPipeline(
         : [...DEFAULT_PREDICATES]
     // The human-owned charter (latest revision) steers classify + synthesize.
     const charter = await latestCharterMarkdown(db, spaceId)
-    return { slug: space.slug, predicates, charter }
+    const configuredLanguage = space.settings?.['language']
+    const language = configuredLanguage === 'de' || configuredLanguage === 'en' ? configuredLanguage : undefined
+    return { slug: space.slug, predicates, charter, ...(language ? { language } : {}) }
   }
 
   function agentRunRows(spaceId: string, jobId: string, proposalId: string | null, runs: AgentRunDraft[]) {
@@ -444,6 +454,7 @@ export function createIngestPipeline(
     source: { title: string | null; markdown: string },
     sourceKind: IngestInput['source_kind'],
     charter: string,
+    language: GeneratedLanguage | undefined,
     runs: AgentRunDraft[],
     usage: { input_tokens: number; output_tokens: number },
     signal: AbortSignal,
@@ -455,18 +466,32 @@ export function createIngestPipeline(
     const active = await listActiveDecisionsForDedupe(db, job.space_id)
     const byslug = new Map(active.map((row) => [row.slug, row]))
 
-    const extracted = await llm.extractDecisions(
-      {
-        source,
-        ...(sourceKind ? { sourceKind } : {}),
-        ...(charter ? { charter } : {}),
-        existingDecisions: active.map(({ slug, title, decision }) => ({ slug, title, decision })),
+    const input = {
+      source,
+      ...(sourceKind ? { sourceKind } : {}),
+      ...(charter ? { charter } : {}),
+      ...(language ? { language } : {}),
+      existingDecisions: active.map(({ slug, title, decision }) => ({ slug, title, decision })),
+    }
+    const { result: extracted } = await generateWithLanguageRepair({
+      language,
+      generate: (repair) => llm.extractDecisions({ ...input, ...(repair ? { languageRepair: true } : {}) }, { signal }),
+      text: (output) =>
+        output.decisions
+          .flatMap((decision) => [
+            decision.title,
+            decision.context,
+            decision.decision,
+            decision.rationale,
+            ...decision.alternatives,
+          ])
+          .join('\n'),
+      onAttempt: (attempt) => {
+        runs.push({ kind: 'extract_decisions', run: attempt.run })
+        usage.input_tokens += attempt.run.usage.input_tokens
+        usage.output_tokens += attempt.run.usage.output_tokens
       },
-      { signal },
-    )
-    runs.push({ kind: 'extract_decisions', run: extracted.run })
-    usage.input_tokens += extracted.run.usage.input_tokens
-    usage.output_tokens += extracted.run.usage.output_tokens
+    })
 
     const decisions: NonNullable<CreateProposalArgs['decisions']> = []
     const staged = new Set<string>()
@@ -556,13 +581,14 @@ export function createIngestPipeline(
    */
   async function processJob(
     job: JobRow,
-    space: { slug: string; predicates: string[]; charter: string },
+    space: SpaceRuntime,
     runs: AgentRunDraft[],
     signal: AbortSignal,
   ): Promise<{ sourceId: string | null; proposalId: string | null }> {
     // The worker re-validates the stored input — the row may predate this
     // binary's schema (see zIngestInput doc).
     const input = zIngestInput.parse(job.input)
+    const generatedLanguage = input.language === 'de' || input.language === 'en' ? input.language : space.language
 
     // 1. Acquire (the only stage that may touch the network besides the LLM).
     await setPhase(job, 'acquire')
@@ -663,6 +689,7 @@ export function createIngestPipeline(
       {
         source: { title: source.title, markdown: budget.markdown },
         conceptIndex: index,
+        ...(generatedLanguage ? { language: generatedLanguage } : {}),
         ...(space.charter ? { charter: space.charter } : {}),
       },
       { signal },
@@ -734,20 +761,26 @@ export function createIngestPipeline(
     await setPhase(job, 'synthesize', 0, conceptInputs.length)
     let synthesizedCount = 0
     for (const target of conceptInputs) {
-      const synthesized = await llm.synthesize(
-        {
-          concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
-          source: { id: source.id, title: source.title, markdown: budget.markdown },
-          predicates: space.predicates,
-          ...(predicateDefs.length ? { predicateDefs } : {}),
-          sourceKind: input.source_kind,
-          ...(space.charter ? { charter: space.charter } : {}),
+      const synthesisInput = {
+        concept: { slug: target.slug, title: target.title, currentMarkdown: target.currentMarkdown },
+        source: { id: source.id, title: source.title, markdown: budget.markdown },
+        predicates: space.predicates,
+        ...(predicateDefs.length ? { predicateDefs } : {}),
+        sourceKind: input.source_kind,
+        ...(generatedLanguage ? { language: generatedLanguage } : {}),
+        ...(space.charter ? { charter: space.charter } : {}),
+      }
+      const { result: synthesized } = await generateWithLanguageRepair({
+        language: generatedLanguage,
+        generate: (repair) =>
+          llm.synthesize({ ...synthesisInput, ...(repair ? { languageRepair: true } : {}) }, { signal }),
+        text: (output) => [output.summary, output.markdown, ...output.claims.map((claim) => claim.object)].join('\n'),
+        onAttempt: (attempt) => {
+          runs.push({ kind: 'synthesize', run: attempt.run })
+          usage.input_tokens += attempt.run.usage.input_tokens
+          usage.output_tokens += attempt.run.usage.output_tokens
         },
-        { signal },
-      )
-      runs.push({ kind: 'synthesize', run: synthesized.run })
-      usage.input_tokens += synthesized.run.usage.input_tokens
-      usage.output_tokens += synthesized.run.usage.output_tokens
+      })
 
       // Claims only WITH a supporting quote that is VERBATIM in the source.
       // The schema requires a non-empty quote, but not that it actually occurs
@@ -827,6 +860,7 @@ export function createIngestPipeline(
       { title: source.title, markdown: budget.markdown },
       input.source_kind,
       space.charter,
+      generatedLanguage,
       runs,
       usage,
       signal,
@@ -1037,7 +1071,7 @@ export function createIngestPipeline(
     // stops the work — flipping the row alone would leave the call burning.
     const controller = new AbortController()
     const runtimeTimer = setTimeout(() => controller.abort(), maxRuntimeMs)
-    let space: { slug: string; predicates: string[]; charter: string } | null = null
+    let space: SpaceRuntime | null = null
     let sourceId: string | null = null
     try {
       space = await loadSpace(job.space_id)

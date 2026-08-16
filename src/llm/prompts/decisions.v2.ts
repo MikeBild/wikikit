@@ -1,25 +1,8 @@
-// decisions.v1 — mine one source for the settled choices it records, once per
-// ingest, against the decisions the space already holds.
-//
-// WHY this is its own stage: a decision is a fact of the SOURCE ("we decided
-// X"), but synthesis runs once per affected concept. Every concept call saw
-// the same source, so every call re-emitted the same decision under its own
-// slug and the decision log multiplied one choice into five. One call over the
-// whole source can hold its own output in view and produce a distinct list;
-// N independent calls cannot coordinate by construction.
-//
-// The existing ACTIVE decisions of the space ride the rendered input so the
-// model can mark a choice as already recorded (duplicate_of) or as a change to
-// one (updates), instead of proposing a near-copy. Those markers are advisory:
-// the pipeline validates every slug against the real list and falls open to
-// "new decision" — a human reviews the proposal either way.
-//
-// Runs on the strong model (WIKIKIT_MODEL_SYNTHESIS): deciding whether two
-// German paraphrases are the same choice is the nuanced part of this pipeline,
-// and it is one call per ingest rather than one per concept.
+// decisions.v2 — v1 plus an explicit generated-language contract and its
+// single repair instruction.
 import type { ExtractDecisionsInput } from '../schemas.ts'
 
-export const version = 'decisions.v1'
+export const version = 'decisions.v2'
 
 export const system = `You are the decision-log stage of WikiKit. You read one source document and record the decisions it settles. Your output is proposed — a human reviews it before any of it becomes an active decision.
 
@@ -41,6 +24,19 @@ You also receive the decisions the space already holds. Compare every decision y
 - Neither: leave both null.
 Use only slugs that appear in the provided list, and set at most one of the two.`
 
+function languageBlock(input: ExtractDecisionsInput): string {
+  if (!input.language) return ''
+  const label = input.language === 'de' ? 'German (de)' : 'English (en)'
+  const repair = input.languageRepair
+    ? 'The previous attempt used the wrong language. This is the one permitted repair attempt; check every generated decision field before responding.\n'
+    : ''
+  return `## Required output language
+
+Write title, context, decision, rationale and alternatives in ${label}. Keep stable slugs, product names, protocol names, URLs and code unchanged.
+${repair}
+`
+}
+
 export function render(input: ExtractDecisionsInput): string {
   const kind = input.sourceKind ?? 'unknown'
   const guidance = input.charter?.trim()
@@ -53,7 +49,7 @@ ${input.charter.trim()}
   const existing = input.existingDecisions.length
     ? input.existingDecisions.map((d) => `- ${d.slug}: ${d.title} — ${d.decision}`).join('\n')
     : '(none yet)'
-  return `${guidance}## Decisions this space already holds
+  return `${languageBlock(input)}${guidance}## Decisions this space already holds
 
 ${existing}
 

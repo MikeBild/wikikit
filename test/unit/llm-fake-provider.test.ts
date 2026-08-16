@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { createFakeProvider, loadLlmFixture } from '../helpers/fake-provider.ts'
 import { computeInputHash } from '../../src/llm/provider.ts'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
-import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
+import * as classifyV3 from '../../src/llm/prompts/classify.v3.ts'
 import {
   zAnswerOutput,
   zClassifyOutput,
@@ -125,7 +125,7 @@ describe('run meta (audit contract)', () => {
     const { run } = await createFakeProvider().classify(classifyInput)
     expect(run.input_hash).toMatch(/^[0-9a-f]{64}$/)
     expect(run.input_hash).toBe(
-      computeInputHash(PROMPT_VERSIONS.classify, classifyV2.system, classifyV2.render(classifyInput)),
+      computeInputHash(PROMPT_VERSIONS.classify, classifyV3.system, classifyV3.render(classifyInput)),
     )
   })
 

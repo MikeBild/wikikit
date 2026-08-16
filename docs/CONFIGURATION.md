@@ -602,9 +602,11 @@ A few retrieval-critical knobs live on the space itself
 - `settings.language` — `en` | `de` | `simple` (default `en`). Selects the
   PostgreSQL text search configuration for the space's search vectors and
   query parsing (`wk_english` / `wk_german`, both accent-insensitive via
-  `unaccent`). Changing it recomputes the space's search vectors in the same
-  request (`wk_reindex_space`); expect that write to take longer on large
-  spaces. Per-source overrides use the `wk_sources.language` column.
+  `unaccent`). For `en` and `de` it also pins generated proposal prose to that
+  language; `simple` remains language-neutral. Changing it recomputes the
+  space's search vectors in the same request (`wk_reindex_space`); expect that
+  write to take longer on large spaces. Per-source overrides use the
+  `wk_sources.language` column and apply to both retrieval and generated prose.
 - `settings.predicates` / `settings.functional_predicates` — the claim
   vocabulary and its contradiction-cardinality contract (see
   `docs/CONTRACTS.md` §1).

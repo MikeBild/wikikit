@@ -8,9 +8,9 @@
 // pre-release the prompt is edited in place and this snapshot regenerated.
 import { describe, expect, test } from 'bun:test'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
-import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
-import * as synthesizeV3 from '../../src/llm/prompts/synthesize.v3.ts'
-import * as decisionsV1 from '../../src/llm/prompts/decisions.v1.ts'
+import * as classifyV3 from '../../src/llm/prompts/classify.v3.ts'
+import * as synthesizeV4 from '../../src/llm/prompts/synthesize.v4.ts'
+import * as decisionsV2 from '../../src/llm/prompts/decisions.v2.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
@@ -114,9 +114,9 @@ const extractDecisionsInput: ExtractDecisionsInput = {
 
 describe('prompt version constants', () => {
   test('PROMPT_VERSIONS match the per-file version exports', () => {
-    expect(PROMPT_VERSIONS.classify).toBe(classifyV2.version)
-    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV3.version)
-    expect(PROMPT_VERSIONS.decisions).toBe(decisionsV1.version)
+    expect(PROMPT_VERSIONS.classify).toBe(classifyV3.version)
+    expect(PROMPT_VERSIONS.synthesize).toBe(synthesizeV4.version)
+    expect(PROMPT_VERSIONS.decisions).toBe(decisionsV2.version)
     expect(PROMPT_VERSIONS.answer).toBe(answerV1.version)
     expect(PROMPT_VERSIONS.distill).toBe(distillV1.version)
     expect(PROMPT_VERSIONS.adjudicate).toBe(adjudicateV1.version)
@@ -130,37 +130,37 @@ describe('prompt version constants', () => {
 })
 
 describe('golden snapshots', () => {
-  test('classify.v2 system prompt', () => {
-    expect(classifyV2.system).toMatchSnapshot()
+  test('classify.v3 system prompt', () => {
+    expect(classifyV3.system).toMatchSnapshot()
   })
-  test('classify.v2 render', () => {
-    expect(classifyV2.render(classifyInput)).toMatchSnapshot()
+  test('classify.v3 render', () => {
+    expect(classifyV3.render(classifyInput)).toMatchSnapshot()
   })
-  test('classify.v2 render with empty concept index and null title', () => {
-    expect(classifyV2.render(classifyInputEmptyIndex)).toMatchSnapshot()
-  })
-
-  test('synthesize.v3 system prompt', () => {
-    expect(synthesizeV3.system).toMatchSnapshot()
-  })
-  test('synthesize.v3 render for existing concept', () => {
-    expect(synthesizeV3.render(synthesizeInput)).toMatchSnapshot()
-  })
-  test('synthesize.v3 render for new concept', () => {
-    expect(synthesizeV3.render(synthesizeInputNewConcept)).toMatchSnapshot()
-  })
-  test('synthesize.v3 render for meeting source', () => {
-    expect(synthesizeV3.render(synthesizeInputMeeting)).toMatchSnapshot()
+  test('classify.v3 render with empty concept index and null title', () => {
+    expect(classifyV3.render(classifyInputEmptyIndex)).toMatchSnapshot()
   })
 
-  test('decisions.v1 system prompt', () => {
-    expect(decisionsV1.system).toMatchSnapshot()
+  test('synthesize.v4 system prompt', () => {
+    expect(synthesizeV4.system).toMatchSnapshot()
   })
-  test('decisions.v1 render with no existing decisions', () => {
-    expect(decisionsV1.render(extractDecisionsInputEmpty)).toMatchSnapshot()
+  test('synthesize.v4 render for existing concept', () => {
+    expect(synthesizeV4.render(synthesizeInput)).toMatchSnapshot()
   })
-  test('decisions.v1 render with existing decisions to compare against', () => {
-    expect(decisionsV1.render(extractDecisionsInput)).toMatchSnapshot()
+  test('synthesize.v4 render for new concept', () => {
+    expect(synthesizeV4.render(synthesizeInputNewConcept)).toMatchSnapshot()
+  })
+  test('synthesize.v4 render for meeting source', () => {
+    expect(synthesizeV4.render(synthesizeInputMeeting)).toMatchSnapshot()
+  })
+
+  test('decisions.v2 system prompt', () => {
+    expect(decisionsV2.system).toMatchSnapshot()
+  })
+  test('decisions.v2 render with no existing decisions', () => {
+    expect(decisionsV2.render(extractDecisionsInputEmpty)).toMatchSnapshot()
+  })
+  test('decisions.v2 render with existing decisions to compare against', () => {
+    expect(decisionsV2.render(extractDecisionsInput)).toMatchSnapshot()
   })
 
   test('answer.v1 system prompt', () => {
@@ -204,21 +204,38 @@ describe('golden snapshots', () => {
   // Charter steering: a set charter adds a `## Space guidance` section to the
   // rendered USER turn (never the cached system block).
   const charter = '# Payments space\n\nEmphasise decisions with rationale. Voice: terse, German.'
-  test('classify.v2 render without charter omits the Space guidance section', () => {
-    expect(classifyV2.render(classifyInput)).not.toContain('## Space guidance')
+  test('classify.v3 render without charter omits the Space guidance section', () => {
+    expect(classifyV3.render(classifyInput)).not.toContain('## Space guidance')
   })
-  test('synthesize.v3 render without charter omits the Space guidance section', () => {
-    expect(synthesizeV3.render(synthesizeInput)).not.toContain('## Space guidance')
+  test('synthesize.v4 render without charter omits the Space guidance section', () => {
+    expect(synthesizeV4.render(synthesizeInput)).not.toContain('## Space guidance')
   })
-  test('classify.v2 render with charter (Space guidance section)', () => {
-    const rendered = classifyV2.render({ ...classifyInput, charter })
+  test('classify.v3 render with charter (Space guidance section)', () => {
+    const rendered = classifyV3.render({ ...classifyInput, charter })
     expect(rendered).toContain('## Space guidance')
     expect(rendered).toMatchSnapshot()
   })
-  test('synthesize.v3 render with charter (Space guidance section)', () => {
-    const rendered = synthesizeV3.render({ ...synthesizeInput, charter })
+  test('synthesize.v4 render with charter (Space guidance section)', () => {
+    const rendered = synthesizeV4.render({ ...synthesizeInput, charter })
     expect(rendered).toContain('## Space guidance')
     expect(rendered).toMatchSnapshot()
+  })
+
+  test('generated-language contract reaches all proposal-producing prompts', () => {
+    expect(classifyV3.render({ ...classifyInput, language: 'de' })).toContain('German (de)')
+    expect(synthesizeV4.render({ ...synthesizeInput, language: 'de' })).toContain(
+      'Write title, summary, Markdown prose',
+    )
+    expect(decisionsV2.render({ ...extractDecisionsInput, language: 'de' })).toContain('Write title, context, decision')
+  })
+
+  test('repair prompts identify the one permitted language retry', () => {
+    expect(synthesizeV4.render({ ...synthesizeInput, language: 'de', languageRepair: true })).toContain(
+      'one permitted repair attempt',
+    )
+    expect(decisionsV2.render({ ...extractDecisionsInput, language: 'de', languageRepair: true })).toContain(
+      'one permitted repair attempt',
+    )
   })
 })
 
@@ -226,9 +243,9 @@ describe('render determinism', () => {
   // input_hash = sha256(version + system + rendered): rendering must be a
   // pure function of its input or hashes (and dedup) become nondeterministic.
   test('same input renders byte-identical output', () => {
-    expect(classifyV2.render(classifyInput)).toBe(classifyV2.render(classifyInput))
-    expect(synthesizeV3.render(synthesizeInput)).toBe(synthesizeV3.render(synthesizeInput))
-    expect(decisionsV1.render(extractDecisionsInput)).toBe(decisionsV1.render(extractDecisionsInput))
+    expect(classifyV3.render(classifyInput)).toBe(classifyV3.render(classifyInput))
+    expect(synthesizeV4.render(synthesizeInput)).toBe(synthesizeV4.render(synthesizeInput))
+    expect(decisionsV2.render(extractDecisionsInput)).toBe(decisionsV2.render(extractDecisionsInput))
     expect(answerV1.render(answerInput)).toBe(answerV1.render(answerInput))
     expect(adjudicateV1.render(adjudicateInput)).toBe(adjudicateV1.render(adjudicateInput))
   })

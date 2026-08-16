@@ -117,7 +117,7 @@ describe('aisdk provider', () => {
     // Fresh input + cache reads both recorded for cost telemetry.
     expect(run.usage).toEqual({ input_tokens: 120, output_tokens: 8, cache_read_input_tokens: 1900 })
     expect(run.model).toBe('claude-haiku-4-5-20251001') // the model actually served
-    expect(run.prompt_version).toBe('classify.v2')
+    expect(run.prompt_version).toBe('classify.v3')
   })
 
   test('non-anthropic provider uses plain system + prompt (no cache parts)', async () => {

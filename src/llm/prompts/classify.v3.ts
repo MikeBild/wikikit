@@ -1,22 +1,12 @@
-// classify.v2 — route one source document against the space's concept index,
-// with optional per-space Charter steering.
+// classify.v3 — v2 plus an explicit generated-language contract.
 //
-// Runs on the cheap/fast model (WIKIKIT_MODEL_CLASSIFY, default
-// claude-haiku-4-5): one call per ingested source, small structured output.
-//
-// WHY system/render split: the system block is byte-identical across every
-// call and carries cache_control — the per-source material lives entirely in
-// render() so the cached prefix never invalidates (prompt caching is a prefix
-// match). The space Charter, when set, is human-owned guidance on page types +
-// naming conventions; it rides render() (NOT the cached system block) and steers
-// the slugs/titles proposed for new concepts.
-//
-// WHY versioned (v2): the system prompt is unchanged from v1; render() gained
-// the optional `## Space guidance` section. Every wk_agent_runs row records the
-// prompt_version — a meaningful change is a version bump (goldens enforce this).
+// Source text and technical slugs remain untouched. When a source or its
+// space pins en/de, model-authored concept titles must use that language. A
+// second call may carry languageRepair after the deterministic dominance gate
+// rejects the first attempt.
 import type { ClassifyInput } from '../schemas.ts'
 
-export const version = 'classify.v2'
+export const version = 'classify.v3'
 
 export const system = `You are the classification stage of WikiKit, a knowledge system that maintains reviewed concept pages synthesized from archived sources.
 
@@ -28,6 +18,19 @@ Rules:
 - New concept slugs are lowercase kebab-case (letters, digits, hyphens; must start with a letter or digit), stable and descriptive, e.g. "open-knowledge-format". Titles are short noun phrases.
 - Be conservative: an unremarkable source may affect nothing and warrant nothing. Empty arrays are a correct answer.
 - Never invent slugs for "affected" that are not in the index.`
+
+function languageBlock(input: ClassifyInput): string {
+  if (!input.language) return ''
+  const label = input.language === 'de' ? 'German (de)' : 'English (en)'
+  const repair = input.languageRepair
+    ? 'The previous attempt used the wrong language. This is the one permitted repair attempt; check every generated title before responding.\n'
+    : ''
+  return `## Required output language
+
+Write every model-authored human-readable title in ${label}. Keep stable slugs, product names, protocol names, URLs and source quotations unchanged.
+${repair}
+`
+}
 
 export function render(input: ClassifyInput): string {
   const index =
@@ -43,7 +46,7 @@ ${input.charter.trim()}
 
 `
     : ''
-  return `${guidance}## Concept index
+  return `${languageBlock(input)}${guidance}## Concept index
 
 ${index}
 

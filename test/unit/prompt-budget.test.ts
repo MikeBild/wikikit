@@ -17,18 +17,18 @@
 import { describe, expect, test } from 'bun:test'
 import { estimateTokens } from '../../src/ingest/chunk.ts'
 import * as answerV1 from '../../src/llm/prompts/answer.v1.ts'
-import * as classifyV2 from '../../src/llm/prompts/classify.v2.ts'
+import * as classifyV3 from '../../src/llm/prompts/classify.v3.ts'
 import * as distillV1 from '../../src/llm/prompts/distill.v1.ts'
-import * as synthesizeV3 from '../../src/llm/prompts/synthesize.v3.ts'
-import * as decisionsV1 from '../../src/llm/prompts/decisions.v1.ts'
+import * as synthesizeV4 from '../../src/llm/prompts/synthesize.v4.ts'
+import * as decisionsV2 from '../../src/llm/prompts/decisions.v2.ts'
 import * as adjudicateV1 from '../../src/llm/prompts/adjudicate.v1.ts'
 
 // Ceilings sit ~30% above the committed prompts: enough headroom to edit a
 // sentence without ceremony, tight enough that a doubling cannot slip through.
 const BUDGETS: [string, string, number][] = [
-  ['classify.v2', classifyV2.system, 380],
-  ['synthesize.v3', synthesizeV3.system, 1000],
-  ['decisions.v1', decisionsV1.system, 500],
+  ['classify.v3', classifyV3.system, 380],
+  ['synthesize.v4', synthesizeV4.system, 1000],
+  ['decisions.v2', decisionsV2.system, 500],
   ['answer.v1', answerV1.system, 600],
   ['distill.v1', distillV1.system, 660],
   ['adjudicate.v1', adjudicateV1.system, 300],
@@ -53,7 +53,7 @@ describe('system prompt token budgets', () => {
   // this asserts the split at the source.)
   test('renderers carry no static instruction text — that belongs in the cached system part', () => {
     const rendered = {
-      'classify.v2': classifyV2.render({ source: { title: 't', markdown: 'm' }, conceptIndex: [] }),
+      'classify.v3': classifyV3.render({ source: { title: 't', markdown: 'm' }, conceptIndex: [] }),
       'answer.v1': answerV1.render({ question: 'q', evidence: [] }),
       'distill.v1': distillV1.render({ transcript: 't' }),
     }

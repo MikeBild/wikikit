@@ -22,9 +22,9 @@ import {
   type LlmRunMeta,
 } from './provider.ts'
 import { PROMPT_VERSIONS } from './prompts/index.ts'
-import * as classifyV2 from './prompts/classify.v2.ts'
-import * as synthesizeV3 from './prompts/synthesize.v3.ts'
-import * as decisionsV1 from './prompts/decisions.v1.ts'
+import * as classifyV3 from './prompts/classify.v3.ts'
+import * as synthesizeV4 from './prompts/synthesize.v4.ts'
+import * as decisionsV2 from './prompts/decisions.v2.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
@@ -133,7 +133,7 @@ export function createFakeProvider(overrides?: {
           affected: [],
           new: [{ slug: slugify(input.source.title), title: input.source.title ?? 'Untitled Source' }],
         } satisfies ClassifyOutput)
-      return { output, run: run(PROMPT_VERSIONS.classify, classifyV2.system, classifyV2.render(input)) }
+      return { output, run: run(PROMPT_VERSIONS.classify, classifyV3.system, classifyV3.render(input)) }
     },
 
     async synthesize(input: SynthesizeInput): Promise<LlmResult<SynthesizeOutput>> {
@@ -160,7 +160,7 @@ export function createFakeProvider(overrides?: {
           ],
           relations: [],
         } satisfies SynthesizeOutput)
-      return { output, run: run(PROMPT_VERSIONS.synthesize, synthesizeV3.system, synthesizeV3.render(input)) }
+      return { output, run: run(PROMPT_VERSIONS.synthesize, synthesizeV4.system, synthesizeV4.render(input)) }
     },
 
     async extractDecisions(input: ExtractDecisionsInput): Promise<LlmResult<ExtractDecisionsOutput>> {
@@ -189,7 +189,7 @@ export function createFakeProvider(overrides?: {
         } satisfies ExtractDecisionsOutput)
       return {
         output,
-        run: run(PROMPT_VERSIONS.decisions, decisionsV1.system, decisionsV1.render(input)),
+        run: run(PROMPT_VERSIONS.decisions, decisionsV2.system, decisionsV2.render(input)),
       }
     },
 

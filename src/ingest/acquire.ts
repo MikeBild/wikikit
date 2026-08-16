@@ -66,12 +66,12 @@ export const zIngestInput = z
       .uuid()
       .optional()
       .describe('The wk_outputs row this content was rendered from — marks the source as derived from the wiki itself'),
-    // Per-source retrieval-language override; absent → the space's
-    // settings.language decides how this source's chunks are stemmed.
+    // Per-source language override; absent → the space's settings.language.
+    // It selects stemming and, for en/de, the generated proposal language.
     language: z
       .enum(['en', 'de', 'simple'])
       .optional()
-      .describe("Language of this source's content for the retrieval index; defaults to the space language"),
+      .describe("Language of this source's content and generated proposal prose; defaults to the space language"),
     // Sync contract (migration 0019): a connector-scoped stable document id
     // turns one-shot ingests into idempotent versioned syncs. Version and
     // timestamps only make sense WITH an external id — the refine below

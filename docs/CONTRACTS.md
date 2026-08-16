@@ -33,7 +33,7 @@ CREATE TABLE wk_spaces (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   slug        text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
   name        text NOT NULL,
-  settings    jsonb NOT NULL DEFAULT '{}',           -- predicates + functional_predicates cardinality contract; language ('en'|'de'|'simple') selects the search configuration
+  settings    jsonb NOT NULL DEFAULT '{}',           -- predicates + functional_predicates cardinality contract; language ('en'|'de'|'simple') selects search configuration and pins generated prose for en/de
   epoch       bigint NOT NULL DEFAULT 0,             -- bumped on every approved proposal; drives ETag on list endpoints
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
@@ -53,7 +53,7 @@ CREATE TABLE wk_sources (
   raw_content   text NOT NULL,                       -- archived verbatim, never mutated
   markdown      text NOT NULL,                       -- normalized markdown projection (identical to raw for kind='markdown')
   metadata      jsonb NOT NULL DEFAULT '{}',
-  language      text CHECK (language IS NULL OR language IN ('en','de','simple')),  -- retrieval-index override (0016)
+  language      text CHECK (language IS NULL OR language IN ('en','de','simple')),  -- source/search override; en/de also pin generated proposal prose
   -- Sync contract (0019): write-once at INSERT, set only by recordStreamVersion.
   stream_id             uuid REFERENCES wk_source_streams(id) ON DELETE SET NULL,
   source_version        text,          -- the version under which this content was FIRST observed
@@ -911,18 +911,27 @@ real prompt_version constants, zero usage.
 
 ```ts
 export const PROMPT_VERSIONS = {
-  classify: 'classify.v1',
-  synthesize: 'synthesize.v1',
+  classify: 'classify.v3',
+  synthesize: 'synthesize.v4',
+  decisions: 'decisions.v2',
   answer: 'answer.v1',
   distill: 'distill.v1', // coding-agent session transcript → durable rules
   adjudicate: 'adjudicate.v1', // optional Haiku contradiction adjudication (cuttable)
 } as const
 ```
 
-Prompt files: `src/llm/prompts/{classify,synthesize,answer,distill,adjudicate}.v1.ts` exporting
+Prompt files are versioned under `src/llm/prompts/` and export
 `system: string` and `render(input): string`. Any prompt text change requires a
 new version constant (prompt regression = product regression; goldens in
 `test/unit/`).
+
+For `settings.language` or a source-level `language` of `en`/`de`, classify,
+synthesize and decision extraction receive an explicit generated-language
+contract. Synthesis and decision prose pass a deterministic dominance check;
+failure permits exactly one prompt-marked repair call, then fails the ingest
+without staging invalid prose. Stable slugs, controlled predicates, technical
+identifiers and verbatim citations are never translated. `simple` remains
+language-neutral.
 
 ---
 

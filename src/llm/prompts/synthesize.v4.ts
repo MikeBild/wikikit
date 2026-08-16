@@ -1,33 +1,9 @@
-// synthesize.v3 — produce a new concept revision from (current revision +
-// source), with optional per-space Charter steering.
-//
-// Claims may carry explicit temporal validity (valid_from / valid_until) and
-// a context partition — ONLY when the source states them — and the predicate
-// vocabulary can arrive typed (quantity predicates ask for number + unit as
-// written in the source).
-//
-// Runs on the strong model (WIKIKIT_MODEL_SYNTHESIS, default claude-sonnet-5),
-// one call per affected concept, streamed (revisions can be long).
-//
-// WHY the quote requirement is phrased so hard: every claim becomes a
-// wk_claims row whose wk_citations row needs a verbatim excerpt. A claim the
-// model cannot back with an exact quote from the source is unverifiable and
-// must not exist.
-//
-// The space Charter, when set, is human-owned guidance on emphasis, voice and
-// page conventions. It rides render() (NOT the cached system block) and shapes
-// HOW the page is written — it never loosens the claim/quote grounding rules.
-//
-// WHY versioned (v3): decisions left this prompt. A decision is a fact of the
-// SOURCE, not of a concept, but synthesis runs once per affected concept — so
-// N independent calls each re-emitted the same decision under a different
-// slug, and N-1 duplicates reached the decision log. Decisions now come from
-// one decisions.v1 call per ingest, which sees the whole source and the
-// space's existing decisions at once. Every wk_agent_runs row records the
-// prompt_version — a meaningful change is a version bump (goldens enforce this).
+// synthesize.v4 — v3 plus an explicit generated-language contract and its
+// single repair instruction. Claims remain grounded by verbatim source quotes;
+// language never authorizes translating a citation or technical identifier.
 import type { SynthesizeInput } from '../schemas.ts'
 
-export const version = 'synthesize.v3'
+export const version = 'synthesize.v4'
 
 export const system = `You are the synthesis stage of WikiKit, a knowledge system that maintains reviewed concept pages with verifiable claims and citations. Your output becomes a proposed revision that a human reviews before it goes live.
 
@@ -54,6 +30,19 @@ Rules for relations:
 
 Decisions are NOT your job: a separate stage reads the whole source for settled choices. When the source records a decision that belongs on this page (e.g. a status change), state it as an ordinary claim with its quote.`
 
+function languageBlock(input: SynthesizeInput): string {
+  if (!input.language) return ''
+  const label = input.language === 'de' ? 'German (de)' : 'English (en)'
+  const repair = input.languageRepair
+    ? 'The previous attempt was not predominantly in the required language. This is the one permitted repair attempt; check title, summary, page prose and natural-language claim objects before responding.\n'
+    : ''
+  return `## Required output language
+
+Write title, summary, Markdown prose and natural-language claim objects in ${label}. Controlled predicate identifiers, stable slugs, product names, protocol names, URLs, code and verbatim source quotes remain unchanged.
+${repair}
+`
+}
+
 export function render(input: SynthesizeInput): string {
   const current =
     input.concept.currentMarkdown === null
@@ -71,7 +60,7 @@ ${input.charter.trim()}
 
 `
     : ''
-  return `${guidance}## Concept
+  return `${languageBlock(input)}${guidance}## Concept
 
 Slug: ${input.concept.slug}
 Title: ${input.concept.title}

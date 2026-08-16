@@ -75,7 +75,13 @@ const CURRENT_REV_ID = '77777777-7777-4777-8777-777777777777'
 
 /** Route table for a full happy-path worker run over a markdown job. */
 function workerRoutes(
-  overrides: { index?: Rows; sourceHit?: boolean; jobInput?: unknown; blocked?: boolean } = {},
+  overrides: {
+    index?: Rows
+    sourceHit?: boolean
+    jobInput?: unknown
+    blocked?: boolean
+    spaceSettings?: Record<string, unknown>
+  } = {},
 ): Route[] {
   return [
     // Claim MUST precede the generic FOR UPDATE matchers — its SQL contains
@@ -98,7 +104,10 @@ function workerRoutes(
     // Re-ingest blocker check: a hash hit only 409s while a pending/approved
     // proposal or a live/done job still references the source.
     { match: /SELECT 1 AS blocked/, rows: overrides.blocked ? [{ blocked: 1 }] : [] },
-    { match: /SELECT \* FROM "public"\."wk_spaces"/, rows: [{ slug: 'dev', settings: {} }] },
+    {
+      match: /SELECT \* FROM "public"\."wk_spaces"/,
+      rows: [{ slug: 'dev', settings: overrides.spaceSettings ?? {} }],
+    },
     { match: /SELECT \* FROM "public"\."wk_sources"/, rows: overrides.sourceHit ? [sourceRow] : [] },
     { match: /INSERT INTO "public"\."wk_sources"/, rows: [sourceRow] },
     { match: /SELECT c\.slug, r\.title, r\.summary/, rows: overrides.index ?? [] }, // concept index
@@ -437,10 +446,10 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     // Proposal staged with the content-hash + prompt-version input hash and
     // §1.14-shaped agent_meta.
     const proposalInsert = calls.find((call) => call.sql.includes('INSERT INTO "public"."wk_change_proposals"'))!
-    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v3'))
+    expect(proposalInsert.values).toContain(computeInputHash([HASH], 'synthesize.v4'))
     expect(proposalInsert.values).toContain('Ingest: OKF')
     const meta = JSON.parse(proposalInsert.values.find((v) => String(v).includes('prompt_version')) as string)
-    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v3', source_ids: [SRC_ID] })
+    expect(meta).toMatchObject({ model: 'fake', prompt_version: 'synthesize.v4', source_ids: [SRC_ID] })
 
     // Claim + citation with the supporting quote (FakeProvider quotes line 1).
     const citationInsert = calls.find((call) => call.sql.includes('"wk_citations"'))!
@@ -480,6 +489,46 @@ describe('worker — happy path (new concept from a markdown source)', () => {
     // calls), not whatever the pointer is at staging time.
     const revisionInsert = calls.find((call) => call.sql.includes('"wk_concept_revisions"'))!
     expect(revisionInsert.values).toContain(CURRENT_REV_ID)
+  })
+
+  test('pins German proposal prose and performs exactly one audited language repair', async () => {
+    const { db, calls } = fakeDb(
+      workerRoutes({ jobInput: { markdown: RAW, language: 'de' }, spaceSettings: { language: 'en' } }),
+    )
+    const llm = createFakeProvider({
+      synthesize: (input) => ({
+        title: 'OKF',
+        summary: input.languageRepair
+          ? 'Die Spezifikation ist ein technischer Entwurf.'
+          : 'The specification is a technical draft.',
+        markdown: input.languageRepair
+          ? '# OKF\n\nDie Spezifikation ist ein technischer Entwurf und wird überprüft.'
+          : '# OKF\n\nThe specification is a technical draft and is reviewed.',
+        claims: [
+          {
+            subject: input.concept.slug,
+            predicate: 'is',
+            object: input.languageRepair ? 'ein technischer Entwurf' : 'a technical draft',
+            quote: '# OKF',
+            confidence: 0.9,
+            valid_from: null,
+            valid_until: null,
+            context: null,
+          },
+        ],
+        relations: [],
+      }),
+    })
+    const pipeline = createIngestPipeline(config, db, llm, logger)
+
+    expect(await pipeline.runOnce()).toBe(true)
+    expect(llm.calls.map((call) => call.method)).toEqual(['classify', 'synthesize', 'synthesize', 'extract_decisions'])
+    const synthInputs = llm.calls.filter((call) => call.method === 'synthesize').map((call) => call.input)
+    expect(synthInputs[0]).toMatchObject({ language: 'de' })
+    expect(synthInputs[0]).not.toHaveProperty('languageRepair')
+    expect(synthInputs[1]).toMatchObject({ language: 'de', languageRepair: true })
+    const runsInsert = calls.find((call) => call.sql.includes('"wk_agent_runs"'))!
+    expect(runsInsert.values.filter((value) => value === 'synthesize')).toHaveLength(2)
   })
 
   test('new concepts stage an explicit null base (a concept approved mid-synthesis must fail stale-base)', async () => {

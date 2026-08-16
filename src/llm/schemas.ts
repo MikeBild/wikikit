@@ -22,6 +22,10 @@ export interface ConceptIndexEntry {
 export interface ClassifyInput {
   source: { title: string | null; markdown: string }
   conceptIndex: ConceptIndexEntry[]
+  /** en/de pin model-authored titles; absent keeps the provider neutral. */
+  language?: 'en' | 'de'
+  /** Set only for the single retry after a language-dominance failure. */
+  languageRepair?: boolean
   /** The space charter (wk_charter_revisions latest) — human-owned guidance on
    *  page types + naming conventions. Steers new-concept slugs when present. */
   charter?: string
@@ -37,6 +41,10 @@ export interface SynthesizeInput {
   source: { id: string; title: string | null; markdown: string }
   /** The space's controlled predicate vocabulary (wk_spaces.settings.predicates). */
   predicates: string[]
+  /** en/de pin every human-readable field other than verbatim citations. */
+  language?: 'en' | 'de'
+  /** Set only for the single retry after a language-dominance failure. */
+  languageRepair?: boolean
   /** Typed registry entries (settings.predicate_defs) — rendered instead of the bare names when present. */
   predicateDefs?: import('../domain/normalize.ts').PredicateDef[]
   /** Optional source classification; when 'meeting', decision mining is on. */
@@ -51,6 +59,10 @@ export interface SynthesizeInput {
  *  find as a duplicate of, or an update to, one of them (see decisions.v1). */
 export interface ExtractDecisionsInput {
   source: { title: string | null; markdown: string }
+  /** en/de pin every generated decision field. */
+  language?: 'en' | 'de'
+  /** Set only for the single retry after a language-dominance failure. */
+  languageRepair?: boolean
   /** Optional source classification; 'meeting' is where decisions live. */
   sourceKind?: SourceKind
   charter?: string

@@ -826,7 +826,7 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
           "type": "string",
         },
         "language": {
-          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "description": "Language of this source's content and generated proposal prose; defaults to the space language",
           "enum": [
             "en",
             "de",
@@ -2011,7 +2011,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "type": "string",
         },
         "language": {
-          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "description": "Language of this source's content and generated proposal prose; defaults to the space language",
           "enum": [
             "en",
             "de",
@@ -3502,7 +3502,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "type": "string",
         },
         "language": {
-          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "description": "Language of this source's content and generated proposal prose; defaults to the space language",
           "enum": [
             "en",
             "de",
@@ -4988,7 +4988,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "type": "string",
         },
         "language": {
-          "description": "Language of this source's content for the retrieval index; defaults to the space language",
+          "description": "Language of this source's content and generated proposal prose; defaults to the space language",
           "enum": [
             "en",
             "de",

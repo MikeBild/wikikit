@@ -1697,7 +1697,7 @@ export interface components {
              */
             derived_from_output_id?: string;
             /**
-             * @description Language of this source's content for the retrieval index; defaults to the space language
+             * @description Language of this source's content and generated proposal prose; defaults to the space language
              * @enum {string}
              */
             language?: "en" | "de" | "simple";

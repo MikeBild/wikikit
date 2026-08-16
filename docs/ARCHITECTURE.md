@@ -91,6 +91,12 @@ is a read-only projection; editing it and writing the document back routes the
 change through the ordinary review gate as a ChangeProposal, keeping the
 grounding + approval guarantees intact.
 
+The source-level language override (or otherwise the space language) follows
+the same prompt path. `en` and `de` pin model-authored proposal prose; a
+deterministic dominance gate allows one explicitly marked repair call before
+the ingest fails. `simple` only selects neutral retrieval stemming and does
+not prescribe prose.
+
 ## Request lifecycle (REST)
 
 ```
