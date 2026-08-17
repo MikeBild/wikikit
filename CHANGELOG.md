@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.44.2 - 2026-08-17
+
+### Fixed
+
+- The production Cockpit browser check now waits for late capability-driven
+  tables and their loading skeletons to settle before measuring layout. Cell
+  findings include the selector and measured widths instead of an empty icon
+  label, so a real overflow remains distinguishable from loading geometry.
+
 ## 0.44.1 - 2026-08-17
 
 ### Fixed

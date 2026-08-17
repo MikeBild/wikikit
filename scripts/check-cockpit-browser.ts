@@ -91,7 +91,16 @@ const PROBE = `(() => {
     // WITHOUT one is text nobody can read and nothing on screen says so.
     const truncating = style.textOverflow === 'ellipsis' || style.overflow === 'hidden'
     if (!truncating && cell.scrollWidth > cell.clientWidth + 1) {
-      findings.push('a cell clips its own content: ' + (cell.textContent || '').trim().slice(0, 40))
+      findings.push(
+        'a cell clips its own content: ' +
+          (cell.dataset.testid || cell.tagName.toLowerCase()) +
+          ' (' +
+          cell.scrollWidth +
+          ' > ' +
+          cell.clientWidth +
+          ') ' +
+          (cell.textContent || '').trim().slice(0, 40),
+      )
     }
   }
   const ids = new Map()
@@ -238,12 +247,19 @@ async function main(): Promise<void> {
         await page.goto(url.href, { waitUntil: 'domcontentloaded' })
         await page.waitForLoadState('load')
         await page.locator('[data-testid="sidebar-trigger"]').waitFor({ state: 'attached', timeout: 15_000 })
+        const tablesSettled = `() =>
+          [...document.querySelectorAll('table')].every((table) => table.getAttribute('aria-busy') !== 'true') &&
+          !document.querySelector('.animate-pulse, [data-testid="row-skeleton"]')`
+        // Capability reads can mount an installation-only table after the
+        // route shell itself appears. Give those child reads a full frame
+        // window before declaring that the page has no table to wait for.
+        await page.waitForTimeout(1_000)
+        await page.waitForFunction(tablesSettled, undefined, { timeout: 15_000 })
+        // Some installation-only tables mount after their parent capability
+        // read settles. Hold the condition across one paint window so a late
+        // skeleton cannot be mistaken for clipped production data.
         await page.waitForTimeout(250)
-        await page.waitForFunction(
-          `() => [...document.querySelectorAll('table')].every((table) => table.getAttribute('aria-busy') !== 'true')`,
-          undefined,
-          { timeout: 15_000 },
-        )
+        await page.waitForFunction(tablesSettled, undefined, { timeout: 15_000 })
 
         // A route that bounced to the sign-in splash proves nothing about
         // layout, and reporting it as a pass would be the checker lying.
