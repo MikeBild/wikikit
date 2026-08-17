@@ -189,21 +189,19 @@ export function SourcesPage() {
       {
         id: 'version',
         label: 'Version',
-        priority: 'secondary',
+        priority: 'optional',
         cell: (row) => <span className="text-muted-foreground text-xs">{row.latest_version ?? '—'}</span>,
       },
       {
         id: 'seen',
         label: 'Last seen',
-        priority: 'secondary',
-        cell: (row, index) => (
-          <RelativeTime value={row.latest_observed_at} data-testid={`streams-row-${index + 1}-seen`} />
-        ),
+        priority: 'optional',
+        cell: (row) => <RelativeTime value={row.latest_observed_at} />,
       },
       {
         id: 'head',
         label: 'Current version',
-        priority: 'secondary',
+        priority: 'optional',
         cell: (row, index) =>
           row.latest_source_id ? (
             <Link

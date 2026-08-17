@@ -131,8 +131,8 @@ export function DecisionsPage() {
             <h2 id="decisions-waiting-longer" className="text-sm font-semibold text-warning">
               Waiting longer
             </h2>
-            {waitingLonger.map((item) => (
-              <AttentionCard key={item.key} item={item} space={space} />
+            {waitingLonger.map((item, index) => (
+              <AttentionCard key={item.key} item={item} space={space} testId={`decision-waiting-${index + 1}`} />
             ))}
           </section>
         ) : null}
@@ -141,8 +141,8 @@ export function DecisionsPage() {
             className="flex flex-col gap-3"
             aria-label={state === 'open' ? 'Needs attention' : STATE_LABELS[state]}
           >
-            {currentItems.map((item) => (
-              <AttentionCard key={item.key} item={item} space={space} />
+            {currentItems.map((item, index) => (
+              <AttentionCard key={item.key} item={item} space={space} testId={`decision-item-${index + 1}`} />
             ))}
           </section>
         ) : null}
@@ -200,7 +200,7 @@ function DecisionEmpty({
   )
 }
 
-function AttentionCard({ item, space }: { item: AttentionItem; space: string }) {
+function AttentionCard({ item, space, testId }: { item: AttentionItem; space: string; testId: string }) {
   const { locale } = useI18n()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -229,7 +229,7 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
     : item.title
 
   return (
-    <Card data-kind={item.kind} data-state={item.state}>
+    <Card data-kind={item.kind} data-state={item.state} data-testid={testId}>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={item.kind === 'care' ? 'warning' : item.kind === 'proposal' ? 'accent' : 'neutral'}>
@@ -253,7 +253,7 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
         {proposalId ? (
           <Collapsible open={expanded} onOpenChange={setExpanded}>
             <CollapsibleTrigger asChild>
-              <Button variant="outline" size="sm" aria-expanded={expanded} data-testid="decision-preview-toggle">
+              <Button variant="outline" size="sm" aria-expanded={expanded} data-testid={`${testId}-preview-toggle`}>
                 <ChevronDown data-icon="inline-start" />
                 {expanded ? 'Hide diff' : 'Show diff and evidence'}
               </Button>
@@ -283,18 +283,18 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
           </Collapsible>
         ) : null}
         {item.kind === 'triage' && item.state === 'open' ? (
-          <TriagePanel ingestId={item.key.slice('triage:'.length)} space={space} />
+          <TriagePanel ingestId={item.key.slice('triage:'.length)} space={space} testId={`${testId}-triage`} />
         ) : null}
       </CardContent>
       <CardFooter className="flex flex-wrap justify-between gap-2">
-        <TaskLink item={item} />
+        <TaskLink item={item} testId={testId} />
         <div className="flex flex-wrap gap-2">
           {item.state === 'open' ? (
             <>
               <Button
                 variant="outline"
                 size="sm"
-                data-testid="decision-defer"
+                data-testid={`${testId}-defer`}
                 onClick={() => stateMutation.mutate('deferred')}
               >
                 Remind in 3 days
@@ -302,7 +302,7 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
               <Button
                 variant="ghost"
                 size="sm"
-                data-testid="decision-remove"
+                data-testid={`${testId}-remove`}
                 onClick={() => stateMutation.mutate('discarded')}
               >
                 Remove from queue
@@ -312,7 +312,7 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
             <Button
               variant="outline"
               size="sm"
-              data-testid="decision-restore"
+              data-testid={`${testId}-restore`}
               onClick={() => stateMutation.mutate('open')}
             >
               Return to open
@@ -324,7 +324,7 @@ function AttentionCard({ item, space }: { item: AttentionItem; space: string }) 
   )
 }
 
-function TriagePanel({ ingestId, space }: { ingestId: string; space: string }) {
+function TriagePanel({ ingestId, space, testId }: { ingestId: string; space: string; testId: string }) {
   const suggestion = useQuery({
     queryKey: keys.triage(ingestId),
     queryFn: () => wk.ingest.suggestTriage(ingestId),
@@ -337,6 +337,7 @@ function TriagePanel({ ingestId, space }: { ingestId: string; space: string }) {
       key={suggestion.data.suggestion.generated_at}
       ingestId={ingestId}
       space={space}
+      testId={testId}
       suggestion={suggestion.data.suggestion}
     />
   )
@@ -345,10 +346,12 @@ function TriagePanel({ ingestId, space }: { ingestId: string; space: string }) {
 function TriageForm({
   ingestId,
   space,
+  testId,
   suggestion,
 }: {
   ingestId: string
   space: string
+  testId: string
   suggestion: TriageSuggestion
 }) {
   const queryClient = useQueryClient()
@@ -376,21 +379,25 @@ function TriageForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-xs font-medium">
           Title
-          <Input data-testid="triage-title" value={title} onChange={(event) => setTitle(event.target.value)} />
+          <Input data-testid={`${testId}-title`} value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="grid gap-1 text-xs font-medium">
           Target wiki
-          <Input data-testid="triage-target" value={target} onChange={(event) => setTarget(event.target.value)} />
+          <Input data-testid={`${testId}-target`} value={target} onChange={(event) => setTarget(event.target.value)} />
         </label>
       </div>
       <label className="grid gap-1 text-xs font-medium">
         Summary
-        <Textarea data-testid="triage-summary" value={summary} onChange={(event) => setSummary(event.target.value)} />
+        <Textarea
+          data-testid={`${testId}-summary`}
+          value={summary}
+          onChange={(event) => setSummary(event.target.value)}
+        />
       </label>
       <label className="grid gap-1 text-xs font-medium">
         Question to keep open
         <Textarea
-          data-testid="triage-question"
+          data-testid={`${testId}-question`}
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
         />
@@ -398,7 +405,7 @@ function TriageForm({
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          data-testid="triage-process"
+          data-testid={`${testId}-process`}
           disabled={!title || resolve.isPending}
           onClick={() => resolve.mutate('process')}
         >
@@ -408,7 +415,7 @@ function TriageForm({
           <Button
             size="sm"
             variant="outline"
-            data-testid="triage-use-existing"
+            data-testid={`${testId}-use-existing`}
             disabled={resolve.isPending}
             onClick={() => resolve.mutate('use_existing')}
           >
@@ -418,7 +425,7 @@ function TriageForm({
         <Button
           size="sm"
           variant="outline"
-          data-testid="triage-leave"
+          data-testid={`${testId}-leave`}
           disabled={resolve.isPending}
           onClick={() => resolve.mutate('leave')}
         >
@@ -427,7 +434,7 @@ function TriageForm({
         <Button
           size="sm"
           variant="ghost"
-          data-testid="triage-discard"
+          data-testid={`${testId}-discard`}
           disabled={resolve.isPending}
           onClick={() => resolve.mutate('discard')}
         >
@@ -438,7 +445,7 @@ function TriageForm({
   )
 }
 
-function TaskLink({ item }: { item: AttentionItem }) {
+function TaskLink({ item, testId }: { item: AttentionItem; testId: string }) {
   if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">Resolve above</span>
   if (item.kind === 'proposal') {
     return (
@@ -446,7 +453,7 @@ function TaskLink({ item }: { item: AttentionItem }) {
         <Link
           to="/decisions/proposals/$id"
           params={{ id: item.key.slice('proposal:'.length) }}
-          data-testid="decision-open-review"
+          data-testid={`${testId}-open-review`}
         >
           <I18nText>Open review</I18nText>
         </Link>
@@ -456,7 +463,7 @@ function TaskLink({ item }: { item: AttentionItem }) {
   if (item.kind === 'output') {
     return (
       <Button asChild size="sm">
-        <Link to="/answers/$id" params={{ id: item.key.slice('output:'.length) }} data-testid="decision-open-output">
+        <Link to="/answers/$id" params={{ id: item.key.slice('output:'.length) }} data-testid={`${testId}-open-output`}>
           <I18nText>Open output</I18nText>
         </Link>
       </Button>
@@ -464,7 +471,7 @@ function TaskLink({ item }: { item: AttentionItem }) {
   }
   return (
     <Button asChild size="sm">
-      <Link to="/care" data-testid="decision-open-care">
+      <Link to="/care" data-testid={`${testId}-open-care`}>
         <I18nText>Open care</I18nText>
       </Link>
     </Button>

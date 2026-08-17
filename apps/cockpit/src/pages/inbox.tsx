@@ -222,7 +222,7 @@ export function InboxPage() {
       {
         id: 'arrived',
         label: 'Arrived',
-        priority: 'secondary',
+        priority: 'optional',
         cell: (row, index) => <RelativeTime value={row.created_at} data-testid={`inbox-job-${index + 1}-arrived`} />,
       },
       {

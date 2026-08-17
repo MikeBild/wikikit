@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.44.1 - 2026-08-17
+
+### Fixed
+
+- Large production queues now give every Cockpit action a unique, readable
+  selector instead of repeating one selector across as many as 200 rows.
+- Connector streams, wiki environments and Inbox timestamps now collapse or
+  wrap at the tablet boundary, keeping every table inside its surface in German
+  as well as English.
+
 ## 0.44.0 - 2026-08-17
 
 ### Changed

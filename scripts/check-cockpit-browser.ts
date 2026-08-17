@@ -28,10 +28,13 @@
 //   bun scripts/check-cockpit-browser.ts                     against a local dev stack
 //   bun scripts/check-cockpit-browser.ts --remote <url>      against a deployment
 //   bun scripts/check-cockpit-browser.ts --remote <url> --space workkit-ops --locale de
+//   bun scripts/check-cockpit-browser.ts --remote <url> --local-assets assets/cockpit
 //
 // Remote mode is READ-ONLY and mints nothing: it is pointed at installations
 // this script does not own, and a checker that creates credentials on somebody
 // else's deployment is a checker nobody dares run.
+import { readFile } from 'node:fs/promises'
+import { extname, relative, resolve, sep } from 'node:path'
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
 import { DE_PHRASES } from '../apps/cockpit/src/lib/i18n.ts'
 
@@ -162,6 +165,8 @@ async function main(): Promise<void> {
   const space = spaceFlag >= 0 ? process.argv[spaceFlag + 1] : undefined
   const localeFlag = process.argv.indexOf('--locale')
   const locale = localeFlag >= 0 ? process.argv[localeFlag + 1] : undefined
+  const localAssetsFlag = process.argv.indexOf('--local-assets')
+  const localAssets = localAssetsFlag >= 0 ? process.argv[localAssetsFlag + 1] : undefined
   if (locale !== undefined && locale !== 'en' && locale !== 'de') {
     console.error('✗ --locale must be en or de')
     process.exit(2)
@@ -214,6 +219,7 @@ async function main(): Promise<void> {
   try {
     for (const viewport of VIEWPORTS) {
       const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } })
+      if (localAssets) await serveLocalCockpit(context, base, localAssets)
       const page = await context.newPage()
       await signIn(page)
       if (locale) {
@@ -282,6 +288,45 @@ async function main(): Promise<void> {
     console.error(`\x1b[31m✗\x1b[0m ${finding.viewport} ${finding.route}: ${finding.what}`)
   }
   process.exit(1)
+}
+
+/**
+ * Exercise an unshipped Cockpit bundle against the deployment's real API.
+ *
+ * The page keeps the deployment origin, session cookie and data. Only requests
+ * below `/cockpit/` are fulfilled from the generated local bundle. That closes
+ * the release-testing gap where a data-dependent layout fix could otherwise be
+ * checked only after publishing another release.
+ */
+async function serveLocalCockpit(
+  context: import('playwright').BrowserContext,
+  base: string,
+  directory: string,
+): Promise<void> {
+  const root = resolve(directory)
+  await context.route(`${base.replace(/\/$/, '')}/cockpit/**`, async (route) => {
+    const url = new URL(route.request().url())
+    const suffix = decodeURIComponent(url.pathname.replace(/^\/cockpit\/?/, ''))
+    const requested = suffix.startsWith('assets/') ? suffix : 'index.html'
+    const file = resolve(root, requested)
+    const inside = relative(root, file)
+    if (inside === '..' || inside.startsWith(`..${sep}`)) {
+      await route.abort('blockedbyclient')
+      return
+    }
+    try {
+      await route.fulfill({ body: await readFile(file), contentType: contentType(file) })
+    } catch {
+      await route.fulfill({ status: 404, body: 'Not found', contentType: 'text/plain' })
+    }
+  })
+}
+
+function contentType(file: string): string {
+  if (extname(file) === '.html') return 'text/html; charset=utf-8'
+  if (extname(file) === '.css') return 'text/css; charset=utf-8'
+  if (extname(file) === '.js') return 'text/javascript; charset=utf-8'
+  return 'application/octet-stream'
 }
 
 await main()

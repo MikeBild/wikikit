@@ -59,6 +59,26 @@ describe('the Cockpit action hierarchy', () => {
     expect(browserCheck).not.toContain("table.dataset.testid === 'pages-table'")
   })
 
+  test('production-sized lists keep selectors unique and tablet columns bounded', () => {
+    const decisions = source('apps/cockpit/src/pages/decisions.tsx')
+    expect(decisions).toContain('testId={`decision-item-${index + 1}`}')
+    expect(decisions).toContain('data-testid={`${testId}-defer`}')
+    expect(decisions).not.toMatch(/data-testid=["']decision-(?:defer|remove|open-care)["']/)
+
+    const streams = source('apps/cockpit/src/pages/sources.tsx')
+    for (const id of ['version', 'seen', 'head']) {
+      expect(streams).toMatch(new RegExp(`id: '${id}',[\\s\\S]{0,100}priority: 'optional'`))
+    }
+    expect(streams).not.toContain('data-testid={`streams-row-${index + 1}-seen`}')
+
+    const spaces = source('apps/cockpit/src/pages/spaces.tsx')
+    expect(spaces).toMatch(/id: 'environment',[\s\S]{0,100}priority: 'optional'/)
+    expect(spaces).toContain('whitespace-normal')
+
+    const inbox = source('apps/cockpit/src/pages/inbox.tsx')
+    expect(inbox).toMatch(/id: 'arrived',[\s\S]{0,100}priority: 'optional'/)
+  })
+
   test('icons beside button copy use the shadcn data-icon contract', () => {
     const offenders: string[] = []
     for (const file of cockpitFiles.filter((path) => !path.includes('/components/ui/'))) {

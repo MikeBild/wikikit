@@ -165,10 +165,13 @@ const COLUMNS: readonly DataColumn<Row>[] = [
   {
     id: 'environment',
     label: 'Environment',
-    priority: 'secondary',
+    priority: 'optional',
     compare: (left, right) => compareText(readEnvironment(left.settings), readEnvironment(right.settings)),
     cell: (space) => (
-      <Badge tone={readEnvironment(space.settings) === 'test' ? 'warning' : 'neutral'}>
+      <Badge
+        tone={readEnvironment(space.settings) === 'test' ? 'warning' : 'neutral'}
+        className="h-auto min-h-5 max-w-full break-words text-center whitespace-normal"
+      >
         {readEnvironment(space.settings) === 'test' ? 'Test' : 'Production'}
       </Badge>
     ),
