@@ -111,8 +111,7 @@ function deps(overrides: Partial<ToolDeps> = {}): ToolDeps {
     db: stubDb({ wk_spaces: [{ id: 'space-1', slug: 'main' }] }),
     ingest: {
       enqueue: async () => ({ ingest_id: '11111111-1111-4111-8111-111111111111' }),
-      processCapture: async () => {},
-      discardCapture: async () => {},
+      resolveCapture: async () => {},
       start: () => {},
       stop: async () => {},
       runOnce: async () => false,

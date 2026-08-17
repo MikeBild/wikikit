@@ -87,14 +87,17 @@ const SOURCE_COLUMNS: readonly DataColumn<SourceSummary>[] = [
     required: true,
     className: 'max-w-64 whitespace-normal',
     cell: (row, index) => (
-      <Link
-        to="/sources/$id"
-        params={{ id: row.id }}
-        data-testid={`sources-row-${index + 1}-open`}
-        className="font-medium underline-offset-4 hover:underline"
-      >
-        {sourceLabel(row)}
-      </Link>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Link
+          to="/sources/$id"
+          params={{ id: row.id }}
+          data-testid={`sources-row-${index + 1}-open`}
+          className="font-medium underline-offset-4 hover:underline"
+        >
+          {sourceLabel(row)}
+        </Link>
+        <span className="line-clamp-2 text-xs text-muted-foreground">{row.summary}</span>
+      </div>
     ),
   },
   {

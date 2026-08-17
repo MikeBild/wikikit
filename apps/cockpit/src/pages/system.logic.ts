@@ -92,7 +92,7 @@ export function severityStanding(severity: string): SeverityStanding {
 export interface LintFinding {
   rule: string
   severity: string
-  message: string
+  message: { key: string; args: Record<string, unknown>; default_text: string }
   concept_slug?: string
 }
 

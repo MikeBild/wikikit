@@ -164,7 +164,7 @@ export function PageEditPage() {
   const known = currentRevisionId(history.data?.revisions ?? [])
   const submit = useMutation({
     mutationFn: () =>
-      wk.changes.propose(
+      wk.proposals.propose(
         space,
         conceptProposalBody({
           space,
@@ -191,7 +191,7 @@ export function PageEditPage() {
         detail:
           'Nothing is published yet — a reviewer with knowledge:approve decides whether it becomes part of the wiki.',
       })
-      void navigate({ to: '/changes/$id', params: { id: result.proposal_id }, search: KEEP_SEARCH })
+      void navigate({ to: '/decisions/proposals/$id', params: { id: result.proposal_id }, search: KEEP_SEARCH })
     },
   })
 

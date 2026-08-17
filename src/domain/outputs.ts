@@ -31,7 +31,7 @@
 import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
 import { NotFoundError } from './errors.ts'
-import { clampLimit, decodeCursor, encodeCursor, isoString } from './sources.ts'
+import { clampLimit, decodeCursor, encodeCursor, isoString, summarizeSource } from './sources.ts'
 
 /**
  * How the output came to be — a closed set (DB CHECK):
@@ -56,6 +56,7 @@ export interface Output {
   space_id: string
   kind: OutputKind
   title: string
+  summary: string
   /** The question that was asked (kind='answer'); null for the other kinds. */
   question: string | null
   markdown: string
@@ -96,6 +97,7 @@ function toOutput(row: OutputRow): Output {
     space_id: row.space_id,
     kind: row.kind,
     title: row.title,
+    summary: summarizeSource(row.markdown),
     question: row.question ?? null,
     markdown: row.markdown,
     // pg parses jsonb into an array, but a stubbed pool (unit tests) hands back

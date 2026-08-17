@@ -34,6 +34,8 @@ export const zIngestInput = z
     text: z.string().min(1).optional(),
     url: z.url().optional(),
     title: z.string().max(500).optional(),
+    raw_title: z.string().max(500).optional(),
+    summary: z.string().max(4000).optional(),
     // WHY source_kind is separate from `kind`: `kind` is the TRANSPORT of the
     // content (markdown/text/url); source_kind is what the content IS. It is
     // optional with NO default — absence is persisted as null on the source's
@@ -148,6 +150,8 @@ export interface AcquiredSource {
   kind: 'markdown' | 'text' | 'url'
   url: string | null
   title: string | null
+  rawTitle: string | null
+  summary: string | null
   /** Archived verbatim — the sha256 idempotency anchor is computed over this. */
   raw: string
   /** Normalized markdown projection (identical to raw except for kind='url' HTML). */
@@ -216,7 +220,12 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
     }
   }
 
-  async function fetchUrl(url: string, providedTitle: string | undefined): Promise<AcquiredSource> {
+  async function fetchUrl(
+    url: string,
+    providedTitle: string | undefined,
+    rawTitle: string | undefined,
+    summary: string | undefined,
+  ): Promise<AcquiredSource> {
     // Manual redirect walk: every hop — the original URL and each Location —
     // is re-validated, so a redirect can never smuggle the fetch into an
     // address the direct URL would have been refused for. (Residual DNS
@@ -278,6 +287,8 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
       kind: 'url',
       url,
       title: providedTitle ?? (isHtml ? htmlTitle(raw) : null) ?? extractTitle(markdown),
+      rawTitle: rawTitle ?? providedTitle ?? (isHtml ? htmlTitle(raw) : null),
+      summary: summary ?? null,
       raw,
       markdown,
     }
@@ -287,7 +298,7 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
     async acquire(args: IngestInput): Promise<AcquiredSource> {
       const input = zIngestInput.parse(args)
 
-      if (input.url !== undefined) return fetchUrl(input.url, input.title)
+      if (input.url !== undefined) return fetchUrl(input.url, input.title, input.raw_title, input.summary)
 
       if (input.markdown !== undefined) {
         return {
@@ -296,6 +307,8 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
           // Title fallback probes the document itself (frontmatter title,
           // then first h1) — cheap, structural, no LLM.
           title: input.title ?? extractTitle(input.markdown),
+          rawTitle: input.raw_title ?? input.title ?? extractTitle(input.markdown),
+          summary: input.summary ?? null,
           raw: input.markdown,
           markdown: input.markdown,
         }
@@ -303,7 +316,15 @@ export function createAcquirer(config: Config, deps: { fetchImpl?: typeof fetch 
 
       // Plain text: no structural title probe — a leading '#' in prose is
       // prose, not a heading, so only the caller-provided title counts.
-      return { kind: 'text', url: null, title: input.title ?? null, raw: input.text!, markdown: input.text! }
+      return {
+        kind: 'text',
+        url: null,
+        title: input.title ?? null,
+        rawTitle: input.raw_title ?? input.title ?? null,
+        summary: input.summary ?? null,
+        raw: input.text!,
+        markdown: input.text!,
+      }
     },
   }
 }

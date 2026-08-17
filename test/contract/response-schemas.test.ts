@@ -82,6 +82,8 @@ const SOURCE_ROW = {
   kind: 'markdown' as const,
   url: null,
   title: 'A note',
+  raw_title: 'A note',
+  summary: 'A source note.',
   content_hash: 'b'.repeat(64),
   raw_content: '# A note\n\nbody',
   markdown: '# A note\n\nbody',
@@ -140,6 +142,7 @@ const OUTPUT_ROW = {
   space_id: SPACE_ID,
   kind: 'answer' as const,
   title: 'What is WikiKit?',
+  summary: 'A headless knowledge system.',
   question: 'What is WikiKit?',
   markdown: '# What is WikiKit?\n\nA headless knowledge system.',
   citations: [{ slug: 'wikikit', title: 'WikiKit' }],
@@ -860,19 +863,24 @@ const CASES: RouteCase[] = [
     body: { transcript: 'human: fix the typo\nassistant: done' },
   },
   { template: '/v1/ingests/{id}', method: 'get', url: `/v1/ingests/${JOB_ID}`, status: 200 },
-  // Both act on the parked fixture; the stateless stub answers the re-read
-  // with the same captured row, which the widened status shape accepts.
   {
-    template: '/v1/ingests/{id}/process',
-    method: 'post',
-    url: `/v1/ingests/${CAPTURE_ID}/process`,
+    template: '/v1/ingests/{id}/triage',
+    method: 'get',
+    url: `/v1/ingests/${CAPTURE_ID}/triage`,
     status: 200,
   },
   {
-    template: '/v1/ingests/{id}/discard',
+    template: '/v1/ingests/{id}/triage',
     method: 'post',
-    url: `/v1/ingests/${CAPTURE_ID}/discard`,
+    url: `/v1/ingests/${CAPTURE_ID}/triage`,
     status: 200,
+  },
+  {
+    template: '/v1/ingests/{id}/triage/resolve',
+    method: 'post',
+    url: `/v1/ingests/${CAPTURE_ID}/triage/resolve`,
+    status: 200,
+    body: { action: 'leave', title: 'Raw thought', summary: 'Parked for later.', question: null },
   },
   {
     // The inbox list. Rows are the SAME shape the single status read serves
@@ -975,6 +983,7 @@ const CASES: RouteCase[] = [
   // The composed maintenance read: lint + coverage + the two live queues, with
   // no verdict on top. strictObject, so a field the handler invents fails here.
   { template: '/v1/spaces/{space}/health', method: 'get', url: '/v1/spaces/demo/health', status: 200 },
+  { template: '/v1/spaces/{space}/attention', method: 'get', url: '/v1/spaces/demo/attention', status: 200 },
   { template: '/v1/stats/overview', method: 'get', url: '/v1/stats/overview', status: 200 },
   { template: '/v1/spaces/{space}/schedules', method: 'get', url: '/v1/spaces/demo/schedules', status: 200 },
   {

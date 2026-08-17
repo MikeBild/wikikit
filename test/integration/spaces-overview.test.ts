@@ -103,6 +103,7 @@ async function seedSource(spaceId: string, title: string, derived: boolean): Pro
     content_hash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
     raw_content: `# ${title}`,
     markdown: `# ${title}`,
+    summary: title,
     metadata: JSON.stringify(derived ? { derived_from_output_id: randomUUID() } : {}),
   })
   return row!.id

@@ -275,40 +275,82 @@ describe('capture lifecycle', () => {
     expect(claim.sql).toContain(`WHERE status = 'queued'`)
   })
 
-  test('processCapture promotes to queued, paying the LLM guard and the queue ceiling', async () => {
+  test('triage process resolution queues the capture after guards', async () => {
     const { db, calls } = fakeDb([
       {
         match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
-        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured', input: { text: 'Note' } }],
       },
       { match: /AS waiting/, rows: [{ waiting: 0 }] },
     ])
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
-    await pipeline.processCapture(db, 'cap-1')
-    const flip = calls.find((call) => call.sql.includes(`SET status = 'queued'`))!
+    await pipeline.resolveCapture(db, 'cap-1', {
+      action: 'process',
+      targetSpaceId: 'space-1',
+      title: 'Note',
+      summary: 'Summary',
+    })
+    const flip = calls.find((call) => call.sql.startsWith('UPDATE') && call.values.includes('queued'))!
     // Guarded on 'captured': a racing discard wins or loses cleanly.
-    expect(flip.sql).toContain(`AND status = 'captured'`)
+    expect(flip.values).toContain('captured')
+    const stored = JSON.parse(flip.values.find((value) => String(value).startsWith('{')) as string)
+    expect(stored).not.toHaveProperty('raw_title')
     expect(calls.some((call) => call.sql.includes('AS waiting'))).toBe(true)
   })
 
-  test('processCapture answers 503 at promotion when no key is set — the note stays parked', async () => {
+  test('triage edits the readable title but preserves the original file title as evidence', async () => {
     const { db, calls } = fakeDb([
       {
         match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
-        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+        rows: [
+          {
+            id: 'cap-1',
+            space_id: 'space-1',
+            status: 'captured',
+            input: { markdown: '# Extracted heading', title: 'Extracted heading', raw_title: 'meeting-notes.docx' },
+          },
+        ],
+      },
+      { match: /AS waiting/, rows: [{ waiting: 0 }] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    await pipeline.resolveCapture(db, 'cap-1', {
+      action: 'process',
+      targetSpaceId: 'space-1',
+      title: 'Reviewed meeting title',
+      summary: 'Reviewed summary',
+    })
+    const flip = calls.find((call) => call.sql.startsWith('UPDATE') && call.values.includes('queued'))!
+    const input = JSON.parse(flip.values.find((value) => String(value).startsWith('{')) as string)
+    expect(input.raw_title).toBe('meeting-notes.docx')
+    expect(input.title).toBe('Reviewed meeting title')
+  })
+
+  test('triage process resolution answers 503 without an LLM key', async () => {
+    const { db, calls } = fakeDb([
+      {
+        match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured', input: { text: 'Note' } }],
       },
     ])
     const unconfigured = { ...createFakeProvider(), configured: false }
     const pipeline = createIngestPipeline(config, db, unconfigured, logger)
-    await expect(pipeline.processCapture(db, 'cap-1')).rejects.toBeInstanceOf(LlmNotConfiguredError)
+    await expect(
+      pipeline.resolveCapture(db, 'cap-1', {
+        action: 'process',
+        targetSpaceId: 'space-1',
+        title: 'Note',
+        summary: 'Summary',
+      }),
+    ).rejects.toBeInstanceOf(LlmNotConfiguredError)
     expect(calls.some((call) => call.sql.includes(`SET status = 'queued'`))).toBe(false)
   })
 
-  test('processCapture refuses a full queue — the guard capture skipped applies here', async () => {
+  test('triage process resolution refuses a full queue', async () => {
     const { db, calls } = fakeDb([
       {
         match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
-        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured', input: { text: 'Note' } }],
       },
       { match: /AS waiting/, rows: [{ waiting: 50 }] },
     ])
@@ -318,11 +360,18 @@ describe('capture lifecycle', () => {
       createFakeProvider(),
       logger,
     )
-    await expect(pipeline.processCapture(db, 'cap-1')).rejects.toThrow(/queue/)
+    await expect(
+      pipeline.resolveCapture(db, 'cap-1', {
+        action: 'process',
+        targetSpaceId: 'space-1',
+        title: 'Note',
+        summary: 'Summary',
+      }),
+    ).rejects.toThrow(/queue/)
     expect(calls.some((call) => call.sql.includes(`SET status = 'queued'`))).toBe(false)
   })
 
-  test('process and discard 409 ingest_not_captured on any other status', async () => {
+  test('triage resolutions 409 ingest_not_captured on any other status', async () => {
     const { db } = fakeDb([
       {
         match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
@@ -330,7 +379,16 @@ describe('capture lifecycle', () => {
       },
     ])
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
-    for (const attempt of [() => pipeline.processCapture(db, 'job-1'), () => pipeline.discardCapture(db, 'job-1')]) {
+    for (const attempt of [
+      () =>
+        pipeline.resolveCapture(db, 'job-1', {
+          action: 'process',
+          targetSpaceId: 'space-1',
+          title: 'Note',
+          summary: 'Summary',
+        }),
+      () => pipeline.resolveCapture(db, 'job-1', { action: 'discard', title: 'Note', summary: 'Summary' }),
+    ]) {
       const failure = attempt().then(
         () => null,
         (error: unknown) => error,
@@ -340,18 +398,18 @@ describe('capture lifecycle', () => {
     }
   })
 
-  test('discardCapture is terminal: discarded + finished_at, row kept', async () => {
+  test('triage discard is terminal: discarded + finished_at, row kept', async () => {
     const { db, calls } = fakeDb([
       {
         match: /SELECT \* FROM "public"\."wk_ingest_jobs"/,
-        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured' }],
+        rows: [{ id: 'cap-1', space_id: 'space-1', status: 'captured', input: { text: 'Note' } }],
       },
     ])
     const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
-    await pipeline.discardCapture(db, 'cap-1')
-    const flip = calls.find((call) => call.sql.includes(`SET status = 'discarded'`))!
-    expect(flip.sql).toContain('finished_at = now()')
-    expect(flip.sql).toContain(`AND status = 'captured'`)
+    await pipeline.resolveCapture(db, 'cap-1', { action: 'discard', title: 'Note', summary: 'Summary' })
+    const flip = calls.find((call) => call.sql.startsWith('UPDATE') && call.values.includes('discarded'))!
+    expect(flip.values).toContain('captured')
+    expect(flip.sql).toContain('finished_at')
     expect(calls.some((call) => call.sql.includes('DELETE'))).toBe(false)
   })
 })

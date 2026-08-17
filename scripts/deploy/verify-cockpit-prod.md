@@ -47,9 +47,9 @@ check.
   path. The sidebar renders.
 - **Fail if** — you land on the funnel again. The session cookie did not stick
   — check `Secure`/`__Host-` against the scheme the proxy terminates.
-- **Do** — now open `$WIKIKIT_DEPLOY_URL/cockpit/changes` directly in a second
+- **Do** — now open `$WIKIKIT_DEPLOY_URL/cockpit/decisions` directly in a second
   private window and sign in from there.
-- **Expect** — after signing in you are on `/cockpit/changes`, not on the home
+- **Expect** — after signing in you are on `/cockpit/decisions`, not on the home
   page. `return_to` survived the round trip.
 
 ## 2. The shell
@@ -104,7 +104,7 @@ _Skip if this credential can see only one wiki._
 - **Fail if** — the two tiers look alike, or a `<mark>` renders as literal
   markup.
 
-## 5. The loop: edit → change → review
+## 5. The loop: edit → proposal → review
 
 This is the product. If nothing else is checked, check this.
 
@@ -115,8 +115,8 @@ This is the product. If nothing else is checked, check this.
   server does not do.
 - **Do** — make a small, obviously-yours edit (add a sentence naming the
   release you are verifying). Submit.
-- **Expect** — a toast, and you land on `/cockpit/changes/<id>`.
-- **Do** — read the change.
+- **Expect** — a toast, and you land on `/cockpit/decisions/proposals/<id>`.
+- **Do** — read the proposal.
 - **Expect** — a line diff showing your sentence added; the lint result is
   present; the claims and their citations are listed.
 - **Fail if** — the diff is empty, or a lint failure blanked the diff. Lint

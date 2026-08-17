@@ -9,14 +9,14 @@ promise the whole interface makes, and every page keeps it or breaks it:
 - A **concept is a page**, written in Markdown. It is read as a rendered
   document, not as a form full of fields.
 - **Editing is proposing.** Nothing a human writes becomes visible knowledge
-  directly; saving creates a change proposal. Say "Submit change", never "Save",
-  and send the operator to the change afterwards so they can see what they made.
-- A **change is a document diff.** Approve, reject, request changes and split are
+  directly; submitting creates a proposal. Say "Submit proposal", never "Save",
+  and send the operator to its review afterwards so they can see what they made.
+- A **proposal is a document diff.** Approve, reject, request changes and split are
   decisions on a document, in the reviewer's language.
 - **Sources are the evidence.** They are archived verbatim and read-only. Adding
-  documents is how the wiki grows; the pages come back as changes to review.
+  documents is how the wiki grows; the pages come back as proposals to review.
 
-Write the words a reader would use. "Pages", "Changes", "Sources", "Wikis". The
+Write the words a reader would use. "Pages", "Decisions", "Sources", "Wikis". The
 API says concept, proposal, source, space — keep that in the code, where it
 matches the tables, and out of the interface. Same rule for the newer surfaces:
 the console says **Answers** where the API says outputs, **Guidelines** where it

@@ -844,6 +844,10 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "raw_title": {
+          "maxLength": 500,
+          "type": "string",
+        },
         "resynthesize": {
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
@@ -866,6 +870,10 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 4000,
           "type": "string",
         },
         "text": {
@@ -2029,6 +2037,10 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "raw_title": {
+          "maxLength": 500,
+          "type": "string",
+        },
         "resynthesize": {
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
@@ -2051,6 +2063,10 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 4000,
           "type": "string",
         },
         "text": {
@@ -3520,6 +3536,10 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "raw_title": {
+          "maxLength": 500,
+          "type": "string",
+        },
         "resynthesize": {
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
@@ -3542,6 +3562,10 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 4000,
           "type": "string",
         },
         "text": {
@@ -5006,6 +5030,10 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
           "type": "string",
         },
+        "raw_title": {
+          "maxLength": 500,
+          "type": "string",
+        },
         "resynthesize": {
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
@@ -5028,6 +5056,10 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
         "space": {
           "description": "Space slug the key is working in",
           "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string",
+        },
+        "summary": {
+          "maxLength": 4000,
           "type": "string",
         },
         "text": {

@@ -28,8 +28,9 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/spaces/{space}/ingest/document', 'knowledge:propose'],
   ['post', '/v1/spaces/{space}/agent/sessions', 'knowledge:propose'],
   ['get', '/v1/ingests/{id}', 'knowledge:propose'],
-  ['post', '/v1/ingests/{id}/process', 'knowledge:propose'],
-  ['post', '/v1/ingests/{id}/discard', 'knowledge:propose'],
+  ['get', '/v1/ingests/{id}/triage', 'knowledge:propose'],
+  ['post', '/v1/ingests/{id}/triage', 'knowledge:propose'],
+  ['post', '/v1/ingests/{id}/triage/resolve', 'knowledge:propose'],
   // The inbox list. knowledge:read is the declared scope and propose satisfies
   // it too (altScopes): a contributor key can already poll any single job of
   // its own, so refusing it the list of exactly those jobs would be a gap.
@@ -58,6 +59,8 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/outputs/{id}/promote', 'knowledge:propose'],
   // The composed maintenance read — LLM-free, so it is an ordinary read.
   ['get', '/v1/spaces/{space}/health', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/attention', 'knowledge:read'],
+  ['put', '/v1/spaces/{space}/attention/{key}', 'knowledge:propose'],
   // admin, because a schedule decides what this server does on its own.
   ['get', '/v1/spaces/{space}/schedules', 'admin'],
   ['put', '/v1/spaces/{space}/schedules', 'admin'],

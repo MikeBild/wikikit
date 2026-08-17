@@ -114,6 +114,7 @@ export interface ProposalDetail {
   agent_meta: Record<string, unknown>
   changes_requested: boolean
   parent_proposal_id: string | null
+  previous_rejection: { proposal_id: string; reviewed_at: string; note: string | null } | null
   /** Resolved source rows for source_ids ∪ cited sources — replaces bare-uuid review UX. */
   sources: { id: string; title: string | null; url: string | null; kind: string; created_at: string }[]
   concepts: ConceptDiff[]
@@ -1090,6 +1091,20 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
         rows: [] as { id: string; title: string | null; url: string | null; kind: string; created_at: Date | string }[],
       }
 
+  const previousRejections = await db.query<{
+    id: string
+    reviewed_at: Date | string
+    review_note: string | null
+  }>(
+    `SELECT id, reviewed_at, review_note
+       FROM wk_change_proposals
+      WHERE space_id = $1 AND input_hash = $2 AND status = 'rejected' AND id <> $3
+      ORDER BY reviewed_at DESC NULLS LAST, created_at DESC
+      LIMIT 1`,
+    [proposal.space_id, proposal.input_hash, proposal.id],
+  )
+  const previousRejection = previousRejections.rows[0]
+
   return {
     id: proposal.id,
     space: space?.slug ?? '',
@@ -1106,6 +1121,13 @@ export async function getProposal(db: Db, args: { id: string }): Promise<Proposa
     agent_meta: proposal.agent_meta ?? {},
     changes_requested: proposal.changes_requested === true,
     parent_proposal_id: proposal.parent_proposal_id ?? null,
+    previous_rejection: previousRejection
+      ? {
+          proposal_id: previousRejection.id,
+          reviewed_at: isoString(previousRejection.reviewed_at),
+          note: previousRejection.review_note,
+        }
+      : null,
     sources: sources.rows.map((row) => ({
       id: row.id,
       title: row.title,

@@ -33,7 +33,6 @@ describe('the Cockpit action hierarchy', () => {
 
   test('tables that exceeded the phone viewport collapse secondary columns', () => {
     const minimumResponsiveColumns: Record<string, number> = {
-      'changes.tsx': 2,
       'sources.tsx': 6,
       'spaces.tsx': 3,
       'api-keys.tsx': 3,

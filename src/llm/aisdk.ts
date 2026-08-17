@@ -49,6 +49,7 @@ import * as decisionsV2 from './prompts/decisions.v2.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
+import * as triagePrompt from './prompts/triage.ts'
 import {
   zAdjudicateOutput,
   zAnswerOutput,
@@ -56,6 +57,7 @@ import {
   zDistillOutput,
   zExtractDecisionsOutput,
   zSynthesizeOutput,
+  zTriageOutput,
   toOutputJsonSchema,
   type AdjudicateInput,
   type AdjudicateOutput,
@@ -69,6 +71,8 @@ import {
   type ExtractDecisionsOutput,
   type SynthesizeInput,
   type SynthesizeOutput,
+  type TriageInput,
+  type TriageOutput,
 } from './schemas.ts'
 import type { z } from 'zod'
 // The AI SDK types a hand-supplied wire schema as JSONSchema7; our walker
@@ -84,6 +88,7 @@ const MAX_TOKENS = {
   answer: 8192,
   distill: 4096,
   adjudicate: 1024,
+  triage: 1024,
 } as const
 
 interface PromptModule<I> {
@@ -195,7 +200,7 @@ export function createLlmProvider(
   }
 
   async function call<I, T>(args: {
-    kind: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'adjudicate'
+    kind: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'adjudicate' | 'triage'
     model: string
     promptVersion: string
     prompt: PromptModule<I>
@@ -326,6 +331,17 @@ export function createLlmProvider(
       }
       deps.metrics?.llmCall('embed', run.model, run.usage, 'success', duration_ms)
       return { output: { embeddings: result.embeddings as number[][], dimensions: EMBEDDING_DIMENSIONS }, run }
+    },
+    triage(input: TriageInput, opts?: LlmCallOptions): Promise<LlmResult<TriageOutput>> {
+      return call({
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+        kind: 'triage',
+        model: config.modelClassify,
+        promptVersion: PROMPT_VERSIONS.triage,
+        prompt: triagePrompt,
+        input,
+        schema: zTriageOutput,
+      })
     },
     classify(input: ClassifyInput, opts?: LlmCallOptions): Promise<LlmResult<ClassifyOutput>> {
       return call({

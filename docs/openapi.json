@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.43.2",
+    "version": "0.44.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -433,7 +433,7 @@
         "operationId": "createIngest",
         "responses": {
           "200": {
-            "description": "Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process)",
+            "description": "Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; resolve through triage)",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestSyncResponse" } } }
           },
           "202": {
@@ -589,14 +589,14 @@
         "x-required-scope": "knowledge:propose"
       }
     },
-    "/v1/ingests/{id}/process": {
-      "post": {
-        "summary": "Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here",
-        "operationId": "processCapture",
+    "/v1/ingests/{id}/triage": {
+      "get": {
+        "summary": "Read the editable triage suggestion stored with a captured item",
+        "operationId": "getTriage",
         "responses": {
           "200": {
-            "description": "The job, now queued",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestStatusResponse" } } }
+            "description": "Stored suggestion or null",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zTriageResponse" } } }
           },
           "400": {
             "description": "bad_request — request failed schema validation",
@@ -614,20 +614,52 @@
             "description": "not_found",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
-          "409": {
-            "description": "ingest_not_captured — the job is not parked",
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
+      },
+      "post": {
+        "summary": "Generate and store an editable placement suggestion for a captured item",
+        "operationId": "suggestTriage",
+        "responses": {
+          "200": {
+            "description": "Fresh triage suggestion",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zTriageResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
-          "429": {
-            "description": "ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked",
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "500": {
             "description": "internal_error",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
-          },
-          "503": {
-            "description": "llm_not_configured — the note stays parked",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           }
         },
@@ -647,13 +679,13 @@
         "x-required-scope": "knowledge:propose"
       }
     },
-    "/v1/ingests/{id}/discard": {
+    "/v1/ingests/{id}/triage/resolve": {
       "post": {
-        "summary": "Discard a captured note — terminal; the row stays in the job list for the record",
-        "operationId": "discardCapture",
+        "summary": "Resolve a captured item by processing, reusing a source, leaving it open or discarding it",
+        "operationId": "resolveTriage",
         "responses": {
           "200": {
-            "description": "The job, now discarded",
+            "description": "Resolved ingest job",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestStatusResponse" } } }
           },
           "400": {
@@ -670,10 +702,6 @@
           },
           "404": {
             "description": "not_found",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
-          },
-          "409": {
-            "description": "ingest_not_captured — the job is not parked",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "500": {
@@ -693,6 +721,10 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zTriageResolutionRequest" } } }
+        },
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:propose"
       }
@@ -761,6 +793,10 @@
         "summary": "Upload a document (pdf|docx|xlsx|md|txt|csv, raw body) — extracted to Markdown then ingested; async",
         "operationId": "ingestDocument",
         "responses": {
+          "200": {
+            "description": "Extracted and parked in the inbox",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestCapturedResponse" } } }
+          },
           "202": {
             "description": "Extracted + queued; poll /v1/ingests/{id}",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestAcceptedResponse" } } }
@@ -821,7 +857,8 @@
             "in": "query",
             "required": false,
             "schema": { "type": "string", "enum": ["meeting", "article", "note"] }
-          }
+          },
+          { "name": "capture", "in": "query", "required": false, "schema": { "type": "boolean" } }
         ],
         "requestBody": {
           "required": true,
@@ -1863,6 +1900,116 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/attention": {
+      "get": {
+        "summary": "Aggregate the human attention queue across proposals, captures, outputs and care findings",
+        "operationId": "attention",
+        "responses": {
+          "200": {
+            "description": "Attention queue",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAttentionResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["proposal", "triage", "output", "care"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/attention/{key}": {
+      "put": {
+        "summary": "Set an operator-only attention state without changing the underlying knowledge object",
+        "operationId": "setAttention",
+        "responses": {
+          "204": { "description": "Attention state updated", "content": { "application/json": {} } },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 300 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zAttentionStateRequest" } } }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/spaces/{space}/schedules": {
@@ -4531,6 +4678,8 @@
           "text": { "type": "string", "minLength": 1 },
           "url": { "type": "string", "format": "uri" },
           "title": { "type": "string", "maxLength": 500 },
+          "raw_title": { "type": "string", "maxLength": 500 },
+          "summary": { "type": "string", "maxLength": 4000 },
           "source_kind": {
             "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
             "type": "string",
@@ -4787,6 +4936,65 @@
         ],
         "additionalProperties": false
       },
+      "zTriageResponse": {
+        "type": "object",
+        "properties": {
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "target_space": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                  "title": { "type": "string" },
+                  "summary": { "type": "string" },
+                  "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "question": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                  "duplicate_source_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "generated_at": { "type": "string" }
+                },
+                "required": [
+                  "target_space",
+                  "title",
+                  "summary",
+                  "confidence",
+                  "question",
+                  "duplicate_source_id",
+                  "generated_at"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["suggestion"],
+        "additionalProperties": false
+      },
+      "zTriageResolutionRequest": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["process", "use_existing", "leave", "discard"] },
+          "target_space": { "type": "string" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "summary": { "type": "string", "maxLength": 500 },
+          "question": { "anyOf": [{ "type": "string", "maxLength": 500 }, { "type": "null" }] },
+          "source_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["action", "title", "summary"]
+      },
       "zIngestListResponse": {
         "type": "object",
         "properties": {
@@ -4899,6 +5107,19 @@
         "required": ["items", "next_before"],
         "additionalProperties": false
       },
+      "zIngestCapturedResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "const": "captured" },
+          "ingest_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["status", "ingest_id"],
+        "additionalProperties": false
+      },
       "zSourceListResponse": {
         "type": "object",
         "properties": {
@@ -4914,11 +5135,13 @@
                 },
                 "kind": { "type": "string", "enum": ["markdown", "text", "url", "import"] },
                 "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "title": { "type": "string", "minLength": 1 },
+                "raw_title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "summary": { "type": "string" },
                 "content_hash": { "type": "string" },
                 "created_at": { "type": "string" }
               },
-              "required": ["id", "kind", "url", "title", "content_hash", "created_at"],
+              "required": ["id", "kind", "url", "title", "raw_title", "summary", "content_hash", "created_at"],
               "additionalProperties": false
             }
           },
@@ -4937,7 +5160,9 @@
           },
           "kind": { "type": "string", "enum": ["markdown", "text", "url", "import"] },
           "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "title": { "type": "string", "minLength": 1 },
+          "raw_title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "summary": { "type": "string" },
           "content_hash": { "type": "string" },
           "created_at": { "type": "string" },
           "raw_content": { "type": "string" },
@@ -4973,6 +5198,8 @@
           "kind",
           "url",
           "title",
+          "raw_title",
+          "summary",
           "content_hash",
           "created_at",
           "raw_content",
@@ -5531,6 +5758,7 @@
                 },
                 "kind": { "type": "string", "enum": ["answer", "briefing", "health"] },
                 "title": { "type": "string" },
+                "summary": { "type": "string" },
                 "question": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "markdown": { "type": "string" },
                 "citations": {
@@ -5571,6 +5799,7 @@
                 "space_id",
                 "kind",
                 "title",
+                "summary",
                 "question",
                 "markdown",
                 "citations",
@@ -5603,6 +5832,7 @@
           },
           "kind": { "type": "string", "enum": ["answer", "briefing", "health"] },
           "title": { "type": "string" },
+          "summary": { "type": "string" },
           "question": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "markdown": { "type": "string" },
           "citations": {
@@ -5643,6 +5873,7 @@
           "space_id",
           "kind",
           "title",
+          "summary",
           "question",
           "markdown",
           "citations",
@@ -5670,6 +5901,22 @@
         "type": "object",
         "properties": {
           "schema_version": { "type": "string", "const": "wikikit.space-health.v1" },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "guidelines": {
+            "type": "object",
+            "properties": {
+              "revision": {
+                "anyOf": [{ "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }, { "type": "null" }]
+              },
+              "updated_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+            },
+            "required": ["revision", "updated_at"],
+            "additionalProperties": false
+          },
           "window": {
             "type": "object",
             "properties": {
@@ -5718,7 +5965,37 @@
                       ]
                     },
                     "severity": { "type": "string", "enum": ["error", "warn", "info"] },
-                    "message": { "type": "string" },
+                    "message": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "enum": [
+                            "contradictions",
+                            "missing-citations",
+                            "broken-relations",
+                            "stale-claims",
+                            "orphan-concepts",
+                            "unsourced-concepts",
+                            "self-derived-only",
+                            "stub-concepts",
+                            "scaffolded-claims",
+                            "empty-concepts",
+                            "unreviewed-proposals",
+                            "dangling-sources",
+                            "tombstoned-sources",
+                            "broken-cross-space-links",
+                            "missing-charter",
+                            "stale-proposals",
+                            "stale-captures"
+                          ]
+                        },
+                        "args": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+                        "default_text": { "type": "string" }
+                      },
+                      "required": ["key", "args", "default_text"],
+                      "additionalProperties": false
+                    },
                     "concept_slug": { "type": "string" },
                     "claim_id": { "type": "string" },
                     "details": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }
@@ -5888,8 +6165,195 @@
             "additionalProperties": false
           }
         },
-        "required": ["schema_version", "window", "lint", "coverage", "review_queue", "ingest_queue", "archive"],
+        "required": [
+          "schema_version",
+          "checked_at",
+          "guidelines",
+          "window",
+          "lint",
+          "coverage",
+          "review_queue",
+          "ingest_queue",
+          "archive"
+        ],
         "additionalProperties": false
+      },
+      "zAttentionResponse": {
+        "type": "object",
+        "properties": {
+          "generated_at": { "type": "string" },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "overdue": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "by_kind": {
+                "type": "object",
+                "properties": {
+                  "proposal": { "type": "number" },
+                  "triage": { "type": "number" },
+                  "output": { "type": "number" },
+                  "care": { "type": "number" }
+                },
+                "required": ["proposal", "triage", "output", "care"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["open", "overdue", "oldest_days", "by_kind"],
+            "additionalProperties": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string" },
+                "kind": { "type": "string", "enum": ["proposal", "triage", "output", "care"] },
+                "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
+                "title": { "type": "string" },
+                "summary": { "type": "string" },
+                "effect": { "type": "string" },
+                "created_at": { "type": "string" },
+                "remind_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "href": { "type": "string" },
+                    "actor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["label", "href", "actor"],
+                  "additionalProperties": false
+                },
+                "available_actions": { "type": "array", "items": { "type": "string" } },
+                "previous_rejection": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "proposal_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "reviewed_at": { "type": "string" },
+                        "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                      },
+                      "required": ["proposal_id", "reviewed_at", "note"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "state",
+                "title",
+                "summary",
+                "effect",
+                "created_at",
+                "remind_at",
+                "note",
+                "source",
+                "available_actions",
+                "previous_rejection"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "recent_activity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string" },
+                "kind": { "type": "string", "enum": ["proposal", "triage", "output", "care"] },
+                "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
+                "title": { "type": "string" },
+                "summary": { "type": "string" },
+                "effect": { "type": "string" },
+                "created_at": { "type": "string" },
+                "remind_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "href": { "type": "string" },
+                    "actor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["label", "href", "actor"],
+                  "additionalProperties": false
+                },
+                "available_actions": { "type": "array", "items": { "type": "string" } },
+                "previous_rejection": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "proposal_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "reviewed_at": { "type": "string" },
+                        "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                      },
+                      "required": ["proposal_id", "reviewed_at", "note"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "state",
+                "title",
+                "summary",
+                "effect",
+                "created_at",
+                "remind_at",
+                "note",
+                "source",
+                "available_actions",
+                "previous_rejection"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["generated_at", "counts", "items", "next_cursor", "recent_activity"],
+        "additionalProperties": false
+      },
+      "zAttentionStateRequest": {
+        "type": "object",
+        "properties": {
+          "state": { "type": "string", "enum": ["open", "deferred", "discarded"] },
+          "remind_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "note": { "anyOf": [{ "type": "string", "maxLength": 1000 }, { "type": "null" }] }
+        },
+        "required": ["state"]
       },
       "zScheduleListResponse": {
         "type": "object",
@@ -6226,6 +6690,25 @@
               { "type": "null" }
             ]
           },
+          "previous_rejection": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "proposal_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "reviewed_at": { "type": "string" },
+                  "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                },
+                "required": ["proposal_id", "reviewed_at", "note"],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
           "concept_lifecycle": {
             "type": "array",
             "items": {
@@ -6254,7 +6737,7 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 },
-                "title": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "title": { "type": "string" },
                 "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "kind": { "type": "string" },
                 "created_at": { "type": "string" }
@@ -6420,6 +6903,7 @@
           "agent_meta",
           "changes_requested",
           "parent_proposal_id",
+          "previous_rejection",
           "sources",
           "concepts",
           "decisions",
@@ -6622,7 +7106,37 @@
                   ]
                 },
                 "severity": { "type": "string", "enum": ["error", "warn", "info"] },
-                "message": { "type": "string" },
+                "message": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "enum": [
+                        "contradictions",
+                        "missing-citations",
+                        "broken-relations",
+                        "stale-claims",
+                        "orphan-concepts",
+                        "unsourced-concepts",
+                        "self-derived-only",
+                        "stub-concepts",
+                        "scaffolded-claims",
+                        "empty-concepts",
+                        "unreviewed-proposals",
+                        "dangling-sources",
+                        "tombstoned-sources",
+                        "broken-cross-space-links",
+                        "missing-charter",
+                        "stale-proposals",
+                        "stale-captures"
+                      ]
+                    },
+                    "args": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} },
+                    "default_text": { "type": "string" }
+                  },
+                  "required": ["key", "args", "default_text"],
+                  "additionalProperties": false
+                },
                 "concept_slug": { "type": "string" },
                 "claim_id": { "type": "string" },
                 "details": { "type": "object", "propertyNames": { "type": "string" }, "additionalProperties": {} }

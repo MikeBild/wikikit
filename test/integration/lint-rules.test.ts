@@ -313,7 +313,7 @@ describe('lint rules (integration)', () => {
     )
     expect(findings.map((finding) => finding.concept_slug)).toEqual(['blank', 'unquoted'])
     expect(findings.map((finding) => finding.severity)).toEqual(['warn', 'warn'])
-    expect(findings.map((finding) => finding.message)).toEqual([
+    expect(findings.map((finding) => finding.message.default_text)).toEqual([
       'concept "blank" rests on no archived source: it makes no claims at all — ingest a source and let synthesis quote it',
       'concept "unquoted" rests on no archived source: 1 claim, none of them quoting one — ingest a source and let synthesis quote it',
     ])
@@ -381,7 +381,7 @@ describe('lint rules (integration)', () => {
     const findings = (await lintSpace(db, spaceId, BUILT_IN_ONLY)).findings.filter((f) => f.rule === 'stub-concepts')
     expect(findings.map((finding) => finding.concept_slug)).toEqual(['whitespace-stub', 'zero-body'])
     expect(findings.map((finding) => finding.severity)).toEqual(['warn', 'warn'])
-    expect(findings.map((finding) => finding.message)).toEqual([
+    expect(findings.map((finding) => finding.message.default_text)).toEqual([
       'concept "whitespace-stub" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
       'concept "zero-body" is an empty stub: no text, no claims, and nothing links to or from it — delete it, or give it content',
     ])
@@ -609,7 +609,7 @@ describe('lint rules (integration)', () => {
     const findings = (await lintSpace(db, spaceId, configured)).findings.filter((f) => f.rule === 'scaffolded-claims')
     expect(findings.map((f) => f.concept_slug)).toEqual(['built-in-target-with-claims', 'import-target-with-claims'])
     expect(findings.map((f) => f.severity)).toEqual(['warn', 'warn'])
-    expect(findings.map((f) => f.message)).toEqual([
+    expect(findings.map((f) => f.message.default_text)).toEqual([
       'concept "built-in-target-with-claims" is marked as a reference target but holds 1 visible claim: either the marker is wrong for this page, or those claims belong on the page it points at — until one of the two is fixed its evidence is withheld from the index',
       'concept "import-target-with-claims" is marked as a reference target but holds 2 visible claims: either the marker is wrong for this page, or those claims belong on the page it points at — until one of the two is fixed its evidence is withheld from the index',
     ])
@@ -758,7 +758,7 @@ describe('lint rules (integration)', () => {
     const stale = report.findings.filter((finding) => finding.rule === 'stale-captures')
     expect(stale).toHaveLength(1)
     expect(stale[0]!.severity).toBe('warn')
-    expect(stale[0]!.message).toContain('a signal, not an error')
+    expect(stale[0]!.message.default_text).toContain('a signal, not an error')
     expect(stale[0]!.details).toMatchObject({ ingest_id: oldJob!.id, days_parked: 31 })
   })
 

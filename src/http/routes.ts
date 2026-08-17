@@ -62,7 +62,16 @@ import {
   type OutputKind,
 } from '../domain/outputs.ts'
 import { getSource, isoString, listSources, sha256Hex } from '../domain/sources.ts'
+import { getTriageSuggestion, resolveTriage, suggestTriage } from '../domain/triage.ts'
+import {
+  getAttention,
+  getAttentionItem,
+  setAttentionState,
+  type AttentionKind,
+  type AttentionState,
+} from '../domain/attention.ts'
 import { listStreams, tombstoneStream } from '../domain/source-streams.ts'
+import { createSpace, getSpaceBySlug, listSpaces, updateSpaceSettings, type Space } from '../domain/spaces.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
 import { extractDocument } from '../ingest/extract.ts'
 import type { IngestPipeline } from '../ingest/pipeline.ts'
@@ -85,7 +94,7 @@ import { getCoverageStats, recordConceptRead, recordCoverageGap } from '../domai
 import { answerQuestion } from '../query/answer.ts'
 import { search, searchAcrossImports } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
-import { listSchedules, replaceSchedules, seedDefaultBriefing, type DefaultBriefing } from '../schedule.ts'
+import { listSchedules, replaceSchedules } from '../schedule.ts'
 import { ROLE_SCOPES, type RoleName } from './auth.ts'
 import type { Auth, Principal } from './auth.ts'
 import { getIngestJob, listIngestJobs, type IngestJobState } from './jobs.ts'
@@ -235,7 +244,7 @@ export const ROUTES: RouteDef[] = [
       200: {
         schema: 'zIngestSyncResponse',
         type: 'application/json',
-        desc: 'Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process)',
+        desc: 'Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; resolve through triage)',
       },
       202: {
         schema: 'zIngestAcceptedResponse',
@@ -286,37 +295,31 @@ export const ROUTES: RouteDef[] = [
     responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Job status' } },
   },
   {
-    method: 'post',
-    path: '/v1/ingests/{id}/process',
+    method: 'get',
+    path: '/v1/ingests/{id}/triage',
     scope: 'knowledge:propose',
-    // Global by-id like GET /v1/ingests/{id}: the row carries the space and
-    // the transport enforces the key/space match (§4 convention).
-    summary:
-      'Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here',
-    handler: 'processCaptureHandler',
+    summary: 'Read the editable triage suggestion stored with a captured item',
+    handler: 'getTriageHandler',
     request: { params: 'zIdParams' },
-    responses: {
-      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now queued' },
-      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
-      429: {
-        schema: 'zErrorEnvelope',
-        type: 'application/json',
-        desc: 'ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked',
-      },
-      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured — the note stays parked' },
-    },
+    responses: { 200: { schema: 'zTriageResponse', type: 'application/json', desc: 'Stored suggestion or null' } },
   },
   {
     method: 'post',
-    path: '/v1/ingests/{id}/discard',
+    path: '/v1/ingests/{id}/triage',
     scope: 'knowledge:propose',
-    summary: 'Discard a captured note — terminal; the row stays in the job list for the record',
-    handler: 'discardCaptureHandler',
+    summary: 'Generate and store an editable placement suggestion for a captured item',
+    handler: 'suggestTriageHandler',
     request: { params: 'zIdParams' },
-    responses: {
-      200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'The job, now discarded' },
-      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_not_captured — the job is not parked' },
-    },
+    responses: { 200: { schema: 'zTriageResponse', type: 'application/json', desc: 'Fresh triage suggestion' } },
+  },
+  {
+    method: 'post',
+    path: '/v1/ingests/{id}/triage/resolve',
+    scope: 'knowledge:propose',
+    summary: 'Resolve a captured item by processing, reusing a source, leaving it open or discarding it',
+    handler: 'resolveTriageHandler',
+    request: { params: 'zIdParams', body: 'zTriageResolutionRequest' },
+    responses: { 200: { schema: 'zIngestStatusResponse', type: 'application/json', desc: 'Resolved ingest job' } },
   },
   {
     method: 'get',
@@ -341,6 +344,7 @@ export const ROUTES: RouteDef[] = [
     request: { params: 'zSpaceParams', query: 'zIngestDocumentQuery' },
     rawBody: true,
     responses: {
+      200: { schema: 'zIngestCapturedResponse', type: 'application/json', desc: 'Extracted and parked in the inbox' },
       202: {
         schema: 'zIngestAcceptedResponse',
         type: 'application/json',
@@ -580,6 +584,24 @@ export const ROUTES: RouteDef[] = [
       200: { schema: 'zSpaceHealthResponse', type: 'application/json', desc: 'Space health' },
       400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid window (to must be after from)' },
     },
+  },
+  {
+    method: 'get',
+    path: '/v1/spaces/{space}/attention',
+    scope: 'knowledge:read',
+    summary: 'Aggregate the human attention queue across proposals, captures, outputs and care findings',
+    handler: 'attentionHandler',
+    request: { params: 'zSpaceParams', query: 'zAttentionQuery' },
+    responses: { 200: { schema: 'zAttentionResponse', type: 'application/json', desc: 'Attention queue' } },
+  },
+  {
+    method: 'put',
+    path: '/v1/spaces/{space}/attention/{key}',
+    scope: 'knowledge:propose',
+    summary: 'Set an operator-only attention state without changing the underlying knowledge object',
+    handler: 'setAttentionHandler',
+    request: { params: 'zAttentionParams', body: 'zAttentionStateRequest' },
+    responses: { 204: { type: 'application/json', desc: 'Attention state updated' } },
   },
   {
     method: 'get',
@@ -1091,111 +1113,6 @@ export const ROUTES: RouteDef[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Spaces domain functions (CONTRACTS §4 src/domain/spaces.ts signatures)
-// ---------------------------------------------------------------------------
-// TEMPORARY HOME: src/domain/spaces.ts does not exist yet (no builder owns it
-// in this round). The functions below implement the exact contract signatures
-// so they can be MOVED to src/domain/spaces.ts verbatim once that module
-// lands; nothing else in this file assumes their location.
-
-export interface Space {
-  id: string
-  slug: string
-  name: string
-  settings: Record<string, unknown>
-  epoch: number
-  created_at: string
-  updated_at: string
-}
-
-interface SpaceRow {
-  id: string
-  slug: string
-  name: string
-  settings: Record<string, unknown>
-  epoch: number | string
-  created_at: Date | string
-  updated_at: Date | string
-}
-
-function toSpace(row: SpaceRow): Space {
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    settings: row.settings ?? {},
-    epoch: Number(row.epoch),
-    created_at: isoString(row.created_at),
-    updated_at: isoString(row.updated_at),
-  }
-}
-
-/**
- * Create a wiki and arm the briefing it should start with.
- *
- * WHY the seed lives HERE and not at the two call sites: both the REST route and
- * the dev bootstrap create wikis, and "a new wiki has a timetable" is one rule,
- * not two. Passing the spec in (rather than reading config from a domain
- * function) keeps that rule explicit at each entry point while leaving exactly
- * one implementation of it. Omit `defaultBriefing` and nothing is seeded.
- *
- * The seed cannot fail the create: see seedDefaultBriefing.
- */
-export async function createSpace(
-  db: Db,
-  args: { slug: string; name: string; settings?: Record<string, unknown> },
-  defaultBriefing?: DefaultBriefing | null,
-  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
-): Promise<Space> {
-  try {
-    const [row] = await db.insert<SpaceRow>('wk_spaces', {
-      slug: args.slug,
-      name: args.name,
-      settings: JSON.stringify(args.settings ?? {}),
-    })
-    const space = toSpace(row!)
-    await seedDefaultBriefing(db, space.id, defaultBriefing ?? null, logger)
-    return space
-  } catch (error) {
-    // Unique violation → caller mistake, not a server fault. 400 keeps the
-    // canonical code table intact (no space-specific 409 code exists in §8.2).
-    if ((error as { code?: string }).code === '23505') {
-      throw new ValidationError(`space slug '${args.slug}' already exists`)
-    }
-    throw error
-  }
-}
-
-export async function getSpaceBySlug(db: Db, slug: string): Promise<Space> {
-  const [row] = await db.select<SpaceRow>('wk_spaces', { slug: `eq.${slug}`, limit: 1 })
-  if (!row) throw new NotFoundError(`space '${slug}' not found`)
-  return toSpace(row)
-}
-
-export async function listSpaces(db: Db): Promise<Space[]> {
-  const rows = await db.select<SpaceRow>('wk_spaces', { order: 'slug.asc', limit: 500 })
-  return rows.map(toSpace)
-}
-
-export async function updateSpaceSettings(
-  db: Db,
-  space: Space,
-  args: { settings: Record<string, unknown>; replace: boolean },
-): Promise<Space> {
-  const settings = args.replace ? args.settings : { ...space.settings, ...args.settings }
-  const [row] = await db.update<SpaceRow>(
-    'wk_spaces',
-    { id: `eq.${space.id}` },
-    {
-      settings: JSON.stringify(settings),
-      updated_at: new Date(),
-    },
-  )
-  if (!row) throw new NotFoundError(`space '${space.slug}' not found`)
-  return toSpace(row)
-}
-
-// ---------------------------------------------------------------------------
 // Handler plumbing
 // ---------------------------------------------------------------------------
 
@@ -1516,7 +1433,7 @@ export const HANDLERS: Record<string, Handler> = {
 
   async ingestDocumentHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:propose')
-    const query = input.query as { filename: string; source_kind?: 'meeting' | 'article' | 'note' }
+    const query = input.query as { filename: string; source_kind?: 'meeting' | 'article' | 'note'; capture?: boolean }
     const bytes = input.body as Uint8Array
     if (!bytes || bytes.byteLength === 0) throw new ValidationError('request body must be the document bytes')
     // Extract to Markdown here (deterministic CPU work), then hand the result to
@@ -1528,7 +1445,9 @@ export const HANDLERS: Record<string, Handler> = {
     const enqueued = await deps.ingest.enqueue(deps.db, space.id, {
       markdown: doc.markdown,
       title: doc.title,
+      raw_title: query.filename,
       source_kind: query.source_kind,
+      capture: query.capture,
     })
     if ('status' in enqueued) return { status: 200, body: enqueued }
     const ingest_id = enqueued.ingest_id
@@ -1555,19 +1474,27 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: wire }
   },
 
-  async processCaptureHandler(deps, input) {
+  async getTriageHandler(deps, input) {
     const job = await getIngestJob(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
-    await deps.ingest.processCapture(deps.db, job.ingest_id)
-    // Re-read rather than patch: the status shape has exactly one producer.
-    const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
-    return { status: 200, body: wire }
+    return { status: 200, body: { suggestion: await getTriageSuggestion(deps.db, job.ingest_id) } }
   },
 
-  async discardCaptureHandler(deps, input) {
+  async suggestTriageHandler(deps, input) {
     const job = await getIngestJob(deps.db, { id: input.params.id! })
     requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
-    await deps.ingest.discardCapture(deps.db, job.ingest_id)
+    const all = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? all.filter((space) => space.id === input.principal!.spaceId) : all
+    const suggestion = await suggestTriage(deps.db, deps.llm, job.ingest_id, visible)
+    return { status: 200, body: { suggestion } }
+  },
+
+  async resolveTriageHandler(deps, input) {
+    const job = await getIngestJob(deps.db, { id: input.params.id! })
+    requireSpaceAccess(deps, input, 'knowledge:propose', job.space_id)
+    const all = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? all.filter((space) => space.id === input.principal!.spaceId) : all
+    await resolveTriage(deps.db, deps.ingest, job.ingest_id, input.body as never, visible)
     const { space_id: _spaceId, ...wire } = await getIngestJob(deps.db, { id: job.ingest_id })
     return { status: 200, body: wire }
   },
@@ -1864,6 +1791,37 @@ export const HANDLERS: Record<string, Handler> = {
     // coverageStatsHandler: the wire contract belongs to the transport, and the
     // MCP tool and the scheduler consume the same numbers without one.
     return { status: 200, body: { schema_version: 'wikikit.space-health.v1', ...health } }
+  },
+
+  async attentionHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    const query = input.query as { state?: AttentionState; kind?: AttentionKind; limit?: number; cursor?: string }
+    return {
+      status: 200,
+      body: await getAttention(deps.db, space.id, query, { scaffoldingKinds: deps.config.scaffoldingKinds }),
+    }
+  },
+
+  async setAttentionHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    const body = input.body as {
+      state: 'open' | 'deferred' | 'discarded'
+      remind_at?: string | null
+      note?: string | null
+    }
+    const item =
+      body.state === 'open'
+        ? null
+        : await getAttentionItem(deps.db, space.id, input.params.key!, {
+            scaffoldingKinds: deps.config.scaffoldingKinds,
+          })
+    await setAttentionState(deps.db, space.id, item, {
+      key: input.params.key!,
+      state: body.state,
+      remind_at: body.remind_at,
+      note: body.note,
+    })
+    return { status: 204 }
   },
 
   async spacesOverviewHandler(deps, input) {

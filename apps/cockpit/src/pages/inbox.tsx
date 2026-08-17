@@ -1,19 +1,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { CircleCheck, FileUp, Inbox, Link2, NotebookPen, Upload } from 'lucide-react'
+import { FileUp, Inbox, Link2, NotebookPen, Upload } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { SectionHeading } from '@/components/context-help'
-import { DataState, RowSkeleton } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
 import { I18nText } from '@/components/i18n-text'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { DataTable, type DataColumn } from '@/components/ui/data-table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,7 +30,6 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { STATUS_STATE, type DomainState } from '@/lib/tokens'
 import type { FilterSpec } from '@/lib/url-filters'
-import { changeStanding } from '@/pages/home.logic'
 import {
   DOCUMENT_ACCEPT,
   fileProblem,
@@ -42,7 +39,6 @@ import {
   tally,
   type Submission,
 } from '@/pages/inbox.logic'
-import { Confirm } from '@/components/confirm'
 import { waitedDays } from '@/pages/care.logic'
 import {
   captureBody,
@@ -75,11 +71,6 @@ import {
 
 /** `zIngestListQuery.limit` caps at 200; one screenful is what this page reads. */
 const JOB_PAGE_SIZE = 25
-
-/** How many pending changes the "still needs you" strip shows before pointing at the queue. */
-const PENDING_SHOWN = 5
-
-const PENDING_QUERY = { status: 'pending', limit: PENDING_SHOWN } as const
 
 /** The server's own alphabet (`zIngestListQuery`), plus the neutral value. */
 const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'quota_blocked', 'captured', 'discarded'] as const
@@ -151,11 +142,6 @@ export function InboxPage() {
     // Poll while anything in the window is still moving, and stop when it is
     // not — the same rule the single-job panel uses, over a list.
     ...liveReadOptions<Awaited<ReturnType<typeof wk.ingest.list>>>((data) => data.items.map((item) => item.status)),
-  })
-
-  const pending = useQuery({
-    queryKey: keys.changes(space, PENDING_QUERY),
-    queryFn: () => wk.changes.list(space, PENDING_QUERY),
   })
 
   // No liveReadOptions here: `captured` only moves through this console's own
@@ -280,9 +266,8 @@ export function InboxPage() {
             helpTitle="About holding thoughts"
             help={
               <p>
-                A parked thought is held verbatim and costs nothing: no model reads it, no queue slot is taken, and
-                nothing happens until it is processed — then it travels the ordinary path and comes back as a change to
-                review — or discarded.
+                A parked thought is held verbatim and costs nothing: no model reads it and no queue slot is taken. It
+                waits for a person to sort it, choose the target wiki and decide what happens next.
               </p>
             }
             testId="inbox-capture-help"
@@ -291,7 +276,7 @@ export function InboxPage() {
           </SectionHeading>
 
           <CaptureCard space={space} allowed={mayAdd} onCaptured={refresh} />
-          <ParkedStrip query={parked} allowed={mayAdd} onDecided={refresh} />
+          <ParkedStrip query={parked} allowed={mayAdd} />
         </section>
 
         <section className="flex flex-col gap-4" aria-labelledby="inbox-add-heading">
@@ -316,79 +301,6 @@ export function InboxPage() {
           </div>
 
           {run.length > 0 ? <RunReport items={run} running={running} onDismiss={() => setRun([])} /> : null}
-        </section>
-
-        <section className="flex flex-col gap-3" aria-labelledby="inbox-pending-heading">
-          <h2 id="inbox-pending-heading" className="text-sm font-semibold">
-            <I18nText>Still needs your decision</I18nText>
-          </h2>
-          <Card data-testid="inbox-pending-card">
-            <CardHeader>
-              <CardTitle>Waiting for review</CardTitle>
-              <CardDescription>
-                What arrived became pages. None of them is visible knowledge until a person approves it.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataState
-                testId="inbox-pending"
-                query={pending}
-                skeleton={<RowSkeleton rows={3} columns={2} />}
-                isEmpty={(data) => data.items.length === 0}
-                empty={
-                  // An empty queue is GOOD NEWS and must not read like a failure
-                  // (CUI-LOAD-4).
-                  // No `data-testid` here: DataState already wraps whatever it
-                  // is given in `${testId}-empty`, so naming this one the same
-                  // puts two `inbox-pending-empty` nodes in the document and a
-                  // selector stops addressing one thing.
-                  <EmptyState
-                    icon={CircleCheck}
-                    framed={false}
-                    title="Nothing is waiting"
-                    description="Every change this wiki has raised has been decided."
-                  />
-                }
-              >
-                {(data) => (
-                  <div className="flex flex-col gap-2">
-                    <ul className="flex flex-col gap-0.5">
-                      {data.items.map((item, index) => {
-                        const standing = changeStanding(item.status, item.changes_requested)
-                        return (
-                          <li key={item.id}>
-                            <Link
-                              to="/changes/$id"
-                              params={{ id: item.id }}
-                              search={(prev) => prev}
-                              data-testid={`inbox-pending-${index + 1}`}
-                              className="hover:bg-muted focus-visible:ring-ring/50 flex flex-col gap-1 rounded-md px-2 py-1.5 transition-colors focus-visible:ring-3 focus-visible:outline-none sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-                            >
-                              <span className="min-w-0 truncate text-sm font-medium">
-                                {semanticLabel([item.title], 'Knowledge change')}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-2">
-                                <Badge tone={standing.tone}>{standing.label}</Badge>
-                                <RelativeTime value={item.created_at} className="text-muted-foreground text-xs" />
-                              </span>
-                            </Link>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                    <Link
-                      to="/changes"
-                      search={(prev) => prev}
-                      data-testid="inbox-pending-all"
-                      className="text-sm underline-offset-4 hover:underline"
-                    >
-                      The whole review queue
-                    </Link>
-                  </div>
-                )}
-              </DataState>
-            </CardContent>
-          </Card>
         </section>
 
         <section className="flex flex-col gap-3" aria-labelledby="inbox-jobs-heading">
@@ -452,7 +364,7 @@ export function InboxPage() {
                 icon={Inbox}
                 framed={false}
                 title="Nothing has arrived yet"
-                description="Drop a document, paste an address, or throw in a note — the pages come back as changes to review."
+                description="Drop a document, paste an address, or throw in a note — the pages come back as proposals to review."
                 data-testid="inbox-jobs-empty"
               />
             }
@@ -504,7 +416,7 @@ function JobResult({ row, index }: { row: IngestJobRow; index: number }) {
   if (row.proposal_id) {
     return (
       <Link
-        to="/changes/$id"
+        to="/decisions/proposals/$id"
         params={{ id: row.proposal_id }}
         search={(prev) => prev}
         data-testid={`inbox-job-${index + 1}-change`}
@@ -699,10 +611,10 @@ function PasteLinks({
                 key: `url-${index}-${url}`,
                 label: url,
                 send: () =>
-                  wk.ingest.submit(
-                    space,
-                    ingestBody({ transport: 'url', content: url, title: '', sourceKind: '', language: '' }),
-                  ),
+                  wk.ingest.submit(space, {
+                    ...ingestBody({ transport: 'url', content: url, title: '', sourceKind: '', language: '' }),
+                    capture: true,
+                  }),
               })),
             )
             setText('')
@@ -818,7 +730,7 @@ function PasteText({
               {
                 key: 'text-1',
                 label: draft.title.trim() || 'Pasted document',
-                send: () => wk.ingest.submit(space, ingestBody(draft)),
+                send: () => wk.ingest.submit(space, { ...ingestBody(draft), capture: true }),
               },
             ])
             setDraft({ ...draft, content: '', title: '' })
@@ -911,7 +823,7 @@ function RunReport({
  * Capture is the place NOT to think: no title field, no kind, no language.
  * Every option this card could offer is a decision it would demand at exactly
  * the moment the whole point is to not make one; whatever the thought needs,
- * it gets when somebody processes it. The submit is not behind a `Confirm`
+ * it gets when a person resolves its triage. The submit is not behind a `Confirm`
  * either — parking has no consequence to restate, and the two consequential
  * moves (process, discard) carry the dialogs instead.
  */
@@ -984,11 +896,9 @@ function CaptureCard({ space, allowed, onCaptured }: { space: string; allowed: b
 function ParkedStrip({
   query,
   allowed,
-  onDecided,
 }: {
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof wk.ingest.list>>>>
   allowed: boolean
-  onDecided: () => void
 }) {
   const { text } = useI18n()
   const [page, setPage] = useState<CursorPage>(firstPage)
@@ -1031,68 +941,18 @@ function ParkedStrip({
         label: 'Decision',
         required: true,
         className: 'text-right',
-        cell: (row, index) => (
-          <span className="flex items-center justify-end gap-2">
-            <Confirm
-              title="Process this thought?"
-              description="It joins the ingest queue exactly like a submitted document."
-              details="The model archives it verbatim, quotes it into pages, and the result waits in Changes — nothing becomes visible knowledge until a person approves it."
-              confirmLabel="Process"
-              onConfirm={async () => {
-                await wk.ingest.process(row.ingest_id)
-                onDecided()
-              }}
-            >
-              {(open) => (
-                <DisabledReason
-                  reason={allowed ? null : 'Needs knowledge:propose'}
-                  data-testid={`inbox-parked-${index + 1}-process-reason`}
-                >
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    data-testid={`inbox-parked-${index + 1}-process`}
-                    disabled={!allowed}
-                    onClick={open}
-                  >
-                    Process
-                  </Button>
-                </DisabledReason>
-              )}
-            </Confirm>
-            <Confirm
-              title="Discard this thought?"
-              description="It never becomes knowledge."
-              details="The note is marked discarded and stays in the job list for the record. Nothing was archived, so there is nothing else to remove."
-              confirmLabel="Discard"
-              destructive
-              onConfirm={async () => {
-                await wk.ingest.discard(row.ingest_id)
-                onDecided()
-              }}
-            >
-              {(open) => (
-                <DisabledReason
-                  reason={allowed ? null : 'Needs knowledge:propose'}
-                  data-testid={`inbox-parked-${index + 1}-discard-reason`}
-                >
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    data-testid={`inbox-parked-${index + 1}-discard`}
-                    disabled={!allowed}
-                    onClick={open}
-                  >
-                    Discard
-                  </Button>
-                </DisabledReason>
-              )}
-            </Confirm>
-          </span>
+        cell: (_row, index) => (
+          <DisabledReason reason={allowed ? null : 'Needs knowledge:propose'}>
+            <Button asChild variant="outline" size="sm" disabled={!allowed}>
+              <Link to="/decisions" data-testid={`inbox-parked-${index + 1}-triage`}>
+                Sort capture
+              </Link>
+            </Button>
+          </DisabledReason>
         ),
       },
     ],
-    [allowed, onDecided, text],
+    [allowed, text],
   )
 
   const view = useTableView('inbox-parked', columns)
@@ -1117,7 +977,7 @@ function ParkedStrip({
           icon={NotebookPen}
           framed={false}
           title="Nothing is parked"
-          description="A thought held here waits, verbatim and unread, until you process or discard it."
+          description="A thought held here waits, verbatim and unread, until a person sorts and resolves it."
           data-testid="inbox-parked-none"
         />
       }

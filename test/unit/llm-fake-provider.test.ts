@@ -48,9 +48,9 @@ describe('defaults', () => {
     expect(zClassifyOutput.safeParse(output).success).toBe(true)
   })
 
-  test('classify falls back to untitled-source for a null title', async () => {
+  test('classify derives a stable captured-source label for a null title', async () => {
     const { output } = await createFakeProvider().classify({ ...classifyInput, source: { title: null, markdown: 'x' } })
-    expect(output.new).toEqual([{ slug: 'untitled-source', title: 'Untitled Source' }])
+    expect(output.new).toEqual([{ slug: 'x', title: 'x' }])
   })
 
   test('synthesize echoes the source markdown with one grounded claim', async () => {

@@ -1,0 +1,8 @@
+{
+  "to": "/decision-log",
+  "label": "Decision log",
+  "icon": "Scale",
+  "scope": "knowledge:read",
+  "group": "archive",
+  "api": ["/v1/spaces/{space}/decisions", "/v1/spaces/{space}/decisions/{slug}"]
+}

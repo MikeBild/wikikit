@@ -26,10 +26,10 @@ describe('opaque identifiers at the Cockpit presentation boundary', () => {
   test('does not render known raw identifier fallbacks in end-user views', () => {
     const sources = [
       'apps/cockpit/src/pages/api-keys.tsx',
-      'apps/cockpit/src/pages/changes.tsx',
+      'apps/cockpit/src/pages/decisions.tsx',
       'apps/cockpit/src/pages/source.tsx',
       'apps/cockpit/src/pages/identities.tsx',
-      'apps/cockpit/src/pages/change.tsx',
+      'apps/cockpit/src/pages/proposal-review.tsx',
       'apps/cockpit/src/pages/pages.tsx',
       'apps/cockpit/src/pages/search.tsx',
       'apps/cockpit/src/pages/webhooks.tsx',

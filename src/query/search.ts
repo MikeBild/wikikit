@@ -173,7 +173,7 @@ interface SourceChunkRow {
   source_id: string
   chunk_id: string
   chunk_index: number
-  title: string | null
+  title: string
   url: string | null
   heading: string | null
   headline: string
@@ -312,7 +312,7 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
         ...(asMatchedVia(row.matched_via) ? { matched_via: asMatchedVia(row.matched_via) } : {}),
         slug: null,
         claim_id: null,
-        title: row.title ?? row.heading ?? 'Untitled source',
+        title: row.title,
         headline: row.headline,
         rank: Number(row.rank),
         source_id: row.source_id,

@@ -233,7 +233,7 @@ export function describeIngest(job: IngestJobView): IngestReport {
     case 'captured':
       return {
         headline: 'Parked',
-        detail: 'Held verbatim. Nothing reads it until somebody processes it — or it is discarded.',
+        detail: 'Held verbatim. Nothing reads it until a person sorts and resolves it.',
         reviewable: false,
       }
     case 'discarded':
@@ -262,7 +262,7 @@ export function describeIngest(job: IngestJobView): IngestReport {
         ? {
             headline: 'Pages drafted',
             detail:
-              'The synthesised pages are waiting in Changes. Nothing here is visible knowledge until somebody approves it.',
+              'The synthesised pages are waiting in Decisions. Nothing here is visible knowledge until somebody approves it.',
             reviewable: true,
           }
         : {
@@ -322,19 +322,7 @@ export function defaultSourceView(kind: string): SourceView {
   return kind === 'markdown' || kind === 'url' ? 'rendered' : 'verbatim'
 }
 
-/**
- * What to call a source that may have no title.
- *
- * Both pages need the answer and they must agree: a row the operator clicked
- * under one name and a page that greets them with another is the console
- * losing track of the thing in one navigation. The URL is the next best name
- * because for a `url` source it IS the identity; the id prefix is the last
- * resort and is marked as one rather than pretending to be a title.
- */
-export function sourceLabel(source: { title: string | null; url: string | null; id: string }): string {
-  const title = source.title?.trim()
-  if (title) return title
-  const url = source.url?.trim()
-  if (url) return url
-  return 'Untitled source'
+/** Sources are normalized before the server starts, so the title is canonical. */
+export function sourceLabel(source: { title: string }): string {
+  return source.title
 }

@@ -31,6 +31,7 @@ import {
   displayFindings,
   draftsFrom,
   findingTarget,
+  lintMessage,
   ruleWhy,
   scheduleBody,
   scheduleProblem,
@@ -86,18 +87,23 @@ export function CarePage() {
   const { text } = useI18n()
   const admin = can('admin')
 
-  const health = useQuery({ queryKey: keys.health(space), queryFn: () => wk.health.space(space) })
+  const health = useQuery({ queryKey: keys.health(space), queryFn: () => wk.health.space(space), enabled: false })
 
   return (
     <Page
       title="Care"
       description="What this wiki needs: what is waiting for a decision, what the linter found, and where its knowledge is thin."
       actions={
-        <Button asChild variant="outline">
-          <Link to="/changes" search={(prev) => prev} data-testid="care-open-changes">
-            The review queue
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void health.refetch()} data-testid="care-run-check">
+            Check this wiki
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/decisions" search={(prev) => prev} data-testid="care-open-decisions">
+              Repair findings
+            </Link>
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col gap-8">
@@ -111,6 +117,10 @@ export function CarePage() {
             const display = displayFindings(data.lint.findings)
             return (
               <div className="flex flex-col gap-8">
+                <p className="text-xs text-muted-foreground" data-testid="care-checked-at">
+                  Checked <RelativeTime value={data.checked_at} /> · Guidelines revision{' '}
+                  {data.guidelines.revision ?? '—'}
+                </p>
                 <section className="flex flex-col gap-3" aria-labelledby="care-queues-heading">
                   <h2 id="care-queues-heading" className="text-sm font-semibold">
                     <I18nText>What is waiting</I18nText>
@@ -118,7 +128,7 @@ export function CarePage() {
                   <div className="grid gap-4 lg:grid-cols-2">
                     <Card data-testid="care-review-queue">
                       <CardHeader>
-                        <CardTitle>Changes waiting for a person</CardTitle>
+                        <CardTitle>Proposals waiting for a person</CardTitle>
                         <CardDescription>
                           Nothing in this wiki becomes visible knowledge until somebody decides it.
                         </CardDescription>
@@ -307,6 +317,38 @@ export function CarePage() {
                     </CardContent>
                   </Card>
                 </section>
+
+                <section className="flex flex-col gap-3" aria-labelledby="care-decisions-heading">
+                  <h2 id="care-decisions-heading" className="text-sm font-semibold">
+                    What you need to decide
+                  </h2>
+                  <Card data-testid="care-decisions">
+                    <CardHeader>
+                      <CardDescription>
+                        Checking changed nothing. Review each finding before any repair enters the knowledge workflow.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-wrap items-end justify-between gap-4">
+                      <div className="flex gap-6">
+                        <Fact
+                          testId="care-decisions-findings"
+                          label="Findings"
+                          value={count(data.lint.findings.length)}
+                        />
+                        <Fact
+                          testId="care-decisions-proposals"
+                          label="Proposals"
+                          value={count(data.review_queue.pending)}
+                        />
+                      </div>
+                      <Button asChild>
+                        <Link to="/decisions" data-testid="care-decisions-open">
+                          Open decisions
+                        </Link>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </section>
               </div>
             )
           }}
@@ -378,12 +420,13 @@ function Finding({
   finding: LintFinding & { details?: Record<string, unknown> }
   testId: string
 }) {
+  const { locale } = useI18n()
   const target = findingTarget(finding)
   const why = ruleWhy(finding.rule)
   const body = (
     <>
       <span className="font-mono text-[11px] tracking-tight">{finding.rule}</span>
-      <span className="min-w-0">{finding.message}</span>
+      <span className="min-w-0">{lintMessage(locale, finding)}</span>
     </>
   )
   const shell = 'flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-xs sm:flex-row sm:items-baseline sm:gap-3'
@@ -402,7 +445,7 @@ function Finding({
       </Link>
     ) : target?.kind === 'change' ? (
       <Link
-        to="/changes/$id"
+        to="/decisions/proposals/$id"
         params={{ id: target.id }}
         search={(prev) => prev}
         data-testid={testId}

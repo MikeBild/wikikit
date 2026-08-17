@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.44.0 - 2026-08-17
+
+### Changed
+
+- **The Cockpit now follows one six-step knowledge lifecycle.** Capture,
+  triage, retrieve, care, check and remember replace the former parallel inbox
+  and changes workflows. `/decisions` is the single human-attention queue;
+  reviewed decisions live at `/decision-log`, and proposal review is nested
+  below decisions. Removed routes have no aliases or fallbacks.
+- **Every inbound item is captured before processing.** Triage suggests an
+  editable target wiki, title and summary, detects exact existing sources, and
+  requires a human resolution: process, reuse, leave open or discard.
+- **Sources and outputs have stable summaries and source titles are required.**
+  Archived evidence is visibly locked, care checks report their timestamp and
+  guideline revision, and lint messages carry a localization key, arguments
+  and an English default.
+
+### Added
+
+- A unified attention API for open, deferred, discarded and decided work,
+  including overdue reminders and previous identical rejection context.
+
 ## 0.43.2 - 2026-08-16
 
 ### Fixed

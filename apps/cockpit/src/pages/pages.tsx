@@ -22,7 +22,7 @@ import { useI18n } from '@/lib/i18n-context'
 import { useSpace } from '@/lib/space'
 import { toast } from '@/lib/toast'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
-import { isUuidLike, semanticLabel } from '@/lib/presentation'
+import { isUuidLike } from '@/lib/presentation'
 import {
   CHANGE_WINDOW_LABEL,
   changedWithin,
@@ -360,7 +360,7 @@ export function PagesPage() {
               data-testid={`deleted-page-${item.slug}`}
             >
               <div>
-                <div className="font-medium">{semanticLabel([item.title], text('Untitled page'))}</div>
+                <div className="font-medium">{item.title}</div>
                 {!isUuidLike(item.slug) ? (
                   <div className="text-muted-foreground font-mono text-xs">{item.slug}</div>
                 ) : null}
@@ -394,8 +394,7 @@ export function PagesPage() {
 }
 
 function PageCell({ row }: { row: PageRow }) {
-  const { text } = useI18n()
-  const title = semanticLabel([row.title], text('Untitled page'))
+  const title = row.title
   return (
     <div className="flex min-w-0 flex-col">
       <Link

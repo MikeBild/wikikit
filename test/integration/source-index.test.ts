@@ -44,8 +44,8 @@ async function seedSource(name: string, metadata: Record<string, unknown> = {}):
   const {
     rows: [source],
   } = await db.query<{ id: string }>(
-    `INSERT INTO wk_sources (space_id, content_hash, kind, title, raw_content, markdown, metadata, created_at)
-     VALUES ($1, $2, 'markdown', $3, $4, $4, $5::jsonb, now() - interval '${AGED}')
+    `INSERT INTO wk_sources (space_id, content_hash, kind, title, raw_content, markdown, summary, metadata, created_at)
+     VALUES ($1, $2, 'markdown', $3, $4, $4, $4, $5::jsonb, now() - interval '${AGED}')
      RETURNING id`,
     [
       spaceId,
@@ -237,8 +237,8 @@ describe('source index window (integration)', () => {
     const {
       rows: [fresh],
     } = await db.query<{ id: string }>(
-      `INSERT INTO wk_sources (space_id, content_hash, kind, title, raw_content, markdown)
-       VALUES ($1, $2, 'markdown', 'fresh', '# fresh', '# fresh') RETURNING id`,
+      `INSERT INTO wk_sources (space_id, content_hash, kind, title, raw_content, markdown, summary)
+       VALUES ($1, $2, 'markdown', 'fresh', '# fresh', '# fresh', 'fresh') RETURNING id`,
       [spaceId, 'fresh'.padEnd(64, '0')],
     )
     await db.insert('wk_source_chunks', {

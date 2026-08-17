@@ -25,6 +25,7 @@ const proposal: ProposalWireDetail = {
   agent_meta: { model: 'manual', prompt_version: 'manual' },
   changes_requested: false,
   parent_proposal_id: null,
+  previous_rejection: null,
   sources: [],
   concepts: [
     {

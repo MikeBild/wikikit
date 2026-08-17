@@ -72,6 +72,7 @@ describe('zOutputResponse: one shape for three kinds', () => {
     kind: 'answer' as const,
     title: 'What is WikiKit?',
     question: 'What is WikiKit?',
+    summary: 'A concise explanation of WikiKit.',
     markdown: '# What is WikiKit?\n',
     citations: [{ slug: 'wikikit', title: 'WikiKit' }],
     not_in_knowledge_base: false,
@@ -135,13 +136,19 @@ describe('zOutputResponse: one shape for three kinds', () => {
 describe('zSpaceHealthResponse: a census, never a verdict', () => {
   const health = {
     schema_version: 'wikikit.space-health.v1' as const,
+    checked_at: '2026-07-15T12:00:00.000Z',
+    guidelines: { revision: 3, updated_at: '2026-07-14T09:30:00.000Z' },
     window: { from: '2026-06-15T12:00:00.000Z', to: '2026-07-15T12:00:00.000Z' },
     lint: {
       findings: [
         {
           rule: 'self-derived-only' as const,
           severity: 'warn' as const,
-          message: 'concept "wikikit" rests only on the wiki\'s own answers',
+          message: {
+            key: 'self-derived-only' as const,
+            args: { concept_slug: 'wikikit', derived_sources: 2 },
+            default_text: 'concept "wikikit" rests only on the wiki\'s own answers',
+          },
           concept_slug: 'wikikit',
           details: { derived_sources: 2 },
         },

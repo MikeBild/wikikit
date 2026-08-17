@@ -24,6 +24,8 @@ import type {
   ExtractDecisionsOutput,
   SynthesizeInput,
   SynthesizeOutput,
+  TriageInput,
+  TriageOutput,
 } from './schemas.ts'
 
 export interface LlmUsage {
@@ -71,6 +73,8 @@ export interface LlmProvider {
    * the right key in the 503.
    */
   readonly apiKeyEnv: string
+  /** Captured material → editable placement suggestion. */
+  triage(input: TriageInput, opts?: LlmCallOptions): Promise<LlmResult<TriageOutput>>
   /** Which existing concepts a source affects + which new concepts it warrants. Model: config.modelClassify. */
   classify(input: ClassifyInput, opts?: LlmCallOptions): Promise<LlmResult<ClassifyOutput>>
   /** One call per affected concept: new revision + claims + relations. Model: config.modelSynthesis. */

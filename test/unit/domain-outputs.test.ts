@@ -55,6 +55,7 @@ function output(overrides: Partial<Output> = {}): Output {
     space_id: SPACE_ID,
     kind: 'answer',
     title: 'What is WikiKit?',
+    summary: 'A headless knowledge system.',
     question: 'What is WikiKit?',
     markdown: '# WikiKit\n\nA headless knowledge system.',
     citations: [

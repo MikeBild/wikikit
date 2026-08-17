@@ -47,6 +47,7 @@ export const TABLES: ReadonlySet<string> = new Set([
   'wk_webhook_endpoints',
   'wk_webhook_deliveries',
   'wk_ingest_jobs',
+  'wk_attention_states',
   'wk_agent_runs',
   'wk_usage_events',
   'wk_concept_reads',

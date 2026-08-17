@@ -5,10 +5,16 @@ import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/lib/session'
+import { sortSpaceOptions } from '@/lib/space'
 import { SpaceProvider } from '@/components/space-provider'
 
 interface SpaceRow {
   slug: string
+  settings: Record<string, unknown>
+}
+
+function spaceEnvironment(row: SpaceRow): 'production' | 'test' {
+  return row.settings.environment === 'test' ? 'test' : 'production'
 }
 
 /**
@@ -52,7 +58,10 @@ export function Root() {
   // installation with two wikis rendered "No wikis yet", which is the exact
   // shape of failure an optional chain hides: no error, no empty response, just
   // a page quietly claiming nothing exists.
-  const spaces = (query.data?.items ?? []).map((row: SpaceRow) => row.slug)
+  const options = sortSpaceOptions(
+    (query.data?.items ?? []).map((row: SpaceRow) => ({ slug: row.slug, environment: spaceEnvironment(row) })),
+  )
+  const spaces = options.map((option) => option.slug)
 
   // No wiki at all is a real state, not an error: a fresh installation has
   // none until somebody creates one, and an empty console that says so beats
@@ -74,7 +83,7 @@ export function Root() {
   const lockedTo = session.space_id ? (spaces[0] ?? null) : null
 
   return (
-    <SpaceProvider available={spaces} lockedTo={lockedTo}>
+    <SpaceProvider options={options} lockedTo={lockedTo}>
       <Shell />
     </SpaceProvider>
   )

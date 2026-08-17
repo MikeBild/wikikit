@@ -103,8 +103,9 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | POST   | `/v1/spaces/{space}/ingest/document`        | knowledge:propose | Upload a document (pdf\|docx\|xlsx\|md\|txt\|csv, raw body) — extracted to Markdown then ingested |
 | POST   | `/v1/spaces/{space}/agent/sessions`           | knowledge:propose | Capture a coding-agent session: distil the rules a human taught — usually `no_learnings`, else one proposal; optional `session_id` makes repeated captures versions of ONE source stream |
 | GET    | `/v1/ingests/{id}`                            | knowledge:propose | Ingest job status; done carries source_id and an optional proposal_id (null = no review work) |
-| POST   | `/v1/ingests/{id}/process`                    | knowledge:propose | Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here; `409 ingest_not_captured` on any other status |
-| POST   | `/v1/ingests/{id}/discard`                    | knowledge:propose | Discard a captured note — terminal, the row stays in the job list for the record |
+| GET    | `/v1/ingests/{id}/triage`                     | knowledge:propose | Read the editable sorting suggestion stored with a captured item |
+| POST   | `/v1/ingests/{id}/triage`                     | knowledge:propose | Generate and store an editable target, title, summary and confidence |
+| POST   | `/v1/ingests/{id}/triage/resolve`             | knowledge:propose | Resolve one capture by processing, reusing an exact source, leaving it open or discarding it |
 | GET    | `/v1/spaces/{space}/ingests`                  | knowledge:read \| knowledge:propose | This space's ingest jobs newest-first — the inbox (`?status=queued\|running\|done\|failed\|quota_blocked\|captured\|discarded`, `?limit=`, `?cursor=`); rows are the same shape the single status read serves; captured rows carry `title` + `excerpt` |
 | GET    | `/v1/spaces/{space}/sources`                  | knowledge:read    | List archived sources (keyset pagination via `?before=`) |
 | GET    | `/v1/spaces/{space}/sources/{id}`             | knowledge:read    | Read one source (raw + normalized markdown) |
@@ -125,6 +126,8 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
 | POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | File an output back into the wiki: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Idempotent — a second promote returns the first job |
 | GET    | `/v1/spaces/{space}/health`                   | knowledge:read    | Composed maintenance report in one LLM-free read: lint findings + severity census (`?tier=quick\|deep`, default deep), coverage, the review queue with the age of its oldest change, the live ingest queue incl. parked thoughts. No verdict — the counts are the answer |
+| GET    | `/v1/spaces/{space}/attention`                | knowledge:read    | Human attention queue across proposals, captures, outputs and care findings |
+| PUT    | `/v1/spaces/{space}/attention/{key}`          | knowledge:propose | Defer, discard or restore one queue item without changing its underlying knowledge object |
 | GET    | `/v1/spaces/{space}/schedules`                | admin             | The recurring briefing/health schedules of this space (at most one per kind) |
 | PUT    | `/v1/spaces/{space}/schedules`                | admin             | Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out is removed — hence no DELETE route. Idempotent |
 | GET    | `/v1/spaces/{space}/proposals`                | knowledge:read \| knowledge:review | List change proposals (`?status=pending`) |
@@ -298,10 +301,10 @@ actor joins are forbidden. Use `/v1/spaces/{space}/lint` for current data qualit
 - **Capture:** the same route with `capture:true` PARKS the content instead —
   `200 {ingest_id, status:"captured"}`, no LLM call, no dedup pre-check, and no
   slot under the per-space queue ceiling. A captured row is invisible to the
-  worker until `POST /v1/ingests/{id}/process` promotes it (paying the LLM
-  guard and the queue-room check at that moment) or
-  `POST /v1/ingests/{id}/discard` ends it — terminal, the row stays for the
-  record. Identical text parked twice is two captured rows: dedup is
+  worker until `POST /v1/ingests/{id}/triage/resolve` records the human choice.
+  Processing pays the LLM guard and queue-room check at that moment; discarding
+  is terminal and the row stays for the record. Identical text parked twice is
+  two captured rows: dedup is
   content-hash-on-archive, and a capture archives nothing yet.
 - **Evidence:** the same route with `evidence:true` runs acquire → archive →
   chunk and completes `done` with `proposal_id` null BEFORE classify ever
@@ -541,7 +544,7 @@ actionable envelope — never a bare string:
 | `elicitation_failed` | 502 | client or transport failed before a valid human decision; proposal is unchanged |
 | `body_too_large` | 413 | body exceeds `WIKIKIT_MAX_BODY_BYTES` |
 | `rate_limited` | 429 | slow down |
-| `ingest_not_captured` | 409 | process/discard on a job that is not parked in `captured` |
+| `ingest_not_captured` | 409 | triage resolution on a job that is not parked in `captured` |
 | `ingest_queue_full` | 429 | this space already has `WIKIKIT_INGEST_MAX_QUEUED_PER_SPACE` jobs waiting; envelope carries `queued` and `limit`, and nothing was queued. NOT a rate limit: the pacing was fine, the work queue is full — let it drain or clear the review backlog holding it up, do not retry in a loop |
 | `internal_error` | 500 | unexpected failure (message never leaks internals) |
 | `llm_not_configured` | 503 | set the key for the configured `WIKIKIT_LLM_PROVIDER` to enable ingest/query (the error names it) |
@@ -709,7 +712,7 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_deleted_concepts` | knowledge:read | List deleted concept tombstones | true | false | true | false |
 | `wikikit_concept_delete` | knowledge:propose | Stage page deletion for review | false | true | true | false |
 | `wikikit_concept_restore` | knowledge:propose | Stage page restoration for review | false | true | true | false |
-| `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}`; `capture:true` parks it keyless → `{status:"captured", ingest_id}` (promotion is a human step in the cockpit — no MCP process/discard) | false | true | true | true |
+| `wikikit_ingest` | knowledge:propose | Submit a source → async ack `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}`; `capture:true` parks it keyless → `{status:"captured", ingest_id}` (triage is a human step in the Cockpit) | false | true | true | true |
 | `wikikit_ingest_status` | knowledge:propose | Poll an ingest job; terminal: done (proposal_id) / failed (error) / discarded; captured = parked for a human | true | false | true | false |
 | `wikikit_propose` | knowledge:propose | Stage a structured ChangeProposal → `{proposal_id, status:"pending"}` | false | true | true | false |
 | `wikikit_proposals` | knowledge:review | List proposals or inspect one complete structured diff | true | false | true | false |

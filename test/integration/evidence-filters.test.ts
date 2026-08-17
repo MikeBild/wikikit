@@ -67,6 +67,7 @@ async function archive(options: {
     title: options.title,
     raw_content: body,
     markdown: body,
+    summary: body.replace(/^# .+\n\n/u, ''),
     // Written rather than aged: the window is over created_at, and a test that
     // could only observe "now" could not observe a window at all.
     created_at: new Date(Date.now() - options.ageDays * DAY_MS).toISOString(),

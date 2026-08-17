@@ -86,6 +86,12 @@ export interface IngestCaptured {
   ingest_id: string
 }
 
+export type CaptureResolution =
+  | { action: 'process'; targetSpaceId: string; title: string; summary: string }
+  | { action: 'use_existing'; targetSpaceId: string; sourceId: string; title: string; summary: string }
+  | { action: 'leave'; title: string; summary: string; question: string | null }
+  | { action: 'discard'; title: string; summary: string }
+
 export interface IngestPipeline {
   /**
    * Insert a queued wk_ingest_jobs row and return its id (fast, no LLM).
@@ -98,20 +104,8 @@ export interface IngestPipeline {
     spaceId: string,
     args: IngestRequest,
   ): Promise<{ ingest_id: string } | IngestUnchanged | IngestCaptured>
-  /**
-   * Promote a captured row into the ordinary queue. The guards a capture
-   * skipped are paid HERE — the LLM guard and the per-space queue ceiling —
-   * because promotion is the moment work is actually being asked for. 409
-   * (ingest_not_captured) on any other status. The promoted row keeps its
-   * created_at, so an old capture jumps to the queue front (documented — the
-   * worker claims oldest-first).
-   */
-  processCapture(db: Db, id: string): Promise<void>
-  /**
-   * Discard a captured row — terminal, no guards beyond the status check. The
-   * row stays for the record; discarded is a state, not a deletion.
-   */
-  discardCapture(db: Db, id: string): Promise<void>
+  /** Resolve one captured row through the single human-owned triage action. */
+  resolveCapture(db: Db, id: string, resolution: CaptureResolution): Promise<void>
   /** Start the background worker loops (config.ingestConcurrency of them). */
   start(): void
   /** Stop claiming new jobs and wait for in-flight ones to finish. */
@@ -604,6 +598,8 @@ export function createIngestPipeline(
       kind: acquired.kind,
       url: acquired.url ?? undefined,
       title: acquired.title ?? undefined,
+      rawTitle: acquired.rawTitle ?? undefined,
+      summary: acquired.summary ?? undefined,
       raw: acquired.raw,
       markdown: acquired.markdown,
       // Optional hint (meeting/article/note); persisted on the source metadata
@@ -1292,7 +1288,7 @@ export function createIngestPipeline(
       // approved knowledge back through review as if it were new evidence. It
       // must sit BEFORE the capture fast-path — a parked mirror note would
       // sail past every guard here and be synthesized later via
-      // processCapture, which re-checks LLM/queue-room but never re-reads the
+      // triage resolution re-checks LLM/queue-room but never re-reads the
       // content. URL ingests are covered by the acquirer's backstop (the body
       // is unknown at enqueue time). importBundle is deliberately NOT guarded:
       // an md/okf roundtrip is legitimate re-import and goes through the
@@ -1306,7 +1302,7 @@ export function createIngestPipeline(
 
       // Capture branches BEFORE every guard on purpose: parking a note asks
       // for no LLM and takes no queue slot, so neither the 503 nor the 429 may
-      // refuse it — those are paid at promotion (processCapture). The dedup
+      // refuse it — those are paid when triage resolves to processing. The dedup
       // pre-check is skipped too: identical text parked twice is two captured
       // rows (accepted — dedup is content-hash-on-archive, and nothing is
       // archived yet).
@@ -1384,8 +1380,13 @@ export function createIngestPipeline(
       return { ingest_id: job!.id }
     },
 
-    async processCapture(actionDb: Db, id: string): Promise<void> {
-      const [job] = await actionDb.select<{ id: string; space_id: string; status: string }>('wk_ingest_jobs', {
+    async resolveCapture(actionDb: Db, id: string, resolution: CaptureResolution): Promise<void> {
+      const [job] = await actionDb.select<{
+        id: string
+        space_id: string
+        status: string
+        input: Record<string, unknown> | string
+      }>('wk_ingest_jobs', {
         id: `eq.${id}`,
         limit: 1,
       })
@@ -1395,30 +1396,64 @@ export function createIngestPipeline(
           nextBestActions: [`GET /v1/ingests/${id} to see where the job is`],
         })
       }
-      // The guards capture deferred, in enqueue's own order.
-      if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
-      await assertQueueHasRoom(actionDb, job.space_id)
-      // Guarded on 'captured' so a discard racing this promotion loses cleanly
-      // — whichever flip lands first wins, and neither corrupts the other.
-      await actionDb.query(`UPDATE wk_ingest_jobs SET status = 'queued' WHERE id = $1 AND status = 'captured'`, [id])
-    },
+      const input = typeof job.input === 'string' ? JSON.parse(job.input) : job.input
+      const { raw_title: storedRawTitle, ...inputWithoutRawTitle } = input
+      const rawTitle =
+        typeof storedRawTitle === 'string' ? storedRawTitle : typeof input.title === 'string' ? input.title : undefined
+      const updatedInput = {
+        ...inputWithoutRawTitle,
+        ...(rawTitle ? { raw_title: rawTitle } : {}),
+        title: resolution.title,
+        summary: resolution.summary,
+        triage_resolution: resolution.action,
+        ...(resolution.action === 'leave' ? { triage_question: resolution.question } : {}),
+      }
 
-    async discardCapture(actionDb: Db, id: string): Promise<void> {
-      const [job] = await actionDb.select<{ id: string; status: string }>('wk_ingest_jobs', {
-        id: `eq.${id}`,
-        limit: 1,
-      })
-      if (!job) throw new NotFoundError(`ingest job ${id} not found`)
-      if (job.status !== 'captured') {
-        throw new ConflictError('ingest_not_captured', `ingest job ${id} is ${job.status}, not captured`, {
-          nextBestActions: [`GET /v1/ingests/${id} to see where the job is`],
-        })
+      if (resolution.action === 'leave') {
+        await actionDb.update(
+          'wk_ingest_jobs',
+          { id: `eq.${id}`, status: 'eq.captured' },
+          { input: JSON.stringify(updatedInput) },
+          { returning: false },
+        )
+        return
       }
-      // finished_at marks the terminal moment like done/failed do; the row is
-      // deliberately kept — a discarded thought is still part of the record.
-      await actionDb.query(
-        `UPDATE wk_ingest_jobs SET status = 'discarded', finished_at = now() WHERE id = $1 AND status = 'captured'`,
-        [id],
+      if (resolution.action === 'discard') {
+        await actionDb.update(
+          'wk_ingest_jobs',
+          { id: `eq.${id}`, status: 'eq.captured' },
+          { status: 'discarded', input: JSON.stringify(updatedInput), finished_at: new Date().toISOString() },
+          { returning: false },
+        )
+        return
+      }
+      if (resolution.action === 'use_existing') {
+        await actionDb.update(
+          'wk_ingest_jobs',
+          { id: `eq.${id}`, status: 'eq.captured' },
+          {
+            space_id: resolution.targetSpaceId,
+            status: 'done',
+            input: JSON.stringify(updatedInput),
+            source_id: resolution.sourceId,
+            finished_at: new Date().toISOString(),
+          },
+          { returning: false },
+        )
+        return
+      }
+
+      if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
+      await assertQueueHasRoom(actionDb, resolution.targetSpaceId)
+      await actionDb.update(
+        'wk_ingest_jobs',
+        { id: `eq.${id}`, status: 'eq.captured' },
+        {
+          space_id: resolution.targetSpaceId,
+          status: 'queued',
+          input: JSON.stringify(updatedInput),
+        },
+        { returning: false },
       )
     },
 

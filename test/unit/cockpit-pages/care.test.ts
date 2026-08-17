@@ -16,6 +16,7 @@ import {
   draftsFrom,
   findingTarget,
   isTimeZoneName,
+  lintMessage,
   ruleWhy,
   scheduleBody,
   scheduleProblem,
@@ -132,6 +133,38 @@ describe('every finding has to lead somewhere', () => {
       expect(ruleWhy(rule), `${rule} has no why-it-counts text`).toBeTruthy()
     }
     expect(ruleWhy('some-future-rule')).toBeNull()
+  })
+})
+
+describe('lint messages use the Cockpit language', () => {
+  test('uses the structured rule and arguments for German instead of translating wiki content', () => {
+    const finding = {
+      rule: 'stale-proposals',
+      message: {
+        key: 'stale-proposals',
+        args: { days_open: 21, title: 'Auth rollout' },
+        default_text: 'proposal "Auth rollout" has waited 21 days for a review',
+      },
+    }
+    expect(lintMessage('de', finding)).toBe('Ein Vorschlag wartet seit 21 Tagen auf eine menschliche Prüfung.')
+    expect(lintMessage('en', finding)).toBe(finding.message.default_text)
+  })
+
+  test('has a German sentence for every lint rule and keeps unknown server rules readable', () => {
+    for (const rule of Object.keys(LINT_SEVERITY)) {
+      const rendered = lintMessage('de', {
+        rule,
+        concept_slug: 'beispiel',
+        message: { key: rule, args: {}, default_text: `english ${rule}` },
+      })
+      expect(rendered, `${rule} has no German lint message`).not.toBe(`english ${rule}`)
+    }
+    expect(
+      lintMessage('de', {
+        rule: 'future',
+        message: { key: 'future', args: {}, default_text: 'future server message' },
+      }),
+    ).toBe('future server message')
   })
 })
 

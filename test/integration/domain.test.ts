@@ -293,7 +293,7 @@ describe('domain modules (integration)', () => {
     const report = await lintSpace(db, space.id, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const contradiction = report.findings.find((finding) => finding.rule === 'contradictions')!
     expect(contradiction.severity).toBe('error')
-    expect(contradiction.message).toContain('okf has_status')
+    expect(contradiction.message.default_text).toContain('okf has_status')
     expect(report.counts.error).toBeGreaterThanOrEqual(1)
   })
 

@@ -45,7 +45,7 @@ export const TERMINAL_STATUSES: readonly string[] = [
   'done',
   'failed',
   // `captured` and `discarded` are settled AS FAR AS POLLING GOES: nothing on
-  // the server moves either by itself — only a human's process/discard does,
+  // the server moves either by itself — only a human triage resolution does,
   // and that mutation invalidates the query it changes. A list of parked notes
   // that re-asked every few seconds would be polling for an event that can
   // only arrive through this console's own buttons.

@@ -220,6 +220,7 @@ describe('concept list evidence (integration)', () => {
         title: `Source ${index}`,
         raw_content: `# Source ${index}`,
         markdown: `# Source ${index}`,
+        summary: `Source ${index}`,
       })),
     )
     sourceIds = sources.map((source) => source.id)

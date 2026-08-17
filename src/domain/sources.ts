@@ -58,7 +58,9 @@ export interface SourceSummary {
   id: string
   kind: SourceKind
   url: string | null
-  title: string | null
+  title: string
+  raw_title: string | null
+  summary: string
   content_hash: string
   created_at: string
 }
@@ -81,7 +83,9 @@ interface SourceRow {
   id: string
   kind: SourceKind
   url: string | null
-  title: string | null
+  title: string
+  raw_title: string | null
+  summary: string
   content_hash: string
   raw_content: string
   markdown: string
@@ -101,6 +105,8 @@ function toSource(row: SourceRow): Source {
     kind: row.kind,
     url: row.url,
     title: row.title,
+    raw_title: row.raw_title ?? null,
+    summary: row.summary,
     content_hash: row.content_hash,
     raw_content: row.raw_content,
     markdown: row.markdown,
@@ -122,6 +128,8 @@ const zCreateSourceArgs = z.object({
   kind: z.enum(['markdown', 'text', 'url', 'import']),
   url: z.url().optional(),
   title: z.string().max(500).optional(),
+  rawTitle: z.string().max(500).optional(),
+  summary: z.string().max(4000).optional(),
   raw: z.string().min(1),
   markdown: z.string().min(1),
   // What the source IS (meeting/article/note), distinct from `kind` (its
@@ -150,6 +158,30 @@ const zCreateSourceArgs = z.object({
 
 export type CreateSourceArgs = z.input<typeof zCreateSourceArgs>
 
+/** Canonical, deterministic source summary used at write time and nowhere else. */
+export function summarizeSource(markdown: string, max = 320): string {
+  return markdown
+    .replace(/^---\s*[\s\S]*?\s*---\s*/u, '')
+    .replace(/^#{1,6}\s+/gmu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, max)
+}
+
+/** Every archived source has a stable human-readable title after the cutover. */
+export function sourceTitle(args: { title?: string | null; markdown: string; contentHash: string }): string {
+  const explicit = args.title?.trim()
+  if (explicit) return explicit.slice(0, 500)
+  const heading = args.markdown.match(/^#\s+(.+)$/mu)?.[1]?.trim()
+  if (heading) return heading.slice(0, 500)
+  const firstLine = args.markdown
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^[-*#>\s]+/u, '').trim())
+    .find(Boolean)
+  if (firstLine) return firstLine.slice(0, 120)
+  return `Source ${args.contentHash.slice(0, 12)}`
+}
+
 /**
  * Archive a source. Idempotent on sha256(raw): a hash hit returns the
  * EXISTING row with `created: false` (HTTP layer answers 409 already_ingested
@@ -162,6 +194,9 @@ export async function createSource(
 ): Promise<{ source: Source; created: boolean }> {
   const input = zCreateSourceArgs.parse(args)
   const contentHash = sha256Hex(input.raw)
+  const title = sourceTitle({ title: input.title, markdown: input.markdown, contentHash })
+  const rawTitle = input.rawTitle ?? input.title ?? null
+  const summary = input.summary?.trim() || summarizeSource(input.markdown)
 
   // Fast path: the common re-ingest case answers from the unique index
   // without an exception. The insert below still handles the race.
@@ -178,7 +213,9 @@ export async function createSource(
       content_hash: contentHash,
       kind: input.kind,
       url: input.url ?? null,
-      title: input.title ?? null,
+      title,
+      raw_title: rawTitle,
+      summary,
       raw_content: input.raw,
       markdown: input.markdown,
       language: input.language ?? null,
@@ -242,7 +279,7 @@ export async function listSources(
   }
   values.push(limit + 1)
   const { rows } = await db.query<SourceRow>(
-    `SELECT id, kind, url, title, content_hash, created_at
+    `SELECT id, kind, url, title, raw_title, summary, content_hash, created_at
        FROM wk_sources
       WHERE space_id = $1${keyset}
       ORDER BY created_at DESC, id DESC
@@ -257,6 +294,8 @@ export async function listSources(
     kind: row.kind,
     url: row.url,
     title: row.title,
+    raw_title: row.raw_title ?? null,
+    summary: row.summary,
     content_hash: row.content_hash,
     created_at: isoString(row.created_at),
   }))

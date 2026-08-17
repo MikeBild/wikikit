@@ -1,7 +1,7 @@
 import {
   Archive,
   BookOpen,
-  FileDiff,
+  CircleCheckBig,
   HeartPulse,
   Inbox,
   KeyRound,
@@ -49,7 +49,7 @@ export interface NavEntry {
    * A page that quietly dropped its gate would fail rather than silently open.
    *
    * The scope named here is the one that REVEALS the page, which is not always
-   * the strictest scope on it: the changes queue is `knowledge:read` on
+   * the strictest scope on it: the decisions queue is `knowledge:read` on
    * purpose, because seeing what is waiting is not the same right as deciding
    * it. The decision buttons gate themselves in-page with `useCan`.
    */
@@ -62,17 +62,8 @@ export interface NavEntry {
 }
 
 /**
- * The wiki block is THE LOOP, read top to bottom: Inbox → Pages → Changes →
- * Answers → Care. Something arrives, it becomes pages, a human decides them, a
- * reader asks a question, and what the asking exposes gets maintained. An
- * operator who reads the sidebar downwards has read the product.
- *
- * `Changes` deliberately stays visible even though folding the review queue in
- * with the Inbox — which already lists the pending changes beside what arrived
- * — would reach a tidy four entries. It is the one queue whose neglect does
- * real damage: unreviewed proposals accumulate silently, an automatic feeder
- * can outrun a human reviewer by hundreds, and nothing on a hidden queue ever
- * says so. Tidiness is not worth a review backlog nobody sees.
+ * The wiki block is the six-step lifecycle: capture, triage, retrieve, care,
+ * check and remember. Decisions is the one human-attention queue across it.
  */
 export const NAV: readonly NavEntry[] = [
   {
@@ -85,13 +76,7 @@ export const NAV: readonly NavEntry[] = [
     // `health` rather than `stats/coverage`: the composed read carries the same
     // coverage block AND the two live queues the loop is measured by, so the
     // front page asks once for the numbers it used to guess at.
-    api: [
-      '/v1/spaces/{space}/stats/knowledge',
-      '/v1/spaces/{space}/stats/reviews',
-      '/v1/spaces/{space}/stats/ingests',
-      '/v1/spaces/{space}/health',
-      '/v1/spaces/{space}/proposals',
-    ],
+    api: ['/v1/spaces/{space}/attention'],
   },
   {
     to: '/inbox',
@@ -99,27 +84,7 @@ export const NAV: readonly NavEntry[] = [
     icon: Inbox,
     scope: 'knowledge:read',
     group: 'wiki',
-    // Revealed by `knowledge:read` and not by `knowledge:propose`, like the
-    // changes queue: watching what arrived is not the same right as adding to
-    // it. The drop zone and the forms gate themselves in-page with `useCan`.
-    //
-    // `/v1/spaces/{space}/proposals` is here because "what arrived" and "what
-    // of it still needs a decision" are one question and belong on one page.
-    //
-    // `/v1/ingests/{id}` is deliberately NOT here: the list carries `phase` and
-    // `progress` for every row, so the page never reads a job by id, and a
-    // declaration nothing calls is the answer a reviewer gets when they ask
-    // what this page touches. The two by-id ACTIONS are here — the parked
-    // strip's process/discard buttons are the one place a human un-parks a
-    // captured note.
-    api: [
-      '/v1/spaces/{space}/ingests',
-      '/v1/spaces/{space}/ingest',
-      '/v1/spaces/{space}/ingest/document',
-      '/v1/ingests/{id}/process',
-      '/v1/ingests/{id}/discard',
-      '/v1/spaces/{space}/proposals',
-    ],
+    api: ['/v1/spaces/{space}/ingests', '/v1/spaces/{space}/ingest', '/v1/spaces/{space}/ingest/document'],
   },
   {
     to: '/pages',
@@ -128,7 +93,7 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'wiki',
     // The editor submits a proposal from this page, which is why the write
-    // path is declared here and not under the changes queue: an entry lists
+    // path is declared here and not under the decisions queue: an entry lists
     // what its PAGE reaches, not what its noun belongs to.
     api: [
       '/v1/spaces/{space}/concepts',
@@ -141,13 +106,16 @@ export const NAV: readonly NavEntry[] = [
     ],
   },
   {
-    to: '/changes',
-    label: 'Changes',
-    icon: FileDiff,
+    to: '/decisions',
+    label: 'Decisions',
+    icon: CircleCheckBig,
     scope: 'knowledge:read',
-    group: 'wiki',
+    group: 'home',
     api: [
-      '/v1/spaces/{space}/proposals',
+      '/v1/spaces/{space}/attention',
+      '/v1/spaces/{space}/attention/{key}',
+      '/v1/ingests/{id}/triage',
+      '/v1/ingests/{id}/triage/resolve',
       '/v1/proposals/{id}',
       '/v1/proposals/{id}/lint',
       '/v1/proposals/{id}/approve',
@@ -174,7 +142,7 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'wiki',
     // `knowledge:read` reveals it, and the schedule controls inside are admin.
-    // Same reading as the changes queue: seeing what the wiki needs is not the
+    // Same reading as the decisions queue: seeing what the wiki needs is not the
     // same right as deciding when a report runs. The outputs list feeds the
     // kept-reports history (kind='health'); reading one whole report happens on
     // the Answers page, which declares the by-id path.
@@ -196,8 +164,8 @@ export const NAV: readonly NavEntry[] = [
     ],
   },
   {
-    to: '/decisions',
-    label: 'Decisions',
+    to: '/decision-log',
+    label: 'Decision log',
     icon: Scale,
     scope: 'knowledge:read',
     group: 'archive',

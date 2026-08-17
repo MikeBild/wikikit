@@ -142,6 +142,7 @@ describe('search evidence (integration)', () => {
         title: `Source ${index}`,
         raw_content: `# Source ${index}`,
         markdown: `# Source ${index}\n\nThe ${QUERY} ships with firmware 4.2.`,
+        summary: `The ${QUERY} ships with firmware 4.2.`,
       })),
     )
     sourceIds = sources.map((source) => source.id)

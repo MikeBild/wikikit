@@ -12,11 +12,11 @@ const EN = {
   'nav.home': 'Home',
   'nav.inbox': 'Inbox',
   'nav.pages': 'Pages',
-  'nav.changes': 'Changes',
   'nav.answers': 'Answers',
   'nav.care': 'Care',
   'nav.sources': 'Sources',
   'nav.decisions': 'Decisions',
+  'nav.decisionLog': 'Decision log',
   'nav.search': 'Search',
   // "Guidelines" in the interface, `charter` in every route, tool, table and
   // doc anchor a machine reads — renaming the API would break contracts for no
@@ -88,13 +88,13 @@ const EN = {
   'page.inbox.description':
     'Everything lands here: drop documents, paste addresses, and watch what still needs a decision.',
   'page.pages.description': 'Published knowledge, its history and proposed edits.',
-  'page.changes.description': 'Review proposed changes before they become published knowledge.',
   'page.answers.description':
     'Every answer, briefing and care report this wiki has produced — and which of them were filed back into it.',
   'page.care.description':
     'What this wiki needs: what is waiting for a decision, what the linter found, and where its knowledge is thin.',
   'page.sources.description': 'Documents and streams that provide evidence for this wiki.',
-  'page.decisions.description': 'Recorded decisions and the evidence behind them.',
+  'page.decisions.description': 'Everything that is waiting for a person.',
+  'page.decisionLog.description': 'Recorded decisions and the evidence behind them.',
   'page.search.description': 'Find knowledge and ask questions across this wiki.',
   'page.charter.description': 'The rules that define what belongs in this wiki.',
   'page.spaces.description': 'Available wikis and their operational settings.',
@@ -124,11 +124,11 @@ const DE: Record<TranslationKey, string> = {
   'nav.home': 'Start',
   'nav.inbox': 'Eingang',
   'nav.pages': 'Seiten',
-  'nav.changes': 'Änderungen',
   'nav.answers': 'Antworten',
   'nav.care': 'Pflege',
   'nav.sources': 'Quellen',
   'nav.decisions': 'Entscheidungen',
+  'nav.decisionLog': 'Entscheidungsprotokoll',
   'nav.search': 'Suche',
   'nav.charter': 'Leitlinien',
   'nav.spaces': 'Wikis',
@@ -197,13 +197,13 @@ const DE: Record<TranslationKey, string> = {
   'page.inbox.description':
     'Hier landet alles: Dokumente ablegen, Adressen einfügen und verfolgen, was noch eine Entscheidung braucht.',
   'page.pages.description': 'Veröffentlichtes Wissen, sein Verlauf und vorgeschlagene Änderungen.',
-  'page.changes.description': 'Vorgeschlagene Änderungen prüfen, bevor sie veröffentlicht werden.',
   'page.answers.description':
     'Alle Antworten, Kurzberichte und Pflegeberichte dieses Wikis – und welche davon zurück ins Wiki übernommen wurden.',
   'page.care.description':
     'Was dieses Wiki braucht: was auf eine Entscheidung wartet, was die Prüfung gefunden hat und wo Nachweise fehlen.',
   'page.sources.description': 'Dokumente und Datenströme, die Nachweise für dieses Wiki liefern.',
-  'page.decisions.description': 'Dokumentierte Entscheidungen und die zugehörigen Nachweise.',
+  'page.decisions.description': 'Alles, was auf einen Menschen wartet.',
+  'page.decisionLog.description': 'Dokumentierte Entscheidungen und die zugehörigen Nachweise.',
   'page.search.description': 'Wissen in diesem Wiki finden und Fragen dazu stellen.',
   'page.charter.description': 'Die Regeln dafür, was in dieses Wiki gehört.',
   'page.spaces.description': 'Verfügbare Wikis und ihre betrieblichen Einstellungen.',
@@ -240,6 +240,84 @@ export const DE_PHRASES = {
   Actions: 'Aktionen',
   Edit: 'Bearbeiten',
   Waiting: 'Wartet',
+  'A clear loop for turning raw material into reviewed, useful knowledge.':
+    'Ein klarer Ablauf, der Rohmaterial in geprüftes, nützliches Wissen verwandelt.',
+  'A reminder is overdue': 'Eine Erinnerung ist überfällig',
+  'About wiki environments': 'Informationen zu Wiki-Umgebungen',
+  After: 'Danach',
+  'An identical proposal was rejected before': 'Ein identischer Vorschlag wurde bereits abgelehnt',
+  'Attention could not be loaded': 'Die Aufgaben konnten nicht geladen werden',
+  Before: 'Davor',
+  'Check this wiki': 'Dieses Wiki prüfen',
+  'Check:': 'Prüfung:',
+  Checked: 'Geprüft',
+  'Checking changed nothing. Review each finding before any repair enters the knowledge workflow.':
+    'Die Prüfung hat nichts verändert. Jeder Befund wird geprüft, bevor eine Reparatur in den Wissensablauf gelangt.',
+  'Decision filters': 'Entscheidungen filtern',
+  'Decisions could not be loaded': 'Entscheidungen konnten nicht geladen werden',
+  'Discard capture': 'Notiz verwerfen',
+  'Everything waiting for a person: sort captures, review proposals, file useful outputs and act on care findings.':
+    'Alles, was auf einen Menschen wartet: Notizen einordnen, Vorschläge prüfen, nützliche Ergebnisse ablegen und Pflegehinweise bearbeiten.',
+  'Leave open': 'Offen lassen',
+  'Loading decisions…': 'Entscheidungen werden geladen…',
+  'Loading diff…': 'Vergleich wird geladen…',
+  'Loading…': 'Wird geladen…',
+  'Needs attention': 'Aufgabe offen',
+  'Needs your attention': 'Aufgaben offen',
+  Environment: 'Umgebung',
+  Findings: 'Befunde',
+  'No sorting suggestion is available': 'Kein Sortiervorschlag verfügbar',
+  'Nothing is waiting.': 'Nichts wartet.',
+  'Open Inbox': 'Eingang öffnen',
+  'Open care': 'Pflege öffnen',
+  'Open decisions': 'Entscheidungen öffnen',
+  'Open output': 'Ergebnis öffnen',
+  'Open review': 'Prüfung öffnen',
+  Overdue: 'Überfällig',
+  'Page not found': 'Seite nicht gefunden',
+  'Preparing a sorting suggestion…': 'Sortiervorschlag wird vorbereitet…',
+  Production: 'Produktion',
+  'Production and test wikis are separated in the switcher. Test wikis can be hidden.':
+    'Produktions- und Test-Wikis werden im Umschalter getrennt. Test-Wikis lassen sich ausblenden.',
+  'Process here': 'Hier verarbeiten',
+  Proposals: 'Vorschläge',
+  'Question to keep open': 'Offene Frage',
+  'Queue at a glance': 'Aufgaben im Überblick',
+  'Recently decided': 'Kürzlich entschieden',
+  'Remind in 3 days': 'In 3 Tagen erinnern',
+  'Remove from queue': 'Aus der Aufgabenliste entfernen',
+  'Repair findings': 'Befunde reparieren',
+  'Resolve above': 'Oben entscheiden',
+  'Return to open': 'Wieder öffnen',
+  'Return to overview': 'Zurück zur Übersicht',
+  'Sort capture': 'Notiz einordnen',
+  'Source locked': 'Quelle unantastbar',
+  'The archived content cannot be changed. Care may update metadata only; corrections arrive as a new source.':
+    'Der archivierte Inhalt kann nicht verändert werden. Die Pflege darf nur Metadaten aktualisieren; Korrekturen kommen als neue Quelle hinzu.',
+  'Show test wikis': 'Test-Wikis anzeigen',
+  'Target wiki': 'Ziel-Wiki',
+  Test: 'Testumgebung',
+  'The knowledge lifecycle': 'Der Wissenskreislauf',
+  'The oldest unresolved work comes first.': 'Die älteste offene Aufgabe steht zuerst.',
+  'The page no longer exists': 'Die Seite existiert nicht mehr',
+  'This address is not part of the current cockpit.': 'Diese Adresse gehört nicht zum aktuellen Cockpit.',
+  'Use existing source': 'Vorhandene Quelle verwenden',
+  'Use the current navigation or return to the overview.':
+    'Die aktuelle Navigation verwenden oder zur Übersicht zurückkehren.',
+  'Waiting longer': 'Wartet länger',
+  'Nothing matches these filters': 'Nichts passt zu diesen Filtern',
+  'Show every kind': 'Alle Arten anzeigen',
+  'Show every kind to see the whole shelf.': 'Alle Arten anzeigen, um die gesamte Ablage zu sehen.',
+  'What needs a decision': 'Was entschieden werden muss',
+  'What you need to decide': 'Was entschieden werden muss',
+  'care findings.': 'Pflegebefunde.',
+  'deferred item': 'zurückgestellter Eintrag',
+  'errors,': 'Fehler,',
+  open: 'offen',
+  'overdue ·': 'überfällig ·',
+  'reached their reminder time.': 'haben ihren Erinnerungszeitpunkt erreicht.',
+  warnings: 'Warnungen',
+  '· Guidelines revision': '· Leitlinien-Revision',
   'More information': 'Weitere Informationen',
   'About asking': 'Informationen zur Antwortfunktion',
   'About API key names': 'Informationen zu API-Schlüsselnamen',
@@ -281,36 +359,28 @@ export const DE_PHRASES = {
   'Could not be added': 'Konnte nicht hinzugefügt werden',
   'The worker did not say why.': 'Der Worker hat keinen Grund genannt.',
   'Pages drafted': 'Seiten entworfen',
+  'The synthesised pages are waiting in Decisions. Nothing here is visible knowledge until somebody approves it.':
+    'Die entworfenen Seiten warten unter „Entscheidungen“. Nichts davon ist sichtbares Wissen, bevor es freigegeben wurde.',
   'Archived, with nothing to review': 'Archiviert, nichts zu prüfen',
-  // Capture — parking a thought, and the two ways out of the parked state.
+  // Capture — parking a thought until a person sorts and resolves it.
   'Hold a thought': 'Gedanken festhalten',
   'Hold this thought': 'Diesen Gedanken festhalten',
   'About holding thoughts': 'Informationen zum Festhalten von Gedanken',
-  'A parked thought is held verbatim and costs nothing: no model reads it, no queue slot is taken, and nothing happens until it is processed — then it travels the ordinary path and comes back as a change to review — or discarded.':
-    'Ein geparkter Gedanke wird wortgetreu aufbewahrt und kostet nichts: kein Modell liest ihn, kein Platz in der Warteschlange wird belegt, und nichts geschieht bis zur Verarbeitung — dann nimmt er den gewöhnlichen Weg und kommt als zu prüfende Änderung zurück — oder bis zum Verwerfen.',
+  'A parked thought is held verbatim and costs nothing: no model reads it and no queue slot is taken. It waits for a person to sort it, choose the target wiki and decide what happens next.':
+    'Ein geparkter Gedanke wird wortgetreu und ohne Kosten aufbewahrt: Kein Modell liest ihn und kein Platz in der Warteschlange wird belegt. Er wartet darauf, von einem Menschen eingeordnet, einem Ziel-Wiki zugewiesen und entschieden zu werden.',
   'Park it verbatim — a title, a kind, a decision can all come later.':
     'Wortgetreu parken — Titel, Art und Entscheidung können später kommen.',
   'Whatever is in your head right now.': 'Was auch immer gerade im Kopf ist.',
   'Write the thought first.': 'Zuerst den Gedanken aufschreiben.',
   'Could not be parked': 'Konnte nicht geparkt werden',
   'Nothing is parked': 'Nichts geparkt',
-  'A thought held here waits, verbatim and unread, until you process or discard it.':
-    'Ein hier festgehaltener Gedanke wartet wortgetreu und ungelesen auf Verarbeitung oder Verwerfen.',
+  'A thought held here waits, verbatim and unread, until a person sorts and resolves it.':
+    'Ein hier festgehaltener Gedanke wartet wortgetreu und ungelesen, bis ein Mensch ihn einordnet und entscheidet.',
   Thought: 'Gedanke',
   Parked: 'Geparkt',
   'Parked thought': 'Geparkter Gedanke',
-  Process: 'Verarbeiten',
-  'Process this thought?': 'Diesen Gedanken verarbeiten?',
-  'It joins the ingest queue exactly like a submitted document.':
-    'Er reiht sich in die Verarbeitungswarteschlange ein wie jedes eingereichte Dokument.',
-  'The model archives it verbatim, quotes it into pages, and the result waits in Changes — nothing becomes visible knowledge until a person approves it.':
-    'Das Modell archiviert ihn wortgetreu, überführt ihn mit Zitaten in Seiten, und das Ergebnis wartet unter Änderungen — nichts wird sichtbares Wissen, bevor ein Mensch es freigibt.',
-  'Discard this thought?': 'Diesen Gedanken verwerfen?',
-  'It never becomes knowledge.': 'Er wird nie zu Wissen.',
-  'The note is marked discarded and stays in the job list for the record. Nothing was archived, so there is nothing else to remove.':
-    'Die Notiz wird als verworfen markiert und bleibt zur Nachvollziehbarkeit in der Auftragsliste. Es wurde nichts archiviert, also ist nichts weiter zu entfernen.',
-  'Held verbatim. Nothing reads it until somebody processes it — or it is discarded.':
-    'Wortgetreu aufbewahrt. Nichts liest sie, bis jemand sie verarbeitet — oder sie verworfen wird.',
+  'Held verbatim. Nothing reads it until a person sorts and resolves it.':
+    'Wortgetreu aufbewahrt. Nichts liest die Notiz, bis ein Mensch sie einordnet und entscheidet.',
   Discarded: 'Verworfen',
   'Never became knowledge. The row stays here for the record.':
     'Wurde nie zu Wissen. Die Zeile bleibt zur Nachvollziehbarkeit erhalten.',
@@ -650,7 +720,6 @@ export const DE_PHRASES = {
   'Changed within': 'Geändert innerhalb',
   'No pages changed in that window': 'In diesem Zeitraum wurden keine Seiten geändert',
   'No pages yet': 'Noch keine Seiten',
-  'Untitled page': 'Seite ohne Titel',
   'Archived source': 'Archivierte Quelle',
   'Restoration submitted for review': 'Wiederherstellung zur Prüfung eingereicht',
   'The restoration is now waiting for review.': 'Die Wiederherstellung wartet jetzt auf Prüfung.',
@@ -1113,8 +1182,6 @@ export const DE_PHRASES = {
   'Where it came from': 'Woher es kam',
   "Which markers count is configuration, so it differs between installations — this is what yours honours. Reading it is an admin's right, not a reader's; a session without it is told so here rather than shown a card that is missing.":
     'Welche Markierungen zählen, legt die Installation fest. Diese Auswertung ist nur mit Administrationsrechten sichtbar; ohne Berechtigung erscheint ein entsprechender Hinweis.',
-  'WikiKit archives what you give it verbatim, quotes it claim by claim into pages, and puts those pages in Changes for a human to approve. Nothing becomes visible knowledge here without that approval.':
-    'WikiKit archiviert Eingaben unverändert, verknüpft Aussagen mit Zitaten und legt daraus Seitenänderungen zur menschlichen Prüfung an. Ohne Freigabe entsteht kein sichtbares Wissen.',
   "WikiKit created the endpoint but sent no signing secret back, so there is nothing to give the receiving system. Delete this endpoint and register it again; if it happens twice, this deployment's webhook surface needs looking at before anything is wired to it.":
     'WikiKit hat den Endpunkt ohne Signaturgeheimnis erstellt. Den Endpunkt löschen und erneut registrieren. Tritt der Fehler wieder auf, muss die Webhook-Konfiguration dieser Installation geprüft werden.',
   'WikiKit does not answer which pages cite this source. To find them, search the wiki for a phrase from the document — every claim carries its quote.':
@@ -1199,8 +1266,8 @@ export const DE_PHRASES = {
   'The whole review queue': 'Die gesamte Prüfwarteschlange',
   'What arrived': 'Was eingegangen ist',
   'Nothing has arrived yet': 'Es ist noch nichts eingegangen',
-  'Drop a document, paste an address, or throw in a note — the pages come back as changes to review.':
-    'Ein Dokument ablegen, eine Adresse einfügen oder eine Notiz einwerfen — die Seiten kommen als Änderungen zur Prüfung zurück.',
+  'Drop a document, paste an address, or throw in a note — the pages come back as proposals to review.':
+    'Ein Dokument ablegen, eine Adresse einfügen oder eine Notiz einwerfen — die Seiten kommen als Vorschläge zur Prüfung zurück.',
   'The archive': 'Das Archiv',
   'The archived document': 'Das archivierte Dokument',
   'Review the change': 'Änderung prüfen',
@@ -1275,7 +1342,7 @@ export const DE_PHRASES = {
   'Filed back into the wiki': 'Zurück ins Wiki übernommen',
   'The review queue': 'Die Prüfwarteschlange',
   'What is waiting': 'Was wartet',
-  'Changes waiting for a person': 'Änderungen, die auf eine Person warten',
+  'Proposals waiting for a person': 'Vorschläge, die auf einen Menschen warten',
   'Nothing in this wiki becomes visible knowledge until somebody decides it.':
     'Nichts in diesem Wiki wird sichtbares Wissen, bevor jemand darüber entscheidet.',
   'The oldest has waited': 'Die älteste wartet seit',
@@ -1349,8 +1416,8 @@ export const DE_PHRASES = {
     'Nichts steuert, was in dieses Wiki gehört. Leitlinien sind freiwillig — diese Notiz macht ihr Fehlen zu einer Entscheidung statt zu einem Zufall.',
   'This change has waited more than two weeks. Age is what turns a queue into a backlog.':
     'Diese Änderung wartet seit mehr als zwei Wochen. Erst das Alter macht aus einer Warteschlange einen Rückstand.',
-  'This thought has been parked for over a month. An old inbox item is a signal, not an error — process it or discard it.':
-    'Dieser Gedanke ist seit über einem Monat geparkt. Ein alter Eintrag im Eingang ist ein Signal, kein Fehler — verarbeiten oder verwerfen.',
+  'This thought has been parked for over a month. An old inbox item is a signal, not an error — sort and resolve it.':
+    'Dieser Gedanke ist seit über einem Monat geparkt. Ein alter Eintrag im Eingang ist ein Signal, kein Fehler — einordnen und entscheiden.',
   'About scheduled reports': 'Informationen zu geplanten Berichten',
   'WikiKit runs these itself, in its own process. Each one writes an entry under Answers; nothing is emailed, and a briefing costs no model tokens because it is an assembly of counts and titles.':
     'WikiKit führt diese im eigenen Prozess aus. Jeder Lauf erzeugt einen Eintrag unter „Antworten“; es wird nichts per E-Mail versendet, und ein Kurzbericht verbraucht keine Modell-Tokens, weil er nur aus Zahlen und Titeln besteht.',

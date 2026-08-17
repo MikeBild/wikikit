@@ -103,6 +103,8 @@ function OutputDocument({ output, space }: { output: Output; space: string }) {
         </I18nText>
       ) : null}
 
+      <Citations citations={output.citations} />
+
       <article className="border-border bg-card rounded-lg border p-4">
         {output.markdown.trim() ? (
           /*
@@ -124,7 +126,6 @@ function OutputDocument({ output, space }: { output: Output; space: string }) {
         )}
       </article>
 
-      <Citations citations={output.citations} />
       <Promotion output={output} space={space} />
     </div>
   )
@@ -326,7 +327,7 @@ function PromotionOutcome({ ingestId, at }: { ingestId: string; at: string | nul
                 <span className="text-muted-foreground text-xs">{report.detail}</span>
                 {data.proposal_id ? (
                   <Link
-                    to="/changes/$id"
+                    to="/decisions/proposals/$id"
                     params={{ id: data.proposal_id }}
                     search={(prev) => prev}
                     data-testid="answer-filed-change"

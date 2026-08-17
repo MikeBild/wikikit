@@ -103,10 +103,11 @@ curl -s -X POST "$WK/v1/spaces/default/ingest/document?filename=report.pdf" \
 ```
 
 Not ready to process it? Add `"capture": true` to the ingest body and the text
-is parked verbatim instead — no LLM call, no queue slot, works without an API
-key. It stays a parked note until somebody processes it
-(`POST /v1/ingests/{id}/process` — from there the ordinary loop runs) or
-discards it (`POST /v1/ingests/{id}/discard`).
+is parked verbatim instead — no LLM call and no queue slot. It remains captured
+until a person asks `POST /v1/ingests/{id}/triage` for a sorting suggestion and
+submits the decision to `POST /v1/ingests/{id}/triage/resolve`. A resolution can
+process it in a visible wiki, reuse an identical source, leave it open with a
+question, or discard it.
 
 Example sources to ingest are in [`examples/`](examples/README.md).
 

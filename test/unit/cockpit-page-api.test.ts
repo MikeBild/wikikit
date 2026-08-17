@@ -60,12 +60,13 @@ const PAGE_ROUTES: Record<string, string> = {
   'pages.tsx': '/pages',
   'page.tsx': '/pages',
   'page-edit.tsx': '/pages',
-  'changes.tsx': '/changes',
-  'change.tsx': '/changes',
+  'proposal-review.tsx': '/decisions',
   'sources.tsx': '/sources',
   'source.tsx': '/sources',
   'decisions.tsx': '/decisions',
-  'decision.tsx': '/decisions',
+  'decision-log.tsx': '/decision-log',
+  'decision-log-detail.tsx': '/decision-log',
+  'not-found.tsx': '/',
   'search.tsx': '/search',
   'charter.tsx': '/charter',
   // The four places the loop closes in: what came in, what the wiki produced,
@@ -91,7 +92,7 @@ describe('the facade is parsed correctly', () => {
     // Guards the parser: a regex that silently matched nothing would make
     // every assertion below vacuously true.
     expect(FACADE.size).toBeGreaterThan(30)
-    expect(FACADE.get('changes.approve')).toEqual(['/v1/proposals/{id}/approve'])
+    expect(FACADE.get('proposals.approve')).toEqual(['/v1/proposals/{id}/approve'])
     expect(FACADE.get('concepts.history')).toEqual(['/v1/spaces/{space}/concepts/{slug}/history'])
   })
 

@@ -8,6 +8,23 @@
 // (no silent partials, per contract).
 import { z } from 'zod'
 
+export interface TriageInput {
+  currentSpace: string
+  title: string | null
+  content: string
+  spaces: { slug: string; name: string; purpose: string | null }[]
+}
+
+export const zTriageOutput = z.object({
+  target_space: z.string().nullable(),
+  title: z.string().min(1).max(120),
+  summary: z.string().max(500),
+  confidence: z.number().min(0).max(1),
+  question: z.string().max(500).nullable(),
+})
+
+export type TriageOutput = z.infer<typeof zTriageOutput>
+
 // ---------------------------------------------------------------------------
 // Input types (plain interfaces — inputs come from our own trusted code paths;
 // zod guards the *model's* output, the untrusted side of this boundary)

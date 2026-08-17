@@ -177,24 +177,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/ingests/{id}/process": {
+    "/v1/ingests/{id}/triage": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Read the editable triage suggestion stored with a captured item */
+        get: operations["getTriage"];
         put?: never;
-        /** Promote a captured note into the ingest queue — the guards capture skipped (LLM key, queue room) are paid here */
-        post: operations["processCapture"];
+        /** Generate and store an editable placement suggestion for a captured item */
+        post: operations["suggestTriage"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/v1/ingests/{id}/discard": {
+    "/v1/ingests/{id}/triage/resolve": {
         parameters: {
             query?: never;
             header?: never;
@@ -203,8 +204,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Discard a captured note — terminal; the row stays in the job list for the record */
-        post: operations["discardCapture"];
+        /** Resolve a captured item by processing, reusing a source, leaving it open or discarding it */
+        post: operations["resolveTriage"];
         delete?: never;
         options?: never;
         head?: never;
@@ -545,6 +546,40 @@ export interface paths {
         /** Composed maintenance report — the lint findings, the coverage block and the two live queues (review + ingest, parked thoughts included) in one LLM-free read. No verdict: the counts are the answer (?from=, ?to=, ?top=, ?tier=quick|deep; window defaults to the last 30 days, tier to deep). */
         get: operations["spaceHealth"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Aggregate the human attention queue across proposals, captures, outputs and care findings */
+        get: operations["attention"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/attention/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set an operator-only attention state without changing the underlying knowledge object */
+        put: operations["setAttention"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1686,6 +1721,8 @@ export interface components {
             /** Format: uri */
             url?: string;
             title?: string;
+            raw_title?: string;
+            summary?: string;
             /**
              * @description What the source is: 'meeting' sources are mined for explicit decision statements
              * @enum {string}
@@ -1795,6 +1832,27 @@ export interface components {
             /** @description When the job reached a terminal state (ISO 8601) */
             finished_at: string | null;
         };
+        zTriageResponse: {
+            suggestion: {
+                target_space: string | null;
+                title: string;
+                summary: string;
+                confidence: number;
+                question: string | null;
+                duplicate_source_id: string | null;
+                generated_at: string;
+            } | null;
+        };
+        zTriageResolutionRequest: {
+            /** @enum {string} */
+            action: "process" | "use_existing" | "leave" | "discard";
+            target_space?: string;
+            title: string;
+            summary: string;
+            question?: string | null;
+            /** Format: uuid */
+            source_id?: string;
+        };
         zIngestListResponse: {
             items: {
                 /** Format: uuid */
@@ -1829,6 +1887,12 @@ export interface components {
             }[];
             next_before: string | null;
         };
+        zIngestCapturedResponse: {
+            /** @constant */
+            status: "captured";
+            /** Format: uuid */
+            ingest_id: string;
+        };
         zSourceListResponse: {
             items: {
                 /** Format: uuid */
@@ -1836,7 +1900,9 @@ export interface components {
                 /** @enum {string} */
                 kind: "markdown" | "text" | "url" | "import";
                 url: string | null;
-                title: string | null;
+                title: string;
+                raw_title: string | null;
+                summary: string;
                 content_hash: string;
                 created_at: string;
             }[];
@@ -1848,7 +1914,9 @@ export interface components {
             /** @enum {string} */
             kind: "markdown" | "text" | "url" | "import";
             url: string | null;
-            title: string | null;
+            title: string;
+            raw_title: string | null;
+            summary: string;
             content_hash: string;
             created_at: string;
             raw_content: string;
@@ -2089,6 +2157,7 @@ export interface components {
                 /** @enum {string} */
                 kind: "answer" | "briefing" | "health";
                 title: string;
+                summary: string;
                 question: string | null;
                 markdown: string;
                 citations: {
@@ -2111,6 +2180,7 @@ export interface components {
             /** @enum {string} */
             kind: "answer" | "briefing" | "health";
             title: string;
+            summary: string;
             question: string | null;
             markdown: string;
             citations: {
@@ -2130,6 +2200,12 @@ export interface components {
         zSpaceHealthResponse: {
             /** @constant */
             schema_version: "wikikit.space-health.v1";
+            /** Format: date-time */
+            checked_at: string;
+            guidelines: {
+                revision: number | null;
+                updated_at: string | null;
+            };
             window: {
                 /** Format: date-time */
                 from: string;
@@ -2142,7 +2218,14 @@ export interface components {
                     rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
                     /** @enum {string} */
                     severity: "error" | "warn" | "info";
-                    message: string;
+                    message: {
+                        /** @enum {string} */
+                        key: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
+                        args: {
+                            [key: string]: unknown;
+                        };
+                        default_text: string;
+                    };
                     concept_slug?: string;
                     claim_id?: string;
                     details?: {
@@ -2207,6 +2290,77 @@ export interface components {
                 unindexed: number;
                 index_days: number | null;
             };
+        };
+        zAttentionResponse: {
+            generated_at: string;
+            counts: {
+                open: number;
+                overdue: number;
+                oldest_days: number | null;
+                by_kind: {
+                    proposal: number;
+                    triage: number;
+                    output: number;
+                    care: number;
+                };
+            };
+            items: {
+                key: string;
+                /** @enum {string} */
+                kind: "proposal" | "triage" | "output" | "care";
+                /** @enum {string} */
+                state: "open" | "deferred" | "discarded" | "decided";
+                title: string;
+                summary: string;
+                effect: string;
+                created_at: string;
+                remind_at: string | null;
+                note: string | null;
+                source: {
+                    label: string;
+                    href: string;
+                    actor: string | null;
+                };
+                available_actions: string[];
+                previous_rejection: {
+                    /** Format: uuid */
+                    proposal_id: string;
+                    reviewed_at: string;
+                    note: string | null;
+                } | null;
+            }[];
+            next_cursor: string | null;
+            recent_activity: {
+                key: string;
+                /** @enum {string} */
+                kind: "proposal" | "triage" | "output" | "care";
+                /** @enum {string} */
+                state: "open" | "deferred" | "discarded" | "decided";
+                title: string;
+                summary: string;
+                effect: string;
+                created_at: string;
+                remind_at: string | null;
+                note: string | null;
+                source: {
+                    label: string;
+                    href: string;
+                    actor: string | null;
+                };
+                available_actions: string[];
+                previous_rejection: {
+                    /** Format: uuid */
+                    proposal_id: string;
+                    reviewed_at: string;
+                    note: string | null;
+                } | null;
+            }[];
+        };
+        zAttentionStateRequest: {
+            /** @enum {string} */
+            state: "open" | "deferred" | "discarded";
+            remind_at?: string | null;
+            note?: string | null;
         };
         zScheduleListResponse: {
             schedules: {
@@ -2346,6 +2500,12 @@ export interface components {
             };
             changes_requested: boolean;
             parent_proposal_id: string | null;
+            previous_rejection: {
+                /** Format: uuid */
+                proposal_id: string;
+                reviewed_at: string;
+                note: string | null;
+            } | null;
             concept_lifecycle?: {
                 slug: string;
                 /** @enum {string} */
@@ -2357,7 +2517,7 @@ export interface components {
             sources: {
                 /** Format: uuid */
                 id: string;
-                title: string | null;
+                title: string;
                 url: string | null;
                 kind: string;
                 created_at: string;
@@ -2503,7 +2663,14 @@ export interface components {
                 rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
                 /** @enum {string} */
                 severity: "error" | "warn" | "info";
-                message: string;
+                message: {
+                    /** @enum {string} */
+                    key: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
+                    args: {
+                        [key: string]: unknown;
+                    };
+                    default_text: string;
+                };
                 concept_slug?: string;
                 claim_id?: string;
                 details?: {
@@ -4043,7 +4210,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; promote via POST /v1/ingests/{id}/process) */
+            /** @description Terminal sync answer: unchanged (external_source_id fast-path — head advanced) | captured (capture:true — parked, no LLM, no queue slot; resolve through triage) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4291,7 +4458,7 @@ export interface operations {
             };
         };
     };
-    processCapture: {
+    getTriage: {
         parameters: {
             query?: never;
             header?: never;
@@ -4302,13 +4469,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The job, now queued */
+            /** @description Stored suggestion or null */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["zIngestStatusResponse"];
+                    "application/json": components["schemas"]["zTriageResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */
@@ -4340,24 +4507,6 @@ export interface operations {
             };
             /** @description not_found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["zErrorEnvelope"];
-                };
-            };
-            /** @description ingest_not_captured — the job is not parked */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["zErrorEnvelope"];
-                };
-            };
-            /** @description ingest_queue_full — the per-space ceiling applies at promotion; the note stays parked */
-            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4374,18 +4523,9 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
-            /** @description llm_not_configured — the note stays parked */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["zErrorEnvelope"];
-                };
-            };
         };
     };
-    discardCapture: {
+    suggestTriage: {
         parameters: {
             query?: never;
             header?: never;
@@ -4396,13 +4536,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The job, now discarded */
+            /** @description Fresh triage suggestion */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["zIngestStatusResponse"];
+                    "application/json": components["schemas"]["zTriageResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */
@@ -4441,8 +4581,70 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
-            /** @description ingest_not_captured — the job is not parked */
-            409: {
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    resolveTriage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["zTriageResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Resolved ingest job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestStatusResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4537,6 +4739,7 @@ export interface operations {
             query: {
                 filename: string;
                 source_kind?: "meeting" | "article" | "note";
+                capture?: boolean;
             };
             header?: never;
             path: {
@@ -4550,6 +4753,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Extracted and parked in the inbox */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestCapturedResponse"];
+                };
+            };
             /** @description Extracted + queued; poll /v1/ingests/{id} */
             202: {
                 headers: {
@@ -5956,6 +6168,150 @@ export interface operations {
                 };
             };
             /** @description Invalid window (to must be after from) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    attention: {
+        parameters: {
+            query?: {
+                state?: "open" | "deferred" | "discarded" | "decided";
+                kind?: "proposal" | "triage" | "output" | "care";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attention queue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zAttentionResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    setAttention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["zAttentionStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Attention state updated */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description bad_request — request failed schema validation */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -4,12 +4,5 @@
   "icon": "Inbox",
   "scope": "knowledge:read",
   "group": "wiki",
-  "api": [
-    "/v1/spaces/{space}/ingests",
-    "/v1/spaces/{space}/ingest",
-    "/v1/spaces/{space}/ingest/document",
-    "/v1/ingests/{id}/process",
-    "/v1/ingests/{id}/discard",
-    "/v1/spaces/{space}/proposals"
-  ]
+  "api": ["/v1/spaces/{space}/ingests", "/v1/spaces/{space}/ingest", "/v1/spaces/{space}/ingest/document"]
 }

@@ -342,12 +342,14 @@ describe('GET /v1/identity/cockpit-login', () => {
   test('mints a cockpit-purpose login state and hands the browser to the shared chooser', async () => {
     const { db, inserts } = stubDb({ session: null })
     const base = await boot(db)
-    const res = await fetch(`${base}/v1/identity/cockpit-login?return_to=%2Fcockpit%2Fchanges`, { redirect: 'manual' })
+    const res = await fetch(`${base}/v1/identity/cockpit-login?return_to=%2Fcockpit%2Fdecisions`, {
+      redirect: 'manual',
+    })
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toContain('/v1/identity/login/start?login_state=wkl_')
     const state = inserts.find((insert) => insert.table === 'wk_oauth_login_states')
     expect(state?.body.purpose).toBe('cockpit')
-    expect(state?.body.return_to).toBe('/cockpit/changes')
+    expect(state?.body.return_to).toBe('/cockpit/decisions')
     // A cockpit state is not an authorization request and must not look like one.
     expect(state?.body.client_id).toBeUndefined()
     expect(state?.body.redirect_uri).toBeUndefined()
@@ -398,7 +400,7 @@ describe('GET /v1/identity/cockpit-login', () => {
     // a 500, and the single-use state that would have let them retry was gone.
     const { db, inserts, updates } = stubDb({ session: null })
     const base = await boot(db)
-    const crafted = `/cockpit/changes${String.fromCharCode(0)}`
+    const crafted = `/cockpit/decisions${String.fromCharCode(0)}`
     const entry = await fetch(`${base}/v1/identity/cockpit-login?return_to=${encodeURIComponent(crafted)}`, {
       redirect: 'manual',
     })

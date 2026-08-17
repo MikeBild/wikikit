@@ -207,14 +207,13 @@ describe('drift', () => {
     }
   })
 
-  // Every prompt on disk is a versioned, golden-tested artifact whose bytes
-  // feed input_hash — so the contract must know it exists. Caught a CONTRACTS
-  // §3.4 sentence that still listed three of the five prompt files.
+  // Every prompt on disk is registered and documented. New prompts evolve
+  // in-place; older version-named prompts remain registered by their filename.
   test('every prompt file is registered in PROMPT_VERSIONS and named in CONTRACTS.md', () => {
     const files = readdirSync(join(root, 'src/llm/prompts'))
-      .filter((name) => /\.v\d+\.ts$/.test(name))
+      .filter((name) => name !== 'index.ts' && name.endsWith('.ts'))
       .map((name) => name.replace(/\.ts$/, ''))
-    expect(files.length).toBeGreaterThanOrEqual(4)
+    expect(files.length).toBeGreaterThanOrEqual(7)
 
     const registered = new Set<string>(Object.values(PROMPT_VERSIONS))
     const contracts = read('docs/CONTRACTS.md')

@@ -82,13 +82,17 @@ export type LintRule =
 
 export type LintSeverity = 'error' | 'warn' | 'info'
 
-export interface LintFinding {
+interface LintFindingDraft {
   rule: LintRule
   severity: LintSeverity
   message: string
   concept_slug?: string
   claim_id?: string
   details?: Record<string, unknown>
+}
+
+export interface LintFinding extends Omit<LintFindingDraft, 'message'> {
+  message: { key: LintRule; args: Record<string, unknown>; default_text: string }
 }
 
 export interface LintReport {
@@ -159,7 +163,7 @@ export const RULE_TIERS: Record<LintRule, LintTier> = {
 // both sides 'verified' (e.g. two colliding claims approved inside ONE
 // proposal, which the apply-time dispute flip's cross-proposal join skips);
 // lint must see the contradiction regardless of how it was persisted.
-async function contradictions(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function contradictions(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const functionalPredicates = await getFunctionalPredicates(db, spaceId)
   if (!functionalPredicates.length) return []
   // Pairwise self-join (0021): a contradiction needs the same frame AND the
@@ -251,7 +255,7 @@ async function contradictions(db: Db, spaceId: string): Promise<LintFinding[]> {
 // A visible claim without a citation is an unverifiable assertion — the exact
 // thing WikiKit exists to prevent. Deprecated claims are exempt: they are
 // already retired.
-async function missingCitations(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function missingCitations(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ id: string; subject: string; predicate: string; object: string; slug: string }>(
     `SELECT cl.id, cl.subject, cl.predicate, cl.object, c.slug
        FROM wk_claims cl
@@ -274,7 +278,7 @@ async function missingCitations(db: Db, spaceId: string): Promise<LintFinding[]>
 
 // An active relation pointing at a concept without a current revision is a
 // link into the void: readers can follow it and 404.
-async function brokenRelations(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function brokenRelations(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{
     id: string
     from_slug: string
@@ -305,7 +309,7 @@ async function brokenRelations(db: Db, spaceId: string): Promise<LintFinding[]> 
 // valid_until in the past but still verified/disputed: the claim asserts
 // something about a window that has closed and needs re-verification or
 // deprecation.
-async function staleClaims(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function staleClaims(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{
     id: string
     subject: string
@@ -339,7 +343,7 @@ async function staleClaims(db: Db, spaceId: string): Promise<LintFinding[]> {
 // A readable concept no active relation touches (either direction) is
 // unreachable by graph navigation — usually a missed relation, occasionally a
 // genuinely standalone page (hence warn, not error).
-async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
@@ -406,7 +410,7 @@ async function orphanConcepts(db: Db, spaceId: string, kinds: readonly string[])
 // the concept list renders. A second hand-written copy could drift over the
 // visible statuses or a forgotten DISTINCT and then tell an operator that a
 // page the index shows with `sources: 1` rests on nothing.
-async function unsourcedConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+async function unsourcedConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string; claims: number; sources: number }>(
     `WITH page AS (
        SELECT c.id, c.slug
@@ -498,7 +502,7 @@ async function unsourcedConcepts(db: Db, spaceId: string, kinds: readonly string
 // It excludes scaffolding markers because it reports a FAULT, like every other
 // page-level fault rule here (see the header): a reference target quoting the
 // wiki's own answers is furniture, not circular knowledge.
-async function selfDerivedOnly(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+async function selfDerivedOnly(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string; derived_sources: number }>(
     // Shaped like `unsourced-concepts` — the same page CTE, the same
     // CROSS JOIN LATERAL over the page's visible claims — because it asks the
@@ -598,7 +602,7 @@ async function selfDerivedOnly(db: Db, spaceId: string, kinds: readonly string[]
 // which rule reached it first and would hide the actionable line behind the
 // passive one. (Today `empty-concepts` skips scaffolding, so on the pages that
 // motivated this rule it does not fire at all.)
-async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function stubConcepts(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
@@ -712,7 +716,7 @@ async function stubConcepts(db: Db, spaceId: string): Promise<LintFinding[]> {
 // the linter stops complaining". The operator does not need it here either: they
 // have the slug, and the markers their own installation honours are one admin
 // request away.
-async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string; claims: number }>(
     // The inverse of every other page-level rule's test, written as the
     // negation of the SAME builder rather than as a second fragment listing the
@@ -770,7 +774,7 @@ async function scaffoldedClaims(db: Db, spaceId: string, kinds: readonly string[
 
 // Readable concept with zero visible claims: prose without a single
 // verifiable statement — fine for a stub, worth knowing about.
-async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFinding[]> {
+async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[]): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ slug: string }>(
     `SELECT c.slug
        FROM wk_concepts c
@@ -794,7 +798,7 @@ async function emptyConcepts(db: Db, spaceId: string, kinds: readonly string[]):
   }))
 }
 
-async function unreviewedProposals(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function unreviewedProposals(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ id: string; title: string; created_at: Date | string }>(
     `SELECT id, title, created_at
        FROM wk_change_proposals
@@ -820,7 +824,7 @@ async function unreviewedProposals(db: Db, spaceId: string): Promise<LintFinding
 // health. Fourteen days is a fixed threshold on purpose (a per-space policy is
 // a follow-up, not a default), and warn because something is expected of
 // somebody: decide, or say why not.
-async function staleProposals(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function staleProposals(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ id: string; title: string; days_open: number }>(
     `SELECT id, title,
             floor(extract(epoch FROM now() - created_at) / 86400)::int AS days_open
@@ -843,7 +847,7 @@ async function staleProposals(db: Db, spaceId: string): Promise<LintFinding[]> {
 // product ever pushes back on a growing inbox — this rule is the pressure
 // valve. Warn, not error, and the message says so in as many words: an old
 // inbox item is a signal, not an error.
-async function staleCaptures(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function staleCaptures(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ id: string; title: string | null; days_parked: number }>(
     // The same title fallback the jobs list computes for a captured row: the
     // explicit title when the capture carried one, else the head of the text —
@@ -860,7 +864,7 @@ async function staleCaptures(db: Db, spaceId: string): Promise<LintFinding[]> {
   return rows.map((row) => ({
     rule: 'stale-captures' as const,
     severity: LINT_SEVERITY['stale-captures'],
-    message: `captured thought "${row.title ?? row.id}" has been parked ${row.days_parked} days — an old inbox item is a signal, not an error: process it or discard it`,
+    message: `captured thought "${row.title ?? row.id}" has been parked ${row.days_parked} days — an old inbox item is a signal, not an error: sort and resolve it`,
     details: { ingest_id: row.id, days_parked: row.days_parked },
   }))
 }
@@ -870,7 +874,7 @@ async function staleCaptures(db: Db, spaceId: string): Promise<LintFinding[]> {
 // legitimate state (the partial unique index from 0031 guarantees at most one
 // current row, so existence is the whole question) — the finding exists so the
 // absence is a visible choice rather than an accident.
-async function missingCharter(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function missingCharter(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ found: number }>(
     `SELECT 1 AS found FROM wk_charter_revisions WHERE space_id = $1 AND status = 'current' LIMIT 1`,
     [spaceId],
@@ -889,7 +893,7 @@ async function missingCharter(db: Db, spaceId: string): Promise<LintFinding[]> {
 // Archived sources no claim cites: paid for (storage, maybe LLM calls) but
 // contributing nothing citable. Often just "ingested but proposal still
 // pending/rejected" — info severity on purpose.
-async function danglingSources(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function danglingSources(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{ id: string; title: string | null; kind: string }>(
     `SELECT s.id, s.title, s.kind
        FROM wk_sources s
@@ -912,7 +916,7 @@ async function danglingSources(db: Db, spaceId: string): Promise<LintFinding[]> 
 // whether the claim should be deprecated is a human call, made through a
 // normal proposal. Superseded (non-tombstoned) old versions get no finding:
 // supersession is normal knowledge evolution.
-async function tombstonedSources(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function tombstonedSources(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows } = await db.query<{
     id: string
     subject: string
@@ -949,7 +953,7 @@ async function tombstonedSources(db: Db, spaceId: string): Promise<LintFinding[]
 // not a readable concept in a DECLARED import (0023). The link convention is
 // documentation-level — the graph truth lives in relations — so a dangling
 // qualified link is a warn, never an error.
-async function brokenCrossSpaceLinks(db: Db, spaceId: string): Promise<LintFinding[]> {
+async function brokenCrossSpaceLinks(db: Db, spaceId: string): Promise<LintFindingDraft[]> {
   const { rows: revisions } = await db.query<{ slug: string; markdown: string }>(
     `SELECT c.slug, r.markdown
        FROM wk_concepts c
@@ -974,7 +978,7 @@ async function brokenCrossSpaceLinks(db: Db, spaceId: string): Promise<LintFindi
   const importsRaw = space?.settings?.['imports']
   const imports = new Set(Array.isArray(importsRaw) ? importsRaw.filter((v): v is string => typeof v === 'string') : [])
 
-  const findings: LintFinding[] = []
+  const findings: LintFindingDraft[] = []
   for (const [targetSpace, refs] of referenced) {
     const targetSlugs = [...new Set([...refs].map((ref) => ref.split('|')[1]!))]
     const readable = new Set<string>()
@@ -1224,7 +1228,7 @@ export async function lintSpace(
   // name so the gate is RULE_TIERS itself — a rule added without a tier is a
   // compile error, not a rule one rhythm silently misses.
   const tier = options.tier ?? 'deep'
-  const rules: readonly [LintRule, () => Promise<LintFinding[]>][] = [
+  const rules: readonly [LintRule, () => Promise<LintFindingDraft[]>][] = [
     ['contradictions', () => contradictions(db, spaceId)],
     ['missing-citations', () => missingCitations(db, spaceId)],
     ['broken-relations', () => brokenRelations(db, spaceId)],
@@ -1245,11 +1249,19 @@ export async function lintSpace(
   ]
   // Sequential on purpose: lint runs on demand over one pool — a fistful of
   // parallel queries would hog connections for a diagnostics endpoint.
-  const findings: LintFinding[] = []
+  const drafts: LintFindingDraft[] = []
   for (const [rule, run] of rules) {
     if (tier === 'quick' && RULE_TIERS[rule] !== 'quick') continue
-    findings.push(...(await run()))
+    drafts.push(...(await run()))
   }
+  const findings: LintFinding[] = drafts.map((finding) => ({
+    ...finding,
+    message: {
+      key: finding.rule,
+      args: finding.details ?? {},
+      default_text: finding.message,
+    },
+  }))
   const counts = { error: 0, warn: 0, info: 0 }
   for (const finding of findings) counts[finding.severity] += 1
   return { findings, counts }

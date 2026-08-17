@@ -106,6 +106,7 @@ async function seed(): Promise<void> {
     title: 'Ops notes',
     raw_content: '# Ops\n\nThe rollout was postponed to the third quarter.',
     markdown: '# Ops\n\nThe rollout was postponed to the third quarter.',
+    summary: 'The rollout was postponed to the third quarter.',
   })
   await persistSourceChunks(db, spaceId, source!)
 }

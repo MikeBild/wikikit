@@ -140,7 +140,7 @@ describe('cross-space federation (integration)', () => {
     await approveConcept(platformId, 'linked-notes', '# Notes\n\nSee [[blog-de:missing-page]] and [[nowhere:thing]].')
     const report = await lintSpace(db, platformId, { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
     const findings = report.findings.filter((finding) => finding.rule === 'broken-cross-space-links')
-    const messages = findings.map((finding) => finding.message).join('\n')
+    const messages = findings.map((finding) => finding.message.default_text).join('\n')
     expect(messages).toContain('blog-de:missing-page')
     expect(messages).toContain('not declared in settings.imports')
     // The VALID link from the first test produces no finding.

@@ -83,7 +83,7 @@ function installation(csp: string | null, metricsStatus = 404): (request: Reques
       case CHOOSER_PATH:
         return send(CHOOSER_HTML, { headers: { 'content-type': 'text/html; charset=utf-8' } })
       case '/cockpit/':
-      case '/cockpit/changes': {
+      case '/cockpit/decisions': {
         const headers = new Headers({
           'content-type': 'text/html; charset=utf-8',
           'cache-control': 'no-cache',

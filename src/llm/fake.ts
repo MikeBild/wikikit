@@ -28,6 +28,7 @@ import * as decisionsV2 from './prompts/decisions.v2.ts'
 import * as answerV1 from './prompts/answer.v1.ts'
 import * as distillV1 from './prompts/distill.v1.ts'
 import * as adjudicateV1 from './prompts/adjudicate.v1.ts'
+import * as triagePrompt from './prompts/triage.ts'
 import type {
   AdjudicateInput,
   AdjudicateOutput,
@@ -41,10 +42,12 @@ import type {
   ExtractDecisionsOutput,
   SynthesizeInput,
   SynthesizeOutput,
+  TriageInput,
+  TriageOutput,
 } from './schemas.ts'
 
 export interface FakeCall {
-  method: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'embed' | 'adjudicate'
+  method: 'classify' | 'synthesize' | 'extract_decisions' | 'answer' | 'distill' | 'embed' | 'adjudicate' | 'triage'
   input: unknown
 }
 
@@ -61,7 +64,7 @@ function slugify(title: string | null): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 127)
     .replace(/-+$/, '')
-  return slug || 'untitled-source'
+  return slug || 'captured-source'
 }
 
 function firstLine(markdown: string): string {
@@ -80,6 +83,7 @@ export function createFakeProvider(overrides?: {
   answer?: (input: AnswerInput) => AnswerOutput
   distill?: (input: DistillInput) => DistillOutput
   adjudicate?: (input: AdjudicateInput) => AdjudicateOutput
+  triage?: (input: TriageInput) => TriageOutput
 }): FakeProvider {
   const calls: FakeCall[] = []
 
@@ -100,6 +104,20 @@ export function createFakeProvider(overrides?: {
     apiKeyEnv: 'ANTHROPIC_API_KEY',
     embedConfigured: true,
     calls,
+
+    async triage(input: TriageInput): Promise<LlmResult<TriageOutput>> {
+      calls.push({ method: 'triage', input })
+      const output =
+        overrides?.triage?.(input) ??
+        ({
+          target_space: input.currentSpace,
+          title: (input.title?.trim() || firstLine(input.content) || 'Captured note').slice(0, 120),
+          summary: firstLine(input.content).slice(0, 500),
+          confidence: 0.7,
+          question: null,
+        } satisfies TriageOutput)
+      return { output, run: run(PROMPT_VERSIONS.triage, triagePrompt.system, triagePrompt.render(input)) }
+    },
 
     async embed(input: EmbedInput): Promise<LlmResult<EmbedOutput>> {
       calls.push({ method: 'embed', input })
@@ -131,7 +149,12 @@ export function createFakeProvider(overrides?: {
         // Default: affects nothing, proposes one new concept from the title.
         ({
           affected: [],
-          new: [{ slug: slugify(input.source.title), title: input.source.title ?? 'Untitled Source' }],
+          new: [
+            {
+              slug: slugify(input.source.title ?? firstLine(input.source.markdown)),
+              title: input.source.title ?? firstLine(input.source.markdown).slice(0, 120),
+            },
+          ],
         } satisfies ClassifyOutput)
       return { output, run: run(PROMPT_VERSIONS.classify, classifyV3.system, classifyV3.render(input)) }
     },

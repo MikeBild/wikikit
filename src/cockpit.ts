@@ -248,7 +248,7 @@ export function createCockpit(deps: { logger: Logger }, options: CockpitOptions 
       const inside = target === dir || target.startsWith(`${dir}${sep}`)
       const asset = relative && inside ? read(target, relative) : null
 
-      // The SPA fallback (CUI-MOUNT-3): /cockpit/changes/abc is a client route,
+      // The SPA fallback (CUI-MOUNT-3): deep Cockpit addresses are client routes,
       // not a file. Anything that is not a real asset gets the shell, and the
       // router in the browser decides what it means.
       const entry = asset ?? shell

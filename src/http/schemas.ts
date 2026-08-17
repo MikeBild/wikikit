@@ -148,6 +148,13 @@ export const zAgentContextRequest = z.object({
 export const SPACE_LANGUAGES = ['en', 'de', 'simple'] as const
 
 const zSpaceSettings = z.record(z.string(), z.unknown()).superRefine((settings, ctx) => {
+  if ('environment' in settings && settings.environment !== 'production' && settings.environment !== 'test') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['environment'],
+      message: 'settings.environment must be one of: production, test',
+    })
+  }
   if ('language' in settings && !SPACE_LANGUAGES.includes(settings.language as never)) {
     ctx.addIssue({
       code: 'custom',
@@ -293,8 +300,8 @@ export const zIngestAcceptedResponse = z.object({ ingest_id: z.uuid(), status: z
 
 /**
  * Capture answer (200, not 202): the note is parked, nothing is running and
- * nothing needs polling — the row waits for POST /v1/ingests/{id}/process or
- * /discard. Distinct from the accepted ack on purpose: that one is
+ * nothing needs polling — the row waits for a human triage resolution.
+ * Distinct from the accepted ack on purpose: that one is
  * literal-typed 'queued' and promises a job in flight.
  */
 export const zIngestCapturedResponse = z.object({
@@ -325,6 +332,28 @@ export const zIngestSyncResponse = z.union([zIngestUnchangedResponse, zIngestCap
 export const zIngestDocumentQuery = z.object({
   filename: z.string().min(1).max(500).describe('Original filename incl. extension — selects the extractor'),
   source_kind: z.enum(['meeting', 'article', 'note']).optional(),
+  capture: z.coerce.boolean().optional(),
+})
+
+const zTriageSuggestion = z.object({
+  target_space: z.string().nullable(),
+  title: z.string(),
+  summary: z.string(),
+  confidence: z.number().min(0).max(1),
+  question: z.string().nullable(),
+  duplicate_source_id: z.uuid().nullable(),
+  generated_at: z.string(),
+})
+
+export const zTriageResponse = z.object({ suggestion: zTriageSuggestion.nullable() })
+
+export const zTriageResolutionRequest = z.object({
+  action: z.enum(['process', 'use_existing', 'leave', 'discard']),
+  target_space: z.string().optional(),
+  title: z.string().min(1).max(120),
+  summary: z.string().max(500),
+  question: z.string().max(500).nullable().optional(),
+  source_id: z.uuid().optional(),
 })
 
 // Coding-agent session capture: transcript in, distilled rules staged as a
@@ -407,7 +436,9 @@ const zSourceSummary = z.object({
   id: z.uuid(),
   kind: z.enum(['markdown', 'text', 'url', 'import']),
   url: z.string().nullable(),
-  title: z.string().nullable(),
+  title: z.string().min(1),
+  raw_title: z.string().nullable(),
+  summary: z.string(),
   content_hash: z.string(),
   created_at: z.string(),
 })
@@ -480,6 +511,7 @@ export const zSourceStreamTombstoneResponse = z.object({
 // ---------------------------------------------------------------------------
 
 export const zDecisionParams = zSpaceParams.extend({ slug: z.string().regex(CONCEPT_SLUG) })
+export const zAttentionParams = zSpaceParams.extend({ key: z.string().min(1).max(300) })
 
 const zDecisionSummary = z.object({
   slug: z.string(),
@@ -841,6 +873,7 @@ export const zOutputResponse = z.object({
   space_id: z.uuid(),
   kind: z.enum(['answer', 'briefing', 'health']),
   title: z.string(),
+  summary: z.string(),
   /** The question asked (kind=answer); null for a briefing or a health report. */
   question: z.string().nullable(),
   markdown: z.string(),
@@ -926,6 +959,9 @@ export const zProposalDetailResponse = z.object({
   agent_meta: z.record(z.string(), z.unknown()),
   changes_requested: z.boolean(),
   parent_proposal_id: z.uuid().nullable(),
+  previous_rejection: z
+    .object({ proposal_id: z.uuid(), reviewed_at: z.string(), note: z.string().nullable() })
+    .nullable(),
   concept_lifecycle: z
     .array(
       z.object({ slug: z.string(), action: z.enum(['delete', 'restore']), revision_id: z.uuid(), stale: z.boolean() }),
@@ -934,7 +970,7 @@ export const zProposalDetailResponse = z.object({
   sources: z.array(
     z.object({
       id: z.uuid(),
-      title: z.string().nullable(),
+      title: z.string(),
       url: z.string().nullable(),
       kind: z.string(),
       created_at: z.string(),
@@ -1064,35 +1100,41 @@ export const zProposalLintResponse = z.object({
  * copies of this enum would mean a rule that exists on one surface and not the
  * other — and the health page would then be the one quietly missing a fault.
  */
+const zLintRule = z.enum([
+  'contradictions',
+  'missing-citations',
+  'broken-relations',
+  'stale-claims',
+  'orphan-concepts',
+  'unsourced-concepts',
+  // Knowledge whose visible claims quote nothing but sources WikiKit itself
+  // produced (promoted answers). The one risk the output loop introduces, so
+  // the loop ships with the rule that reports it.
+  'self-derived-only',
+  'stub-concepts',
+  'scaffolded-claims',
+  'empty-concepts',
+  'unreviewed-proposals',
+  'dangling-sources',
+  'tombstoned-sources',
+  'broken-cross-space-links',
+  // The quick-tier maturity rules (0.39.0): the absent steering document, the
+  // pending changes a fortnight old beside the unreviewed-proposals census,
+  // and the parked thoughts a month old — the pressure valve capture needs
+  // because nothing else ever pushes back on the inbox.
+  'missing-charter',
+  'stale-proposals',
+  'stale-captures',
+])
+
 const zLintFinding = z.object({
-  rule: z.enum([
-    'contradictions',
-    'missing-citations',
-    'broken-relations',
-    'stale-claims',
-    'orphan-concepts',
-    'unsourced-concepts',
-    // Knowledge whose visible claims quote nothing but sources WikiKit itself
-    // produced (promoted answers). The one risk the output loop introduces, so
-    // the loop ships with the rule that reports it.
-    'self-derived-only',
-    'stub-concepts',
-    'scaffolded-claims',
-    'empty-concepts',
-    'unreviewed-proposals',
-    'dangling-sources',
-    'tombstoned-sources',
-    'broken-cross-space-links',
-    // The quick-tier maturity rules (0.39.0): the absent steering document, the
-    // pending changes a fortnight old beside the unreviewed-proposals census,
-    // and the parked thoughts a month old — the pressure valve capture needs
-    // because nothing else ever pushes back on the inbox.
-    'missing-charter',
-    'stale-proposals',
-    'stale-captures',
-  ]),
+  rule: zLintRule,
   severity: z.enum(['error', 'warn', 'info']),
-  message: z.string(),
+  message: z.object({
+    key: zLintRule,
+    args: z.record(z.string(), z.unknown()),
+    default_text: z.string(),
+  }),
   concept_slug: z.string().optional(),
   claim_id: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
@@ -1648,6 +1690,8 @@ export const zSpaceHealthQuery = z.object({
  */
 export const zSpaceHealthResponse = z.strictObject({
   schema_version: z.literal('wikikit.space-health.v1'),
+  checked_at: z.iso.datetime(),
+  guidelines: z.strictObject({ revision: z.number().int().positive().nullable(), updated_at: z.string().nullable() }),
   /** The window the `coverage` block describes, echoed — never assumed. */
   window: z.strictObject({ from: z.iso.datetime(), to: z.iso.datetime() }),
   lint: z.object({ findings: z.array(zLintFinding), counts: zLintCounts }),
@@ -1741,6 +1785,51 @@ export const zSpacesOverviewResponse = z.strictObject({
   ),
 })
 
+const zAttentionKind = z.enum(['proposal', 'triage', 'output', 'care'])
+const zAttentionState = z.enum(['open', 'deferred', 'discarded', 'decided'])
+const zAttentionItem = z.object({
+  key: z.string(),
+  kind: zAttentionKind,
+  state: zAttentionState,
+  title: z.string(),
+  summary: z.string(),
+  effect: z.string(),
+  created_at: z.string(),
+  remind_at: z.string().nullable(),
+  note: z.string().nullable(),
+  source: z.object({ label: z.string(), href: z.string(), actor: z.string().nullable() }),
+  available_actions: z.array(z.string()),
+  previous_rejection: z
+    .object({ proposal_id: z.uuid(), reviewed_at: z.string(), note: z.string().nullable() })
+    .nullable(),
+})
+
+export const zAttentionQuery = z.object({
+  state: zAttentionState.optional(),
+  kind: zAttentionKind.optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().optional(),
+})
+
+export const zAttentionResponse = z.object({
+  generated_at: z.string(),
+  counts: z.object({
+    open: z.number().int().nonnegative(),
+    overdue: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+    by_kind: z.object({ proposal: z.number(), triage: z.number(), output: z.number(), care: z.number() }),
+  }),
+  items: z.array(zAttentionItem),
+  next_cursor: z.string().nullable(),
+  recent_activity: z.array(zAttentionItem),
+})
+
+export const zAttentionStateRequest = z.object({
+  state: z.enum(['open', 'deferred', 'discarded']),
+  remind_at: z.iso.datetime().nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
+})
+
 // ---------------------------------------------------------------------------
 // Name → schema index (introspection surface for openapi.ts + drift tests)
 // ---------------------------------------------------------------------------
@@ -1753,6 +1842,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zConceptParams,
   zInstallHookScriptParams,
   zDecisionParams,
+  zAttentionParams,
   zListQuery,
   zSearchQuery,
   zProposalListQuery,
@@ -1772,6 +1862,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zAgentContextResponse,
   zIngestRequest,
   zIngestDocumentQuery,
+  zTriageResponse,
+  zTriageResolutionRequest,
   zIngestAcceptedResponse,
   zIngestCapturedResponse,
   zIngestSyncResponse,
@@ -1819,6 +1911,9 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zSpaceHealthQuery,
   zSpaceHealthResponse,
   zSpacesOverviewResponse,
+  zAttentionQuery,
+  zAttentionResponse,
+  zAttentionStateRequest,
   zScheduleSetRequest,
   zScheduleResponse,
   zScheduleListResponse,

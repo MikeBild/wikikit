@@ -434,6 +434,7 @@ describe('renderProposalMarkdown', () => {
     agent_meta: { model: 'claude-sonnet-5', prompt_version: 'synthesize.v1' },
     changes_requested: false,
     parent_proposal_id: null,
+    previous_rejection: null,
     sources: [],
     concepts: [
       {

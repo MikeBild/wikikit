@@ -242,7 +242,7 @@ case "$COCKPIT_HEAD" in
 esac
 # A client-side route is not a file: it must fall back to the shell, or every
 # link an operator shares 404s on reload.
-expect_code "a deep cockpit route falls back to the shell" 200 "$BASE/cockpit/changes"
+expect_code "a deep cockpit route falls back to the shell" 200 "$BASE/cockpit/decisions"
 
 COCKPIT_HTML="$(body "$BASE/cockpit/")"
 case "$COCKPIT_HTML" in

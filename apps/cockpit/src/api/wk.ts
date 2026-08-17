@@ -44,7 +44,7 @@ export const wk = {
       ),
   },
 
-  decisions: {
+  decisionLog: {
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/decisions', { params: { path: { space }, query: query as never } })),
     get: (space: string, slug: string) =>
@@ -76,12 +76,7 @@ export const wk = {
       unwrapAs<unknown>(api.POST('/v1/spaces/{space}/query', { params: { path: { space } }, body: body as never })),
   },
 
-  /**
-   * Change proposals. The console calls them "changes" everywhere a human can
-   * see, because that is what they are: an edit waiting for somebody to say
-   * yes. `proposal` stays in the code, where it matches the API and the tables.
-   */
-  changes: {
+  proposals: {
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/proposals', { params: { path: { space }, query: query as never } })),
     get: (id: string) => unwrap(api.GET('/v1/proposals/{id}', { params: { path: { id } } })),
@@ -119,7 +114,7 @@ export const wk = {
     document: (space: string, filename: string, file: Blob) =>
       postRaw<{ ingest_id: string; status: string }>(
         '/v1/spaces/{space}/ingest/document'.replace('{space}', encodeURIComponent(space)),
-        { filename },
+        { filename, capture: 'true' },
         file,
       ),
     /**
@@ -132,14 +127,22 @@ export const wk = {
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/ingests', { params: { path: { space }, query: query as never } })),
     job: (id: string) => unwrap(api.GET('/v1/ingests/{id}', { params: { path: { id } } })),
-    /**
-     * The two decisions a parked note waits for, global-by-id like `job` (the
-     * row carries the space; the transport enforces the key/space match).
-     * Process pays the guards capture skipped — LLM key and queue room — so a
-     * refusal here leaves the note parked, never lost.
-     */
-    process: (id: string) => unwrap(api.POST('/v1/ingests/{id}/process', { params: { path: { id } } })),
-    discard: (id: string) => unwrap(api.POST('/v1/ingests/{id}/discard', { params: { path: { id } } })),
+    triage: (id: string) => unwrap(api.GET('/v1/ingests/{id}/triage', { params: { path: { id } } })),
+    suggestTriage: (id: string) => unwrap(api.POST('/v1/ingests/{id}/triage', { params: { path: { id } } })),
+    resolveTriage: (id: string, body: Record<string, unknown>) =>
+      unwrap(api.POST('/v1/ingests/{id}/triage/resolve', { params: { path: { id } }, body: body as never })),
+  },
+
+  attention: {
+    list: (space: string, query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/spaces/{space}/attention', { params: { path: { space }, query: query as never } })),
+    setState: (space: string, key: string, body: Record<string, unknown>) =>
+      unwrap(
+        api.PUT('/v1/spaces/{space}/attention/{key}', {
+          params: { path: { space, key } },
+          body: body as never,
+        }),
+      ),
   },
 
   /**
@@ -286,8 +289,8 @@ export const keys = {
   conceptHistory: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'history'] as const,
   conceptNeighbors: (space: string, slug: string) => ['spaces', space, 'concepts', slug, 'neighbors'] as const,
   deletedConcepts: (space: string, query?: unknown) => ['spaces', space, 'deleted-concepts', query ?? null] as const,
-  decisions: (space: string, query?: unknown) => ['spaces', space, 'decisions', query ?? null] as const,
-  decision: (space: string, slug: string) => ['spaces', space, 'decisions', slug] as const,
+  decisionLog: (space: string, query?: unknown) => ['spaces', space, 'decision-log', query ?? null] as const,
+  decisionLogEntry: (space: string, slug: string) => ['spaces', space, 'decision-log', slug] as const,
   sources: (space: string, query?: unknown) => ['spaces', space, 'sources', query ?? null] as const,
   source: (space: string, id: string) => ['spaces', space, 'sources', id] as const,
   // The query slot is part of the key, exactly as it is for sources and
@@ -295,9 +298,11 @@ export const keys = {
   // answers, and a mutation must invalidate the one it changed by naming it.
   streams: (space: string, query?: unknown) => ['spaces', space, 'source-streams', query ?? null] as const,
   search: (space: string, query: unknown) => ['spaces', space, 'search', query] as const,
-  changes: (space: string, query?: unknown) => ['spaces', space, 'changes', query ?? null] as const,
-  change: (id: string) => ['changes', id] as const,
-  changeLint: (id: string) => ['changes', id, 'lint'] as const,
+  proposals: (space: string, query?: unknown) => ['spaces', space, 'proposals', query ?? null] as const,
+  proposal: (id: string) => ['proposals', id] as const,
+  proposalLint: (id: string) => ['proposals', id, 'lint'] as const,
+  attention: (space: string, query?: unknown) => ['spaces', space, 'attention', query ?? null] as const,
+  triage: (id: string) => ['ingests', id, 'triage'] as const,
   ingestJob: (id: string) => ['ingests', id] as const,
   // The query slot is part of the key for the same reason it is on sources: the
   // inbox reads one status filter at a time, and a mutation must invalidate the

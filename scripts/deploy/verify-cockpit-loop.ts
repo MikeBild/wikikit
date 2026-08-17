@@ -152,8 +152,12 @@ try {
   const confirmation = await page.locator('[role="alertdialog"], [role="dialog"]').first().innerText()
   check('the confirmation says it publishes nothing', /does not publish/i.test(confirmation), confirmation.slice(0, 90))
   await page.locator('[data-testid="page-edit-submit-accept"]').click()
-  await page.waitForURL(/\/cockpit\/changes\//, { timeout: 20_000 })
-  check('submitting lands on the change it made', /\/changes\/[0-9a-f-]{36}/.test(page.url()), page.url())
+  await page.waitForURL(/\/cockpit\/decisions\/proposals\//, { timeout: 20_000 })
+  check(
+    'submitting lands on the proposal it made',
+    /\/decisions\/proposals\/[0-9a-f-]{36}/.test(page.url()),
+    page.url(),
+  )
 
   await page.waitForTimeout(1500)
   const change = await page.locator('[data-testid="page"]').innerText()

@@ -11,7 +11,7 @@ describe('the Pages index fits its viewport', () => {
   })
 
   test('never exposes UUID-shaped page labels or slugs', () => {
-    expect(source).toContain('semanticLabel([row.title]')
+    expect(source).toContain('const title = row.title')
     expect(source).toContain('!isUuidLike(row.slug)')
   })
 })

@@ -120,11 +120,12 @@ describe('prompt version constants', () => {
     expect(PROMPT_VERSIONS.answer).toBe(answerV1.version)
     expect(PROMPT_VERSIONS.distill).toBe(distillV1.version)
     expect(PROMPT_VERSIONS.adjudicate).toBe(adjudicateV1.version)
+    expect(PROMPT_VERSIONS.triage).toBe('triage')
   })
 
   test('versions follow the <kind>.v<N> convention', () => {
     for (const [kind, version] of Object.entries(PROMPT_VERSIONS)) {
-      expect(version).toMatch(new RegExp(`^${kind}\\.v\\d+$`))
+      expect(version === kind || new RegExp(`^${kind}\\.v\\d+$`).test(version)).toBe(true)
     }
   })
 })

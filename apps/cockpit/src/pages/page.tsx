@@ -117,7 +117,7 @@ export function PageDetailPage() {
         title: 'Deletion submitted for review',
         detail: 'The page stays visible until a reviewer approves the change.',
       })
-      void navigate({ to: '/changes/$id', params: { id: result.proposal_id }, search: KEEP_SEARCH })
+      void navigate({ to: '/decisions/proposals/$id', params: { id: result.proposal_id }, search: KEEP_SEARCH })
     },
   })
 
@@ -519,7 +519,7 @@ function RevisionList({ revisions }: { revisions: readonly Revision[] }) {
               {model ? <span data-testid={`page-history-${revision.rev}-model`}>{model}</span> : null}
               {revision.proposal_id ? (
                 <Link
-                  to="/changes/$id"
+                  to="/decisions/proposals/$id"
                   params={{ id: revision.proposal_id }}
                   search={KEEP_SEARCH}
                   data-testid={`page-history-${revision.rev}-change`}

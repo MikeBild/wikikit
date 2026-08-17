@@ -310,8 +310,10 @@ describe('per-space language + wk_reindex_space (integration)', () => {
       space_id: germanSpaceId,
       content_hash: randomUUID().replaceAll('-', ''),
       kind: 'markdown',
+      title: 'Quelle',
       raw_content: '# Quelle',
       markdown: '# Quelle',
+      summary: 'Quelle',
       language: 'de',
     })
     expect(source!.language).toBe('de')
@@ -320,8 +322,10 @@ describe('per-space language + wk_reindex_space (integration)', () => {
         space_id: germanSpaceId,
         content_hash: randomUUID().replaceAll('-', ''),
         kind: 'markdown',
+        title: 'Quelle 2',
         raw_content: '# Quelle 2',
         markdown: '# Quelle 2',
+        summary: 'Quelle 2',
         language: 'fr',
       }),
     ).rejects.toThrow()

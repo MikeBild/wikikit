@@ -65,7 +65,7 @@ export function SourcePage() {
   return (
     <Page
       title={title}
-      description="Archived verbatim when it was ingested, and read-only ever since — this is what the wiki's claims quote."
+      description={source.data?.summary ?? "Archived verbatim and read-only — this is what the wiki's claims quote."}
     >
       {!id ? (
         <EmptyState
@@ -154,6 +154,7 @@ function SourceDocument({ source }: { source: Source }) {
             </Field>
             <Field label="Content hash">
               <span className="flex flex-wrap items-center gap-2">
+                <Badge tone="unknown">Source locked</Badge>
                 <code className="font-mono text-xs break-all" data-testid="source-hash">
                   {source.content_hash}
                 </code>
@@ -170,6 +171,9 @@ function SourceDocument({ source }: { source: Source }) {
               </Field>
             ))}
           </dl>
+          <p className="mt-4 text-xs text-muted-foreground">
+            The archived content cannot be changed. Care may update metadata only; corrections arrive as a new source.
+          </p>
         </CardContent>
       </Card>
 

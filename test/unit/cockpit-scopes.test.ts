@@ -71,7 +71,7 @@ describe('the rules that carry the product', () => {
 describe('scopesLabel names the shape of the scopes, not an invented role', () => {
   test.each([
     [['*'], 'unrestricted'],
-    [['admin'], 'admin'],
+    [['admin'], 'Administrator'],
     [['knowledge:read', 'knowledge:approve'], 'approver'],
     [['knowledge:read', 'knowledge:propose', 'knowledge:review'], 'reviewer'],
     [['knowledge:read', 'knowledge:propose'], 'contributor'],

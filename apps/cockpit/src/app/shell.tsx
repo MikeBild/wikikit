@@ -1,5 +1,5 @@
 import { Link, Outlet, useMatches } from '@tanstack/react-router'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   Check,
   ChevronDown,
@@ -15,9 +15,10 @@ import {
 import { Fragment, useState, type ComponentType, type ReactNode } from 'react'
 import { entryFor, GROUPS, NAV, type NavEntry, type NavGroup } from '@/app/nav'
 import { endSession } from '@/api/client'
+import { keys, wk } from '@/api/wk'
 import { scopesLabel } from '@/lib/scopes'
 import { useCan, useSession } from '@/lib/session'
-import { useSpaceContext } from '@/lib/space'
+import { useSpaceContext, visibleSpaceOptions } from '@/lib/space'
 import { toastFailure } from '@/lib/toast'
 import { useTheme, type Theme } from '@/lib/theme'
 import { useI18n, type LocalePreference } from '@/lib/i18n-context'
@@ -35,6 +36,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -59,6 +61,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -71,6 +74,12 @@ import { useSidebar } from '@/hooks/use-sidebar'
 export function Shell() {
   const can = useCan()
   const { t } = useI18n()
+  const { space } = useSpaceContext()
+  const attention = useQuery({
+    queryKey: keys.attention(space ?? '', { state: 'open', limit: 1 }),
+    queryFn: () => wk.attention.list(space!, { state: 'open', limit: 1 }),
+    enabled: Boolean(space),
+  })
 
   const signOut = useMutation({
     mutationFn: () => endSession(),
@@ -110,7 +119,16 @@ export function Shell() {
               {GROUPS.map((group) => {
                 const items = visible.filter((entry) => entry.group === group.id)
                 if (items.length === 0) return null
-                return <NavBlock key={group.id} group={group} items={items} open={open} />
+                return (
+                  <NavBlock
+                    key={group.id}
+                    group={group}
+                    items={items}
+                    open={open}
+                    attentionCount={attention.data?.counts.open}
+                    attentionAlert={Boolean(attention.data?.counts.overdue || attention.data?.counts.by_kind.care)}
+                  />
+                )
               })}
             </nav>
           </SidebarContent>
@@ -160,8 +178,9 @@ export function Shell() {
  * costs them a click to discover that.
  */
 function SpaceSwitcher() {
-  const { space, available, setSpace, locked } = useSpaceContext()
+  const { space, available, options, setSpace, locked } = useSpaceContext()
   const { t } = useI18n()
+  const [showTests, setShowTests] = useState(false)
   if (locked || available.length < 2) {
     return space ? (
       <div
@@ -172,6 +191,10 @@ function SpaceSwitcher() {
       </div>
     ) : null
   }
+  const visibleOptions = visibleSpaceOptions(options, space, showTests)
+  const production = visibleOptions.filter((option) => option.environment === 'production')
+  const tests = options.filter((option) => option.environment === 'test')
+  const visibleTests = visibleOptions.filter((option) => option.environment === 'test')
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -184,12 +207,41 @@ function SpaceSwitcher() {
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="min-w-48">
             <DropdownMenuGroup>
-              {available.map((slug) => (
-                <DropdownMenuItem key={slug} data-testid={`space-${slug}`} onSelect={() => setSpace(slug)}>
-                  {slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
-                  <span className="truncate">{slug}</span>
+              {production.length ? <DropdownMenuLabel>Production</DropdownMenuLabel> : null}
+              {production.map((option) => (
+                <DropdownMenuItem
+                  key={option.slug}
+                  data-testid={`space-${option.slug}`}
+                  onSelect={() => setSpace(option.slug)}
+                >
+                  {option.slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
+                  <span className="truncate">{option.slug}</span>
                 </DropdownMenuItem>
               ))}
+              {tests.length ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuCheckboxItem
+                    checked={showTests}
+                    data-testid="space-show-tests"
+                    onCheckedChange={(checked) => setShowTests(Boolean(checked))}
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    Show test wikis
+                  </DropdownMenuCheckboxItem>
+                  {visibleTests.length ? <DropdownMenuLabel>Test</DropdownMenuLabel> : null}
+                  {visibleTests.map((option) => (
+                    <DropdownMenuItem
+                      key={option.slug}
+                      data-testid={`space-${option.slug}`}
+                      onSelect={() => setSpace(option.slug)}
+                    >
+                      {option.slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
+                      <span className="truncate">{option.slug}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              ) : null}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -198,7 +250,19 @@ function SpaceSwitcher() {
   )
 }
 
-function NavBlock({ group, items, open }: { group: NavGroup; items: readonly NavEntry[]; open: NavEntry | undefined }) {
+function NavBlock({
+  group,
+  items,
+  open,
+  attentionCount,
+  attentionAlert,
+}: {
+  group: NavGroup
+  items: readonly NavEntry[]
+  open: NavEntry | undefined
+  attentionCount: number | undefined
+  attentionAlert: boolean
+}) {
   const { state } = useSidebar()
   const { t } = useI18n()
   const [expanded, setExpanded] = useState(group.startsOpen)
@@ -225,6 +289,16 @@ function NavBlock({ group, items, open }: { group: NavGroup; items: readonly Nav
                   <span>{label}</span>
                 </Link>
               </SidebarMenuButton>
+              {to === '/decisions' && attentionCount !== undefined ? (
+                <SidebarMenuBadge
+                  data-testid="nav-decisions-count"
+                  className={
+                    attentionAlert ? 'bg-destructive text-destructive-foreground' : 'bg-warning/15 text-warning'
+                  }
+                >
+                  {attentionCount}
+                </SidebarMenuBadge>
+              ) : null}
             </SidebarMenuItem>
           )
         })}
@@ -385,11 +459,11 @@ const NAV_KEYS: Record<string, TranslationKey> = {
   '/': 'nav.home',
   '/inbox': 'nav.inbox',
   '/pages': 'nav.pages',
-  '/changes': 'nav.changes',
+  '/decisions': 'nav.decisions',
   '/answers': 'nav.answers',
   '/care': 'nav.care',
   '/sources': 'nav.sources',
-  '/decisions': 'nav.decisions',
+  '/decision-log': 'nav.decisionLog',
   '/search': 'nav.search',
   '/charter': 'nav.charter',
   '/spaces': 'nav.spaces',
@@ -411,11 +485,11 @@ const PAGE_KEYS: Record<string, { title: TranslationKey; description: Translatio
   Home: { title: 'nav.home', description: 'page.home.description' },
   Inbox: { title: 'nav.inbox', description: 'page.inbox.description' },
   Pages: { title: 'nav.pages', description: 'page.pages.description' },
-  Changes: { title: 'nav.changes', description: 'page.changes.description' },
   Answers: { title: 'nav.answers', description: 'page.answers.description' },
   Care: { title: 'nav.care', description: 'page.care.description' },
   Sources: { title: 'nav.sources', description: 'page.sources.description' },
   Decisions: { title: 'nav.decisions', description: 'page.decisions.description' },
+  'Decision log': { title: 'nav.decisionLog', description: 'page.decisionLog.description' },
   Search: { title: 'nav.search', description: 'page.search.description' },
   Guidelines: { title: 'nav.charter', description: 'page.charter.description' },
   Wikis: { title: 'nav.spaces', description: 'page.spaces.description' },
@@ -512,14 +586,14 @@ export function Page({
   )
 }
 
-/** `Wiki · Changes · <title>`, with the section linked where it is not the page itself. */
+/** `Wiki · Decisions · <title>`, with the section linked where it is not the page itself. */
 function useCrumbs(title: string): { label: string; to?: string }[] {
   const { t } = useI18n()
   const entry = entryFor(useMatches().at(-1)?.pathname ?? '/')
   const group = GROUPS.find((candidate) => candidate.id === entry?.group)
   const trail: { label: string; to?: string }[] = []
   if (group?.label) trail.push({ label: t(groupKey(group.id)) })
-  // A detail route sits under its section: "Wiki · Changes · <title>".
+  // A detail route sits under its section: "Wiki · Decisions · <title>".
   if (entry && entry.label !== title) trail.push({ label: t(navKey(entry)), to: entry.to })
   trail.push({ label: title })
   return trail

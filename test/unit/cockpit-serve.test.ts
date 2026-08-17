@@ -73,7 +73,7 @@ describe('serving the bundle', () => {
 
   test('an unknown path under the prefix falls back to the shell — it is a client route', () => {
     const dir = fixture()
-    const deep = get(dir, `${COCKPIT_PREFIX}/changes/2f8a1c00-0000-0000-0000-000000000000`)
+    const deep = get(dir, `${COCKPIT_PREFIX}/decisions/proposals/2f8a1c00-0000-0000-0000-000000000000`)
     expect(deep.status).toBe(200)
     expect(deep.headers['content-type']).toContain('text/html')
     expect(deep.body).toBe(SHELL)

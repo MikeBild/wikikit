@@ -470,7 +470,7 @@ describe('http surface (integration)', () => {
     expect(source.markdown).toContain('concept identity')
   })
 
-  it('capture lifecycle: park → list with excerpt → discard terminal; process promotes into the pipeline', async () => {
+  it('capture lifecycle: park → list → triage resolution → pipeline', async () => {
     // Park two thoughts: one to discard, one to process. 200, not 202 —
     // nothing is running and nothing needs polling.
     const park = async (text: string, title?: string) => {
@@ -503,23 +503,31 @@ describe('http surface (integration)', () => {
     expect(await app.ingest.runOnce()).toBe(false)
 
     // Discard: terminal, the row stays for the record; a second discard 409s.
-    const discarded = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+    const discarded = await fetch(`${base}/v1/ingests/${toDiscard}/triage/resolve`, {
       method: 'POST',
-      headers: bearer(writerKey),
+      headers: json(writerKey),
+      body: JSON.stringify({ action: 'discard', title: 'Passing thought', summary: 'Nothing to keep.' }),
     })
     expect(discarded.status).toBe(200)
     expect(((await discarded.json()) as { status: string }).status).toBe('discarded')
-    const again = await fetch(`${base}/v1/ingests/${toDiscard}/discard`, {
+    const again = await fetch(`${base}/v1/ingests/${toDiscard}/triage/resolve`, {
       method: 'POST',
-      headers: bearer(writerKey),
+      headers: json(writerKey),
+      body: JSON.stringify({ action: 'discard', title: 'Passing thought', summary: 'Nothing to keep.' }),
     })
     expect(again.status).toBe(409)
     expect(((await again.json()) as { code: string }).code).toBe('ingest_not_captured')
 
     // Process: the note joins the ordinary queue and the pipeline runs it.
-    const promoted = await fetch(`${base}/v1/ingests/${toProcess}/process`, {
+    const promoted = await fetch(`${base}/v1/ingests/${toProcess}/triage/resolve`, {
       method: 'POST',
-      headers: bearer(writerKey),
+      headers: json(writerKey),
+      body: JSON.stringify({
+        action: 'process',
+        target_space: 'demo',
+        title: 'OKF bundle identity',
+        summary: 'OKF bundles carry concept identity in frontmatter.',
+      }),
     })
     expect(promoted.status).toBe(200)
     expect(((await promoted.json()) as { status: string }).status).toBe('queued')

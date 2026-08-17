@@ -92,7 +92,7 @@ describe('the table and the router agree', () => {
   test('entryFor prefers the longest match, so a detail page is not the index', () => {
     expect(entryFor('/pages')?.to).toBe('/pages')
     expect(entryFor('/pages/onboarding')?.to).toBe('/pages')
-    expect(entryFor('/changes/abc')?.to).toBe('/changes')
+    expect(entryFor('/decisions/proposals/abc')?.to).toBe('/decisions')
     // The home entry is exact: without that, every path would match '/'.
     expect(entryFor('/')?.to).toBe('/')
     expect(entryFor('/sources')?.to).toBe('/sources')

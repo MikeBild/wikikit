@@ -67,8 +67,8 @@ replaces a deep one, it only comes cheaper and more often.
 To park a thought without processing it, call `wikikit_ingest` with
 `capture: true`: the text is stored verbatim as a captured job — no LLM call,
 no queue slot, no dedup, and it works without an LLM key. Nothing runs until a
-human promotes the note (`POST /v1/ingests/{id}/process`) or discards it in
-the cockpit; promotion is deliberately not an MCP tool. This is the
+human resolves its editable placement suggestion in the Cockpit; triage is
+deliberately not an MCP tool. This is the
 deterministic path for a session-end hook that wants to leave a note behind
 without making a decision.
 

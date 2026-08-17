@@ -6,6 +6,7 @@ import {
   retainSearchParams,
 } from '@tanstack/react-router'
 import { Root } from '@/app/root'
+import { NotFoundPage } from '@/pages/not-found'
 
 /**
  * A CODE-BASED route tree, not a generated one.
@@ -32,6 +33,7 @@ import { Root } from '@/app/root'
  */
 const rootRoute = createRootRoute({
   component: Root,
+  notFoundComponent: NotFoundPage,
   /**
    * `?space=` is the address of the wiki being read, so it is validated here
    * and inherited by every route rather than re-declared on each one.
@@ -121,15 +123,15 @@ const pageEditRoute = createRoute({
   path: '/pages/$slug/edit',
   component: lazyRouteComponent(() => import('@/pages/page-edit'), 'PageEditPage'),
 })
-const changesRoute = createRoute({
+const decisionsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/changes',
-  component: lazyRouteComponent(() => import('@/pages/changes'), 'ChangesPage'),
+  path: '/decisions',
+  component: lazyRouteComponent(() => import('@/pages/decisions'), 'DecisionsPage'),
 })
-const changeRoute = createRoute({
+const proposalReviewRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/changes/$id',
-  component: lazyRouteComponent(() => import('@/pages/change'), 'ChangePage'),
+  path: '/decisions/proposals/$id',
+  component: lazyRouteComponent(() => import('@/pages/proposal-review'), 'ProposalReviewPage'),
 })
 const sourcesRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -141,15 +143,15 @@ const sourceRoute = createRoute({
   path: '/sources/$id',
   component: lazyRouteComponent(() => import('@/pages/source'), 'SourcePage'),
 })
-const decisionsRoute = createRoute({
+const decisionLogRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/decisions',
-  component: lazyRouteComponent(() => import('@/pages/decisions'), 'DecisionsPage'),
+  path: '/decision-log',
+  component: lazyRouteComponent(() => import('@/pages/decision-log'), 'DecisionLogPage'),
 })
-const decisionRoute = createRoute({
+const decisionLogDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/decisions/$slug',
-  component: lazyRouteComponent(() => import('@/pages/decision'), 'DecisionPage'),
+  path: '/decision-log/$slug',
+  component: lazyRouteComponent(() => import('@/pages/decision-log-detail'), 'DecisionLogDetailPage'),
 })
 const searchRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -196,15 +198,15 @@ const routeTree = rootRoute.addChildren([
   pageNewRoute,
   pageRoute,
   pageEditRoute,
-  changesRoute,
-  changeRoute,
+  decisionsRoute,
+  proposalReviewRoute,
   answersRoute,
   answerRoute,
   careRoute,
   sourcesRoute,
   sourceRoute,
-  decisionsRoute,
-  decisionRoute,
+  decisionLogRoute,
+  decisionLogDetailRoute,
   searchRoute,
   charterRoute,
   spacesRoute,

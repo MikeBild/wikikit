@@ -22,11 +22,36 @@ import { createContext, useContext } from 'react'
  */
 export const SPACE_STORAGE_KEY = 'wk-cockpit-space'
 
+export interface SpaceOption {
+  slug: string
+  environment: 'production' | 'test'
+}
+
+export function sortSpaceOptions(options: readonly SpaceOption[]): SpaceOption[] {
+  return [...options].sort((left, right) =>
+    left.environment === right.environment
+      ? left.slug.localeCompare(right.slug)
+      : left.environment === 'production'
+        ? -1
+        : 1,
+  )
+}
+
+export function visibleSpaceOptions(
+  options: readonly SpaceOption[],
+  current: string | null,
+  showTests: boolean,
+): SpaceOption[] {
+  return options.filter((option) => option.environment === 'production' || showTests || option.slug === current)
+}
+
 export interface SpaceValue {
   /** The chosen wiki, or null before the space list has resolved. */
   space: string | null
   /** Every wiki this credential can see, in the order the server listed them. */
   available: readonly string[]
+  /** Display metadata used to keep production and test wikis visibly apart. */
+  options: readonly SpaceOption[]
   /** Switch wikis: rewrites the URL, which is what actually changes anything. */
   setSpace(next: string): void
   /** True when the credential is bound to one space and cannot leave it. */

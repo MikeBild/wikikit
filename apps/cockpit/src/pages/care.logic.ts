@@ -1,4 +1,5 @@
 import { toneFor, type Tone } from '@/pages/home.logic'
+import type { Locale } from '@/lib/i18n'
 
 /**
  * The Care page's rules, with no DOM under them.
@@ -91,6 +92,75 @@ export interface RoutableFinding {
   rule: string
   concept_slug?: string
   details?: Readonly<Record<string, unknown>>
+}
+
+export interface PresentableLintFinding extends RoutableFinding {
+  message: { key: string; args: Readonly<Record<string, unknown>>; default_text: string }
+}
+
+/**
+ * Render server lint keys in the selected UI language without translating the
+ * wiki's own authored content. The structured key is the contract; the English
+ * default is only the forward-compatible fallback for a rule this Cockpit does
+ * not know yet.
+ */
+export function lintMessage(locale: Locale, finding: PresentableLintFinding): string {
+  if (locale !== 'de') return finding.message.default_text
+  const page = finding.concept_slug?.trim() ? `Die Seite „${finding.concept_slug}“` : 'Eine Seite'
+  const count = (name: string): number | null => {
+    const value = finding.message.args[name]
+    return typeof value === 'number' && Number.isFinite(value) ? value : null
+  }
+  switch (finding.message.key) {
+    case 'contradictions':
+      return `${page} enthält Aussagen, die einander widersprechen.`
+    case 'missing-citations':
+      return `${page} enthält eine Aussage ohne Quellenbeleg.`
+    case 'broken-relations':
+      return `${page} verweist auf eine Seite, die nicht gelesen werden kann.`
+    case 'stale-claims':
+      return `${page} enthält eine Aussage, deren Gültigkeit abgelaufen ist.`
+    case 'orphan-concepts':
+      return `${page} ist mit keiner anderen Seite verknüpft.`
+    case 'unsourced-concepts': {
+      const claims = count('claims')
+      return claims === null
+        ? `${page} stützt sich auf keine archivierte Quelle.`
+        : `${page} stützt ${claims === 1 ? 'eine Aussage' : `${claims} Aussagen`} auf keine archivierte Quelle.`
+    }
+    case 'self-derived-only':
+      return `${page} stützt sich nur auf Antworten aus diesem Wiki und braucht eine externe Quelle.`
+    case 'stub-concepts':
+      return `${page} ist leer: kein Text, keine Aussagen und keine Verknüpfungen.`
+    case 'scaffolded-claims':
+      return `${page} ist als Verweisziel markiert, enthält aber prüfbare Aussagen.`
+    case 'empty-concepts':
+      return `${page} enthält keine prüfbare Aussage.`
+    case 'unreviewed-proposals':
+      return 'Ein Vorschlag wartet auf eine menschliche Prüfung.'
+    case 'stale-proposals': {
+      const days = count('days_open')
+      return days === null
+        ? 'Ein Vorschlag wartet schon lange auf eine menschliche Prüfung.'
+        : `Ein Vorschlag wartet seit ${days} Tagen auf eine menschliche Prüfung.`
+    }
+    case 'stale-captures': {
+      const days = count('days_parked')
+      return days === null
+        ? 'Ein Gedanke liegt schon lange im Eingang und muss einsortiert werden.'
+        : `Ein Gedanke liegt seit ${days} Tagen im Eingang und muss einsortiert werden.`
+    }
+    case 'dangling-sources':
+      return 'Eine archivierte Quelle wird von keiner Aussage zitiert.'
+    case 'tombstoned-sources':
+      return `${page} zitiert ein Dokument, das im Ursprung gelöscht wurde.`
+    case 'broken-cross-space-links':
+      return `${page} enthält einen Verweis in ein anderes Wiki, der kein lesbares Ziel erreicht.`
+    case 'missing-charter':
+      return 'Dieses Wiki hat keine Leitlinien dafür, was hineingehört.'
+    default:
+      return finding.message.default_text
+  }
 }
 
 /**
@@ -208,7 +278,7 @@ const RULE_WHY: Readonly<Record<string, string>> = {
     'Nothing steers what belongs in this wiki. Guidelines are optional — this note makes their absence a choice, not an accident.',
   'stale-proposals': 'This change has waited more than two weeks. Age is what turns a queue into a backlog.',
   'stale-captures':
-    'This thought has been parked for over a month. An old inbox item is a signal, not an error — process it or discard it.',
+    'This thought has been parked for over a month. An old inbox item is a signal, not an error — sort and resolve it.',
 }
 
 export function ruleWhy(rule: string): string | null {

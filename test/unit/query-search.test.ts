@@ -249,20 +249,6 @@ describe('search', () => {
     expect(calls.length).toBe(0)
   })
 
-  test('a source-titleless chunk falls back to heading, then a placeholder title', async () => {
-    const { db } = fakeDb([
-      { match: 'wk_search($1', rows: [] },
-      { match: 'wk_search_sources($1', rows: [{ ...CHUNK_ROW, title: null }] },
-    ])
-    const [hit] = await search(
-      db,
-      SPACE,
-      { q: 'okf', mode: 'approved_then_sources' },
-      { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS },
-    )
-    expect(hit!.title).toBe('## Rollout')
-  })
-
   test('coerces string ranks (exotic drivers) to numbers', async () => {
     const { db } = fakeDb([
       {

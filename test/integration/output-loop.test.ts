@@ -348,7 +348,7 @@ describe('the output loop (integration)', () => {
     expect(finding?.severity).toBe('warn')
     // The fix names OUTSIDE explicitly — "ingest a source" alone would be read
     // as "promote another answer", which is the state, not the cure.
-    expect(finding?.message).toContain('outside the wiki')
+    expect(finding?.message.default_text).toContain('outside the wiki')
     // The page grounded in a real document is untouched by it.
     expect(await selfDerivedSlugs()).toEqual([promotedSlug])
   })

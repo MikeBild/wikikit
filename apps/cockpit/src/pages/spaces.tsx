@@ -42,7 +42,6 @@ import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { compareNumber, compareText, compareTime } from '@/lib/table-view'
 import { toast } from '@/lib/toast'
-import { paramName } from '@/lib/url-filters'
 import { waitedDays } from '@/pages/care.logic'
 import { count } from '@/pages/home.logic'
 import { attentionOrder, backlogSplit, mergeOverview, type OverviewItem } from '@/pages/spaces.logic'
@@ -91,6 +90,7 @@ const LANGUAGES = [
 ] as const
 
 type Language = (typeof LANGUAGES)[number]['value']
+type Environment = 'production' | 'test'
 
 /** `SPACE_SLUG` in src/http/schemas.ts. A slug the server would refuse is caught before the click. */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/
@@ -111,6 +111,10 @@ function readString(settings: Record<string, unknown>, key: string): string {
 function readLanguage(settings: Record<string, unknown>): Language | null {
   const value = settings.language
   return LANGUAGES.some((entry) => entry.value === value) ? (value as Language) : null
+}
+
+function readEnvironment(settings: Record<string, unknown>): Environment {
+  return settings.environment === 'test' ? 'test' : 'production'
 }
 
 function readImports(settings: Record<string, unknown>): string[] {
@@ -156,6 +160,17 @@ const COLUMNS: readonly DataColumn<Row>[] = [
         </div>
         <span className="text-muted-foreground truncate">{space.name}</span>
       </div>
+    ),
+  },
+  {
+    id: 'environment',
+    label: 'Environment',
+    priority: 'secondary',
+    compare: (left, right) => compareText(readEnvironment(left.settings), readEnvironment(right.settings)),
+    cell: (space) => (
+      <Badge tone={readEnvironment(space.settings) === 'test' ? 'warning' : 'neutral'}>
+        {readEnvironment(space.settings) === 'test' ? 'Test' : 'Production'}
+      </Badge>
     ),
   },
   {
@@ -332,11 +347,11 @@ export function SpacesPage() {
 /**
  * The review backlog of one wiki, linked straight to the work.
  *
- * The count is a LINK to that wiki's changes queue, already filtered to
- * pending — the number is an instruction, and an instruction should land where
+ * The count is a LINK to that wiki's decisions queue — the number is an
+ * instruction, and an instruction should land where
  * the work is. A measured zero renders as a plain 0 (nothing to open); an
  * unmeasured queue is the dash (CUI-SEV-2). The second badge splits off the
- * changes resting entirely on generated reports — provenance, so the reader
+ * proposals resting entirely on generated reports — provenance, so the reader
  * can see distilled human knowledge hiding behind machine-report stacks, never
  * a judgement about either kind.
  */
@@ -354,8 +369,8 @@ function WaitingCell({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Link
-        to="/changes"
-        search={{ space: slug, [paramName('changes', 'status')]: 'pending' }}
+        to="/decisions"
+        search={{ space: slug }}
         data-testid={`space-waiting-${slug}`}
         className="font-medium tabular-nums underline-offset-4 hover:underline"
       >
@@ -775,6 +790,7 @@ function SettingsForm({
   const [useWhen, setUseWhen] = useState(() => readString(context, 'use_when'))
   const [keywords, setKeywords] = useState(() => readKeywords(context).join(', '))
   const [language, setLanguage] = useState<Language>(() => readLanguage(space.settings) ?? DEFAULT_LANGUAGE)
+  const [environment, setEnvironment] = useState<Environment>(() => readEnvironment(space.settings))
   const [imports, setImports] = useState<string[]>(() => readImports(space.settings))
 
   /**
@@ -793,6 +809,7 @@ function SettingsForm({
     mutationFn: () =>
       wk.spaces.settings(space.slug, {
         settings: {
+          environment,
           purpose: purpose.trim(),
           language,
           imports,
@@ -828,6 +845,36 @@ function SettingsForm({
   return (
     <>
       <div className="flex flex-col gap-4 overflow-y-auto">
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel
+            htmlFor="space-settings-environment"
+            helpTitle="About wiki environments"
+            help={<p>Production and test wikis are separated in the switcher. Test wikis can be hidden.</p>}
+            testId="space-environment-help"
+          >
+            Environment
+          </FieldLabel>
+          <Select
+            value={environment}
+            disabled={save.isPending}
+            onValueChange={(next) => setEnvironment(next as Environment)}
+          >
+            <SelectTrigger id="space-settings-environment" data-testid="space-settings-environment" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="production" data-testid="space-settings-environment-production">
+                  Production
+                </SelectItem>
+                <SelectItem value="test" data-testid="space-settings-environment-test">
+                  Test
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex flex-col gap-1.5">
           <FieldLabel
             htmlFor="space-settings-purpose"

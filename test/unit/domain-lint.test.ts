@@ -228,7 +228,8 @@ describe('lintSpace', () => {
   test('finding shapes carry the contract fields', async () => {
     const { db } = fakeDb(routes)
     const { findings } = await lintSpace(db, 'space-1', { scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS })
-    const byRule = new Map(findings.map((finding) => [finding.rule, finding]))
+    const readable = findings.map((finding) => ({ ...finding, message: finding.message.default_text }))
+    const byRule = new Map(readable.map((finding) => [finding.rule, finding]))
 
     expect(byRule.get('contradictions')).toMatchObject({
       severity: 'error',
@@ -263,7 +264,7 @@ describe('lintSpace', () => {
     expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })
     // Both unsourced findings, in order — a finding that only states the fault
     // is a complaint, so each one carries the fix in its message.
-    const unsourced = findings.filter((finding) => finding.rule === 'unsourced-concepts')
+    const unsourced = readable.filter((finding) => finding.rule === 'unsourced-concepts')
     expect(unsourced).toEqual([
       {
         rule: 'unsourced-concepts',
@@ -315,7 +316,7 @@ describe('lintSpace', () => {
       rule: 'stale-captures',
       severity: 'warn',
       message:
-        'captured thought "A parked note" has been parked 45 days — an old inbox item is a signal, not an error: process it or discard it',
+        'captured thought "A parked note" has been parked 45 days — an old inbox item is a signal, not an error: sort and resolve it',
       details: { ingest_id: 'job-1', days_parked: 45 },
     })
     expect(byRule.get('missing-charter')).toEqual({

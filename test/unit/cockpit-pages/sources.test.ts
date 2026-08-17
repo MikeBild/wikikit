@@ -33,7 +33,7 @@ describe('when to stop polling', () => {
     expect(isTerminalStatus('failed')).toBe(true)
     expect(isTerminalStatus('queued')).toBe(false)
     expect(isTerminalStatus('running')).toBe(false)
-    // Settled as far as POLLING goes: only a human's process/discard moves
+    // Settled as far as POLLING goes: only a human triage resolution moves
     // either, and that mutation invalidates the query itself — a poll would be
     // waiting for an event that can only arrive through this console's buttons.
     expect(isTerminalStatus('captured')).toBe(true)
@@ -66,7 +66,7 @@ describe('what an ingest job is reported to have done', () => {
     // believing they published something.
     const report = job({ status: 'done', proposal_id: 'p-1' })
     expect(report.reviewable).toBe(true)
-    expect(report.detail).toMatch(/Changes/)
+    expect(report.detail).toMatch(/Decisions/)
     expect(report.detail).toMatch(/not visible knowledge|until somebody approves/i)
   })
 
@@ -137,7 +137,7 @@ describe('what an ingest job is reported to have done', () => {
   test('a parked note says it is waiting for a person, and a discarded one that it stays on record', () => {
     const parked = job({ status: 'captured' })
     expect(parked.headline).toBe('Parked')
-    expect(parked.detail).toMatch(/processes|discarded/i)
+    expect(parked.detail).toMatch(/sorts|triage|decides/i)
     expect(parked.reviewable).toBe(false)
     const dropped = job({ status: 'discarded' })
     expect(dropped.headline).toBe('Discarded')
@@ -228,13 +228,9 @@ describe('reading a source', () => {
     expect(defaultSourceView('import')).toBe('verbatim')
   })
 
-  test('a source with no title uses a human label rather than an opaque identifier', () => {
-    // Never a bare uuid where a url exists: the url is what somebody
-    // recognises and can open.
-    expect(sourceLabel({ title: 'Handbook', url: 'https://example.test/h', id: 'abc' })).toBe('Handbook')
-    expect(sourceLabel({ title: null, url: 'https://example.test/h', id: 'abc' })).toContain('example.test')
-    const uuid = '1db97378-8f24-4f95-a5ae-fd5e66535f15'
-    expect(sourceLabel({ title: null, url: null, id: uuid })).toBe('Untitled source')
+  test('a source always carries its canonical human label', () => {
+    expect(sourceLabel({ title: 'Handbook' })).toBe('Handbook')
+    expect(sourceLabel({ title: 'Source 1db973788f24' })).toBe('Source 1db973788f24')
   })
 })
 

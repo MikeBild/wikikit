@@ -62,7 +62,7 @@ export function holdsScope(scopes: readonly string[], candidate: string): boolea
  */
 export function scopesLabel(scopes: readonly string[]): string {
   if (scopes.includes('*')) return 'unrestricted'
-  if (scopes.includes('admin')) return 'admin'
+  if (scopes.includes('admin')) return 'Administrator'
   if (scopes.includes('knowledge:approve')) return 'approver'
   if (scopes.includes('knowledge:review')) return 'reviewer'
   if (scopes.includes('knowledge:propose')) return 'contributor'

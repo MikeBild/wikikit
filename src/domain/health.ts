@@ -60,6 +60,7 @@ import type { ScaffoldingOptions } from './concepts.ts'
 import { type CoverageStats, getCoverageStats } from './coverage.ts'
 import { ValidationError } from './errors.ts'
 import { type LintReport, lintSpace } from './lint.ts'
+import { isoString } from './sources.ts'
 
 /**
  * Coverage, plus the one fact coverage itself cannot know: whether the
@@ -77,6 +78,8 @@ export interface SpaceHealthCoverage extends Omit<CoverageStats, 'gap_topics'> {
 }
 
 export interface SpaceHealth {
+  checked_at: string
+  guidelines: { revision: number | null; updated_at: string | null }
   /**
    * The window the `coverage` block describes, echoed as the ISO instants that
    * were actually used. A reader must never have to assume it: the same shape
@@ -210,6 +213,7 @@ export async function spaceHealth(
   const from = input.from ? new Date(input.from) : new Date(to.getTime() - DEFAULT_WINDOW_MS)
   if (to <= from) throw new ValidationError("'to' must be after 'from'")
   const window = { from: from.toISOString(), to: to.toISOString() }
+  const checkedAt = new Date().toISOString()
 
   const lint = await lintSpace(db, spaceId, {
     scaffoldingKinds: deps.scaffoldingKinds,
@@ -284,6 +288,11 @@ export async function spaceHealth(
       [spaceId],
     )
   ).rows
+  const [guidelines] = await db.select<{ rev: number; created_at: Date | string }>('wk_charter_revisions', {
+    space_id: `eq.${spaceId}`,
+    status: 'eq.current',
+    limit: 1,
+  })
 
   const pending = review?.pending ?? 0
   const queued = ingest?.queued ?? 0
@@ -292,6 +301,11 @@ export async function spaceHealth(
   const sources = archive?.sources ?? 0
   const indexed = archive?.indexed ?? 0
   return {
+    checked_at: checkedAt,
+    guidelines: {
+      revision: guidelines?.rev ?? null,
+      updated_at: guidelines ? isoString(guidelines.created_at) : null,
+    },
     window,
     lint,
     coverage: {

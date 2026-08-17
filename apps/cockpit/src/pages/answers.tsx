@@ -235,6 +235,7 @@ function OutputCell({ row, index }: { row: OutputListRow; index: number }) {
       >
         {outputLabel(row, 'Untitled output')}
       </Link>
+      <span className="line-clamp-2 text-xs text-muted-foreground">{row.summary}</span>
       <span className="flex flex-wrap items-center gap-1.5">
         <Badge tone="neutral">{kindWord(row.kind)}</Badge>
         {coverage === 'not-covered' ? (
