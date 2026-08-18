@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.44.4 - 2026-08-18
+
+### Fixed
+
+- Page and deleted-page selectors now use visible row positions instead of
+  page slugs, because readable imported slugs can still contain opaque UUID
+  suffixes.
+- Generated-report provenance wraps inside the Wiki overview's waiting column
+  instead of clipping at phone, tablet and laptop widths.
+
 ## 0.44.3 - 2026-08-18
 
 ### Changed

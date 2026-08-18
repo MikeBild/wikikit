@@ -152,7 +152,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     className: 'w-[38%] max-md:w-[65%]',
     required: true,
     compare: (left, right) => compareText(left.title, right.title),
-    cell: (row) => <PageCell row={row} />,
+    cell: (row, index) => <PageCell row={row} index={index} />,
   },
   {
     id: 'evidence',
@@ -161,7 +161,7 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     // Evidence remains beside the page on phones; prose and revision metadata
     // collapse instead, so the two facts still fit without sideways scrolling.
     compare: (left, right) => compareNumber(evidenceRank(left.evidence), evidenceRank(right.evidence)),
-    cell: (row) => <EvidenceCell row={row} />,
+    cell: (row, index) => <EvidenceCell row={row} index={index} />,
   },
   {
     id: 'summary',
@@ -198,7 +198,9 @@ const COLUMNS: readonly DataColumn<PageRow>[] = [
     priority: 'optional',
     descFirst: true,
     compare: (left, right) => compareTime(left.updated_at, right.updated_at),
-    cell: (row) => <RelativeTime value={row.updated_at} data-testid={`pages-row-${row.slug}-updated`} />,
+    // The DataTable cell already owns `pages-row-N-updated`; adding the same id
+    // to the timestamp would make every selector ambiguous.
+    cell: (row) => <RelativeTime value={row.updated_at} />,
   },
 ]
 
@@ -266,7 +268,7 @@ export function PagesPage() {
         columns={COLUMNS}
         rows={rows}
         rowKey={(row) => row.slug}
-        rowTestId={(row) => `pages-row-${row.slug}`}
+        rowTestId={(_row, index) => `pages-row-${index + 1}`}
         query={query}
         view={view}
         onViewChange={setView}
@@ -353,11 +355,11 @@ export function PagesPage() {
               'Retained for audit. Restoring makes only the last visible revision current; relationships stay removed.',
             )}
           </p>
-          {deleted.data.items.map((item) => (
+          {deleted.data.items.map((item, index) => (
             <div
               key={item.slug}
               className="border-border flex items-center justify-between rounded-lg border p-3"
-              data-testid={`deleted-page-${item.slug}`}
+              data-testid={`deleted-page-${index + 1}`}
             >
               <div>
                 <div className="font-medium">{item.title}</div>
@@ -373,14 +375,14 @@ export function PagesPage() {
                   onConfirm={() => restore.mutateAsync(item.slug)}
                 >
                   {(open) => (
-                    <Button variant="outline" onClick={open} data-testid={`deleted-page-restore-${item.slug}`}>
+                    <Button variant="outline" onClick={open} data-testid={`deleted-page-restore-${index + 1}`}>
                       {text('Restore')}
                     </Button>
                   )}
                 </Confirm>
               ) : (
                 <DisabledReason reason="Needs knowledge:propose — restoration is a review-gated change.">
-                  <Button variant="outline" disabled data-testid={`deleted-page-restore-disabled-${item.slug}`}>
+                  <Button variant="outline" disabled data-testid={`deleted-page-restore-disabled-${index + 1}`}>
                     {text('Restore')}
                   </Button>
                 </DisabledReason>
@@ -393,7 +395,7 @@ export function PagesPage() {
   )
 }
 
-function PageCell({ row }: { row: PageRow }) {
+function PageCell({ row, index }: { row: PageRow; index: number }) {
   const title = row.title
   return (
     <div className="flex min-w-0 flex-col">
@@ -401,7 +403,7 @@ function PageCell({ row }: { row: PageRow }) {
         to="/pages/$slug"
         params={{ slug: row.slug }}
         search={KEEP_SEARCH}
-        data-testid={`pages-row-${row.slug}-link`}
+        data-testid={`pages-row-${index + 1}-link`}
         className="truncate font-medium text-foreground underline-offset-2 hover:underline"
       >
         {title}
@@ -473,10 +475,10 @@ function PageCell({ row }: { row: PageRow }) {
  * reading this table row by row would otherwise reach an `aria-hidden` glyph and
  * hear an empty cell.
  */
-function EvidenceCell({ row }: { row: PageRow }) {
+function EvidenceCell({ row, index }: { row: PageRow; index: number }) {
   const { text } = useI18n()
   const evidence = pageEvidence(row.evidence, row.not_measured)
-  const testId = `pages-row-${row.slug}-evidence`
+  const testId = `pages-row-${index + 1}-evidence`
 
   if (rendersAsDash(evidence.level))
     return (
@@ -489,7 +491,7 @@ function EvidenceCell({ row }: { row: PageRow }) {
             <span
               tabIndex={0}
               className="flex flex-col items-start gap-0.5 rounded text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              data-testid={testId}
+              data-testid={`${testId}-trigger`}
               data-evidence={evidence.level}
             >
               <span aria-hidden="true">—</span>
@@ -516,7 +518,7 @@ function EvidenceCell({ row }: { row: PageRow }) {
     )
 
   return (
-    <div className="flex flex-col items-start gap-0.5" data-testid={testId} data-evidence={evidence.level}>
+    <div className="flex flex-col items-start gap-0.5" data-evidence={evidence.level}>
       <div className="flex items-center gap-1.5">
         {evidence.count ? <span className="tabular-nums">{text(evidence.count)}</span> : null}
         {evidence.flag ? <Badge tone={evidence.tone}>{text(evidence.flag)}</Badge> : null}

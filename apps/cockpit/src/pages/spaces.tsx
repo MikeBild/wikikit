@@ -380,7 +380,11 @@ function WaitingCell({
         {count(queue.pending)}
       </Link>
       {split.derived > 0 ? (
-        <Badge tone="neutral" data-testid={`space-derived-${slug}`}>
+        <Badge
+          tone="neutral"
+          className="h-auto min-w-0 max-w-full whitespace-normal text-left leading-tight"
+          data-testid={`space-derived-${slug}`}
+        >
           {count(split.derived)} {text('from generated reports')}
         </Badge>
       ) : null}
