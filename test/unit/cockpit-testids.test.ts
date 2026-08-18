@@ -109,6 +109,14 @@ describe('the Cockpit data-testid contract', () => {
     expect(offenders).toEqual([])
   })
 
+  test('repeated decision cards prefix every trace selector with the readable card position', () => {
+    const source = readFileSync('apps/cockpit/src/pages/decisions.tsx', 'utf8')
+    expect(source).toContain('<DecisionTrace item={item} testId={`${testId}-trace`} />')
+    expect(source).toContain('data-testid={`${testId}-origin-${index + 1}`}')
+    expect(source).toContain('data-testid={`${testId}-target-${index + 1}`}')
+    expect(source).not.toContain('data-testid="decision-trace"')
+  })
+
   test('every icon-only page action has reachable tooltip copy', () => {
     const offenders: string[] = []
     for (const file of files) {

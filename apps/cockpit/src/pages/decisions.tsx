@@ -228,7 +228,7 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">{t(attentionEffectKey(item.kind))}</p>
-        <DecisionTrace item={item} />
+        <DecisionTrace item={item} testId={`${testId}-trace`} />
         {item.previous_rejection ? (
           <Alert tone="warning" title={t('decisions.previousRejection')}>
             {item.previous_rejection.note || t('decisions.previousRejectionNoNote')}
@@ -468,10 +468,10 @@ function taskActionKey(href: string): TranslationKey {
   return 'decisions.openObject'
 }
 
-function DecisionTrace({ item }: { item: AttentionItem }) {
+function DecisionTrace({ item, testId }: { item: AttentionItem; testId: string }) {
   const { t } = useI18n()
   return (
-    <dl className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2" data-testid="decision-trace">
+    <dl className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2" data-testid={testId}>
       <div className="min-w-0">
         <dt className="text-xs font-medium text-muted-foreground">{t('decisions.origin')}</dt>
         <dd className="mt-1 flex flex-col gap-1.5">
@@ -481,7 +481,7 @@ function DecisionTrace({ item }: { item: AttentionItem }) {
                 <Link
                   to={origin.href as never}
                   className="truncate underline-offset-4 hover:underline"
-                  data-testid={`decision-origin-${index + 1}`}
+                  data-testid={`${testId}-origin-${index + 1}`}
                 >
                   {origin.label}
                 </Link>
@@ -503,7 +503,7 @@ function DecisionTrace({ item }: { item: AttentionItem }) {
                   <Link
                     to={target.href as never}
                     className="truncate underline-offset-4 hover:underline"
-                    data-testid={`decision-target-${index + 1}`}
+                    data-testid={`${testId}-target-${index + 1}`}
                   >
                     {target.label}
                   </Link>
