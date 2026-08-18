@@ -1370,14 +1370,42 @@ export function createIngestPipeline(
         }
       }
 
+      if (input.resynthesize_source_id) {
+        const active = await enqueueDb.query<{ id: string }>(
+          `SELECT id FROM wk_ingest_jobs
+            WHERE space_id = $1
+              AND input->>'resynthesize_source_id' = $2
+              AND status IN ('queued', 'running', 'quota_blocked')
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [spaceId, input.resynthesize_source_id],
+        )
+        if (active.rows[0]) return { ingest_id: active.rows[0].id }
+      }
+
       await assertQueueHasRoom(enqueueDb, spaceId)
 
-      const [job] = await enqueueDb.insert<{ id: string }>('wk_ingest_jobs', {
-        space_id: spaceId,
-        status: 'queued',
-        input: JSON.stringify(input),
-      })
-      return { ingest_id: job!.id }
+      try {
+        const [job] = await enqueueDb.insert<{ id: string }>('wk_ingest_jobs', {
+          space_id: spaceId,
+          status: 'queued',
+          input: JSON.stringify(input),
+        })
+        return { ingest_id: job!.id }
+      } catch (error) {
+        if ((error as { code?: string }).code !== '23505' || !input.resynthesize_source_id) throw error
+        const active = await enqueueDb.query<{ id: string }>(
+          `SELECT id FROM wk_ingest_jobs
+            WHERE space_id = $1
+              AND input->>'resynthesize_source_id' = $2
+              AND status IN ('queued', 'running', 'quota_blocked')
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [spaceId, input.resynthesize_source_id],
+        )
+        if (!active.rows[0]) throw error
+        return { ingest_id: active.rows[0].id }
+      }
     },
 
     async resolveCapture(actionDb: Db, id: string, resolution: CaptureResolution): Promise<void> {

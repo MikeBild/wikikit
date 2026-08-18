@@ -1,14 +1,12 @@
-// The cross-wiki overview against real Postgres: the two GROUP BY statements
-// in reviewOverview, driven through GET /v1/stats/overview and the
+// The cross-wiki overview against real Postgres: the decision aggregate in
+// attentionOverview, driven through GET /v1/stats/overview and the
 // wikikit_overview tool over seeded rows.
 //
 // WHY integration and not a stub: the aggregate FILTER + LATERAL combination
 // is exactly the SQL a stub cannot vouch for. What is asserted here is the
-// semantics the surfaces promise — a space with nothing pending answers a
-// measured 0 with a NULL age (never "0 days"), `pending_derived` counts a
-// proposal only when EVERY cited source carries the derived stamp (mixed
-// provenance does not count), `created_7d` counts any status inside the
-// window, and a space-scoped key gets a one-row overview instead of an error.
+// semantics the surfaces promise — only work requiring a human decision is
+// counted, a space with nothing pending answers a measured 0 with a NULL age
+// (never "0 days"), and a space-scoped key gets a one-row overview.
 //
 // RUN_INTEGRATION=1 gated; scripts/start-local.ts provisions the container.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -84,38 +82,29 @@ const json = (key: string) => ({ ...bearer(key), 'content-type': 'application/js
 interface OverviewWire {
   schema_version: string
   generated_at: string
-  totals: { pending: number; pending_derived: number; created_7d: number; oldest_days: number | null }
+  totals: { open: number; oldest_days: number | null; wikis_with_open: number }
   items: {
     space: string
     name: string
     purpose: string | null
-    review_queue: { pending: number; oldest_days: number | null; pending_derived: number }
-    created_7d: number
+    environment: 'production' | 'test'
+    attention: {
+      open: number
+      oldest_days: number | null
+      by_kind: { proposal: number; triage: number; output: number }
+    }
     concepts: number
   }[]
-}
-
-async function seedSource(spaceId: string, title: string, derived: boolean): Promise<string> {
-  const [row] = await db.insert<{ id: string }>('wk_sources', {
-    space_id: spaceId,
-    kind: 'markdown',
-    title,
-    content_hash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
-    raw_content: `# ${title}`,
-    markdown: `# ${title}`,
-    summary: title,
-    metadata: JSON.stringify(derived ? { derived_from_output_id: randomUUID() } : {}),
-  })
-  return row!.id
 }
 
 async function seedProposal(
   spaceId: string,
   args: { status?: string; sourceIds?: string[]; ageDays?: number },
-): Promise<void> {
-  await db.query(
+): Promise<string> {
+  const result = await db.query<{ id: string }>(
     `INSERT INTO wk_change_proposals (space_id, status, title, input_hash, source_ids, created_at)
-     VALUES ($1, $2, $3, $4, $5::uuid[], now() - make_interval(days => $6))`,
+     VALUES ($1, $2, $3, $4, $5::uuid[], now() - make_interval(days => $6))
+     RETURNING id`,
     [
       spaceId,
       args.status ?? 'pending',
@@ -125,6 +114,7 @@ async function seedProposal(
       args.ageDays ?? 0,
     ],
   )
+  return result.rows[0]!.id
 }
 
 describe('cross-wiki overview (integration)', () => {
@@ -154,15 +144,26 @@ describe('cross-wiki overview (integration)', () => {
     alphaId = await create('alpha', 'Alpha', { purpose: 'First wiki' })
     await create('beta', 'Beta')
 
-    // Alpha: a 21-day-old pending change with MIXED provenance (one derived
-    // source beside one outside source — must NOT count as derived), a fresh
-    // pending change resting ONLY on derived sources (must count), and an
-    // approved change from this week (created_7d counts any status).
-    const outside = await seedSource(alphaId, 'Outside evidence', false)
-    const derived = await seedSource(alphaId, 'Promoted answer', true)
-    await seedProposal(alphaId, { sourceIds: [outside, derived], ageDays: 21 })
-    await seedProposal(alphaId, { sourceIds: [derived] })
+    // Alpha: two proposals needing review plus one captured inbox item that
+    // still needs a target. The approved proposal below is history, not work.
+    await seedProposal(alphaId, { ageDays: 21 })
+    const deferredId = await seedProposal(alphaId, {})
     await seedProposal(alphaId, { status: 'approved', ageDays: 3 })
+    // A deferred decision remains available in the deferred view but is no
+    // longer in the open queue. The cross-wiki overview must agree with that
+    // same definition instead of counting underlying pending rows directly.
+    await db.insert('wk_attention_states', {
+      space_id: alphaId,
+      item_key: `proposal:${deferredId}`,
+      kind: 'proposal',
+      state: 'deferred',
+      snapshot: JSON.stringify({ key: `proposal:${deferredId}`, kind: 'proposal' }),
+    })
+    await db.query(
+      `INSERT INTO wk_ingest_jobs (space_id, status, input, created_at)
+       VALUES ($1, 'captured', $2::jsonb, now() - interval '5 days')`,
+      [alphaId, JSON.stringify({ text: 'Parked thought', capture: true })],
+    )
     // Two pages, one of them not yet visible (no current revision). The
     // visible one needs a REAL revision row — current_revision_id carries a
     // foreign key, so a made-up id is a constraint violation, not a shortcut.
@@ -199,30 +200,33 @@ describe('cross-wiki overview (integration)', () => {
     await app.close()
   })
 
-  it('aggregates per space with null-not-zero ages and mixed provenance not counted as derived', async () => {
+  it('aggregates actionable decisions per space with null-not-zero ages', async () => {
     const res = await fetch(`${base}/v1/stats/overview`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)
     const body = (await res.json()) as OverviewWire
-    expect(body.schema_version).toBe('wikikit.spaces-overview.v1')
+    expect(body.schema_version).toBe('wikikit.spaces-overview.v2')
 
     const alpha = body.items.find((item) => item.space === 'alpha')!
     expect(alpha.purpose).toBe('First wiki')
-    expect(alpha.review_queue.pending).toBe(2)
-    expect(alpha.review_queue.oldest_days).toBe(21)
-    // The mixed-provenance proposal does not count: derived means EVERY cited
-    // source carries the stamp.
-    expect(alpha.review_queue.pending_derived).toBe(1)
-    expect(alpha.created_7d).toBe(2)
+    expect(alpha.environment).toBe('production')
+    expect(alpha.attention).toEqual({
+      open: 2,
+      oldest_days: 21,
+      by_kind: { proposal: 1, triage: 1, output: 0 },
+    })
     expect(alpha.concepts).toBe(1)
 
     // Beta holds nothing: measured zeros, and a NULL age — never "0 days".
     const beta = body.items.find((item) => item.space === 'beta')!
     expect(beta.purpose).toBeNull()
-    expect(beta.review_queue).toEqual({ pending: 0, oldest_days: null, pending_derived: 0 })
-    expect(beta.created_7d).toBe(0)
+    expect(beta.attention).toEqual({
+      open: 0,
+      oldest_days: null,
+      by_kind: { proposal: 0, triage: 0, output: 0 },
+    })
     expect(beta.concepts).toBe(0)
 
-    expect(body.totals).toEqual({ pending: 2, pending_derived: 1, created_7d: 2, oldest_days: 21 })
+    expect(body.totals).toEqual({ open: 2, oldest_days: 21, wikis_with_open: 1 })
   })
 
   it('a space-scoped key gets a one-row overview, not an error', async () => {
@@ -230,7 +234,7 @@ describe('cross-wiki overview (integration)', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as OverviewWire
     expect(body.items.map((item) => item.space)).toEqual(['alpha'])
-    expect(body.totals.pending).toBe(2)
+    expect(body.totals.open).toBe(2)
   })
 
   it('wikikit_overview serves the identical wire shape', async () => {

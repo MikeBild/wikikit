@@ -196,7 +196,7 @@ describe('source index window (integration)', () => {
     expect(await chunksOf(seeded.proposed!), 'a source under a pending proposal must stay findable').toBe(1)
     expect(await chunksOf(seeded.streamHead!), 'a stream head is current truth, not history').toBe(1)
     expect(await chunksOf(seeded.inFlight!), 'an unfinished ingest job is still going to chunk it').toBe(1)
-    expect(await chunksOf(seeded.derived!), 'a derived source is counted by pending_derived').toBe(1)
+    expect(await chunksOf(seeded.derived!), 'a derived source retains provenance for self-derived checks').toBe(1)
   })
 
   it('the swept source keeps its archive row, verbatim', async () => {

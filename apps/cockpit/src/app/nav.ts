@@ -73,7 +73,21 @@ export const NAV: readonly NavEntry[] = [
     // `health` rather than `stats/coverage`: the composed read carries the same
     // coverage block AND the two live queues the loop is measured by, so the
     // front page asks once for the numbers it used to guess at.
-    api: ['/v1/spaces/{space}/attention', '/v1/spaces/{space}/concepts'],
+    api: ['/v1/spaces/{space}/attention', '/v1/spaces/{space}/concepts', '/v1/stats/overview'],
+  },
+  {
+    to: '/spaces',
+    label: 'Wikis',
+    icon: FolderKanban,
+    scope: 'knowledge:read',
+    group: 'home',
+    api: [
+      '/v1/spaces',
+      '/v1/spaces/{space}',
+      '/v1/spaces/{space}/settings',
+      '/v1/spaces/{space}/export',
+      '/v1/stats/overview',
+    ],
   },
   {
     to: '/inbox',
@@ -151,7 +165,13 @@ export const NAV: readonly NavEntry[] = [
     // same right as deciding when a report runs. The outputs list feeds the
     // kept-reports history (kind='health'); reading one whole report happens on
     // the Answers page, which declares the by-id path.
-    api: ['/v1/spaces/{space}/health', '/v1/spaces/{space}/schedules', '/v1/spaces/{space}/outputs'],
+    api: [
+      '/v1/spaces/{space}/health',
+      '/v1/spaces/{space}/schedules',
+      '/v1/spaces/{space}/outputs',
+      '/v1/spaces/{space}/sources/{id}/resynthesize',
+      '/v1/ingests/{id}',
+    ],
   },
   {
     to: '/sources',
@@ -164,6 +184,7 @@ export const NAV: readonly NavEntry[] = [
     api: [
       '/v1/spaces/{space}/sources',
       '/v1/spaces/{space}/sources/{id}',
+      '/v1/spaces/{space}/sources/{id}/references',
       '/v1/spaces/{space}/source-streams',
       '/v1/spaces/{space}/source-streams/{external_source_id}',
     ],
@@ -186,20 +207,6 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'archive',
     api: ['/v1/spaces/{space}/charter', '/v1/spaces/{space}/charter/versions'],
-  },
-  {
-    to: '/spaces',
-    label: 'Wikis',
-    icon: FolderKanban,
-    scope: 'knowledge:read',
-    group: 'installation',
-    api: [
-      '/v1/spaces',
-      '/v1/spaces/{space}',
-      '/v1/spaces/{space}/settings',
-      '/v1/spaces/{space}/export',
-      '/v1/stats/overview',
-    ],
   },
   {
     to: '/api-keys',
@@ -271,8 +278,9 @@ export interface NavGroup {
  * Nine open entries is a menu; five is a model.
  *
  * `archive` is collapsible and NOT separated: it is still about the knowledge,
- * just one level in. Installation stays the only separated block, because it is
- * the only one about WikiKit itself rather than about what it holds — and
+ * just one level in. The cross-wiki map is a primary reading surface beside
+ * Home and Decisions; Installation stays the only separated block, because it is
+ * only about WikiKit itself rather than about what it holds — and
  * test/unit/cockpit-navigation.test.ts holds that to exactly one block.
  */
 export const GROUPS: readonly NavGroup[] = [

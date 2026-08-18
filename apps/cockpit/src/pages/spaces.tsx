@@ -31,7 +31,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { RelativeTime } from '@/components/ui/relative-time'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -40,11 +39,11 @@ import { firstPage, type CursorPage } from '@/lib/cursor'
 import { useI18n } from '@/lib/i18n-context'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
-import { compareNumber, compareText, compareTime } from '@/lib/table-view'
+import { compareNumber, compareText } from '@/lib/table-view'
 import { toast } from '@/lib/toast'
 import { waitedDays } from '@/pages/care.logic'
 import { count } from '@/pages/home.logic'
-import { attentionOrder, backlogSplit, mergeOverview, type OverviewItem } from '@/pages/spaces.logic'
+import { attentionOrder, mergeOverview, type OverviewItem } from '@/pages/spaces.logic'
 
 /**
  * ┌──────────────────────────────────────────────────────────────────────────┐
@@ -151,14 +150,21 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     cell: (space) => (
       <div className="flex min-w-0 flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="truncate font-mono text-xs">{space.slug}</span>
+          <Link
+            to="/"
+            search={{ space: space.slug }}
+            className="truncate font-medium underline-offset-4 hover:underline"
+            data-testid={`space-open-${space.slug}`}
+          >
+            {space.name}
+          </Link>
           {space.current ? (
             <Badge tone="accent" data-testid={`space-current-${space.slug}`}>
               Reading
             </Badge>
           ) : null}
         </div>
-        <span className="text-muted-foreground truncate">{space.name}</span>
+        <span className="text-muted-foreground truncate font-mono text-xs">{space.slug}</span>
       </div>
     ),
   },
@@ -178,27 +184,18 @@ const COLUMNS: readonly DataColumn<Row>[] = [
   },
   {
     id: 'waiting',
-    // The same word Check uses for the same queue: changes waiting for a person.
-    label: 'Waiting',
+    label: 'Open decisions',
     descFirst: true,
-    compare: (left, right) => compareNumber(left.ov?.review_queue.pending, right.ov?.review_queue.pending),
-    cell: (space) => <WaitingCell slug={space.slug} queue={space.ov?.review_queue ?? null} />,
+    compare: (left, right) => compareNumber(left.ov?.attention.open, right.ov?.attention.open),
+    cell: (space) => <WaitingCell slug={space.slug} attention={space.ov?.attention ?? null} />,
   },
   {
     id: 'oldest',
     label: 'Oldest',
     priority: 'secondary',
     descFirst: true,
-    compare: (left, right) => compareNumber(left.ov?.review_queue.oldest_days, right.ov?.review_queue.oldest_days),
-    cell: (space) => <WaitedCell days={space.ov?.review_queue.oldest_days ?? null} />,
-  },
-  {
-    id: 'recent',
-    label: 'Last 7 days',
-    priority: 'optional',
-    descFirst: true,
-    compare: (left, right) => compareNumber(left.ov?.created_7d, right.ov?.created_7d),
-    cell: (space) => <span className="tabular-nums">{count(space.ov?.created_7d)}</span>,
+    compare: (left, right) => compareNumber(left.ov?.attention.oldest_days, right.ov?.attention.oldest_days),
+    cell: (space) => <WaitedCell days={space.ov?.attention.oldest_days ?? null} />,
   },
   {
     id: 'pages',
@@ -226,51 +223,6 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     },
   },
   {
-    id: 'language',
-    label: 'Retrieval',
-    priority: 'optional',
-    compare: (left, right) =>
-      compareText(readLanguage(left.settings) ?? DEFAULT_LANGUAGE, readLanguage(right.settings) ?? DEFAULT_LANGUAGE),
-    cell: (space) => {
-      const chosen = readLanguage(space.settings)
-      // Never colour alone, and never a bare "en" that hides whether anybody
-      // decided: the word says which, and "default" says who.
-      return chosen ? (
-        <span className="font-mono text-xs">{chosen}</span>
-      ) : (
-        <span className="text-muted-foreground font-mono text-xs">{DEFAULT_LANGUAGE} · default</span>
-      )
-    },
-  },
-  {
-    id: 'imports',
-    label: 'Reads from',
-    priority: 'optional',
-    cell: (space) => {
-      const imports = readImports(space.settings)
-      // Not configured and configured-as-none are the same fact here — this wiki
-      // reads nothing but itself — and neither is a count, so neither is a 0.
-      if (imports.length === 0) return <span className="text-muted-foreground">—</span>
-      return (
-        <div className="flex flex-wrap gap-1">
-          {imports.map((slug) => (
-            <Badge key={slug} tone="neutral" className="font-mono text-[10px]">
-              {slug}
-            </Badge>
-          ))}
-        </div>
-      )
-    },
-  },
-  {
-    id: 'updated',
-    label: 'Changed',
-    hiddenByDefault: true,
-    descFirst: true,
-    compare: (left, right) => compareTime(left.updated_at, right.updated_at),
-    cell: (space) => <RelativeTime value={space.updated_at} data-testid={`space-${space.slug}-updated`} />,
-  },
-  {
     id: 'actions',
     label: 'Actions',
     headerHidden: true,
@@ -288,10 +240,12 @@ const COLUMNS: readonly DataColumn<Row>[] = [
 export function SpacesPage() {
   const current = useSpace()
   const can = useCan()
+  const { t } = useI18n()
   const admin = can('admin')
 
   const [page, setPage] = useState<CursorPage>(firstPage)
   const [creating, setCreating] = useState(false)
+  const [showTests, setShowTests] = useState(false)
   const { view, setView } = useTableView('spaces', COLUMNS)
 
   const spaces = useQuery({ queryKey: keys.spaces(), queryFn: () => wk.spaces.list() })
@@ -302,16 +256,14 @@ export function SpacesPage() {
 
   // Attention order — oldest wait first — is the DEFAULT order; a sort the
   // operator picks through the header overrides it inside the table.
-  const rows = attentionOrder(mergeOverview(spaces.data?.items ?? [], overview.data)).map(({ space, ov }) => ({
-    ...space,
-    current: space.slug === current,
-    ov,
-  }))
+  const rows = attentionOrder(mergeOverview(spaces.data?.items ?? [], overview.data))
+    .filter(({ space }) => showTests || readEnvironment(space.settings) !== 'test')
+    .map(({ space, ov }) => ({ ...space, current: space.slug === current, ov }))
 
   return (
     <Page
-      title="Wikis"
-      description="Every wiki this installation holds, what each one is for, and how each one is read."
+      title={t('nav.spaces')}
+      description={t('spaces.description')}
       actions={
         <DisabledReason reason={admin ? null : 'Needs admin — creating a wiki is an installation-level act.'}>
           <Button data-testid="spaces-new" disabled={!admin} onClick={() => setCreating(true)}>
@@ -323,6 +275,15 @@ export function SpacesPage() {
     >
       <div className="flex flex-col gap-6">
         <TotalsStrip overview={overview} />
+
+        <label className="flex w-fit items-center gap-2 text-sm" data-testid="spaces-show-tests">
+          <Checkbox
+            checked={showTests}
+            onCheckedChange={(checked) => setShowTests(checked === true)}
+            data-testid="spaces-show-tests-toggle"
+          />
+          {t('spaces.showTests')}
+        </label>
 
         <DataTable
           testId="spaces"
@@ -348,7 +309,7 @@ export function SpacesPage() {
 }
 
 /**
- * The review backlog of one wiki, linked straight to the work.
+ * The actionable decisions of one wiki, linked straight to the work.
  *
  * The count is a LINK to that wiki's decisions queue — the number is an
  * instruction, and an instruction should land where
@@ -358,37 +319,18 @@ export function SpacesPage() {
  * can see distilled human knowledge hiding behind machine-report stacks, never
  * a judgement about either kind.
  */
-function WaitingCell({
-  slug,
-  queue,
-}: {
-  slug: string
-  queue: { pending: number; oldest_days: number | null; pending_derived: number } | null
-}) {
-  const { text } = useI18n()
-  if (!queue) return <span className="text-muted-foreground">—</span>
-  if (queue.pending === 0) return <span className="tabular-nums">0</span>
-  const split = backlogSplit(queue)
+function WaitingCell({ slug, attention }: { slug: string; attention: OverviewItem['attention'] | null }) {
+  if (!attention) return <span className="text-muted-foreground">—</span>
+  if (attention.open === 0) return <span className="tabular-nums">0</span>
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Link
-        to="/decisions"
-        search={{ space: slug }}
-        data-testid={`space-waiting-${slug}`}
-        className="font-medium tabular-nums underline-offset-4 hover:underline"
-      >
-        {count(queue.pending)}
-      </Link>
-      {split.derived > 0 ? (
-        <Badge
-          tone="neutral"
-          className="h-auto min-w-0 max-w-full whitespace-normal text-left leading-tight"
-          data-testid={`space-derived-${slug}`}
-        >
-          {count(split.derived)} {text('from generated reports')}
-        </Badge>
-      ) : null}
-    </div>
+    <Link
+      to="/decisions"
+      search={{ space: slug }}
+      data-testid={`space-waiting-${slug}`}
+      className="font-medium tabular-nums underline-offset-4 hover:underline"
+    >
+      {count(attention.open)}
+    </Link>
   )
 }
 
@@ -406,7 +348,7 @@ function WaitedCell({ days }: { days: number | null }) {
  * identity with dashes.
  */
 function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
-  const { text } = useI18n()
+  const { t, text } = useI18n()
   return (
     <I18nText>
       <section className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4" data-testid="spaces-totals">
@@ -415,38 +357,32 @@ function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
           help={
             <>
               <p>
-                Every wiki this key can see, summed: changes waiting for a decision, how long the oldest has waited, and
-                how much arrived in the last 7 days.
-              </p>
-              <p>
-                <strong className="text-foreground font-medium">From generated reports</strong> counts the waiting
-                changes whose every cited source came out of the wiki itself — promoted answers, briefings, check
-                reports. That is provenance, not a verdict: it says where the evidence came from, so distilled human
-                knowledge is not buried under machine-written backlog.
+                Every wiki this key can see, summed: actual human decisions and how long the oldest has waited. Check
+                findings are observations and are not counted as decisions.
               </p>
             </>
           }
           testId="spaces-totals-help"
         >
-          Across every wiki
+          {t('home.global.title')}
         </SectionHeading>
         <DataState testId="spaces-overview" query={overview} skeleton={<TotalsSkeleton />}>
           {(data) => {
             const oldest = waitedDays(data.totals.oldest_days)
             return (
               <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <Fact testId="overview-pending" label="Waiting" value={count(data.totals.pending)} />
                 <Fact
-                  testId="overview-derived"
-                  label="From generated reports"
-                  value={count(data.totals.pending_derived)}
+                  testId="overview-wikis"
+                  label={t('spaces.wikisWithOpen')}
+                  value={count(data.totals.wikis_with_open)}
                 />
+                <Fact testId="overview-pending" label={t('home.global.open')} value={count(data.totals.open)} />
                 <Fact
                   testId="overview-oldest"
-                  label="The oldest has waited"
+                  label={t('spaces.oldest')}
                   value={oldest.phrase === null ? '—' : text(oldest.phrase, oldest.values)}
                 />
-                <Fact testId="overview-recent" label="Last 7 days" value={count(data.totals.created_7d)} />
+                <Fact testId="overview-wikis-all" label={t('spaces.visibleWikis')} value={count(data.items.length)} />
               </dl>
             )
           }}
@@ -480,6 +416,7 @@ function TotalsSkeleton() {
  */
 function RowActions({ slug }: { slug: string }) {
   const can = useCan()
+  const { t } = useI18n()
   const admin = can('admin')
   const [open, setOpen] = useState(false)
 
@@ -491,6 +428,11 @@ function RowActions({ slug }: { slug: string }) {
       a phone cannot reach — which on this page means export and settings.
     */
     <div className="flex flex-wrap justify-end gap-1">
+      <Button asChild size="sm">
+        <Link to="/" search={{ space: slug }} data-testid={`space-enter-${slug}`}>
+          {t('spaces.openWiki')}
+        </Link>
+      </Button>
       <ExportMenu slug={slug} />
       <DisabledReason
         reason={admin ? null : 'Needs admin — settings decide how this wiki is read.'}

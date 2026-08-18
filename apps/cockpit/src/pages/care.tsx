@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/empty-state'
 import { I18nText } from '@/components/i18n-text'
 import { Fact } from '@/components/fact'
 import { Badge } from '@/components/ui/badge'
+import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -141,11 +142,13 @@ export function CarePage() {
                       {t('check.checked')} <RelativeTime value={data.checked_at} /> · {t('check.guidelinesRevision')}{' '}
                       {data.guidelines.revision ?? '—'}
                     </p>
-                    <Button asChild size="sm">
-                      <Link to="/decisions" search={(prev) => prev} data-testid="care-open-decisions">
-                        {t('check.findings')}
-                      </Link>
-                    </Button>
+                    {data.review_queue.pending > 0 ? (
+                      <Button asChild size="sm">
+                        <Link to="/decisions" search={(prev) => prev} data-testid="care-open-decisions">
+                          {t('spaces.openDecisions')}
+                        </Link>
+                      </Button>
+                    ) : null}
                   </div>
                   <section className="flex flex-col gap-3" aria-labelledby="care-queues-heading">
                     <h2 id="care-queues-heading" className="text-sm font-semibold">
@@ -268,33 +271,22 @@ export function CarePage() {
                               <Fact testId="care-warnings" label="Warnings" value={count(data.lint.counts.warn)} />
                               <Fact testId="care-notes" label="Notes" value={count(data.lint.counts.info)} />
                             </dl>
-                            {groupFindingsByRule(display.shown).map((group) => (
-                              <section
-                                key={group.rule}
-                                className="flex flex-col gap-2"
-                                aria-label={ruleTitle(locale, group.rule)}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <h3 className="text-sm font-medium">{ruleTitle(locale, group.rule)}</h3>
-                                  <Badge tone={group.tone}>{group.items.length}</Badge>
-                                  <span className="text-muted-foreground text-xs">{count(group.items.length)}</span>
-                                </div>
-                                <ul className="flex flex-col gap-1.5">
-                                  {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
-                                    <Finding
-                                      key={`${finding.rule}-${finding.concept_slug ?? index}`}
-                                      finding={finding}
-                                      testId={`care-${group.rule}-${index + 1}`}
-                                    />
-                                  ))}
-                                </ul>
-                                {group.items.length > FINDINGS_SHOWN ? (
-                                  <p className="text-muted-foreground text-xs" data-testid={`care-more-${group.rule}`}>
-                                    And {count(group.items.length - FINDINGS_SHOWN)} more.
-                                  </p>
-                                ) : null}
-                              </section>
-                            ))}
+                            <FindingSection
+                              title={t('check.actionRequired')}
+                              description={t('check.actionRequired.description')}
+                              findings={display.shown.filter((finding) => finding.severity !== 'info')}
+                              space={space}
+                              locale={locale}
+                              testId="care-action-required"
+                            />
+                            <FindingSection
+                              title={t('check.information')}
+                              description={t('check.information.description')}
+                              findings={display.shown.filter((finding) => finding.severity === 'info')}
+                              space={space}
+                              locale={locale}
+                              testId="care-information"
+                            />
                             {display.folded > 0 ? (
                               <p className="text-muted-foreground text-xs" data-testid="care-folded-note">
                                 {text('A change waiting past two weeks appears once, as a warning ({count} folded).', {
@@ -488,6 +480,149 @@ function Finding({
         <ContextHelp title="Why it counts" testId={`${testId}-why`}>
           <p>{why}</p>
         </ContextHelp>
+      ) : null}
+    </li>
+  )
+}
+
+function FindingSection({
+  title,
+  description,
+  findings,
+  space,
+  locale,
+  testId,
+}: {
+  title: string
+  description: string
+  findings: readonly LintFinding[]
+  space: string
+  locale: 'en' | 'de'
+  testId: string
+}) {
+  if (!findings.length) return null
+  return (
+    <section className="flex flex-col gap-3 border-t pt-4" data-testid={testId}>
+      <div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </div>
+      {groupFindingsByRule(findings).map((group) => (
+        <section key={group.rule} className="flex flex-col gap-2" aria-label={ruleTitle(locale, group.rule)}>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-medium">{ruleTitle(locale, group.rule)}</h4>
+            <Badge tone={group.tone}>{count(group.items.length)}</Badge>
+          </div>
+          {group.rule === 'dangling-sources' ? (
+            <ul className="flex flex-col gap-2">
+              {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
+                <UnusedSourceFinding
+                  key={`${finding.rule}-${String(finding.details?.source_id ?? index)}`}
+                  finding={finding}
+                  space={space}
+                  testId={`care-${group.rule}-${index + 1}`}
+                />
+              ))}
+            </ul>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
+                <Finding
+                  key={`${finding.rule}-${finding.concept_slug ?? index}`}
+                  finding={finding}
+                  testId={`care-${group.rule}-${index + 1}`}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      ))}
+    </section>
+  )
+}
+
+function UnusedSourceFinding({
+  finding,
+  space,
+  testId,
+}: {
+  finding: LintFinding & { details?: Record<string, unknown> }
+  space: string
+  testId: string
+}) {
+  const { t } = useI18n()
+  const can = useCan()
+  const sourceId = typeof finding.details?.source_id === 'string' ? finding.details.source_id : null
+  const sourceTitle =
+    typeof finding.details?.source_title === 'string' ? finding.details.source_title : t('check.unusedSource.title')
+  const [jobId, setJobId] = useState<string | null>(null)
+  const submit = useMutation({
+    mutationFn: () => wk.sources.resynthesize(space, sourceId!),
+    onSuccess: (result) => setJobId(result.ingest_id),
+  })
+  const job = useQuery({
+    queryKey: jobId ? keys.ingestJob(jobId) : ['unused-source-resynthesis', 'none'],
+    queryFn: () => wk.ingest.job(jobId!),
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'queued' || status === 'running' || status === 'quota_blocked' ? 2_000 : false
+    },
+  })
+  const running = submit.isPending || ['queued', 'running', 'quota_blocked'].includes(job.data?.status ?? '')
+
+  return (
+    <li className="rounded-lg border bg-muted/15 p-3" data-testid={testId}>
+      <strong className="text-sm">{sourceTitle}</strong>
+      <p className="mt-1 text-sm text-muted-foreground">{t('check.unusedSource.description')}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{t('check.unusedSource.noAction')}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {sourceId ? (
+          <Button asChild variant="outline" size="sm">
+            <Link
+              to="/sources/$id"
+              params={{ id: sourceId }}
+              search={(previous) => previous}
+              data-testid={`${testId}-source`}
+            >
+              {t('check.viewSource')}
+            </Link>
+          </Button>
+        ) : null}
+        {sourceId && can('knowledge:propose') ? (
+          <Confirm
+            title={t('check.resynthesize.title')}
+            description={t('check.resynthesize.description')}
+            confirmLabel={t('check.resynthesize.confirm')}
+            onConfirm={() => submit.mutateAsync()}
+            ids={{ dialog: `${testId}-propose-dialog`, accept: `${testId}-propose-confirm` }}
+          >
+            {(open) => (
+              <Button size="sm" disabled={running} onClick={open} data-testid={`${testId}-propose`}>
+                {running ? t('check.resynthesize.running') : t('check.proposeKnowledge')}
+              </Button>
+            )}
+          </Confirm>
+        ) : null}
+      </div>
+      {submit.isError || job.data?.status === 'failed' ? (
+        <Alert className="mt-3" tone="danger" title={t('check.resynthesize.failed')} />
+      ) : null}
+      {job.data?.status === 'done' && job.data.proposal_id ? (
+        <Alert className="mt-3" tone="info" title={t('check.resynthesize.done')}>
+          <Link
+            to="/decisions/proposals/$id"
+            params={{ id: job.data.proposal_id }}
+            search={(previous) => previous}
+            className="font-medium underline-offset-4 hover:underline"
+            data-testid={`${testId}-proposal`}
+          >
+            {t('check.openProposal')}
+          </Link>
+        </Alert>
+      ) : null}
+      {job.data?.status === 'done' && !job.data.proposal_id ? (
+        <Alert className="mt-3" tone="info" title={t('check.resynthesize.noChange')} />
       ) : null}
     </li>
   )

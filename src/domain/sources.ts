@@ -79,6 +79,19 @@ export interface Source extends SourceSummary {
   supersedes_source_id: string | null
 }
 
+export interface SourceReference {
+  kind: 'page' | 'proposal'
+  id: string
+  label: string
+  href: string
+  claim_count: number
+}
+
+export interface SourceReferencePage {
+  items: SourceReference[]
+  next_cursor: string | null
+}
+
 interface SourceRow {
   id: string
   kind: SourceKind
@@ -371,9 +384,8 @@ export async function persistSourceChunks(
  *     head is the connector's current truth about a document, not history,
  *   - carrying no job in queued/running/quota_blocked — a parked or in-flight
  *     ingest is still going to chunk, and unindexing under it would race,
- *   - not stamped derived_from_output_id: those sources are counted by
- *     `pending_derived` in the overview and by the self-derived-only lint rule,
- *     and silently moving that number is a measurement changing itself.
+ *   - not stamped derived_from_output_id: the self-derived-only lint rule must
+ *     retain this provenance even when no page currently cites the source.
  *
  * days <= 0 means indexed forever — the default, and the reason this returns
  * before issuing any statement rather than computing a zero-day window, which
@@ -436,4 +448,57 @@ export async function getSource(db: Db, spaceId: string, args: { id: string }): 
   })
   if (!row) throw new NotFoundError(`source ${args.id} not found`)
   return toSource(row)
+}
+
+/** Current knowledge and pending review work that uses one archived source. */
+export async function listSourceReferences(
+  db: Db,
+  spaceId: string,
+  args: { id: string; limit?: number; cursor?: string },
+): Promise<SourceReferencePage> {
+  await getSource(db, spaceId, { id: args.id })
+  const limit = clampLimit(args.limit, 50, 200)
+  const offset = args.cursor ? Number(Buffer.from(args.cursor, 'base64url').toString('utf8')) : 0
+  if (!Number.isInteger(offset) || offset < 0) throw new ValidationError('cursor is invalid')
+  const result = await db.query<{
+    kind: 'page' | 'proposal'
+    id: string
+    label: string
+    claim_count: number
+  }>(
+    `WITH refs AS (
+       SELECT 'page'::text AS kind, c.slug AS id, c.title AS label, count(DISTINCT cl.id)::int AS claim_count
+         FROM wk_citations ci
+         JOIN wk_claims cl ON cl.id = ci.claim_id
+         JOIN wk_concepts c ON c.id = cl.concept_id
+        WHERE ci.space_id = $1 AND ci.source_id = $2
+          AND cl.status IN ('verified', 'disputed') AND c.current_revision_id IS NOT NULL
+        GROUP BY c.slug, c.title
+       UNION ALL
+       SELECT 'proposal'::text AS kind, p.id::text AS id, p.title AS label,
+              count(DISTINCT ci.claim_id)::int AS claim_count
+         FROM wk_change_proposals p
+         LEFT JOIN wk_claims cl ON cl.proposal_id = p.id
+         LEFT JOIN wk_citations ci ON ci.claim_id = cl.id AND ci.source_id = $2
+        WHERE p.space_id = $1 AND p.status = 'pending'
+          AND ($2::uuid = ANY(p.source_ids) OR ci.source_id IS NOT NULL)
+        GROUP BY p.id, p.title
+     )
+     SELECT kind, id, label, claim_count
+       FROM refs
+      ORDER BY kind ASC, label ASC, id ASC
+      LIMIT $3 OFFSET $4`,
+    [spaceId, args.id, limit + 1, offset],
+  )
+  const more = result.rows.length > limit
+  return {
+    items: result.rows.slice(0, limit).map((row) => ({
+      kind: row.kind,
+      id: row.id,
+      label: row.label,
+      href: row.kind === 'page' ? `/pages/${row.id}` : `/decisions/proposals/${row.id}`,
+      claim_count: Number(row.claim_count),
+    })),
+    next_cursor: more ? Buffer.from(String(offset + limit)).toString('base64url') : null,
+  }
 }

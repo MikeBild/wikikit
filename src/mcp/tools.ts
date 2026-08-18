@@ -1139,12 +1139,10 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_overview',
     description:
-      'One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its ' +
-      'oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports ' +
-      '(provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — ' +
-      'plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the ' +
-      'space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports ' +
-      'numbers and never a verdict: how large a backlog is too large is the operator’s policy.',
+      'One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated ' +
+      'outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed ' +
+      'server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE ' +
+      'attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.',
     scope: 'knowledge:read',
     inputSchema: zOverviewToolInput,
     annotations: READ_ANNOTATIONS,
@@ -1162,7 +1160,7 @@ export const TOOLS: McpToolDef[] = [
       const overview = await spacesOverview(deps.db, visible)
       // The identical wire shape REST serves, version stamp included, so a
       // client diffing the two surfaces sees one document.
-      return { schema_version: 'wikikit.spaces-overview.v1' as const, ...overview }
+      return { schema_version: 'wikikit.spaces-overview.v2' as const, ...overview }
     },
   },
 ]

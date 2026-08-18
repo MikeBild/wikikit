@@ -262,19 +262,16 @@ function stubDb(): Db {
         if (text.includes('AS inbound_relations')) return [{ slug: 'wikikit', title: 'WikiKit', inbound_relations: 4 }]
         if (text.includes('FROM wk_coverage_gaps')) return [{ lexeme: 'sofa', count: 2 }]
 
-        // Cross-wiki overview (reviewOverview) — grouped per space, so the
-        // rows carry space_id. Matched BEFORE the space-health branch below:
-        // both statements alias a pending count. The concepts census reuses
-        // the same GROUP BY shape.
-        if (text.includes('AS pending_derived')) {
-          return [{ space_id: SPACE_ID, pending: 3, oldest_days: 21, created_7d: 2, pending_derived: 1 }]
+        // Cross-wiki overview: actionable decisions grouped by space and kind.
+        if (text.includes('GROUP BY item.space_id, item.kind')) {
+          return [{ space_id: SPACE_ID, kind: 'proposal', open: 3, oldest_days: 21 }]
         }
         if (text.includes('AS concepts')) return [{ space_id: SPACE_ID, concepts: 4 }]
 
         // Composed health (spaceHealth) — the two live queues it measures
         // itself. Both are populated so the nullable ages travel as numbers;
         // the null side of each pair is gated in the domain and asserted there.
-        if (text.includes('AS pending')) return [{ pending: 3, oldest_days: 21 }]
+        if (text.includes('AS pending')) return [{ space_id: SPACE_ID, pending: 3, oldest_days: 21 }]
         if (text.includes('AS oldest_queued_hours')) {
           return [{ queued: 2, running: 1, quota_blocked: 0, oldest_queued_hours: 4.5 }]
         }
@@ -897,6 +894,18 @@ const CASES: RouteCase[] = [
     method: 'get',
     url: `/v1/spaces/demo/sources/${SOURCE_ID}`,
     status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/sources/{id}/references',
+    method: 'get',
+    url: `/v1/spaces/demo/sources/${SOURCE_ID}/references`,
+    status: 200,
+  },
+  {
+    template: '/v1/spaces/{space}/sources/{id}/resynthesize',
+    method: 'post',
+    url: `/v1/spaces/demo/sources/${SOURCE_ID}/resynthesize`,
+    status: 202,
   },
   {
     template: '/v1/spaces/{space}/source-streams',

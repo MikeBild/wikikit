@@ -690,7 +690,7 @@ exports[`MCP manifest contract tools/list manifest for read-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -851,6 +851,12 @@ exports[`MCP manifest contract tools/list manifest for propose-key 1`] = `
         "resynthesize": {
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
+        },
+        "resynthesize_source_id": {
+          "description": "Archived source being re-synthesized; requires resynthesize=true",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
         },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
@@ -2045,6 +2051,12 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
         },
+        "resynthesize_source_id": {
+          "description": "Archived source being re-synthesized; requires resynthesize=true",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -2655,7 +2667,7 @@ exports[`MCP manifest contract tools/list manifest for read-propose-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -3544,6 +3556,12 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
         },
+        "resynthesize_source_id": {
+          "description": "Archived source being re-synthesized; requires resynthesize=true",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -4243,7 +4261,7 @@ exports[`MCP manifest contract tools/list manifest for admin-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -5038,6 +5056,12 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
           "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
           "type": "boolean",
         },
+        "resynthesize_source_id": {
+          "description": "Archived source being re-synthesized; requires resynthesize=true",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "source_kind": {
           "description": "What the source is: 'meeting' sources are mined for explicit decision statements",
           "enum": [
@@ -5737,7 +5761,7 @@ exports[`MCP manifest contract tools/list manifest for star-key 1`] = `
       "openWorldHint": false,
       "readOnlyHint": true,
     },
-    "description": "One LLM-free read across EVERY wiki this key can see: per space the review backlog with the age of its oldest pending change, how many of those pending changes rest entirely on the wiki’s own generated reports (provenance, not a quality verdict), proposal activity over the last 7 days, and the visible page count — plus totals summed server-side. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick; chaining wikikit_health across every space answers the same question in ten calls. Reports numbers and never a verdict: how large a backlog is too large is the operator’s policy.",
+    "description": "One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},

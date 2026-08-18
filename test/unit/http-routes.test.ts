@@ -37,6 +37,8 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/spaces/{space}/ingests', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/sources/{id}', 'knowledge:read'],
+  ['get', '/v1/spaces/{space}/sources/{id}/references', 'knowledge:read'],
+  ['post', '/v1/spaces/{space}/sources/{id}/resynthesize', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/source-streams', 'knowledge:read'],
   ['delete', '/v1/spaces/{space}/source-streams/{external_source_id}', 'knowledge:propose'],
   ['get', '/v1/spaces/{space}/decisions', 'knowledge:read'],

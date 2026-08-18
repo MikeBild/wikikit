@@ -19,8 +19,6 @@ function stubDb(backlogs: Record<string, { pending: number; oldest_days: number 
             space_id: id,
             pending: backlogs[id]!.pending,
             oldest_days: backlogs[id]!.oldest_days,
-            created_7d: 0,
-            pending_derived: 0,
           }))
         return { rows, rowCount: rows.length }
       }

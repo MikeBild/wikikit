@@ -27,7 +27,8 @@ describe('the Pages index fits its viewport', () => {
     expect(source).toContain('cell: (row) => <RelativeTime value={row.updated_at} />')
   })
 
-  test('wraps generated-report provenance inside the narrow wiki overview cell', () => {
-    expect(spacesSource).toContain('className="h-auto min-w-0 max-w-full whitespace-normal text-left leading-tight"')
+  test('keeps the wiki overview narrow by showing only actionable decisions', () => {
+    expect(spacesSource).toContain('attention.open')
+    expect(spacesSource).not.toContain('pending_derived')
   })
 })

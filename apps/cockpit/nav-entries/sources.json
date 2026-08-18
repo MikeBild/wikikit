@@ -7,6 +7,7 @@
   "api": [
     "/v1/spaces/{space}/sources",
     "/v1/spaces/{space}/sources/{id}",
+    "/v1/spaces/{space}/sources/{id}/references",
     "/v1/spaces/{space}/source-streams",
     "/v1/spaces/{space}/source-streams/{external_source_id}"
   ]

@@ -53,9 +53,9 @@ spaces, or repository manifest is required:
    needs it. Use provenance and history tools when the origin matters.
 
 For a maintenance pass, start with `wikikit_overview`: one LLM-free read
-listing every visible wiki with its review backlog, the age of the oldest
-pending change, the share of pending changes derived from the wiki's own
-generated reports, 7-day activity and the visible page count. Pick the space
+listing every visible wiki with its proposals, inbox triage and generated
+outputs still requiring a person, the age of the oldest and the visible page
+count. Check findings are observations and are not counted. Pick the space
 that needs attention there, then call `wikikit_health` on that one space —
 chaining `wikikit_health` across every space answers the same question in ten
 calls. Both `wikikit_lint` and `wikikit_health` take `tier`: `'quick'` runs

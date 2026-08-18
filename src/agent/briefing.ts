@@ -119,8 +119,8 @@ export async function buildAgentBriefing(
   }
 
   // Only the briefed spaces — the caller chose them, this function enumerates
-  // nothing. reviewOverview is the same measurement the overview surfaces use,
-  // so the briefing can never disagree with them about a backlog.
+  // nothing. This block is proposal-specific; the end-user overview also
+  // counts triage and unpromoted outputs because those require a person too.
   const overview = await reviewOverview(
     db,
     spaces.map((space) => space.id),

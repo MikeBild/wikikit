@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.45.0 - 2026-08-18
+
+### Changed
+
+- The Cockpit start page now begins with a production-wiki overview. Wikis are
+  a primary navigation destination instead of installation-only setup, and
+  test wikis stay hidden until explicitly requested.
+- Decisions now contain only work that requires a human choice: proposals,
+  inbox triage and unfiled generated results. Check findings remain under
+  Check, where informational observations and actionable repairs are clearly
+  separated.
+- Every decision shows where it came from and what it would change. The
+  cross-wiki overview uses the same open-work definition, including deferred
+  and discarded decisions.
+- All new Cockpit labels, explanations, states, actions and error messages are
+  available in both English and German. Authored wiki and source titles remain
+  unchanged.
+
+### Added
+
+- Source pages now list the current pages and pending proposals that use the
+  archived source.
+- An unused-source finding explains that nothing is broken and offers an
+  explicit, review-gated “propose knowledge” action that re-runs the current
+  synthesis pipeline over the immutable archived content.
+
+### Removed
+
+- The unexplained six-step knowledge-cycle cards and their inconsistent links.
+- Check findings from the decisions queue, including the legacy `care`
+  attention kind and its persisted overlays.
+- Obsolete cross-wiki fields for seven-day proposal activity and
+  generated-only proposal counts.
+
 ## 0.44.4 - 2026-08-18
 
 ### Fixed

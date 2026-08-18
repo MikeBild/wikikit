@@ -11,6 +11,7 @@ import {
   decodeCursor,
   encodeCursor,
   getSource,
+  listSourceReferences,
   listSources,
   persistSourceChunks,
   resolveChunkCitation,
@@ -226,6 +227,46 @@ describe('resolveChunkCitation', () => {
   test('404s an unknown or foreign chunk id', async () => {
     const { db } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_source_chunks"/, rows: [] }])
     await expect(resolveChunkCitation(db, 'space-1', 'ghost')).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('listSourceReferences', () => {
+  test('returns current pages and pending proposals with direct cockpit routes', async () => {
+    const { db, calls } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [sourceRow('src-1')] },
+      {
+        match: /WITH refs AS/,
+        rows: [
+          { kind: 'page', id: 'runbook', label: 'Runbook', claim_count: 2 },
+          { kind: 'proposal', id: 'proposal-1', label: 'Update runbook', claim_count: 1 },
+        ],
+      },
+    ])
+    expect(await listSourceReferences(db, 'space-1', { id: 'src-1' })).toEqual({
+      items: [
+        { kind: 'page', id: 'runbook', label: 'Runbook', href: '/pages/runbook', claim_count: 2 },
+        {
+          kind: 'proposal',
+          id: 'proposal-1',
+          label: 'Update runbook',
+          href: '/decisions/proposals/proposal-1',
+          claim_count: 1,
+        },
+      ],
+      next_cursor: null,
+    })
+    const refs = calls.find((call) => call.sql.includes('WITH refs AS'))!
+    expect(refs.values.slice(0, 2)).toEqual(['space-1', 'src-1'])
+    expect(refs.sql).toContain("p.status = 'pending'")
+    expect(refs.sql).toContain("cl.status IN ('verified', 'disputed')")
+  })
+
+  test('validates a cursor before the references query', async () => {
+    const { db, calls } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_sources"/, rows: [sourceRow('src-1')] }])
+    await expect(listSourceReferences(db, 'space-1', { id: 'src-1', cursor: 'not-a-number' })).rejects.toBeInstanceOf(
+      ValidationError,
+    )
+    expect(calls.some((call) => call.sql.includes('WITH refs AS'))).toBe(false)
   })
 })
 

@@ -56,6 +56,18 @@ export const wk = {
       unwrap(api.GET('/v1/spaces/{space}/sources', { params: { path: { space }, query: query as never } })),
     get: (space: string, id: string) =>
       unwrap(api.GET('/v1/spaces/{space}/sources/{id}', { params: { path: { space, id } } })),
+    references: (space: string, id: string, query?: Record<string, unknown>) =>
+      unwrap(
+        api.GET('/v1/spaces/{space}/sources/{id}/references', {
+          params: { path: { space, id }, query: query as never },
+        }),
+      ),
+    resynthesize: (space: string, id: string) =>
+      unwrap(
+        api.POST('/v1/spaces/{space}/sources/{id}/resynthesize', {
+          params: { path: { space, id } },
+        }),
+      ),
     // Takes a query for one reason: `zSourceStreamListQuery` accepts a `limit`
     // and defaults to 50 without one, and a caller that cannot name the limit
     // cannot know which ceiling it is under.
@@ -168,9 +180,9 @@ export const wk = {
   },
 
   /**
-   * The cross-wiki overview: per visible wiki the review backlog with the age
-   * of its oldest change, the derived share, the 7-day pulse and the page
-   * count, with totals summed server-side. Space-less on purpose — it is the
+   * The cross-wiki overview: per visible wiki the human decisions still open,
+   * their oldest age and the page count, with totals summed server-side.
+   * Space-less on purpose — it is the
    * one read about ALL the wikis, and a space-scoped key gets one row.
    */
   overview: {
@@ -293,6 +305,7 @@ export const keys = {
   decisionLogEntry: (space: string, slug: string) => ['spaces', space, 'decision-log', slug] as const,
   sources: (space: string, query?: unknown) => ['spaces', space, 'sources', query ?? null] as const,
   source: (space: string, id: string) => ['spaces', space, 'sources', id] as const,
+  sourceReferences: (space: string, id: string) => ['spaces', space, 'sources', id, 'references'] as const,
   // The query slot is part of the key, exactly as it is for sources and
   // concepts: two reads of this list under different limits are two different
   // answers, and a mutation must invalidate the one it changed by naming it.

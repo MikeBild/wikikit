@@ -17,14 +17,13 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSpace } from '@/lib/space'
-import { useI18n } from '@/lib/i18n-context'
 import type { TranslationKey } from '@/lib/i18n'
-import { lintMessage, ruleTitle } from '@/pages/care.logic'
+import { useI18n } from '@/lib/i18n-context'
 
 type AttentionResponse = Awaited<ReturnType<typeof wk.attention.list>>
 type AttentionItem = AttentionResponse['items'][number]
 type AttentionState = 'open' | 'deferred' | 'discarded' | 'decided'
-type AttentionKind = 'proposal' | 'triage' | 'output' | 'care'
+type AttentionKind = AttentionItem['kind']
 type TriageSuggestion = NonNullable<Awaited<ReturnType<typeof wk.ingest.suggestTriage>>['suggestion']>
 
 const STATE_KEYS: Record<AttentionState, TranslationKey> = {
@@ -38,12 +37,11 @@ const KIND_KEYS: Record<AttentionKind, TranslationKey> = {
   proposal: 'attention.kind.proposal',
   triage: 'attention.kind.triage',
   output: 'attention.kind.output',
-  care: 'attention.kind.care',
 }
 
 export function DecisionsPage() {
   const space = useSpace()
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const [state, setState] = useState<AttentionState>('open')
   const [kind, setKind] = useState<AttentionKind | 'all'>('all')
   const queryArgs = { state, ...(kind === 'all' ? {} : { kind }), limit: 200 }
@@ -55,14 +53,10 @@ export function DecisionsPage() {
   const waitingLonger =
     state === 'open' && data
       ? data.items.filter(
-          (item) =>
-            item.kind !== 'care' &&
-            new Date(data.generated_at).getTime() - new Date(item.created_at).getTime() >= 3 * 86_400_000,
+          (item) => new Date(data.generated_at).getTime() - new Date(item.created_at).getTime() >= 3 * 86_400_000,
         )
       : []
   const currentItems = data?.items.filter((item) => !waitingLonger.includes(item)) ?? []
-  const regularItems = currentItems.filter((item) => item.kind !== 'care')
-  const careGroups = groupCareItems(currentItems.filter((item) => item.kind === 'care'))
 
   return (
     <Page title="Decisions" description={t('page.decisions.description')}>
@@ -118,15 +112,7 @@ export function DecisionsPage() {
                   ? t('attention.noAge')
                   : t('attention.oldest', { count: data.counts.oldest_days })}
               </span>
-              <Badge
-                tone={
-                  data.counts.overdue || data.counts.care_by_severity.error
-                    ? 'danger'
-                    : data.counts.open
-                      ? 'warning'
-                      : 'success'
-                }
-              >
+              <Badge tone={data.counts.overdue ? 'danger' : data.counts.open ? 'warning' : 'success'}>
                 {t('attention.openCount', { count: data.counts.open })}
               </Badge>
             </div>
@@ -148,41 +134,16 @@ export function DecisionsPage() {
             ))}
           </section>
         ) : null}
-        {regularItems.length ? (
+        {currentItems.length ? (
           <section
             className="flex flex-col gap-3"
             aria-label={state === 'open' ? t('decisions.needsAttention') : t(STATE_KEYS[state])}
           >
-            {regularItems.map((item, index) => (
+            {currentItems.map((item, index) => (
               <AttentionCard key={item.key} item={item} space={space} testId={`decision-item-${index + 1}`} />
             ))}
           </section>
         ) : null}
-        {careGroups.map((group, groupIndex) => (
-          <section
-            key={group.rule}
-            className="flex flex-col gap-3"
-            aria-labelledby={`decision-care-group-${groupIndex}`}
-            data-testid={`decision-care-group-${group.rule}`}
-          >
-            <div className="flex items-center gap-2">
-              <h2 id={`decision-care-group-${groupIndex}`} className="text-sm font-semibold">
-                {ruleTitle(locale, group.rule)}
-              </h2>
-              <Badge tone={group.severity === 'error' ? 'danger' : group.severity === 'warn' ? 'warning' : 'neutral'}>
-                {group.items.length}
-              </Badge>
-            </div>
-            {group.items.map((item, index) => (
-              <AttentionCard
-                key={item.key}
-                item={item}
-                space={space}
-                testId={`decision-care-${groupIndex + 1}-${index + 1}`}
-              />
-            ))}
-          </section>
-        ))}
       </div>
     </Page>
   )
@@ -233,7 +194,7 @@ function DecisionEmpty({
 }
 
 function AttentionCard({ item, space, testId }: { item: AttentionItem; space: string; testId: string }) {
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
   const stateMutation = useMutation({
@@ -255,36 +216,23 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
     queryFn: () => wk.proposals.lint(proposalId!),
     enabled: expanded && Boolean(proposalId),
   })
-  const title = item.finding ? lintMessage(locale, item.finding) : item.title
-
   return (
     <Card data-kind={item.kind} data-state={item.state} data-testid={testId}>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge
-            tone={
-              item.finding?.severity === 'error'
-                ? 'danger'
-                : item.finding?.severity === 'warn'
-                  ? 'warning'
-                  : item.kind === 'proposal'
-                    ? 'accent'
-                    : 'neutral'
-            }
-          >
-            {t(KIND_KEYS[item.kind])}
-          </Badge>
+          <Badge tone={item.kind === 'proposal' ? 'accent' : 'neutral'}>{t(KIND_KEYS[item.kind])}</Badge>
           <Badge tone={item.state === 'open' ? 'warning' : 'neutral'}>{t(STATE_KEYS[item.state])}</Badge>
-          {item.kind === 'care' ? t('attention.currentCheck') : <RelativeTime value={item.created_at} />}
+          <RelativeTime value={item.created_at} />
         </div>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle>{item.title}</CardTitle>
         {item.summary ? <CardDescription>{item.summary}</CardDescription> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">{t(attentionEffectKey(item.kind))}</p>
+        <DecisionTrace item={item} />
         {item.previous_rejection ? (
-          <Alert tone="warning" title="An identical proposal was rejected before">
-            {item.previous_rejection.note || 'The previous review did not include a note.'}
+          <Alert tone="warning" title={t('decisions.previousRejection')}>
+            {item.previous_rejection.note || t('decisions.previousRejectionNoNote')}
           </Alert>
         ) : null}
         {proposalId ? (
@@ -292,28 +240,31 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" aria-expanded={expanded} data-testid={`${testId}-preview-toggle`}>
                 <ChevronDown data-icon="inline-start" />
-                {expanded ? 'Hide diff' : 'Show diff and evidence'}
+                {expanded ? t('decisions.hideEvidence') : t('decisions.showEvidence')}
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-3 flex flex-col gap-3">
               {proposal.isLoading || lint.isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading diff…</p>
+                <p className="text-sm text-muted-foreground">{t('decisions.loadingDiff')}</p>
               ) : null}
               {proposal.data?.concepts.map((concept) => (
                 <div key={concept.slug} className="grid gap-3 md:grid-cols-2">
-                  <DiffBlock label="Before" value={concept.old_markdown ?? 'New page'} />
-                  <DiffBlock label="After" value={concept.new_markdown} />
+                  <DiffBlock label={t('decisions.before')} value={concept.old_markdown ?? t('decisions.newPage')} />
+                  <DiffBlock label={t('decisions.after')} value={concept.new_markdown} />
                 </div>
               ))}
               {proposal.data?.sources.map((source) => (
                 <div key={source.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge tone="unknown">Source locked</Badge>
+                  <Badge tone="unknown">{t('decisions.sourceLocked')}</Badge>
                   <span>{source.title}</span>
                 </div>
               ))}
               {lint.data ? (
                 <p className="text-xs text-muted-foreground">
-                  Check: {lint.data.counts.error} errors, {lint.data.counts.warn} warnings
+                  {t('decisions.checkSummary', {
+                    errors: lint.data.counts.error,
+                    warnings: lint.data.counts.warn,
+                  })}
                 </p>
               ) : null}
             </CollapsibleContent>
@@ -369,13 +320,14 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
 }
 
 function TriagePanel({ ingestId, space, testId }: { ingestId: string; space: string; testId: string }) {
+  const { t } = useI18n()
   const suggestion = useQuery({
     queryKey: keys.triage(ingestId),
     queryFn: () => wk.ingest.suggestTriage(ingestId),
   })
-  if (suggestion.isLoading) return <p className="text-sm text-muted-foreground">Preparing a sorting suggestion…</p>
+  if (suggestion.isLoading) return <p className="text-sm text-muted-foreground">{t('decisions.triage.preparing')}</p>
   if (suggestion.isError || !suggestion.data?.suggestion)
-    return <Alert tone="danger" title="No sorting suggestion is available" />
+    return <Alert tone="danger" title={t('decisions.triage.unavailable')} />
   return (
     <TriageForm
       key={suggestion.data.suggestion.generated_at}
@@ -398,6 +350,7 @@ function TriageForm({
   testId: string
   suggestion: TriageSuggestion
 }) {
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [title, setTitle] = useState(suggestion.title)
   const [summary, setSummary] = useState(suggestion.summary)
@@ -422,16 +375,16 @@ function TriageForm({
     <div className="grid gap-3 rounded-lg border p-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-xs font-medium">
-          Title
+          {t('decisions.triage.title')}
           <Input data-testid={`${testId}-title`} value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="grid gap-1 text-xs font-medium">
-          Target wiki
+          {t('decisions.triage.target')}
           <Input data-testid={`${testId}-target`} value={target} onChange={(event) => setTarget(event.target.value)} />
         </label>
       </div>
       <label className="grid gap-1 text-xs font-medium">
-        Summary
+        {t('decisions.triage.summary')}
         <Textarea
           data-testid={`${testId}-summary`}
           value={summary}
@@ -439,7 +392,7 @@ function TriageForm({
         />
       </label>
       <label className="grid gap-1 text-xs font-medium">
-        Question to keep open
+        {t('decisions.triage.question')}
         <Textarea
           data-testid={`${testId}-question`}
           value={question}
@@ -453,7 +406,7 @@ function TriageForm({
           disabled={!title || resolve.isPending}
           onClick={() => resolve.mutate('process')}
         >
-          Process here
+          {t('decisions.triage.process')}
         </Button>
         {duplicate ? (
           <Button
@@ -463,7 +416,7 @@ function TriageForm({
             disabled={resolve.isPending}
             onClick={() => resolve.mutate('use_existing')}
           >
-            Use existing source
+            {t('decisions.triage.useExisting')}
           </Button>
         ) : null}
         <Button
@@ -473,7 +426,7 @@ function TriageForm({
           disabled={resolve.isPending}
           onClick={() => resolve.mutate('leave')}
         >
-          Leave open
+          {t('decisions.triage.leave')}
         </Button>
         <Button
           size="sm"
@@ -482,7 +435,7 @@ function TriageForm({
           disabled={resolve.isPending}
           onClick={() => resolve.mutate('discard')}
         >
-          Discard capture
+          {t('decisions.triage.discard')}
         </Button>
       </div>
     </div>
@@ -492,10 +445,15 @@ function TriageForm({
 function TaskLink({ item, testId }: { item: AttentionItem; testId: string }) {
   const { t } = useI18n()
   if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">{t('decisions.sortAbove')}</span>
+  const href =
+    item.kind === 'proposal'
+      ? `/decisions/proposals/${item.key.slice('proposal:'.length)}`
+      : item.origins.find((origin) => origin.href)?.href
+  if (!href) return null
   return (
     <Button asChild size="sm">
-      <Link to={item.source.href as never} search data-testid={`${testId}-open-target`}>
-        {t(taskActionKey(item.source.href))}
+      <Link to={href as never} search data-testid={`${testId}-open-target`}>
+        {t(taskActionKey(href))}
       </Link>
     </Button>
   )
@@ -514,21 +472,58 @@ function taskActionKey(href: string): TranslationKey {
   return 'decisions.openObject'
 }
 
-function groupCareItems(items: AttentionItem[]): {
-  rule: string
-  severity: 'error' | 'warn' | 'info'
-  items: AttentionItem[]
-}[] {
-  const groups = new Map<string, AttentionItem[]>()
-  for (const item of items) {
-    const rule = item.finding?.rule ?? 'unknown'
-    groups.set(rule, [...(groups.get(rule) ?? []), item])
-  }
-  return [...groups.entries()].map(([rule, grouped]) => ({
-    rule,
-    severity: grouped[0]?.finding?.severity ?? 'info',
-    items: grouped,
-  }))
+function DecisionTrace({ item }: { item: AttentionItem }) {
+  const { t } = useI18n()
+  return (
+    <dl className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2" data-testid="decision-trace">
+      <div className="min-w-0">
+        <dt className="text-xs font-medium text-muted-foreground">{t('decisions.origin')}</dt>
+        <dd className="mt-1 flex flex-col gap-1.5">
+          {item.origins.length ? (
+            item.origins.map((origin, index) => (
+              <span key={`${origin.href}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                <Link
+                  to={origin.href as never}
+                  className="truncate underline-offset-4 hover:underline"
+                  data-testid={`decision-origin-${index + 1}`}
+                >
+                  {origin.label}
+                </Link>
+                {origin.provenance === 'generated' ? <Badge tone="unknown">{t('decisions.generated')}</Badge> : null}
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-muted-foreground">{t('decisions.noOrigin')}</span>
+          )}
+        </dd>
+      </div>
+      <div className="min-w-0">
+        <dt className="text-xs font-medium text-muted-foreground">{t('decisions.target')}</dt>
+        <dd className="mt-1 flex flex-col gap-1.5">
+          {item.targets.length ? (
+            item.targets.map((target, index) => (
+              <span key={`${target.label}-${index}`} className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                {target.href ? (
+                  <Link
+                    to={target.href as never}
+                    className="truncate underline-offset-4 hover:underline"
+                    data-testid={`decision-target-${index + 1}`}
+                  >
+                    {target.label}
+                  </Link>
+                ) : (
+                  <span className="truncate">{target.label}</span>
+                )}
+                <Badge tone="neutral">{t(`decisions.target.${target.change}`)}</Badge>
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-muted-foreground">{t('decisions.noTarget')}</span>
+          )}
+        </dd>
+      </div>
+    </dl>
+  )
 }
 
 function DiffBlock({ label, value }: { label: string; value: string }) {

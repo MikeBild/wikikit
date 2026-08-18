@@ -126,9 +126,7 @@ export function Shell() {
                     items={items}
                     open={open}
                     attentionCount={attention.data?.counts.open}
-                    attentionAlert={Boolean(
-                      attention.data?.counts.overdue || attention.data?.counts.care_by_severity.error,
-                    )}
+                    attentionAlert={Boolean(attention.data?.counts.overdue)}
                   />
                 )
               })}

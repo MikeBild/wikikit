@@ -94,6 +94,7 @@ export interface LintFinding {
   severity: string
   message: { key: string; args: Record<string, unknown>; default_text: string }
   concept_slug?: string
+  details?: Record<string, unknown>
 }
 
 export interface LintGroup extends SeverityStanding {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.44.4",
+    "version": "0.45.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -422,6 +422,67 @@
             "required": true,
             "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
           }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/sources/{id}/references": {
+      "get": {
+        "summary": "List current pages and pending proposals that use one archived source",
+        "operationId": "sourceReferences",
+        "responses": {
+          "200": {
+            "description": "Source references",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/zSourceReferencesResponse" } }
+            }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string" } }
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
@@ -968,6 +1029,66 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/spaces/{space}/sources/{id}/resynthesize": {
+      "post": {
+        "summary": "Run the current synthesis pipeline over one immutable archived source; never re-fetches its URL and never publishes without review",
+        "operationId": "resynthesizeSource",
+        "responses": {
+          "202": {
+            "description": "Queued, or the same still-active resynthesis job",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zIngestAcceptedResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "429": {
+            "description": "ingest_queue_full",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "503": {
+            "description": "llm_not_configured",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:propose"
       }
     },
     "/v1/spaces/{space}/source-streams": {
@@ -1904,7 +2025,7 @@
     },
     "/v1/spaces/{space}/attention": {
       "get": {
-        "summary": "Aggregate the human attention queue across proposals, captures, outputs and care findings",
+        "summary": "Aggregate actual human decisions across proposals, captured inbox items and unfiled outputs",
         "operationId": "attention",
         "responses": {
           "200": {
@@ -1949,7 +2070,7 @@
             "name": "kind",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["proposal", "triage", "output", "care"] }
+            "schema": { "type": "string", "enum": ["proposal", "triage", "output"] }
           },
           {
             "name": "limit",
@@ -3099,7 +3220,7 @@
     },
     "/v1/stats/overview": {
       "get": {
-        "summary": "Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict.",
+        "summary": "Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded.",
         "operationId": "spacesOverview",
         "responses": {
           "200": {
@@ -4671,6 +4792,29 @@
         "required": ["space", "rev", "markdown", "updated_at", "overview", "document", "ingest_ids"],
         "additionalProperties": false
       },
+      "zSourceReferencesResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["page", "proposal"] },
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "href": { "type": "string" },
+                "claim_count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["kind", "id", "label", "href", "claim_count"],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "next_cursor"],
+        "additionalProperties": false
+      },
       "zIngestRequest": {
         "type": "object",
         "properties": {
@@ -4731,6 +4875,12 @@
           "resynthesize": {
             "description": "Re-synthesize a source the archive already holds (bypasses the already_ingested guard)",
             "type": "boolean"
+          },
+          "resynthesize_source_id": {
+            "description": "Archived source being re-synthesized; requires resynthesize=true",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         }
       },
@@ -6198,24 +6348,13 @@
                 "properties": {
                   "proposal": { "type": "number" },
                   "triage": { "type": "number" },
-                  "output": { "type": "number" },
-                  "care": { "type": "number" }
+                  "output": { "type": "number" }
                 },
-                "required": ["proposal", "triage", "output", "care"],
-                "additionalProperties": false
-              },
-              "care_by_severity": {
-                "type": "object",
-                "properties": {
-                  "error": { "type": "number" },
-                  "warn": { "type": "number" },
-                  "info": { "type": "number" }
-                },
-                "required": ["error", "warn", "info"],
+                "required": ["proposal", "triage", "output"],
                 "additionalProperties": false
               }
             },
-            "required": ["open", "overdue", "oldest_days", "by_kind", "care_by_severity"],
+            "required": ["open", "overdue", "oldest_days", "by_kind"],
             "additionalProperties": false
           },
           "items": {
@@ -6224,7 +6363,7 @@
               "type": "object",
               "properties": {
                 "key": { "type": "string" },
-                "kind": { "type": "string", "enum": ["proposal", "triage", "output", "care"] },
+                "kind": { "type": "string", "enum": ["proposal", "triage", "output"] },
                 "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
@@ -6232,66 +6371,37 @@
                 "created_at": { "type": "string" },
                 "remind_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "source": {
-                  "type": "object",
-                  "properties": {
-                    "label": { "type": "string" },
-                    "href": { "type": "string" },
-                    "actor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
-                  },
-                  "required": ["label", "href", "actor"],
-                  "additionalProperties": false
+                "origins": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["source", "capture", "output"] },
+                      "label": { "type": "string" },
+                      "href": { "type": "string" },
+                      "provenance": {
+                        "anyOf": [{ "type": "string", "enum": ["external", "generated"] }, { "type": "null" }]
+                      }
+                    },
+                    "required": ["kind", "label", "href", "provenance"],
+                    "additionalProperties": false
+                  }
+                },
+                "targets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["page", "wiki", "unspecified"] },
+                      "label": { "type": "string" },
+                      "href": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "change": { "type": "string", "enum": ["create", "update", "choose"] }
+                    },
+                    "required": ["kind", "label", "href", "change"],
+                    "additionalProperties": false
+                  }
                 },
                 "available_actions": { "type": "array", "items": { "type": "string" } },
-                "finding": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "rule": {
-                          "type": "string",
-                          "enum": [
-                            "contradictions",
-                            "missing-citations",
-                            "broken-relations",
-                            "stale-claims",
-                            "orphan-concepts",
-                            "unsourced-concepts",
-                            "self-derived-only",
-                            "stub-concepts",
-                            "scaffolded-claims",
-                            "empty-concepts",
-                            "unreviewed-proposals",
-                            "dangling-sources",
-                            "tombstoned-sources",
-                            "broken-cross-space-links",
-                            "missing-charter",
-                            "stale-proposals",
-                            "stale-captures"
-                          ]
-                        },
-                        "severity": { "type": "string", "enum": ["error", "warn", "info"] },
-                        "message": {
-                          "type": "object",
-                          "properties": {
-                            "key": { "type": "string" },
-                            "args": {
-                              "type": "object",
-                              "propertyNames": { "type": "string" },
-                              "additionalProperties": {}
-                            },
-                            "default_text": { "type": "string" }
-                          },
-                          "required": ["key", "args", "default_text"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["rule", "severity", "message"],
-                      "additionalProperties": false
-                    },
-                    { "type": "null" }
-                  ]
-                },
                 "previous_rejection": {
                   "anyOf": [
                     {
@@ -6322,9 +6432,9 @@
                 "created_at",
                 "remind_at",
                 "note",
-                "source",
+                "origins",
+                "targets",
                 "available_actions",
-                "finding",
                 "previous_rejection"
               ],
               "additionalProperties": false
@@ -6337,7 +6447,7 @@
               "type": "object",
               "properties": {
                 "key": { "type": "string" },
-                "kind": { "type": "string", "enum": ["proposal", "triage", "output", "care"] },
+                "kind": { "type": "string", "enum": ["proposal", "triage", "output"] },
                 "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
@@ -6345,66 +6455,37 @@
                 "created_at": { "type": "string" },
                 "remind_at": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
                 "note": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "source": {
-                  "type": "object",
-                  "properties": {
-                    "label": { "type": "string" },
-                    "href": { "type": "string" },
-                    "actor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
-                  },
-                  "required": ["label", "href", "actor"],
-                  "additionalProperties": false
+                "origins": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["source", "capture", "output"] },
+                      "label": { "type": "string" },
+                      "href": { "type": "string" },
+                      "provenance": {
+                        "anyOf": [{ "type": "string", "enum": ["external", "generated"] }, { "type": "null" }]
+                      }
+                    },
+                    "required": ["kind", "label", "href", "provenance"],
+                    "additionalProperties": false
+                  }
+                },
+                "targets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["page", "wiki", "unspecified"] },
+                      "label": { "type": "string" },
+                      "href": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "change": { "type": "string", "enum": ["create", "update", "choose"] }
+                    },
+                    "required": ["kind", "label", "href", "change"],
+                    "additionalProperties": false
+                  }
                 },
                 "available_actions": { "type": "array", "items": { "type": "string" } },
-                "finding": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "rule": {
-                          "type": "string",
-                          "enum": [
-                            "contradictions",
-                            "missing-citations",
-                            "broken-relations",
-                            "stale-claims",
-                            "orphan-concepts",
-                            "unsourced-concepts",
-                            "self-derived-only",
-                            "stub-concepts",
-                            "scaffolded-claims",
-                            "empty-concepts",
-                            "unreviewed-proposals",
-                            "dangling-sources",
-                            "tombstoned-sources",
-                            "broken-cross-space-links",
-                            "missing-charter",
-                            "stale-proposals",
-                            "stale-captures"
-                          ]
-                        },
-                        "severity": { "type": "string", "enum": ["error", "warn", "info"] },
-                        "message": {
-                          "type": "object",
-                          "properties": {
-                            "key": { "type": "string" },
-                            "args": {
-                              "type": "object",
-                              "propertyNames": { "type": "string" },
-                              "additionalProperties": {}
-                            },
-                            "default_text": { "type": "string" }
-                          },
-                          "required": ["key", "args", "default_text"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": ["rule", "severity", "message"],
-                      "additionalProperties": false
-                    },
-                    { "type": "null" }
-                  ]
-                },
                 "previous_rejection": {
                   "anyOf": [
                     {
@@ -6435,9 +6516,9 @@
                 "created_at",
                 "remind_at",
                 "note",
-                "source",
+                "origins",
+                "targets",
                 "available_actions",
-                "finding",
                 "previous_rejection"
               ],
               "additionalProperties": false
@@ -7585,7 +7666,7 @@
       "zSpacesOverviewResponse": {
         "type": "object",
         "properties": {
-          "schema_version": { "type": "string", "const": "wikikit.spaces-overview.v1" },
+          "schema_version": { "type": "string", "const": "wikikit.spaces-overview.v2" },
           "generated_at": {
             "type": "string",
             "format": "date-time",
@@ -7594,17 +7675,16 @@
           "totals": {
             "type": "object",
             "properties": {
-              "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-              "pending_derived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-              "created_7d": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
               "oldest_days": {
                 "anyOf": [
                   { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
                   { "type": "null" }
                 ]
-              }
+              },
+              "wikis_with_open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
             },
-            "required": ["pending", "pending_derived", "created_7d", "oldest_days"],
+            "required": ["open", "oldest_days", "wikis_with_open"],
             "additionalProperties": false
           },
           "items": {
@@ -7615,25 +7695,34 @@
                 "space": { "type": "string" },
                 "name": { "type": "string" },
                 "purpose": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "review_queue": {
+                "environment": { "type": "string", "enum": ["production", "test"] },
+                "attention": {
                   "type": "object",
                   "properties": {
-                    "pending": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                     "oldest_days": {
                       "anyOf": [
                         { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
                         { "type": "null" }
                       ]
                     },
-                    "pending_derived": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    "by_kind": {
+                      "type": "object",
+                      "properties": {
+                        "proposal": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "triage": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["proposal", "triage", "output"],
+                      "additionalProperties": false
+                    }
                   },
-                  "required": ["pending", "oldest_days", "pending_derived"],
+                  "required": ["open", "oldest_days", "by_kind"],
                   "additionalProperties": false
                 },
-                "created_7d": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "concepts": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
               },
-              "required": ["space", "name", "purpose", "review_queue", "created_7d", "concepts"],
+              "required": ["space", "name", "purpose", "environment", "attention", "concepts"],
               "additionalProperties": false
             }
           }

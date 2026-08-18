@@ -3,7 +3,7 @@
   "label": "Wikis",
   "icon": "FolderKanban",
   "scope": "knowledge:read",
-  "group": "installation",
+  "group": "home",
   "api": [
     "/v1/spaces",
     "/v1/spaces/{space}",

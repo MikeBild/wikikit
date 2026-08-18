@@ -127,6 +127,13 @@ export const zIngestInput = z
       .boolean()
       .optional()
       .describe('Re-synthesize a source the archive already holds (bypasses the already_ingested guard)'),
+    // Set only by the source-scoped resynthesis route. It gives retries a
+    // stable idempotency key without asking a browser to send archived bytes
+    // back to the server or re-fetching a URL that may have changed.
+    resynthesize_source_id: z
+      .uuid()
+      .optional()
+      .describe('Archived source being re-synthesized; requires resynthesize=true'),
   })
   .refine((value) => [value.markdown, value.text, value.url].filter(Boolean).length === 1, {
     message: 'exactly one of markdown|text|url is required',
@@ -142,6 +149,9 @@ export const zIngestInput = z
   })
   .refine((value) => !(value.evidence && value.resynthesize), {
     message: 'evidence and resynthesize are mutually exclusive — evidence never synthesizes',
+  })
+  .refine((value) => value.resynthesize_source_id === undefined || value.resynthesize === true, {
+    message: 'resynthesize_source_id requires resynthesize=true',
   })
 
 export type IngestInput = z.input<typeof zIngestInput>

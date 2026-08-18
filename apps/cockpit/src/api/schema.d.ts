@@ -126,6 +126,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/spaces/{space}/sources/{id}/references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List current pages and pending proposals that use one archived source */
+        get: operations["sourceReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/spaces/{space}/ingest": {
         parameters: {
             query?: never;
@@ -274,6 +291,23 @@ export interface paths {
         get: operations["getSource"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/spaces/{space}/sources/{id}/resynthesize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run the current synthesis pipeline over one immutable archived source; never re-fetches its URL and never publishes without review */
+        post: operations["resynthesizeSource"];
         delete?: never;
         options?: never;
         head?: never;
@@ -560,7 +594,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Aggregate the human attention queue across proposals, captures, outputs and care findings */
+        /** Aggregate actual human decisions across proposals, captured inbox items and unfiled outputs */
         get: operations["attention"];
         put?: never;
         post?: never;
@@ -905,7 +939,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict. */
+        /** Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded. */
         get: operations["spacesOverview"];
         put?: never;
         post?: never;
@@ -1715,6 +1749,17 @@ export interface components {
             document: string;
             ingest_ids: string[];
         };
+        zSourceReferencesResponse: {
+            items: {
+                /** @enum {string} */
+                kind: "page" | "proposal";
+                id: string;
+                label: string;
+                href: string;
+                claim_count: number;
+            }[];
+            next_cursor: string | null;
+        };
         zIngestRequest: {
             markdown?: string;
             text?: string;
@@ -1758,6 +1803,11 @@ export interface components {
             evidence?: boolean;
             /** @description Re-synthesize a source the archive already holds (bypasses the already_ingested guard) */
             resynthesize?: boolean;
+            /**
+             * Format: uuid
+             * @description Archived source being re-synthesized; requires resynthesize=true
+             */
+            resynthesize_source_id?: string;
         };
         zIngestSyncResponse: {
             /** @constant */
@@ -2301,18 +2351,12 @@ export interface components {
                     proposal: number;
                     triage: number;
                     output: number;
-                    care: number;
-                };
-                care_by_severity: {
-                    error: number;
-                    warn: number;
-                    info: number;
                 };
             };
             items: {
                 key: string;
                 /** @enum {string} */
-                kind: "proposal" | "triage" | "output" | "care";
+                kind: "proposal" | "triage" | "output";
                 /** @enum {string} */
                 state: "open" | "deferred" | "discarded" | "decided";
                 title: string;
@@ -2321,25 +2365,22 @@ export interface components {
                 created_at: string;
                 remind_at: string | null;
                 note: string | null;
-                source: {
+                origins: {
+                    /** @enum {string} */
+                    kind: "source" | "capture" | "output";
                     label: string;
                     href: string;
-                    actor: string | null;
-                };
+                    provenance: ("external" | "generated") | null;
+                }[];
+                targets: {
+                    /** @enum {string} */
+                    kind: "page" | "wiki" | "unspecified";
+                    label: string;
+                    href: string | null;
+                    /** @enum {string} */
+                    change: "create" | "update" | "choose";
+                }[];
                 available_actions: string[];
-                finding: {
-                    /** @enum {string} */
-                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
-                    /** @enum {string} */
-                    severity: "error" | "warn" | "info";
-                    message: {
-                        key: string;
-                        args: {
-                            [key: string]: unknown;
-                        };
-                        default_text: string;
-                    };
-                } | null;
                 previous_rejection: {
                     /** Format: uuid */
                     proposal_id: string;
@@ -2351,7 +2392,7 @@ export interface components {
             recent_activity: {
                 key: string;
                 /** @enum {string} */
-                kind: "proposal" | "triage" | "output" | "care";
+                kind: "proposal" | "triage" | "output";
                 /** @enum {string} */
                 state: "open" | "deferred" | "discarded" | "decided";
                 title: string;
@@ -2360,25 +2401,22 @@ export interface components {
                 created_at: string;
                 remind_at: string | null;
                 note: string | null;
-                source: {
+                origins: {
+                    /** @enum {string} */
+                    kind: "source" | "capture" | "output";
                     label: string;
                     href: string;
-                    actor: string | null;
-                };
+                    provenance: ("external" | "generated") | null;
+                }[];
+                targets: {
+                    /** @enum {string} */
+                    kind: "page" | "wiki" | "unspecified";
+                    label: string;
+                    href: string | null;
+                    /** @enum {string} */
+                    change: "create" | "update" | "choose";
+                }[];
                 available_actions: string[];
-                finding: {
-                    /** @enum {string} */
-                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
-                    /** @enum {string} */
-                    severity: "error" | "warn" | "info";
-                    message: {
-                        key: string;
-                        args: {
-                            [key: string]: unknown;
-                        };
-                        default_text: string;
-                    };
-                } | null;
                 previous_rejection: {
                     /** Format: uuid */
                     proposal_id: string;
@@ -2847,25 +2885,29 @@ export interface components {
         };
         zSpacesOverviewResponse: {
             /** @constant */
-            schema_version: "wikikit.spaces-overview.v1";
+            schema_version: "wikikit.spaces-overview.v2";
             /** Format: date-time */
             generated_at: string;
             totals: {
-                pending: number;
-                pending_derived: number;
-                created_7d: number;
+                open: number;
                 oldest_days: number | null;
+                wikis_with_open: number;
             };
             items: {
                 space: string;
                 name: string;
                 purpose: string | null;
-                review_queue: {
-                    pending: number;
+                /** @enum {string} */
+                environment: "production" | "test";
+                attention: {
+                    open: number;
                     oldest_days: number | null;
-                    pending_derived: number;
+                    by_kind: {
+                        proposal: number;
+                        triage: number;
+                        output: number;
+                    };
                 };
-                created_7d: number;
                 concepts: number;
             }[];
         };
@@ -4226,6 +4268,77 @@ export interface operations {
             };
         };
     };
+    sourceReferences: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                space: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source references */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zSourceReferencesResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
     createIngest: {
         parameters: {
             query?: never;
@@ -5006,6 +5119,92 @@ export interface operations {
             };
             /** @description internal_error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    resynthesizeSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued, or the same still-active resynthesis job */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zIngestAcceptedResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description ingest_queue_full */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description llm_not_configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6249,7 +6448,7 @@ export interface operations {
         parameters: {
             query?: {
                 state?: "open" | "deferred" | "discarded" | "decided";
-                kind?: "proposal" | "triage" | "output" | "care";
+                kind?: "proposal" | "triage" | "output";
                 limit?: number;
                 cursor?: string;
             };

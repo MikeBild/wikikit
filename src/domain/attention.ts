@@ -1,10 +1,23 @@
 import type { Db } from '../db/postgres.ts'
-import { lintSpace, type LintFinding, type LintRule, type LintSeverity } from './lint.ts'
-import { isoString, sha256Hex, summarizeSource } from './sources.ts'
+import { isoString, summarizeSource } from './sources.ts'
 import { NotFoundError, ValidationError } from './errors.ts'
 
-export type AttentionKind = 'proposal' | 'triage' | 'output' | 'care'
+export type AttentionKind = 'proposal' | 'triage' | 'output'
 export type AttentionState = 'open' | 'deferred' | 'discarded' | 'decided'
+
+export interface AttentionOrigin {
+  kind: 'source' | 'capture' | 'output'
+  label: string
+  href: string
+  provenance: 'external' | 'generated' | null
+}
+
+export interface AttentionTarget {
+  kind: 'page' | 'wiki' | 'unspecified'
+  label: string
+  href: string | null
+  change: 'create' | 'update' | 'choose'
+}
 
 export interface AttentionItem {
   key: string
@@ -16,13 +29,9 @@ export interface AttentionItem {
   created_at: string
   remind_at: string | null
   note: string | null
-  source: { label: string; href: string; actor: string | null }
+  origins: AttentionOrigin[]
+  targets: AttentionTarget[]
   available_actions: string[]
-  finding: {
-    rule: LintRule
-    severity: LintSeverity
-    message: LintFinding['message']
-  } | null
   previous_rejection: { proposal_id: string; reviewed_at: string; note: string | null } | null
 }
 
@@ -33,7 +42,6 @@ export interface AttentionPage {
     overdue: number
     oldest_days: number | null
     by_kind: Record<AttentionKind, number>
-    care_by_severity: Record<LintSeverity, number>
   }
   items: AttentionItem[]
   next_cursor: string | null
@@ -54,59 +62,73 @@ function daysOld(value: string, now = Date.now()): number {
   return Math.max(0, Math.floor((now - new Date(value).getTime()) / 86_400_000))
 }
 
-function careKey(finding: LintFinding): string {
-  return `care:${finding.rule}:${sha256Hex(
-    JSON.stringify({
-      concept_slug: finding.concept_slug ?? null,
-      claim_id: finding.claim_id ?? null,
-      details: finding.details ?? null,
-    }),
-  ).slice(0, 16)}`
+interface ProposalRow {
+  id: string
+  title: string
+  summary: string
+  status?: string
+  source_ids?: string[] | null
 }
 
-function careActions(finding: LintFinding): string[] {
-  if (finding.rule === 'missing-charter') return ['open_guidelines']
-  if (finding.rule === 'unreviewed-proposals' || finding.rule === 'stale-proposals') return ['open_review']
-  if (finding.rule === 'stale-captures') return ['open_triage']
-  if (finding.rule === 'dangling-sources') return ['open_source', 'find_page']
-  if (finding.rule === 'tombstoned-sources') return ['open_page', 'propose_deprecation']
-  if (finding.rule === 'broken-relations' || finding.rule === 'broken-cross-space-links') {
-    return ['open_page', 'edit_relation']
-  }
-  if (finding.rule === 'missing-citations' || finding.rule === 'unsourced-concepts') {
-    return ['open_page', 'add_source']
-  }
-  if (finding.rule === 'contradictions') return ['open_page', 'propose_supersession']
-  if (finding.rule === 'stale-claims') return ['open_page', 'reverify_claim']
-  if (finding.rule === 'orphan-concepts') return ['open_page', 'add_relation']
-  if (finding.rule === 'self-derived-only') return ['open_page', 'add_external_source']
-  return ['open_page', 'edit_page']
-}
-
-function detailString(finding: LintFinding, key: string): string | null {
-  const value = finding.details?.[key]
-  return typeof value === 'string' && value.trim() ? value : null
-}
-
-function careTarget(finding: LintFinding): string {
-  if (finding.rule === 'missing-charter') return '/charter'
-  if (finding.rule === 'stale-captures') {
-    const ingestId = detailString(finding, 'ingest_id')
-    return ingestId ? `/inbox?triage=${encodeURIComponent(ingestId)}` : '/inbox'
-  }
-  const proposalId = detailString(finding, 'proposal_id')
-  if (proposalId) return `/decisions/proposals/${encodeURIComponent(proposalId)}`
-  if (finding.concept_slug) return `/pages/${encodeURIComponent(finding.concept_slug)}`
-  const sourceId = detailString(finding, 'source_id')
-  if (sourceId) return `/sources/${encodeURIComponent(sourceId)}`
-  return '/care'
-}
-
-async function openItems(
+async function proposalContexts(
   db: Db,
   spaceId: string,
-  deps: { scaffoldingKinds: readonly string[] },
-): Promise<AttentionItem[]> {
+  proposals: readonly ProposalRow[],
+): Promise<{ origins: Map<string, AttentionOrigin[]>; targets: Map<string, AttentionTarget[]> }> {
+  const ids = proposals.map((proposal) => proposal.id)
+  const origins = new Map<string, AttentionOrigin[]>(ids.map((id) => [id, []]))
+  const targets = new Map<string, AttentionTarget[]>(ids.map((id) => [id, []]))
+  if (!ids.length) return { origins, targets }
+
+  const sourceIds = [...new Set(proposals.flatMap((proposal) => proposal.source_ids ?? []))]
+  const sources = sourceIds.length
+    ? await db.query<{ id: string; title: string; metadata: Record<string, unknown> | string }>(
+        `SELECT id, title, metadata FROM wk_sources WHERE space_id = $1 AND id = ANY($2::uuid[])`,
+        [spaceId, sourceIds],
+      )
+    : { rows: [] as { id: string; title: string; metadata: Record<string, unknown> | string }[] }
+  const sourceById = new Map(sources.rows.map((source) => [source.id, source]))
+  for (const proposal of proposals) {
+    for (const id of proposal.source_ids ?? []) {
+      const source = sourceById.get(id)
+      if (!source) continue
+      const metadata = typeof source.metadata === 'string' ? JSON.parse(source.metadata) : source.metadata
+      origins.get(proposal.id)!.push({
+        kind: 'source',
+        label: source.title,
+        href: `/sources/${source.id}`,
+        provenance: metadata.derived_from_output_id ? 'generated' : 'external',
+      })
+    }
+  }
+
+  const revisions = await db.query<{
+    proposal_id: string
+    slug: string
+    title: string
+    base_revision_id: string | null
+  }>(
+    `SELECT r.proposal_id, c.slug, r.title, r.base_revision_id
+       FROM wk_concept_revisions r
+       JOIN wk_concepts c ON c.id = r.concept_id
+      WHERE r.space_id = $1 AND r.proposal_id = ANY($2::uuid[])
+      ORDER BY r.created_at ASC`,
+    [spaceId, ids],
+  )
+  const statusById = new Map(proposals.map((proposal) => [proposal.id, proposal.status]))
+  for (const revision of revisions.rows) {
+    const existing = revision.base_revision_id !== null || statusById.get(revision.proposal_id) === 'approved'
+    targets.get(revision.proposal_id)?.push({
+      kind: 'page',
+      label: revision.title,
+      href: existing ? `/pages/${revision.slug}` : null,
+      change: revision.base_revision_id === null ? 'create' : 'update',
+    })
+  }
+  return { origins, targets }
+}
+
+async function openItems(db: Db, spaceId: string): Promise<AttentionItem[]> {
   const items: AttentionItem[] = []
   const proposals = await db.query<{
     id: string
@@ -116,8 +138,9 @@ async function openItems(
     previous_id: string | null
     previous_at: Date | string | null
     previous_note: string | null
+    source_ids: string[] | null
   }>(
-    `SELECT p.id, p.title, p.summary, p.created_at,
+    `SELECT p.id, p.title, p.summary, p.created_at, p.source_ids,
             previous.id AS previous_id, previous.reviewed_at AS previous_at, previous.review_note AS previous_note
        FROM wk_change_proposals p
        LEFT JOIN LATERAL (
@@ -132,6 +155,7 @@ async function openItems(
       ORDER BY p.created_at ASC`,
     [spaceId],
   )
+  const proposalContext = await proposalContexts(db, spaceId, proposals.rows)
   for (const proposal of proposals.rows) {
     items.push({
       key: `proposal:${proposal.id}`,
@@ -143,9 +167,9 @@ async function openItems(
       created_at: isoString(proposal.created_at),
       remind_at: null,
       note: null,
-      source: { label: 'Change proposal', href: `/decisions/proposals/${proposal.id}`, actor: null },
+      origins: proposalContext.origins.get(proposal.id) ?? [],
+      targets: proposalContext.targets.get(proposal.id) ?? [],
       available_actions: ['open_review'],
-      finding: null,
       previous_rejection:
         proposal.previous_id && proposal.previous_at
           ? {
@@ -179,9 +203,25 @@ async function openItems(
       created_at: isoString(capture.created_at),
       remind_at: null,
       note: null,
-      source: { label: 'Inbox capture', href: `/inbox?triage=${capture.id}`, actor: null },
+      origins: [
+        {
+          kind: 'capture',
+          label: String(input.title ?? triage?.title ?? 'Inbox item'),
+          href: `/inbox?triage=${capture.id}`,
+          provenance: null,
+        },
+      ],
+      targets: [
+        typeof triage?.target_space === 'string' && triage.target_space.trim()
+          ? {
+              kind: 'wiki',
+              label: triage.target_space,
+              href: `/?space=${encodeURIComponent(triage.target_space)}`,
+              change: 'choose',
+            }
+          : { kind: 'unspecified', label: 'Target not chosen yet', href: null, change: 'choose' },
+      ],
       available_actions: ['triage', 'defer', 'discard'],
-      finding: null,
       previous_rejection: null,
     })
   }
@@ -206,31 +246,9 @@ async function openItems(
       created_at: isoString(output.created_at),
       remind_at: null,
       note: null,
-      source: { label: 'Produced output', href: `/answers/${output.id}`, actor: null },
+      origins: [{ kind: 'output', label: output.title, href: `/answers/${output.id}`, provenance: 'generated' }],
+      targets: [{ kind: 'unspecified', label: 'Target chosen during filing', href: null, change: 'choose' }],
       available_actions: ['open_output', 'promote', 'defer', 'discard'],
-      finding: null,
-      previous_rejection: null,
-    })
-  }
-
-  const lint = await lintSpace(db, spaceId, { scaffoldingKinds: deps.scaffoldingKinds, tier: 'deep' })
-  const checkedAt = new Date().toISOString()
-  for (const finding of lint.findings) {
-    const label = finding.message.default_text
-    const target = careTarget(finding)
-    items.push({
-      key: careKey(finding),
-      kind: 'care',
-      state: 'open',
-      title: label,
-      summary: '',
-      effect: 'Review the finding and choose a repair; checking itself changes nothing.',
-      created_at: checkedAt,
-      remind_at: null,
-      note: null,
-      source: { label: 'Check finding', href: target, actor: null },
-      available_actions: careActions(finding),
-      finding: { rule: finding.rule, severity: finding.severity, message: finding.message },
       previous_rejection: null,
     })
   }
@@ -243,16 +261,18 @@ async function decidedItems(db: Db, spaceId: string): Promise<AttentionItem[]> {
     title: string
     summary: string
     status: string
+    source_ids: string[] | null
     reviewed_at: Date | string | null
     created_at: Date | string
   }>(
-    `SELECT id, title, summary, status, reviewed_at, created_at
+    `SELECT id, title, summary, status, source_ids, reviewed_at, created_at
        FROM wk_change_proposals
       WHERE space_id = $1 AND status <> 'pending'
       ORDER BY coalesce(reviewed_at, created_at) DESC
       LIMIT 50`,
     [spaceId],
   )
+  const context = await proposalContexts(db, spaceId, rows.rows)
   return rows.rows.map((row) => ({
     key: `proposal:${row.id}`,
     kind: 'proposal',
@@ -263,56 +283,55 @@ async function decidedItems(db: Db, spaceId: string): Promise<AttentionItem[]> {
     created_at: isoString(row.reviewed_at ?? row.created_at),
     remind_at: null,
     note: null,
-    source: { label: 'Reviewed proposal', href: `/decisions/proposals/${row.id}`, actor: null },
+    origins: context.origins.get(row.id) ?? [],
+    targets: context.targets.get(row.id) ?? [],
     available_actions: ['open_review'],
-    finding: null,
     previous_rejection: null,
   }))
 }
 
-function parseSnapshot(row: OverlayRow): AttentionItem {
+function parseSnapshot(row: OverlayRow, current?: AttentionItem): AttentionItem {
   const snapshot = typeof row.snapshot === 'string' ? (JSON.parse(row.snapshot) as AttentionItem) : row.snapshot
   return {
-    ...snapshot,
-    finding: snapshot.finding ?? null,
+    ...(current ?? snapshot),
     state: row.state,
     remind_at: row.remind_at ? isoString(row.remind_at) : null,
     note: row.note,
   }
 }
 
-export async function getAttentionItem(
-  db: Db,
-  spaceId: string,
-  key: string,
-  deps: { scaffoldingKinds: readonly string[] },
-): Promise<AttentionItem | null> {
+export async function getAttentionItem(db: Db, spaceId: string, key: string): Promise<AttentionItem | null> {
   const [overlay] = await db.select<OverlayRow>('wk_attention_states', {
     space_id: `eq.${spaceId}`,
     item_key: `eq.${key}`,
     limit: 1,
   })
-  if (overlay) return parseSnapshot(overlay)
-  return (await openItems(db, spaceId, deps)).find((item) => item.key === key) ?? null
+  const current = (await openItems(db, spaceId)).find((item) => item.key === key)
+  if (overlay) return parseSnapshot(overlay, current)
+  return current ?? null
 }
 
 export async function getAttention(
   db: Db,
   spaceId: string,
   args: { state?: AttentionState; kind?: AttentionKind; limit?: number; cursor?: string },
-  deps: { scaffoldingKinds: readonly string[] },
 ): Promise<AttentionPage> {
   const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
   const offset = args.cursor ? Number(Buffer.from(args.cursor, 'base64url').toString('utf8')) : 0
   if (!Number.isInteger(offset) || offset < 0) throw new ValidationError('cursor is invalid')
-  const current = await openItems(db, spaceId, deps)
+  const current = await openItems(db, spaceId)
   const overlays = await db.select<OverlayRow>('wk_attention_states', { space_id: `eq.${spaceId}`, limit: 1000 })
   const overlayByKey = new Map(overlays.map((row) => [row.item_key, row]))
+  const currentByKey = new Map(current.map((item) => [item.key, item]))
   const open = current
     .filter((item) => !overlayByKey.has(item.key))
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.key.localeCompare(b.key))
-  const deferred = overlays.filter((row) => row.state === 'deferred').map(parseSnapshot)
-  const discarded = overlays.filter((row) => row.state === 'discarded').map(parseSnapshot)
+  const deferred = overlays
+    .filter((row) => row.state === 'deferred')
+    .map((row) => parseSnapshot(row, currentByKey.get(row.item_key)))
+  const discarded = overlays
+    .filter((row) => row.state === 'discarded')
+    .map((row) => parseSnapshot(row, currentByKey.get(row.item_key)))
   const decided = await decidedItems(db, spaceId)
   const selected =
     args.state === 'deferred'
@@ -325,21 +344,15 @@ export async function getAttention(
   const filtered = args.kind ? selected.filter((item) => item.kind === args.kind) : selected
   const page = filtered.slice(offset, offset + limit)
   const now = Date.now()
-  const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0, output: 0, care: 0 }
-  const care_by_severity: Record<LintSeverity, number> = { error: 0, warn: 0, info: 0 }
+  const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0, output: 0 }
   for (const item of open) by_kind[item.kind] += 1
-  for (const item of open) {
-    if (item.finding) care_by_severity[item.finding.severity] += 1
-  }
-  const aged = open.filter((item) => item.kind !== 'care')
   return {
     generated_at: new Date(now).toISOString(),
     counts: {
       open: open.length,
       overdue: deferred.filter((item) => item.remind_at && new Date(item.remind_at).getTime() <= now).length,
-      oldest_days: aged.length ? Math.max(...aged.map((item) => daysOld(item.created_at, now))) : null,
+      oldest_days: open.length ? Math.max(...open.map((item) => daysOld(item.created_at, now))) : null,
       by_kind,
-      care_by_severity,
     },
     items: page,
     next_cursor: offset + limit < filtered.length ? Buffer.from(String(offset + limit)).toString('base64url') : null,

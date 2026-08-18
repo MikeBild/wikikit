@@ -344,32 +344,15 @@ export async function spaceHealth(
   }
 }
 
-/**
- * One wiki's numbers in the cross-wiki overview. The same null discipline as
- * SpaceHealth: `oldest_days` is null exactly when `pending` is 0.
- *
- * `pending_derived` counts the pending proposals whose EVERY cited source
- * carries the `derived_from_output_id` stamp (the mark promotion puts on an
- * answer filed back in — see the self-derived-only lint rule). It is
- * provenance, never a quality verdict: a proposal citing one outside source
- * beside three derived ones does not count, because the stamp says where
- * evidence came from, not what it is worth.
- */
+/** Proposal review numbers used by the agent briefing. */
 export interface OverviewRow {
   pending: number
   oldest_days: number | null
-  /** Proposals created in the last 7 days — the activity pulse, any status. */
-  created_7d: number
-  pending_derived: number
-  /** Visible pages: concepts whose current_revision_id is set. */
-  concepts: number
 }
 
 /**
- * The per-space review numbers for MANY spaces at once — the measurement the
- * cross-wiki overview, the MCP overview tool and the agent briefing share, so
- * three surfaces cannot disagree about one backlog. LLM-free, two GROUP BY
- * statements total, sequential over one pool like everything in this file.
+ * The per-space proposal review numbers for MANY spaces at once. This powers
+ * the agent briefing's explicitly proposal-only `pending_changes` block.
  *
  * A space with no proposal rows is still an answer: `{pending: 0, oldest_days:
  * null, …}` — a measured zero, with no age because there is no queue. The Map
@@ -380,32 +363,20 @@ export async function reviewOverview(db: Db, spaceIds: readonly string[]): Promi
   const overview = new Map<string, OverviewRow>()
   if (spaceIds.length === 0) return overview
   for (const id of spaceIds) {
-    overview.set(id, { pending: 0, oldest_days: null, created_7d: 0, pending_derived: 0, concepts: 0 })
+    overview.set(id, { pending: 0, oldest_days: null })
   }
 
-  // One statement over wk_change_proposals, aggregated per space. The derived
-  // check needs a per-row LATERAL because an aggregate FILTER clause may not
-  // contain a subquery: bool_and over the cited sources is null for a proposal
-  // citing nothing, so such a proposal never counts as derived.
+  // One statement over wk_change_proposals, aggregated per space.
   const proposals = await db.query<{
     space_id: string
     pending: number
     oldest_days: number | null
-    created_7d: number
-    pending_derived: number
   }>(
     `SELECT p.space_id,
             count(*) FILTER (WHERE p.status = 'pending')::int AS pending,
             floor(extract(epoch FROM now() - min(p.created_at) FILTER (WHERE p.status = 'pending')) / 86400)::int
-              AS oldest_days,
-            count(*) FILTER (WHERE p.created_at > now() - interval '7 days')::int AS created_7d,
-            count(*) FILTER (WHERE p.status = 'pending' AND d.all_derived)::int AS pending_derived
+              AS oldest_days
        FROM wk_change_proposals p
-       CROSS JOIN LATERAL (
-         SELECT bool_and(jsonb_exists(s.metadata, 'derived_from_output_id')) AS all_derived
-           FROM wk_sources s
-          WHERE s.id = ANY(p.source_ids)
-       ) d
       WHERE p.space_id = ANY($1::uuid[])
       GROUP BY p.space_id`,
     [spaceIds],
@@ -415,23 +386,6 @@ export async function reviewOverview(db: Db, spaceIds: readonly string[]): Promi
     if (!entry) continue
     entry.pending = row.pending
     entry.oldest_days = row.pending ? row.oldest_days : null
-    entry.created_7d = row.created_7d
-    entry.pending_derived = row.pending_derived
-  }
-
-  // Visible pages only (current_revision_id set) — the same definition the
-  // baseline gives readers, which 0033 extends to tombstones: a page that was
-  // deleted still has a current revision and still counts as a page.
-  const concepts = await db.query<{ space_id: string; concepts: number }>(
-    `SELECT space_id, count(*)::int AS concepts
-       FROM wk_concepts
-      WHERE space_id = ANY($1::uuid[]) AND current_revision_id IS NOT NULL
-      GROUP BY space_id`,
-    [spaceIds],
-  )
-  for (const row of concepts.rows) {
-    const entry = overview.get(row.space_id)
-    if (entry) entry.concepts = row.concepts
   }
 
   return overview
@@ -447,15 +401,104 @@ export interface OverviewSpace {
 
 export interface SpacesOverview {
   generated_at: string
-  totals: { pending: number; pending_derived: number; created_7d: number; oldest_days: number | null }
+  totals: { open: number; oldest_days: number | null; wikis_with_open: number }
   items: {
     space: string
     name: string
     purpose: string | null
-    review_queue: { pending: number; oldest_days: number | null; pending_derived: number }
-    created_7d: number
+    environment: 'production' | 'test'
+    attention: {
+      open: number
+      oldest_days: number | null
+      by_kind: { proposal: number; triage: number; output: number }
+    }
     concepts: number
   }[]
+}
+
+interface AttentionOverviewRow {
+  open: number
+  oldest_days: number | null
+  by_kind: { proposal: number; triage: number; output: number }
+  concepts: number
+}
+
+/** Human gates across spaces — findings are observations and never enter this count. */
+export async function attentionOverview(
+  db: Db,
+  spaceIds: readonly string[],
+): Promise<Map<string, AttentionOverviewRow>> {
+  const overview = new Map<string, AttentionOverviewRow>()
+  if (!spaceIds.length) return overview
+  for (const id of spaceIds) {
+    overview.set(id, {
+      open: 0,
+      oldest_days: null,
+      by_kind: { proposal: 0, triage: 0, output: 0 },
+      concepts: 0,
+    })
+  }
+
+  const attention = await db.query<{
+    space_id: string
+    kind: 'proposal' | 'triage' | 'output'
+    open: number
+    oldest_days: number
+  }>(
+    `SELECT item.space_id, item.kind, count(*)::int AS open,
+            floor(extract(epoch FROM now() - min(item.created_at)) / 86400)::int AS oldest_days
+       FROM (
+         SELECT space_id, 'proposal'::text AS kind, created_at
+           FROM wk_change_proposals p
+          WHERE p.space_id = ANY($1::uuid[]) AND p.status = 'pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM wk_attention_states a
+               WHERE a.space_id = p.space_id AND a.item_key = 'proposal:' || p.id::text
+            )
+         UNION ALL
+         SELECT space_id, 'triage'::text AS kind, created_at
+           FROM wk_ingest_jobs j
+          WHERE j.space_id = ANY($1::uuid[]) AND j.status = 'captured'
+            AND NOT EXISTS (
+              SELECT 1 FROM wk_attention_states a
+               WHERE a.space_id = j.space_id AND a.item_key = 'triage:' || j.id::text
+            )
+         UNION ALL
+         SELECT space_id, 'output'::text AS kind, created_at
+           FROM wk_outputs o
+          WHERE o.space_id = ANY($1::uuid[]) AND o.promoted_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM wk_attention_states a
+               WHERE a.space_id = o.space_id AND a.item_key = 'output:' || o.id::text
+            )
+       ) item
+      GROUP BY item.space_id, item.kind`,
+    [spaceIds],
+  )
+  for (const row of attention.rows) {
+    const entry = overview.get(row.space_id)
+    if (!entry) continue
+    if (!(row.kind in entry.by_kind)) continue
+    const open = Number(row.open)
+    const oldest = Number(row.oldest_days)
+    if (!Number.isFinite(open) || !Number.isFinite(oldest)) continue
+    entry.by_kind[row.kind] = open
+    entry.open += open
+    entry.oldest_days = Math.max(entry.oldest_days ?? 0, oldest)
+  }
+
+  const concepts = await db.query<{ space_id: string; concepts: number }>(
+    `SELECT space_id, count(*)::int AS concepts
+       FROM wk_concepts
+      WHERE space_id = ANY($1::uuid[]) AND current_revision_id IS NOT NULL
+      GROUP BY space_id`,
+    [spaceIds],
+  )
+  for (const row of concepts.rows) {
+    const entry = overview.get(row.space_id)
+    if (entry) entry.concepts = Number(row.concepts)
+  }
+  return overview
 }
 
 /**
@@ -471,12 +514,17 @@ export interface SpacesOverview {
  * the reasons the module header argues.
  */
 export async function spacesOverview(db: Db, spaces: readonly OverviewSpace[]): Promise<SpacesOverview> {
-  const rows = await reviewOverview(
+  const rows = await attentionOverview(
     db,
     spaces.map((space) => space.id),
   )
   const items = spaces.map((space) => {
-    const row = rows.get(space.id) ?? { pending: 0, oldest_days: null, created_7d: 0, pending_derived: 0, concepts: 0 }
+    const row = rows.get(space.id) ?? {
+      open: 0,
+      oldest_days: null,
+      by_kind: { proposal: 0, triage: 0, output: 0 },
+      concepts: 0,
+    }
     // The same fallback the cockpit's wiki list renders: both keys feed context
     // selection, and a wiki configured with only `description` should not read
     // as purposeless here while the server happily ranks on it.
@@ -486,22 +534,25 @@ export async function spacesOverview(db: Db, spaces: readonly OverviewSpace[]): 
       space: space.slug,
       name: space.name,
       purpose: typeof purpose === 'string' && purpose.length > 0 ? purpose : null,
-      review_queue: { pending: row.pending, oldest_days: row.oldest_days, pending_derived: row.pending_derived },
-      created_7d: row.created_7d,
+      environment: settings.environment === 'test' ? ('test' as const) : ('production' as const),
+      attention: {
+        open: row.open,
+        oldest_days: row.oldest_days,
+        by_kind: row.by_kind,
+      },
       concepts: row.concepts,
     }
   })
   const totals = items.reduce(
     (sum, item) => ({
-      pending: sum.pending + item.review_queue.pending,
-      pending_derived: sum.pending_derived + item.review_queue.pending_derived,
-      created_7d: sum.created_7d + item.created_7d,
+      open: sum.open + item.attention.open,
+      wikis_with_open: sum.wikis_with_open + (item.attention.open > 0 ? 1 : 0),
       oldest_days:
-        item.review_queue.oldest_days === null
+        item.attention.oldest_days === null
           ? sum.oldest_days
-          : Math.max(sum.oldest_days ?? 0, item.review_queue.oldest_days),
+          : Math.max(sum.oldest_days ?? 0, item.attention.oldest_days),
     }),
-    { pending: 0, pending_derived: 0, created_7d: 0, oldest_days: null as number | null },
+    { open: 0, wikis_with_open: 0, oldest_days: null as number | null },
   )
   return { generated_at: new Date().toISOString(), totals, items }
 }

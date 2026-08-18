@@ -1379,4 +1379,20 @@ describe('worker — re-synthesis of an archived source', () => {
       ingest_id: 'job-resynth',
     })
   })
+
+  test('concurrent retries for one archived source reuse the active job', async () => {
+    const { db, calls } = fakeDb([
+      { match: /SELECT \* FROM "public"\."wk_sources"/, rows: [{ id: SRC_ID }] },
+      { match: /input->>'resynthesize_source_id'/, rows: [{ id: 'job-active' }] },
+    ])
+    const pipeline = createIngestPipeline(config, db, createFakeProvider(), logger)
+    expect(
+      await pipeline.enqueue(db, 'space-1', {
+        markdown: RAW,
+        resynthesize: true,
+        resynthesize_source_id: SRC_ID,
+      }),
+    ).toEqual({ ingest_id: 'job-active' })
+    expect(calls.some((call) => call.sql.includes('INSERT INTO "public"."wk_ingest_jobs"'))).toBe(false)
+  })
 })

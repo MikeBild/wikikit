@@ -358,13 +358,13 @@ goes is the derived index; what stays is everything else:
 
 A source is **never** unindexed while any of these is true, however old it is:
 
-| Spared because…                                               | Why                                                                      |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| a claim cites it                                              | a reviewer follows the citation back to the chunk                        |
-| a **pending or approved** proposal names it in `source_ids`   | it is the evidence a human is about to weigh a staged change against     |
-| it is the head of a sync stream (`latest_source_id`)          | the head is a connector's current truth about a document, not history    |
-| an ingest job on it is `queued`, `running` or `quota_blocked` | that job is still going to chunk it                                      |
-| it is stamped `derived_from_output_id`                        | the overview's `pending_derived` and the self-derived lint rule count it |
+| Spared because…                                               | Why                                                                   |
+| ------------------------------------------------------------- | --------------------------------------------------------------------- |
+| a claim cites it                                              | a reviewer follows the citation back to the chunk                     |
+| a **pending or approved** proposal names it in `source_ids`   | it is the evidence a human is about to weigh a staged change against  |
+| it is the head of a sync stream (`latest_source_id`)          | the head is a connector's current truth about a document, not history |
+| an ingest job on it is `queued`, `running` or `quota_blocked` | that job is still going to chunk it                                   |
+| it is stamped `derived_from_output_id`                        | the self-derived lint rule retains and checks this provenance         |
 
 What you give up is stated once, in `docs/CONTRACTS.md` §1.15, where the
 `wk_search_sources` tier says "Everything archived is searchable here BY

@@ -5,5 +5,5 @@
   "scope": "knowledge:read",
   "group": "home",
   "exact": true,
-  "api": ["/v1/spaces/{space}/attention"]
+  "api": ["/v1/spaces/{space}/attention", "/v1/spaces/{space}/concepts", "/v1/stats/overview"]
 }

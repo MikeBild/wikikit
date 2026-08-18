@@ -22,16 +22,21 @@
 /** One row of `/v1/stats/overview`, as the page reads it. */
 export interface OverviewItem {
   space: string
-  review_queue: { pending: number; oldest_days: number | null; pending_derived: number }
-  created_7d: number
+  name: string
+  purpose: string | null
+  environment: 'production' | 'test'
+  attention: {
+    open: number
+    oldest_days: number | null
+    by_kind: { proposal: number; triage: number; output: number }
+  }
   concepts: number
 }
 
 export interface OverviewTotals {
-  pending: number
-  pending_derived: number
-  created_7d: number
+  open: number
   oldest_days: number | null
+  wikis_with_open: number
 }
 
 /** A wiki row after the join: identity always, numbers only once measured. */
@@ -62,7 +67,7 @@ export function mergeOverview<S extends { slug: string }>(
  * copy; the caller's array may belong to a query cache.
  */
 export function attentionOrder<S extends { slug: string }>(rows: readonly MergedRow<S>[]): MergedRow<S>[] {
-  const age = (row: MergedRow<S>) => row.ov?.review_queue.oldest_days ?? null
+  const age = (row: MergedRow<S>) => row.ov?.attention.oldest_days ?? null
   return [...rows].sort((left, right) => {
     const leftAge = age(left)
     const rightAge = age(right)
@@ -73,18 +78,4 @@ export function attentionOrder<S extends { slug: string }>(rows: readonly Merged
     }
     return left.space.slug.localeCompare(right.space.slug)
   })
-}
-
-/**
- * The backlog split by provenance: changes resting entirely on the wiki's own
- * generated reports, and the rest. The label the page draws beside the derived
- * count says where those changes CAME from ("from generated reports") — never
- * what they are worth; the stamp is provenance, and mixed-provenance changes
- * count as human on purpose (the server's under-count semantics).
- */
-export function backlogSplit(queue: { pending: number; pending_derived: number }): {
-  human: number
-  derived: number
-} {
-  return { human: queue.pending - queue.pending_derived, derived: queue.pending_derived }
 }

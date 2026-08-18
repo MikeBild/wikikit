@@ -33,17 +33,14 @@ describe('reviewOverview', () => {
 
   test('a space with no rows is a measured zero with a null age, never 0 days', async () => {
     const rows = await reviewOverview(stubDb([]), [A])
-    expect(rows.get(A)).toEqual({ pending: 0, oldest_days: null, created_7d: 0, pending_derived: 0, concepts: 0 })
+    expect(rows.get(A)).toEqual({ pending: 0, oldest_days: null })
   })
 
   test('oldest_days is null exactly when pending is 0, even if the pool says otherwise', async () => {
     // A stubbed pool hands back whatever it was told to — the same guard
     // spaceHealth applies to its own review query.
-    const rows = await reviewOverview(
-      stubDb([{ space_id: A, pending: 0, oldest_days: 3, created_7d: 5, pending_derived: 0 }]),
-      [A],
-    )
-    expect(rows.get(A)).toEqual({ pending: 0, oldest_days: null, created_7d: 5, pending_derived: 0, concepts: 0 })
+    const rows = await reviewOverview(stubDb([{ space_id: A, pending: 0, oldest_days: 3 }]), [A])
+    expect(rows.get(A)).toEqual({ pending: 0, oldest_days: null })
   })
 })
 
@@ -51,8 +48,9 @@ describe('spacesOverview', () => {
   test('composes items in the given order and sums totals server-side', async () => {
     const db = stubDb(
       [
-        { space_id: A, pending: 3, oldest_days: 21, created_7d: 2, pending_derived: 1 },
-        { space_id: B, pending: 1, oldest_days: 2, created_7d: 4, pending_derived: 0 },
+        { space_id: A, kind: 'proposal', open: 3, oldest_days: 21 },
+        { space_id: A, kind: 'triage', open: 2, oldest_days: 4 },
+        { space_id: B, kind: 'output', open: 1, oldest_days: 2 },
       ],
       [{ space_id: A, concepts: 9 }],
     )
@@ -65,25 +63,25 @@ describe('spacesOverview', () => {
         space: 'alpha',
         name: 'Alpha',
         purpose: 'first',
-        review_queue: { pending: 3, oldest_days: 21, pending_derived: 1 },
-        created_7d: 2,
+        environment: 'production',
+        attention: { open: 5, oldest_days: 21, by_kind: { proposal: 3, triage: 2, output: 0 } },
         concepts: 9,
       },
       {
         space: 'beta',
         name: 'Beta',
         purpose: 'second',
-        review_queue: { pending: 1, oldest_days: 2, pending_derived: 0 },
-        created_7d: 4,
+        environment: 'production',
+        attention: { open: 1, oldest_days: 2, by_kind: { proposal: 0, triage: 0, output: 1 } },
         concepts: 0,
       },
     ])
-    expect(overview.totals).toEqual({ pending: 4, pending_derived: 1, created_7d: 6, oldest_days: 21 })
+    expect(overview.totals).toEqual({ open: 6, oldest_days: 21, wikis_with_open: 2 })
   })
 
   test('a wiki that states no purpose answers null, and empty totals carry a null age', async () => {
     const overview = await spacesOverview(stubDb([]), [{ id: A, slug: 'quiet', name: 'Quiet', settings: {} }])
     expect(overview.items[0]!.purpose).toBeNull()
-    expect(overview.totals).toEqual({ pending: 0, pending_derived: 0, created_7d: 0, oldest_days: null })
+    expect(overview.totals).toEqual({ open: 0, oldest_days: null, wikis_with_open: 0 })
   })
 })

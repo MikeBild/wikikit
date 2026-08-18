@@ -61,7 +61,7 @@ import {
   renderOutputSource,
   type OutputKind,
 } from '../domain/outputs.ts'
-import { getSource, isoString, listSources, sha256Hex } from '../domain/sources.ts'
+import { getSource, isoString, listSourceReferences, listSources, sha256Hex } from '../domain/sources.ts'
 import { getTriageSuggestion, resolveTriage, suggestTriage } from '../domain/triage.ts'
 import {
   getAttention,
@@ -233,6 +233,17 @@ export const ROUTES: RouteDef[] = [
     },
   },
   {
+    method: 'get',
+    path: '/v1/spaces/{space}/sources/{id}/references',
+    scope: 'knowledge:read',
+    summary: 'List current pages and pending proposals that use one archived source',
+    handler: 'sourceReferencesHandler',
+    request: { params: 'zSpaceIdParams', query: 'zSourceReferencesQuery' },
+    responses: {
+      200: { schema: 'zSourceReferencesResponse', type: 'application/json', desc: 'Source references' },
+    },
+  },
+  {
     method: 'post',
     path: '/v1/spaces/{space}/ingest',
     scope: 'knowledge:propose',
@@ -380,6 +391,24 @@ export const ROUTES: RouteDef[] = [
     handler: 'getSourceHandler',
     request: { params: 'zSpaceIdParams' },
     responses: { 200: { schema: 'zSourceResponse', type: 'application/json', desc: 'Source' } },
+  },
+  {
+    method: 'post',
+    path: '/v1/spaces/{space}/sources/{id}/resynthesize',
+    scope: 'knowledge:propose',
+    summary:
+      'Run the current synthesis pipeline over one immutable archived source; never re-fetches its URL and never publishes without review',
+    handler: 'resynthesizeSourceHandler',
+    request: { params: 'zSpaceIdParams' },
+    responses: {
+      202: {
+        schema: 'zIngestAcceptedResponse',
+        type: 'application/json',
+        desc: 'Queued, or the same still-active resynthesis job',
+      },
+      429: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'ingest_queue_full' },
+      503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
+    },
   },
   {
     method: 'get',
@@ -589,7 +618,7 @@ export const ROUTES: RouteDef[] = [
     method: 'get',
     path: '/v1/spaces/{space}/attention',
     scope: 'knowledge:read',
-    summary: 'Aggregate the human attention queue across proposals, captures, outputs and care findings',
+    summary: 'Aggregate actual human decisions across proposals, captured inbox items and unfiled outputs',
     handler: 'attentionHandler',
     request: { params: 'zSpaceParams', query: 'zAttentionQuery' },
     responses: { 200: { schema: 'zAttentionResponse', type: 'application/json', desc: 'Attention queue' } },
@@ -874,7 +903,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/stats/overview',
     scope: 'knowledge:read',
     summary:
-      'Cross-wiki overview: per visible space the review backlog with the age of its oldest change, the share of pending changes derived from generated reports, 7-day proposal activity and the visible page count — plus server-side totals. LLM-free, no verdict.',
+      'Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded.',
     handler: 'spacesOverviewHandler',
     responses: {
       200: { schema: 'zSpacesOverviewResponse', type: 'application/json', desc: 'Overview of every visible space' },
@@ -1525,6 +1554,36 @@ export const HANDLERS: Record<string, Handler> = {
     return { status: 200, body: source }
   },
 
+  async resynthesizeSourceHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:propose')
+    const source = await getSource(deps.db, space.id, { id: input.params.id! })
+    const sourceKind = source.metadata.source_kind
+    const queued = await deps.ingest.enqueue(deps.db, space.id, {
+      text: source.raw_content,
+      title: source.title,
+      ...(sourceKind === 'meeting' || sourceKind === 'article' || sourceKind === 'note'
+        ? { source_kind: sourceKind }
+        : {}),
+      ...(source.language ? { language: source.language } : {}),
+      resynthesize: true,
+      resynthesize_source_id: source.id,
+    })
+    if (!('ingest_id' in queued)) throw new Error('source resynthesis did not create an ingest job')
+    return { status: 202, body: { ingest_id: queued.ingest_id, status: 'queued' as const } }
+  },
+
+  async sourceReferencesHandler(deps, input) {
+    const space = await resolveSpace(deps, input, 'knowledge:read')
+    return {
+      status: 200,
+      body: await listSourceReferences(deps.db, space.id, {
+        id: input.params.id!,
+        limit: input.query.limit as number | undefined,
+        cursor: input.query.cursor as string | undefined,
+      }),
+    }
+  },
+
   async listSourceStreamsHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const query = input.query as {
@@ -1798,7 +1857,7 @@ export const HANDLERS: Record<string, Handler> = {
     const query = input.query as { state?: AttentionState; kind?: AttentionKind; limit?: number; cursor?: string }
     return {
       status: 200,
-      body: await getAttention(deps.db, space.id, query, { scaffoldingKinds: deps.config.scaffoldingKinds }),
+      body: await getAttention(deps.db, space.id, query),
     }
   },
 
@@ -1809,12 +1868,7 @@ export const HANDLERS: Record<string, Handler> = {
       remind_at?: string | null
       note?: string | null
     }
-    const item =
-      body.state === 'open'
-        ? null
-        : await getAttentionItem(deps.db, space.id, input.params.key!, {
-            scaffoldingKinds: deps.config.scaffoldingKinds,
-          })
+    const item = body.state === 'open' ? null : await getAttentionItem(deps.db, space.id, input.params.key!)
     await setAttentionState(deps.db, space.id, item, {
       key: input.params.key!,
       state: body.state,
@@ -1833,7 +1887,7 @@ export const HANDLERS: Record<string, Handler> = {
     const overview = await spacesOverview(deps.db, visible)
     // schema_version stamped at the transport, as on spaceHealthHandler; the
     // MCP tool stamps the same literal so the two shapes stay identical.
-    return { status: 200, body: { schema_version: 'wikikit.spaces-overview.v1', ...overview } }
+    return { status: 200, body: { schema_version: 'wikikit.spaces-overview.v2', ...overview } }
   },
 
   async getSchedulesHandler(deps, input) {
