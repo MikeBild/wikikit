@@ -2303,6 +2303,11 @@ export interface components {
                     output: number;
                     care: number;
                 };
+                care_by_severity: {
+                    error: number;
+                    warn: number;
+                    info: number;
+                };
             };
             items: {
                 key: string;
@@ -2322,6 +2327,19 @@ export interface components {
                     actor: string | null;
                 };
                 available_actions: string[];
+                finding: {
+                    /** @enum {string} */
+                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
+                    /** @enum {string} */
+                    severity: "error" | "warn" | "info";
+                    message: {
+                        key: string;
+                        args: {
+                            [key: string]: unknown;
+                        };
+                        default_text: string;
+                    };
+                } | null;
                 previous_rejection: {
                     /** Format: uuid */
                     proposal_id: string;
@@ -2348,6 +2366,19 @@ export interface components {
                     actor: string | null;
                 };
                 available_actions: string[];
+                finding: {
+                    /** @enum {string} */
+                    rule: "contradictions" | "missing-citations" | "broken-relations" | "stale-claims" | "orphan-concepts" | "unsourced-concepts" | "self-derived-only" | "stub-concepts" | "scaffolded-claims" | "empty-concepts" | "unreviewed-proposals" | "dangling-sources" | "tombstoned-sources" | "broken-cross-space-links" | "missing-charter" | "stale-proposals" | "stale-captures";
+                    /** @enum {string} */
+                    severity: "error" | "warn" | "info";
+                    message: {
+                        key: string;
+                        args: {
+                            [key: string]: unknown;
+                        };
+                        default_text: string;
+                    };
+                } | null;
                 previous_rejection: {
                     /** Format: uuid */
                     proposal_id: string;

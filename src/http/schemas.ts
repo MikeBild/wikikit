@@ -1799,6 +1799,31 @@ const zAttentionItem = z.object({
   note: z.string().nullable(),
   source: z.object({ label: z.string(), href: z.string(), actor: z.string().nullable() }),
   available_actions: z.array(z.string()),
+  finding: z
+    .object({
+      rule: z.enum([
+        'contradictions',
+        'missing-citations',
+        'broken-relations',
+        'stale-claims',
+        'orphan-concepts',
+        'unsourced-concepts',
+        'self-derived-only',
+        'stub-concepts',
+        'scaffolded-claims',
+        'empty-concepts',
+        'unreviewed-proposals',
+        'dangling-sources',
+        'tombstoned-sources',
+        'broken-cross-space-links',
+        'missing-charter',
+        'stale-proposals',
+        'stale-captures',
+      ]),
+      severity: z.enum(['error', 'warn', 'info']),
+      message: z.object({ key: z.string(), args: z.record(z.string(), z.unknown()), default_text: z.string() }),
+    })
+    .nullable(),
   previous_rejection: z
     .object({ proposal_id: z.uuid(), reviewed_at: z.string(), note: z.string().nullable() })
     .nullable(),
@@ -1818,6 +1843,7 @@ export const zAttentionResponse = z.object({
     overdue: z.number().int().nonnegative(),
     oldest_days: z.number().int().nullable(),
     by_kind: z.object({ proposal: z.number(), triage: z.number(), output: z.number(), care: z.number() }),
+    care_by_severity: z.object({ error: z.number(), warn: z.number(), info: z.number() }),
   }),
   items: z.array(zAttentionItem),
   next_cursor: z.string().nullable(),

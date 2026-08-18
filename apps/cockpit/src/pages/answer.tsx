@@ -240,7 +240,7 @@ function Promotion({ output, space }: { output: Output; space: string }) {
               </p>
               <p>
                 The source it archives is marked as coming from this wiki's own answer, so knowledge that ends up
-                resting only on answers is reported on the Care page rather than passing as evidence from outside.
+                resting only on answers is reported under Check rather than passing as evidence from outside.
               </p>
               <p>
                 Filing the same text twice archives nothing twice: the second attempt is refused with the source that

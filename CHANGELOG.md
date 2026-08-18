@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.44.3 - 2026-08-18
+
+### Changed
+
+- The Cockpit start page now leads with knowledge search, concrete open work
+  and published pages instead of an unexplained six-step lifecycle. Navigation
+  uses the same visible names — Search and Check — as the pages it opens.
+- Check is now an explicit read-only action. It explains what will happen
+  before the run, groups findings by rule afterwards and links every actionable
+  finding to its exact source, page, proposal or guidelines target.
+
+### Fixed
+
+- The decisions page now uses one consistent content width and spacing rhythm,
+  has stable top-level breadcrumbs, groups repeated check findings, and keeps
+  secondary queue actions behind a clearly named menu.
+- Attention responses carry structured check findings and severity counts, so
+  the Cockpit no longer parses English summaries or invents an age for findings
+  produced by the current check.
+- German Cockpit copy now consistently calls the feature “Prüfen” and its
+  saved outputs “Prüfberichte”; leftover Care/Pflege labels were removed.
+
 ## 0.44.2 - 2026-08-17
 
 ### Fixed

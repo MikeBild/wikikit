@@ -172,7 +172,8 @@ function SourceDocument({ source }: { source: Source }) {
             ))}
           </dl>
           <p className="mt-4 text-xs text-muted-foreground">
-            The archived content cannot be changed. Care may update metadata only; corrections arrive as a new source.
+            The archived content cannot be changed. A check may update metadata only; corrections arrive as a new
+            source.
           </p>
         </CardContent>
       </Card>

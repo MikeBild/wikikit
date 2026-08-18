@@ -2,7 +2,7 @@ import { toneFor, type Tone } from '@/pages/home.logic'
 import type { Locale } from '@/lib/i18n'
 
 /**
- * The Care page's rules, with no DOM under them.
+ * The Check page's rules, with no DOM under them.
  *
  * This page exists because of a measured failure rather than a feature request:
  * a production wiki was sitting on hundreds of change proposals whose oldest
@@ -151,7 +151,9 @@ export function lintMessage(locale: Locale, finding: PresentableLintFinding): st
         : `Ein Gedanke liegt seit ${days} Tagen im Eingang und muss einsortiert werden.`
     }
     case 'dangling-sources':
-      return 'Eine archivierte Quelle wird von keiner Aussage zitiert.'
+      return typeof finding.message.args.source_title === 'string'
+        ? `Die Quelle „${finding.message.args.source_title}“ wird von keiner Aussage zitiert.`
+        : 'Eine archivierte Quelle wird von keiner Aussage zitiert.'
     case 'tombstoned-sources':
       return `${page} zitiert ein Dokument, das im Ursprung gelöscht wurde.`
     case 'broken-cross-space-links':
@@ -161,6 +163,50 @@ export function lintMessage(locale: Locale, finding: PresentableLintFinding): st
     default:
       return finding.message.default_text
   }
+}
+
+const RULE_TITLES_DE: Readonly<Record<string, string>> = {
+  contradictions: 'Widersprüchliche Aussagen',
+  'missing-citations': 'Aussagen ohne Quellenbeleg',
+  'broken-relations': 'Defekte Seitenverweise',
+  'stale-claims': 'Abgelaufene Aussagen',
+  'orphan-concepts': 'Nicht verknüpfte Seiten',
+  'unsourced-concepts': 'Seiten ohne archivierte Quelle',
+  'self-derived-only': 'Nur intern belegte Seiten',
+  'stub-concepts': 'Leere Verweisseiten',
+  'scaffolded-claims': 'Falsch eingeordnete Verweisseiten',
+  'empty-concepts': 'Seiten ohne prüfbare Aussage',
+  'unreviewed-proposals': 'Ungeprüfte Vorschläge',
+  'stale-proposals': 'Lange wartende Vorschläge',
+  'stale-captures': 'Lange wartende Eingangseinträge',
+  'dangling-sources': 'Nicht verwendete Quellen',
+  'tombstoned-sources': 'Gelöschte Ursprungsquellen',
+  'broken-cross-space-links': 'Defekte Verweise in andere Wikis',
+  'missing-charter': 'Fehlende Leitlinien',
+}
+
+const RULE_TITLES_EN: Readonly<Record<string, string>> = {
+  contradictions: 'Contradicting claims',
+  'missing-citations': 'Claims without citations',
+  'broken-relations': 'Broken page links',
+  'stale-claims': 'Expired claims',
+  'orphan-concepts': 'Unlinked pages',
+  'unsourced-concepts': 'Pages without archived sources',
+  'self-derived-only': 'Pages backed only by internal answers',
+  'stub-concepts': 'Empty reference pages',
+  'scaffolded-claims': 'Misclassified reference pages',
+  'empty-concepts': 'Pages without verifiable claims',
+  'unreviewed-proposals': 'Unreviewed proposals',
+  'stale-proposals': 'Long-waiting proposals',
+  'stale-captures': 'Long-waiting inbox items',
+  'dangling-sources': 'Unused sources',
+  'tombstoned-sources': 'Deleted upstream sources',
+  'broken-cross-space-links': 'Broken links to other wikis',
+  'missing-charter': 'Missing guidelines',
+}
+
+export function ruleTitle(locale: Locale, rule: string): string {
+  return (locale === 'de' ? RULE_TITLES_DE : RULE_TITLES_EN)[rule] ?? rule
 }
 
 /**
@@ -423,7 +469,7 @@ export function isTimeZoneName(value: string): boolean {
  *
  * A switched-off row is not checked at all. Its time and zone still travel, but
  * nothing fires on them, and refusing to save a working briefing because the
- * care report somebody disabled last month has an empty zone would be the form
+ * check report somebody disabled last month has an empty zone would be the form
  * blocking on a field that does nothing.
  */
 export function scheduleProblem(drafts: readonly ScheduleDraft[]): string | null {

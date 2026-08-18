@@ -21,17 +21,19 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/lib/i18n-context'
+import type { TranslationKey } from '@/lib/i18n'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { toast } from '@/lib/toast'
 import { count, durationHours, staleShare, windowLabel } from '@/pages/home.logic'
-import { groupFindings, type LintFinding } from '@/pages/system.logic'
+import { type LintFinding } from '@/pages/system.logic'
 import {
   backlogStanding,
   displayFindings,
   draftsFrom,
   findingTarget,
   lintMessage,
+  ruleTitle,
   ruleWhy,
   scheduleBody,
   scheduleProblem,
@@ -44,7 +46,7 @@ import {
 } from '@/pages/care.logic'
 
 /**
- * Pflege — what this wiki needs somebody to do about it.
+ * Check — what this wiki needs somebody to verify or fix.
  *
  * Everything on this page existed before it did, as endpoints nobody thought to
  * call: `lintSpace` finds the contradictions and the uncited claims,
@@ -81,292 +83,294 @@ import {
  */
 const FINDINGS_SHOWN = 8
 
+function groupFindingsByRule(findings: readonly LintFinding[]) {
+  const groups = new Map<string, LintFinding[]>()
+  for (const finding of findings) groups.set(finding.rule, [...(groups.get(finding.rule) ?? []), finding])
+  return [...groups.entries()].map(([rule, items]) => ({
+    rule,
+    items,
+    tone: (items[0]?.severity === 'error' ? 'danger' : items[0]?.severity === 'warn' ? 'warning' : 'neutral') as
+      'danger' | 'warning' | 'neutral',
+  }))
+}
+
 export function CarePage() {
   const space = useSpace()
   const can = useCan()
-  const { text } = useI18n()
+  const { locale, t, text } = useI18n()
   const admin = can('admin')
 
   const health = useQuery({ queryKey: keys.health(space), queryFn: () => wk.health.space(space), enabled: false })
 
   return (
     <Page
-      title="Care"
-      description="What this wiki needs: what is waiting for a decision, what the linter found, and where its knowledge is thin."
+      title="Check"
+      description={t('page.care.description')}
       actions={
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void health.refetch()} data-testid="care-run-check">
-            Check this wiki
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/decisions" search={(prev) => prev} data-testid="care-open-decisions">
-              Repair findings
-            </Link>
-          </Button>
-        </div>
+        <Button onClick={() => void health.refetch()} data-testid="care-run-check" disabled={health.isFetching}>
+          {health.isFetching ? t('check.loading') : t('check.run')}
+        </Button>
       }
     >
       <div className="flex flex-col gap-8">
-        <DataState testId="care-health" query={health} skeleton={<QueueSkeleton />}>
-          {(data) => {
-            const backlog = backlogStanding(data.review_queue.pending)
-            const when = windowLabel(data.window.from, data.window.to)
-            // One queue, one row: the census note of a change that also has a
-            // stale warning is folded into that warning (care.logic.ts). The
-            // counts strip above the list keeps the full census.
-            const display = displayFindings(data.lint.findings)
-            return (
-              <div className="flex flex-col gap-8">
-                <p className="text-xs text-muted-foreground" data-testid="care-checked-at">
-                  Checked <RelativeTime value={data.checked_at} /> · Guidelines revision{' '}
-                  {data.guidelines.revision ?? '—'}
-                </p>
-                <section className="flex flex-col gap-3" aria-labelledby="care-queues-heading">
-                  <h2 id="care-queues-heading" className="text-sm font-semibold">
-                    <I18nText>What is waiting</I18nText>
-                  </h2>
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <Card data-testid="care-review-queue">
-                      <CardHeader>
-                        <CardTitle>Proposals waiting for a person</CardTitle>
-                        <CardDescription>
-                          Nothing in this wiki becomes visible knowledge until somebody decides it.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex flex-col gap-3">
-                          <dl className="grid grid-cols-2 gap-3">
-                            <Fact
-                              testId="care-pending"
-                              label="Waiting"
-                              value={count(data.review_queue.pending)}
-                              hint={backlog.label}
-                            />
-                            {/*
+        {!health.data && !health.isFetching && !health.isError ? (
+          <Card className="max-w-[780px] border-dashed" data-testid="care-idle">
+            <CardHeader>
+              <CardTitle>{t('check.idle.title')}</CardTitle>
+              <CardDescription>{t('check.idle.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => void health.refetch()} data-testid="care-idle-run-check">
+                {t('check.run')}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <DataState testId="care-health" query={health} skeleton={<QueueSkeleton />}>
+            {(data) => {
+              const backlog = backlogStanding(data.review_queue.pending)
+              const when = windowLabel(data.window.from, data.window.to)
+              // One queue, one row: the census note of a change that also has a
+              // stale warning is folded into that warning (care.logic.ts). The
+              // counts strip above the list keeps the full census.
+              const display = displayFindings(data.lint.findings)
+              return (
+                <div className="flex flex-col gap-8">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground" data-testid="care-checked-at">
+                      {t('check.checked')} <RelativeTime value={data.checked_at} /> · {t('check.guidelinesRevision')}{' '}
+                      {data.guidelines.revision ?? '—'}
+                    </p>
+                    <Button asChild size="sm">
+                      <Link to="/decisions" search={(prev) => prev} data-testid="care-open-decisions">
+                        {t('check.findings')}
+                      </Link>
+                    </Button>
+                  </div>
+                  <section className="flex flex-col gap-3" aria-labelledby="care-queues-heading">
+                    <h2 id="care-queues-heading" className="text-sm font-semibold">
+                      <I18nText>What is waiting</I18nText>
+                    </h2>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <Card data-testid="care-review-queue">
+                        <CardHeader>
+                          <CardTitle>Proposals waiting for a person</CardTitle>
+                          <CardDescription>
+                            Nothing in this wiki becomes visible knowledge until somebody decides it.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="flex flex-col gap-3">
+                            <dl className="grid grid-cols-2 gap-3">
+                              <Fact
+                                testId="care-pending"
+                                label="Waiting"
+                                value={count(data.review_queue.pending)}
+                                hint={backlog.label}
+                              />
+                              {/*
                               The number this page exists for. `oldest_days` is
                               null exactly when the queue is empty, and null is
                               the em dash — "the oldest change has waited zero
                               days" is a sentence about nothing (CUI-SEV-2).
                             */}
-                            <Fact
-                              testId="care-oldest"
-                              label="The oldest has waited"
-                              value={phrase(text, waitedDays(data.review_queue.oldest_days))}
-                            />
-                          </dl>
-                          <Badge tone={backlog.tone} data-testid="care-backlog">
-                            {backlog.label}
-                          </Badge>
-                        </div>
-                      </CardContent>
-                    </Card>
+                              <Fact
+                                testId="care-oldest"
+                                label="The oldest has waited"
+                                value={phrase(text, waitedDays(data.review_queue.oldest_days))}
+                              />
+                            </dl>
+                            <Badge tone={backlog.tone} data-testid="care-backlog">
+                              {backlog.label}
+                            </Badge>
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                    <Card data-testid="care-ingest-queue">
-                      <CardHeader>
-                        <CardTitle>Documents still being read</CardTitle>
-                        <CardDescription>
-                          Work the pipeline has not finished. A parked job is counted beside the queue, not inside it.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                          <Fact testId="care-queue-depth" label="In the queue" value={count(data.ingest_queue.depth)} />
-                          <Fact
-                            testId="care-queue-parked"
-                            label="Paused on a quota"
-                            value={count(data.ingest_queue.quota_blocked)}
-                          />
-                          <Fact
-                            testId="care-queue-oldest"
-                            label="Longest wait"
-                            value={phrase(text, waitedHours(data.ingest_queue.oldest_queued_hours))}
-                          />
-                          {/*
+                      <Card data-testid="care-ingest-queue">
+                        <CardHeader>
+                          <CardTitle>Documents still being read</CardTitle>
+                          <CardDescription>
+                            Work the pipeline has not finished. A parked job is counted beside the queue, not inside it.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                            <Fact
+                              testId="care-queue-depth"
+                              label="In the queue"
+                              value={count(data.ingest_queue.depth)}
+                            />
+                            <Fact
+                              testId="care-queue-parked"
+                              label="Paused on a quota"
+                              value={count(data.ingest_queue.quota_blocked)}
+                            />
+                            <Fact
+                              testId="care-queue-oldest"
+                              label="Longest wait"
+                              value={phrase(text, waitedHours(data.ingest_queue.oldest_queued_hours))}
+                            />
+                            {/*
                             Parked thoughts, beside the queue and never inside
                             it: a captured note waits for a decision, not for a
                             worker. The age is the fact the stale-captures rule
                             turns into a warning at thirty days.
                           */}
-                          <Fact
-                            testId="care-queue-captured"
-                            label="Parked thoughts"
-                            value={count(data.ingest_queue.captured)}
-                            hint={
-                              data.ingest_queue.oldest_captured_days === null
-                                ? undefined
-                                : text('oldest: {age}', {
-                                    age: phrase(text, waitedDays(data.ingest_queue.oldest_captured_days)),
-                                  })
-                            }
+                            <Fact
+                              testId="care-queue-captured"
+                              label="Parked thoughts"
+                              value={count(data.ingest_queue.captured)}
+                              hint={
+                                data.ingest_queue.oldest_captured_days === null
+                                  ? undefined
+                                  : text('oldest: {age}', {
+                                      age: phrase(text, waitedDays(data.ingest_queue.oldest_captured_days)),
+                                    })
+                              }
+                            />
+                          </dl>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </section>
+
+                  <section className="flex flex-col gap-3" aria-labelledby="care-findings-heading">
+                    <SectionHeading
+                      id="care-findings-heading"
+                      helpTitle="About these findings"
+                      help={
+                        <p>
+                          Found by reading this wiki, without a model: claims with no quote behind them, pages that
+                          contradict each other, pages nothing links to, changes nobody has reviewed.
+                        </p>
+                      }
+                      testId="care-findings-help"
+                    >
+                      What the linter found
+                    </SectionHeading>
+                    <Card data-testid="care-findings-card">
+                      <CardContent>
+                        {data.lint.findings.length === 0 ? (
+                          // A clean report is GOOD NEWS and must not read like a
+                          // failure (CUI-LOAD-4).
+                          <EmptyState
+                            icon={CircleCheck}
+                            framed={false}
+                            title="Nothing to fix"
+                            description="The linter found no errors, warnings or notes in this wiki."
+                            data-testid="care-findings-empty"
                           />
-                        </dl>
+                        ) : (
+                          <div className="flex flex-col gap-4">
+                            <dl className="grid grid-cols-3 gap-3">
+                              <Fact testId="care-errors" label="Errors" value={count(data.lint.counts.error)} />
+                              <Fact testId="care-warnings" label="Warnings" value={count(data.lint.counts.warn)} />
+                              <Fact testId="care-notes" label="Notes" value={count(data.lint.counts.info)} />
+                            </dl>
+                            {groupFindingsByRule(display.shown).map((group) => (
+                              <section
+                                key={group.rule}
+                                className="flex flex-col gap-2"
+                                aria-label={ruleTitle(locale, group.rule)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-sm font-medium">{ruleTitle(locale, group.rule)}</h3>
+                                  <Badge tone={group.tone}>{group.items.length}</Badge>
+                                  <span className="text-muted-foreground text-xs">{count(group.items.length)}</span>
+                                </div>
+                                <ul className="flex flex-col gap-1.5">
+                                  {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
+                                    <Finding
+                                      key={`${finding.rule}-${finding.concept_slug ?? index}`}
+                                      finding={finding}
+                                      testId={`care-${group.rule}-${index + 1}`}
+                                    />
+                                  ))}
+                                </ul>
+                                {group.items.length > FINDINGS_SHOWN ? (
+                                  <p className="text-muted-foreground text-xs" data-testid={`care-more-${group.rule}`}>
+                                    And {count(group.items.length - FINDINGS_SHOWN)} more.
+                                  </p>
+                                ) : null}
+                              </section>
+                            ))}
+                            {display.folded > 0 ? (
+                              <p className="text-muted-foreground text-xs" data-testid="care-folded-note">
+                                {text('A change waiting past two weeks appears once, as a warning ({count} folded).', {
+                                  count: display.folded,
+                                })}
+                              </p>
+                            ) : null}
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
-                  </div>
-                </section>
+                  </section>
 
-                <section className="flex flex-col gap-3" aria-labelledby="care-findings-heading">
-                  <SectionHeading
-                    id="care-findings-heading"
-                    helpTitle="About these findings"
-                    help={
-                      <p>
-                        Found by reading this wiki, without a model: claims with no quote behind them, pages that
-                        contradict each other, pages nothing links to, changes nobody has reviewed.
-                      </p>
-                    }
-                    testId="care-findings-help"
-                  >
-                    What the linter found
-                  </SectionHeading>
-                  <Card data-testid="care-findings-card">
-                    <CardContent>
-                      {data.lint.findings.length === 0 ? (
-                        // A clean report is GOOD NEWS and must not read like a
-                        // failure (CUI-LOAD-4).
-                        <EmptyState
-                          icon={CircleCheck}
-                          framed={false}
-                          title="Nothing to fix"
-                          description="The linter found no errors, warnings or notes in this wiki."
-                          data-testid="care-findings-empty"
-                        />
-                      ) : (
+                  <section className="flex flex-col gap-3" aria-labelledby="care-thin-heading">
+                    <h2 id="care-thin-heading" className="text-sm font-semibold">
+                      <I18nText>Where the knowledge is thin</I18nText>
+                    </h2>
+                    <Card data-testid="care-coverage">
+                      <CardContent>
                         <div className="flex flex-col gap-4">
-                          <dl className="grid grid-cols-3 gap-3">
-                            <Fact testId="care-errors" label="Errors" value={count(data.lint.counts.error)} />
-                            <Fact testId="care-warnings" label="Warnings" value={count(data.lint.counts.warn)} />
-                            <Fact testId="care-notes" label="Notes" value={count(data.lint.counts.info)} />
+                          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            <Fact
+                              testId="care-disputed"
+                              label="Disputed claims"
+                              value={count(data.coverage.disputed.open)}
+                              hint={
+                                data.coverage.disputed.oldest_days === null
+                                  ? 'none open'
+                                  : `oldest ${count(Math.round(data.coverage.disputed.oldest_days))} days`
+                              }
+                            />
+                            <Fact
+                              testId="care-stale"
+                              label="Untouched 90 days"
+                              value={staleShare(
+                                data.coverage.freshness.concepts,
+                                data.coverage.freshness.stale_over_90d,
+                              )}
+                              hint={`${count(data.coverage.freshness.stale_over_90d)} of ${count(data.coverage.freshness.concepts)} pages`}
+                            />
+                            <Fact
+                              testId="care-latency"
+                              label="Median time to decide"
+                              value={durationHours(data.coverage.review_latency.median_hours)}
+                              hint={`${count(data.coverage.review_latency.decided)} decided`}
+                            />
                           </dl>
-                          {groupFindings(display.shown).map((group) => (
-                            <section key={group.severity} className="flex flex-col gap-2" aria-label={group.many}>
-                              <div className="flex items-center gap-2">
-                                <Badge tone={group.tone}>{group.many}</Badge>
-                                <span className="text-muted-foreground text-xs">{count(group.items.length)}</span>
-                              </div>
-                              <ul className="flex flex-col gap-1.5">
-                                {group.items.slice(0, FINDINGS_SHOWN).map((finding, index) => (
-                                  <Finding
-                                    key={`${finding.rule}-${finding.concept_slug ?? index}`}
-                                    finding={finding}
-                                    testId={`care-${group.severity}-${index + 1}`}
-                                  />
-                                ))}
-                              </ul>
-                              {group.items.length > FINDINGS_SHOWN ? (
-                                <p
-                                  className="text-muted-foreground text-xs"
-                                  data-testid={`care-more-${group.severity}`}
-                                >
-                                  And {count(group.items.length - FINDINGS_SHOWN)} more.
-                                </p>
-                              ) : null}
-                            </section>
-                          ))}
-                          {display.folded > 0 ? (
-                            <p className="text-muted-foreground text-xs" data-testid="care-folded-note">
-                              {text('A change waiting past two weeks appears once, as a warning ({count} folded).', {
-                                count: display.folded,
-                              })}
+                          <GapTopics gaps={data.coverage.gap_topics} />
+                          {when ? (
+                            <p className="text-muted-foreground text-xs" data-testid="care-window">
+                              {text(`In ${when}.`)}
                             </p>
                           ) : null}
                         </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </section>
+                      </CardContent>
+                    </Card>
+                  </section>
+                </div>
+              )
+            }}
+          </DataState>
+        )}
 
-                <section className="flex flex-col gap-3" aria-labelledby="care-thin-heading">
-                  <h2 id="care-thin-heading" className="text-sm font-semibold">
-                    <I18nText>Where the knowledge is thin</I18nText>
-                  </h2>
-                  <Card data-testid="care-coverage">
-                    <CardContent>
-                      <div className="flex flex-col gap-4">
-                        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                          <Fact
-                            testId="care-disputed"
-                            label="Disputed claims"
-                            value={count(data.coverage.disputed.open)}
-                            hint={
-                              data.coverage.disputed.oldest_days === null
-                                ? 'none open'
-                                : `oldest ${count(Math.round(data.coverage.disputed.oldest_days))} days`
-                            }
-                          />
-                          <Fact
-                            testId="care-stale"
-                            label="Untouched 90 days"
-                            value={staleShare(data.coverage.freshness.concepts, data.coverage.freshness.stale_over_90d)}
-                            hint={`${count(data.coverage.freshness.stale_over_90d)} of ${count(data.coverage.freshness.concepts)} pages`}
-                          />
-                          <Fact
-                            testId="care-latency"
-                            label="Median time to decide"
-                            value={durationHours(data.coverage.review_latency.median_hours)}
-                            hint={`${count(data.coverage.review_latency.decided)} decided`}
-                          />
-                        </dl>
-                        <GapTopics gaps={data.coverage.gap_topics} />
-                        {when ? (
-                          <p className="text-muted-foreground text-xs" data-testid="care-window">
-                            {text(`In ${when}.`)}
-                          </p>
-                        ) : null}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </section>
-
-                <section className="flex flex-col gap-3" aria-labelledby="care-decisions-heading">
-                  <h2 id="care-decisions-heading" className="text-sm font-semibold">
-                    What you need to decide
-                  </h2>
-                  <Card data-testid="care-decisions">
-                    <CardHeader>
-                      <CardDescription>
-                        Checking changed nothing. Review each finding before any repair enters the knowledge workflow.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-wrap items-end justify-between gap-4">
-                      <div className="flex gap-6">
-                        <Fact
-                          testId="care-decisions-findings"
-                          label="Findings"
-                          value={count(data.lint.findings.length)}
-                        />
-                        <Fact
-                          testId="care-decisions-proposals"
-                          label="Proposals"
-                          value={count(data.review_queue.pending)}
-                        />
-                      </div>
-                      <Button asChild>
-                        <Link to="/decisions" data-testid="care-decisions-open">
-                          Open decisions
-                        </Link>
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </section>
-              </div>
-            )
-          }}
-        </DataState>
-
-        <section className="flex flex-col gap-3" aria-labelledby="care-reports-heading">
+        <section className="flex flex-col gap-3 border-t pt-8" aria-labelledby="care-reports-heading">
           <SectionHeading
             id="care-reports-heading"
             helpTitle="About kept reports"
             help={
               <p>
-                Every scheduled care run keeps its report here, under Answers — including a run that found nothing,
-                because an empty report is information: it says somebody looked.
+                Every scheduled check keeps its report here, under Answers — including a run that found nothing, because
+                an empty report is information: it says somebody looked.
               </p>
             }
             testId="care-reports-help"
           >
-            Kept care reports
+            {t('check.reports')}
           </SectionHeading>
           <Reports space={space} />
         </section>
@@ -383,7 +387,7 @@ export function CarePage() {
             }
             testId="care-schedule-help"
           >
-            Reports that run by themselves
+            {t('check.schedule')}
           </SectionHeading>
           {admin ? (
             <Schedules space={space} />
@@ -420,13 +424,13 @@ function Finding({
   finding: LintFinding & { details?: Record<string, unknown> }
   testId: string
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const target = findingTarget(finding)
   const why = ruleWhy(finding.rule)
   const body = (
     <>
-      <span className="font-mono text-[11px] tracking-tight">{finding.rule}</span>
       <span className="min-w-0">{lintMessage(locale, finding)}</span>
+      {target ? <span className="shrink-0 font-medium text-foreground">{t(findingTargetKey(target))}</span> : null}
     </>
   )
   const shell = 'flex flex-col gap-0.5 rounded-md px-2 py-1.5 text-xs sm:flex-row sm:items-baseline sm:gap-3'
@@ -489,6 +493,17 @@ function Finding({
   )
 }
 
+function findingTargetKey(target: NonNullable<ReturnType<typeof findingTarget>>): TranslationKey {
+  const keys = {
+    page: 'decisions.openPage',
+    change: 'decisions.openProposal',
+    source: 'decisions.openSource',
+    inbox: 'decisions.openInbox',
+    charter: 'decisions.openGuidelines',
+  } as const
+  return keys[target.kind]
+}
+
 /**
  * The questions readers asked that this wiki could not answer.
  *
@@ -533,7 +548,7 @@ function GapTopics({ gaps }: { gaps: { enabled: boolean; items: readonly { lexem
 const REPORTS_SHOWN = 8
 
 /**
- * The kept care reports — the visible record that maintenance actually ran.
+ * The kept check reports — the visible record that a check actually ran.
  *
  * Its own read beside the health query, like the schedule form below: the
  * report history must not blank the live numbers when it is slow, and the live
@@ -554,7 +569,7 @@ function Reports({ space }: { space: string }) {
                 icon={FileText}
                 framed={false}
                 title="No report kept yet"
-                description="The first scheduled care run files its report here — switch one on in the timetable below."
+                description="The first scheduled check files its report here — switch one on in the timetable below."
                 data-testid="care-reports-empty"
               />
             ) : (
@@ -648,11 +663,11 @@ function ScheduleForm({ space, saved }: { space: string; saved: readonly Schedul
             <div className="flex flex-col gap-2">
               <p>
                 Each run writes an entry under Answers. A briefing costs nothing — it is an assembly of counts and
-                titles — and a care report is the page above, kept.
+                titles — and a check report is the page above, kept.
               </p>
               <p>
                 A report switched off here stops running and keeps its record of when it last did. Nothing is emailed: a
-                care report also raises an event, which is where a mail would be hung.
+                check report also raises an event, which is where a mail would be hung.
               </p>
             </div>
           }
@@ -686,7 +701,7 @@ function ScheduleForm({ space, saved }: { space: string; saved: readonly Schedul
 
 const KIND_TITLE: Record<string, string> = {
   briefing: 'Morning briefing',
-  health: 'Care report',
+  health: 'Check report',
 }
 
 const KIND_DETAIL: Record<string, string> = {

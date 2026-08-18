@@ -126,7 +126,9 @@ export function Shell() {
                     items={items}
                     open={open}
                     attentionCount={attention.data?.counts.open}
-                    attentionAlert={Boolean(attention.data?.counts.overdue || attention.data?.counts.by_kind.care)}
+                    attentionAlert={Boolean(
+                      attention.data?.counts.overdue || attention.data?.counts.care_by_severity.error,
+                    )}
                   />
                 )
               })}
@@ -486,7 +488,7 @@ const PAGE_KEYS: Record<string, { title: TranslationKey; description: Translatio
   Inbox: { title: 'nav.inbox', description: 'page.inbox.description' },
   Pages: { title: 'nav.pages', description: 'page.pages.description' },
   Answers: { title: 'nav.answers', description: 'page.answers.description' },
-  Care: { title: 'nav.care', description: 'page.care.description' },
+  Check: { title: 'nav.care', description: 'page.care.description' },
   Sources: { title: 'nav.sources', description: 'page.sources.description' },
   Decisions: { title: 'nav.decisions', description: 'page.decisions.description' },
   'Decision log': { title: 'nav.decisionLog', description: 'page.decisionLog.description' },
@@ -586,17 +588,13 @@ export function Page({
   )
 }
 
-/** `Wiki · Decisions · <title>`, with the section linked where it is not the page itself. */
+/** Top-level pages have no crumb; detail pages link back to their stable parent route. */
 function useCrumbs(title: string): { label: string; to?: string }[] {
   const { t } = useI18n()
-  const entry = entryFor(useMatches().at(-1)?.pathname ?? '/')
-  const group = GROUPS.find((candidate) => candidate.id === entry?.group)
-  const trail: { label: string; to?: string }[] = []
-  if (group?.label) trail.push({ label: t(groupKey(group.id)) })
-  // A detail route sits under its section: "Wiki · Decisions · <title>".
-  if (entry && entry.label !== title) trail.push({ label: t(navKey(entry)), to: entry.to })
-  trail.push({ label: title })
-  return trail
+  const pathname = useMatches().at(-1)?.pathname ?? '/'
+  const entry = entryFor(pathname)
+  if (!entry || pathname === entry.to) return [{ label: title }]
+  return [{ label: t(navKey(entry)), to: entry.to }, { label: title }]
 }
 
 /** The scopes an operator holds, printed where there is room to explain them. */

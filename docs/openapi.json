@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.44.2",
+    "version": "0.44.3",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -6203,9 +6203,19 @@
                 },
                 "required": ["proposal", "triage", "output", "care"],
                 "additionalProperties": false
+              },
+              "care_by_severity": {
+                "type": "object",
+                "properties": {
+                  "error": { "type": "number" },
+                  "warn": { "type": "number" },
+                  "info": { "type": "number" }
+                },
+                "required": ["error", "warn", "info"],
+                "additionalProperties": false
               }
             },
-            "required": ["open", "overdue", "oldest_days", "by_kind"],
+            "required": ["open", "overdue", "oldest_days", "by_kind", "care_by_severity"],
             "additionalProperties": false
           },
           "items": {
@@ -6233,6 +6243,55 @@
                   "additionalProperties": false
                 },
                 "available_actions": { "type": "array", "items": { "type": "string" } },
+                "finding": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rule": {
+                          "type": "string",
+                          "enum": [
+                            "contradictions",
+                            "missing-citations",
+                            "broken-relations",
+                            "stale-claims",
+                            "orphan-concepts",
+                            "unsourced-concepts",
+                            "self-derived-only",
+                            "stub-concepts",
+                            "scaffolded-claims",
+                            "empty-concepts",
+                            "unreviewed-proposals",
+                            "dangling-sources",
+                            "tombstoned-sources",
+                            "broken-cross-space-links",
+                            "missing-charter",
+                            "stale-proposals",
+                            "stale-captures"
+                          ]
+                        },
+                        "severity": { "type": "string", "enum": ["error", "warn", "info"] },
+                        "message": {
+                          "type": "object",
+                          "properties": {
+                            "key": { "type": "string" },
+                            "args": {
+                              "type": "object",
+                              "propertyNames": { "type": "string" },
+                              "additionalProperties": {}
+                            },
+                            "default_text": { "type": "string" }
+                          },
+                          "required": ["key", "args", "default_text"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["rule", "severity", "message"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
                 "previous_rejection": {
                   "anyOf": [
                     {
@@ -6265,6 +6324,7 @@
                 "note",
                 "source",
                 "available_actions",
+                "finding",
                 "previous_rejection"
               ],
               "additionalProperties": false
@@ -6296,6 +6356,55 @@
                   "additionalProperties": false
                 },
                 "available_actions": { "type": "array", "items": { "type": "string" } },
+                "finding": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "rule": {
+                          "type": "string",
+                          "enum": [
+                            "contradictions",
+                            "missing-citations",
+                            "broken-relations",
+                            "stale-claims",
+                            "orphan-concepts",
+                            "unsourced-concepts",
+                            "self-derived-only",
+                            "stub-concepts",
+                            "scaffolded-claims",
+                            "empty-concepts",
+                            "unreviewed-proposals",
+                            "dangling-sources",
+                            "tombstoned-sources",
+                            "broken-cross-space-links",
+                            "missing-charter",
+                            "stale-proposals",
+                            "stale-captures"
+                          ]
+                        },
+                        "severity": { "type": "string", "enum": ["error", "warn", "info"] },
+                        "message": {
+                          "type": "object",
+                          "properties": {
+                            "key": { "type": "string" },
+                            "args": {
+                              "type": "object",
+                              "propertyNames": { "type": "string" },
+                              "additionalProperties": {}
+                            },
+                            "default_text": { "type": "string" }
+                          },
+                          "required": ["key", "args", "default_text"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["rule", "severity", "message"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
                 "previous_rejection": {
                   "anyOf": [
                     {
@@ -6328,6 +6437,7 @@
                 "note",
                 "source",
                 "available_actions",
+                "finding",
                 "previous_rejection"
               ],
               "additionalProperties": false

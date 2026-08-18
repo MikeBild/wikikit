@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronDown, Clock3, ShieldCheck } from 'lucide-react'
+import { ChevronDown, Clock3, MoreHorizontal, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
-import { I18nText } from '@/components/i18n-text'
+import { Confirm } from '@/components/confirm'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Input } from '@/components/ui/input'
@@ -17,7 +18,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSpace } from '@/lib/space'
 import { useI18n } from '@/lib/i18n-context'
-import { lintMessage } from '@/pages/care.logic'
+import type { TranslationKey } from '@/lib/i18n'
+import { lintMessage, ruleTitle } from '@/pages/care.logic'
 
 type AttentionResponse = Awaited<ReturnType<typeof wk.attention.list>>
 type AttentionItem = AttentionResponse['items'][number]
@@ -25,22 +27,23 @@ type AttentionState = 'open' | 'deferred' | 'discarded' | 'decided'
 type AttentionKind = 'proposal' | 'triage' | 'output' | 'care'
 type TriageSuggestion = NonNullable<Awaited<ReturnType<typeof wk.ingest.suggestTriage>>['suggestion']>
 
-const STATE_LABELS: Record<AttentionState, string> = {
-  open: 'Open',
-  deferred: 'Deferred',
-  discarded: 'Discarded',
-  decided: 'Decided',
+const STATE_KEYS: Record<AttentionState, TranslationKey> = {
+  open: 'attention.state.open',
+  deferred: 'attention.state.deferred',
+  discarded: 'attention.state.discarded',
+  decided: 'attention.state.decided',
 }
 
-const KIND_LABELS: Record<AttentionKind, string> = {
-  proposal: 'Proposal',
-  triage: 'Triage',
-  output: 'Output',
-  care: 'Care',
+const KIND_KEYS: Record<AttentionKind, TranslationKey> = {
+  proposal: 'attention.kind.proposal',
+  triage: 'attention.kind.triage',
+  output: 'attention.kind.output',
+  care: 'attention.kind.care',
 }
 
 export function DecisionsPage() {
   const space = useSpace()
+  const { locale, t } = useI18n()
   const [state, setState] = useState<AttentionState>('open')
   const [kind, setKind] = useState<AttentionKind | 'all'>('all')
   const queryArgs = { state, ...(kind === 'all' ? {} : { kind }), limit: 200 }
@@ -52,100 +55,134 @@ export function DecisionsPage() {
   const waitingLonger =
     state === 'open' && data
       ? data.items.filter(
-          (item) => new Date(data.generated_at).getTime() - new Date(item.created_at).getTime() >= 3 * 86_400_000,
+          (item) =>
+            item.kind !== 'care' &&
+            new Date(data.generated_at).getTime() - new Date(item.created_at).getTime() >= 3 * 86_400_000,
         )
       : []
   const currentItems = data?.items.filter((item) => !waitingLonger.includes(item)) ?? []
+  const regularItems = currentItems.filter((item) => item.kind !== 'care')
+  const careGroups = groupCareItems(currentItems.filter((item) => item.kind === 'care'))
 
   return (
-    <Page
-      title="Decisions"
-      description="Everything waiting for a person: sort captures, review proposals, file useful outputs and act on care findings."
-    >
-      {data?.counts.overdue ? (
-        <Alert tone="danger" title="A reminder is overdue">
-          {data.counts.overdue} deferred item{data.counts.overdue === 1 ? '' : 's'} reached their reminder time.
-        </Alert>
-      ) : null}
+    <Page title="Decisions" description={t('page.decisions.description')}>
+      <div className="flex w-full max-w-[780px] flex-col gap-6" data-testid="attention-list">
+        {data?.counts.overdue ? (
+          <Alert tone="danger" title={t('decisions.overdueTitle')}>
+            {t('decisions.overdueDescription', { count: data.counts.overdue })}
+          </Alert>
+        ) : null}
 
-      <section className="flex flex-col gap-3" aria-label="Decision filters">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <section className="flex flex-col gap-3" aria-label={t('decisions.filters')}>
           <ToggleGroup
             type="single"
             value={state}
             onValueChange={(value) => value && setState(value as AttentionState)}
             variant="outline"
             size="sm"
+            className="max-w-full flex-wrap justify-start"
           >
-            {(Object.keys(STATE_LABELS) as AttentionState[]).map((value) => (
+            {(Object.keys(STATE_KEYS) as AttentionState[]).map((value) => (
               <ToggleGroupItem
                 key={value}
                 value={value}
-                aria-label={STATE_LABELS[value]}
+                aria-label={t(STATE_KEYS[value])}
                 data-testid={`decisions-state-${value}`}
               >
-                {STATE_LABELS[value]}
+                {t(STATE_KEYS[value])}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <ToggleGroup
+            type="single"
+            value={kind}
+            onValueChange={(value) => value && setKind(value as AttentionKind | 'all')}
+            variant="outline"
+            size="sm"
+            className="max-w-full flex-wrap justify-start"
+          >
+            <ToggleGroupItem value="all" data-testid="decisions-kind-all">
+              {t('attention.kind.all')}
+            </ToggleGroupItem>
+            {(Object.keys(KIND_KEYS) as AttentionKind[]).map((value) => (
+              <ToggleGroupItem key={value} value={value} data-testid={`decisions-kind-${value}`}>
+                {t(KIND_KEYS[value])}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
           {data ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Clock3 />
               <span>
-                {data.counts.oldest_days == null ? 'Nothing waiting' : `Oldest: ${data.counts.oldest_days} days`}
+                {data.counts.oldest_days == null
+                  ? t('attention.noAge')
+                  : t('attention.oldest', { count: data.counts.oldest_days })}
               </span>
-              <Badge tone={data.counts.overdue ? 'danger' : data.counts.open ? 'warning' : 'success'}>
-                {data.counts.open} open
+              <Badge
+                tone={
+                  data.counts.overdue || data.counts.care_by_severity.error
+                    ? 'danger'
+                    : data.counts.open
+                      ? 'warning'
+                      : 'success'
+                }
+              >
+                {t('attention.openCount', { count: data.counts.open })}
               </Badge>
             </div>
           ) : null}
-        </div>
-        <ToggleGroup
-          type="single"
-          value={kind}
-          onValueChange={(value) => value && setKind(value as AttentionKind | 'all')}
-          variant="outline"
-          size="sm"
-          className="max-w-full flex-wrap"
-        >
-          <ToggleGroupItem value="all" data-testid="decisions-kind-all">
-            Everything
-          </ToggleGroupItem>
-          {(Object.keys(KIND_LABELS) as AttentionKind[]).map((value) => (
-            <ToggleGroupItem key={value} value={value} data-testid={`decisions-kind-${value}`}>
-              {KIND_LABELS[value]}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </section>
+        </section>
 
-      {query.isLoading ? <p className="text-sm text-muted-foreground">Loading decisions…</p> : null}
-      {query.isError ? <Alert tone="danger" title="Decisions could not be loaded" /> : null}
-      {data && data.items.length === 0 ? (
-        <DecisionEmpty state={state} filtered={kind !== 'all'} onShowAll={() => setKind('all')} />
-      ) : null}
-
-      <div className="mx-auto flex w-full max-w-[780px] flex-col gap-6" data-testid="attention-list">
+        {query.isLoading ? <p className="text-sm text-muted-foreground">{t('decisions.loading')}</p> : null}
+        {query.isError ? <Alert tone="danger" title={t('decisions.error')} /> : null}
+        {data && data.items.length === 0 ? (
+          <DecisionEmpty state={state} filtered={kind !== 'all'} onShowAll={() => setKind('all')} />
+        ) : null}
         {waitingLonger.length ? (
           <section className="flex flex-col gap-3" aria-labelledby="decisions-waiting-longer">
             <h2 id="decisions-waiting-longer" className="text-sm font-semibold text-warning">
-              Waiting longer
+              {t('decisions.waitingLonger')}
             </h2>
             {waitingLonger.map((item, index) => (
               <AttentionCard key={item.key} item={item} space={space} testId={`decision-waiting-${index + 1}`} />
             ))}
           </section>
         ) : null}
-        {currentItems.length ? (
+        {regularItems.length ? (
           <section
             className="flex flex-col gap-3"
-            aria-label={state === 'open' ? 'Needs attention' : STATE_LABELS[state]}
+            aria-label={state === 'open' ? t('decisions.needsAttention') : t(STATE_KEYS[state])}
           >
-            {currentItems.map((item, index) => (
+            {regularItems.map((item, index) => (
               <AttentionCard key={item.key} item={item} space={space} testId={`decision-item-${index + 1}`} />
             ))}
           </section>
         ) : null}
+        {careGroups.map((group, groupIndex) => (
+          <section
+            key={group.rule}
+            className="flex flex-col gap-3"
+            aria-labelledby={`decision-care-group-${groupIndex}`}
+            data-testid={`decision-care-group-${group.rule}`}
+          >
+            <div className="flex items-center gap-2">
+              <h2 id={`decision-care-group-${groupIndex}`} className="text-sm font-semibold">
+                {ruleTitle(locale, group.rule)}
+              </h2>
+              <Badge tone={group.severity === 'error' ? 'danger' : group.severity === 'warn' ? 'warning' : 'neutral'}>
+                {group.items.length}
+              </Badge>
+            </div>
+            {group.items.map((item, index) => (
+              <AttentionCard
+                key={item.key}
+                item={item}
+                space={space}
+                testId={`decision-care-${groupIndex + 1}-${index + 1}`}
+              />
+            ))}
+          </section>
+        ))}
       </div>
     </Page>
   )
@@ -160,6 +197,7 @@ function DecisionEmpty({
   filtered: boolean
   onShowAll: () => void
 }) {
+  const { t } = useI18n()
   return (
     <Empty>
       <EmptyHeader>
@@ -168,30 +206,24 @@ function DecisionEmpty({
         </EmptyMedia>
         <EmptyTitle>
           {filtered
-            ? 'Nothing matches these filters'
+            ? t('decisions.empty.filtered')
             : state === 'open'
-              ? 'Nothing needs a decision'
-              : `No ${STATE_LABELS[state].toLowerCase()} items`}
+              ? t('decisions.empty.open')
+              : t('decisions.empty.other')}
         </EmptyTitle>
-        <EmptyDescription>
-          {filtered
-            ? 'Show every kind to see the whole shelf.'
-            : state === 'open'
-              ? 'Capture a thought in the Inbox or run a care check. New work will appear here.'
-              : 'Choose another shelf to continue.'}
-        </EmptyDescription>
+        <EmptyDescription>{t('decisions.empty.description')}</EmptyDescription>
       </EmptyHeader>
       {filtered ? (
         <EmptyContent>
           <Button variant="outline" data-testid="decisions-empty-show-all" onClick={onShowAll}>
-            Show every kind
+            {t('decisions.showAll')}
           </Button>
         </EmptyContent>
       ) : state === 'open' ? (
         <EmptyContent>
           <Button asChild>
             <Link to="/inbox" data-testid="decisions-empty-inbox">
-              Open Inbox
+              {t('decisions.openInbox')}
             </Link>
           </Button>
         </EmptyContent>
@@ -201,7 +233,7 @@ function DecisionEmpty({
 }
 
 function AttentionCard({ item, space, testId }: { item: AttentionItem; space: string; testId: string }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
   const stateMutation = useMutation({
@@ -223,28 +255,33 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
     queryFn: () => wk.proposals.lint(proposalId!),
     enabled: expanded && Boolean(proposalId),
   })
-  const careRule = item.kind === 'care' && item.summary.startsWith('Rule: ') ? item.summary.slice(6) : null
-  const title = careRule
-    ? lintMessage(locale, { rule: careRule, message: { key: careRule, args: {}, default_text: item.title } })
-    : item.title
+  const title = item.finding ? lintMessage(locale, item.finding) : item.title
 
   return (
     <Card data-kind={item.kind} data-state={item.state} data-testid={testId}>
       <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={item.kind === 'care' ? 'warning' : item.kind === 'proposal' ? 'accent' : 'neutral'}>
-            {KIND_LABELS[item.kind]}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <Badge
+            tone={
+              item.finding?.severity === 'error'
+                ? 'danger'
+                : item.finding?.severity === 'warn'
+                  ? 'warning'
+                  : item.kind === 'proposal'
+                    ? 'accent'
+                    : 'neutral'
+            }
+          >
+            {t(KIND_KEYS[item.kind])}
           </Badge>
-          <RelativeTime value={item.created_at} />
+          <Badge tone={item.state === 'open' ? 'warning' : 'neutral'}>{t(STATE_KEYS[item.state])}</Badge>
+          {item.kind === 'care' ? t('attention.currentCheck') : <RelativeTime value={item.created_at} />}
         </div>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{item.summary || item.effect}</CardDescription>
-        <CardAction>
-          <Badge tone={item.state === 'open' ? 'warning' : 'neutral'}>{STATE_LABELS[item.state]}</Badge>
-        </CardAction>
+        {item.summary ? <CardDescription>{item.summary}</CardDescription> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <p className="text-sm text-muted-foreground">{item.effect}</p>
+        <p className="text-sm text-muted-foreground">{t(attentionEffectKey(item.kind))}</p>
         {item.previous_rejection ? (
           <Alert tone="warning" title="An identical proposal was rejected before">
             {item.previous_rejection.note || 'The previous review did not include a note.'}
@@ -286,39 +323,46 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
           <TriagePanel ingestId={item.key.slice('triage:'.length)} space={space} testId={`${testId}-triage`} />
         ) : null}
       </CardContent>
-      <CardFooter className="flex flex-wrap justify-between gap-2">
+      <CardFooter className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20">
         <TaskLink item={item} testId={testId} />
-        <div className="flex flex-wrap gap-2">
-          {item.state === 'open' ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                data-testid={`${testId}-defer`}
-                onClick={() => stateMutation.mutate('deferred')}
-              >
-                Remind in 3 days
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid={`${testId}-remove`}
-                onClick={() => stateMutation.mutate('discarded')}
-              >
-                Remove from queue
-              </Button>
-            </>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid={`${testId}-restore`}
-              onClick={() => stateMutation.mutate('open')}
-            >
-              Return to open
-            </Button>
-          )}
-        </div>
+        {item.state === 'open' ? (
+          <Confirm
+            title={t('decisions.removeConfirmTitle')}
+            description={t('decisions.removeConfirmDescription')}
+            confirmLabel={t('decisions.remove')}
+            onConfirm={() => stateMutation.mutateAsync('discarded')}
+            ids={{ dialog: `${testId}-remove-dialog`, accept: `${testId}-remove-confirm` }}
+          >
+            {(openRemove) => (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" data-testid={`${testId}-more`} disabled={stateMutation.isPending}>
+                    <MoreHorizontal data-icon="inline-start" />
+                    {t('decisions.more')}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem data-testid={`${testId}-defer`} onSelect={() => stateMutation.mutate('deferred')}>
+                    {t('decisions.remind')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" data-testid={`${testId}-remove`} onSelect={openRemove}>
+                    {t('decisions.remove')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </Confirm>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid={`${testId}-restore`}
+            disabled={stateMutation.isPending}
+            onClick={() => stateMutation.mutate('open')}
+          >
+            {t('decisions.restore')}
+          </Button>
+        )}
       </CardFooter>
     </Card>
   )
@@ -446,36 +490,45 @@ function TriageForm({
 }
 
 function TaskLink({ item, testId }: { item: AttentionItem; testId: string }) {
-  if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">Resolve above</span>
-  if (item.kind === 'proposal') {
-    return (
-      <Button asChild size="sm">
-        <Link
-          to="/decisions/proposals/$id"
-          params={{ id: item.key.slice('proposal:'.length) }}
-          data-testid={`${testId}-open-review`}
-        >
-          <I18nText>Open review</I18nText>
-        </Link>
-      </Button>
-    )
-  }
-  if (item.kind === 'output') {
-    return (
-      <Button asChild size="sm">
-        <Link to="/answers/$id" params={{ id: item.key.slice('output:'.length) }} data-testid={`${testId}-open-output`}>
-          <I18nText>Open output</I18nText>
-        </Link>
-      </Button>
-    )
-  }
+  const { t } = useI18n()
+  if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">{t('decisions.sortAbove')}</span>
   return (
     <Button asChild size="sm">
-      <Link to="/care" data-testid={`${testId}-open-care`}>
-        <I18nText>Open care</I18nText>
+      <Link to={item.source.href as never} search data-testid={`${testId}-open-target`}>
+        {t(taskActionKey(item.source.href))}
       </Link>
     </Button>
   )
+}
+
+function attentionEffectKey(kind: AttentionKind): TranslationKey {
+  return `attention.effect.${kind}` as TranslationKey
+}
+
+function taskActionKey(href: string): TranslationKey {
+  if (href.startsWith('/sources/')) return 'decisions.openSource'
+  if (href.startsWith('/pages/')) return 'decisions.openPage'
+  if (href.startsWith('/decisions/proposals/')) return 'decisions.openProposal'
+  if (href.startsWith('/charter')) return 'decisions.openGuidelines'
+  if (href.startsWith('/care')) return 'decisions.openCheck'
+  return 'decisions.openObject'
+}
+
+function groupCareItems(items: AttentionItem[]): {
+  rule: string
+  severity: 'error' | 'warn' | 'info'
+  items: AttentionItem[]
+}[] {
+  const groups = new Map<string, AttentionItem[]>()
+  for (const item of items) {
+    const rule = item.finding?.rule ?? 'unknown'
+    groups.set(rule, [...(groups.get(rule) ?? []), item])
+  }
+  return [...groups.entries()].map(([rule, grouped]) => ({
+    rule,
+    severity: grouped[0]?.finding?.severity ?? 'info',
+    items: grouped,
+  }))
 }
 
 function DiffBlock({ label, value }: { label: string; value: string }) {

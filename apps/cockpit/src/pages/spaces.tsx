@@ -178,7 +178,7 @@ const COLUMNS: readonly DataColumn<Row>[] = [
   },
   {
     id: 'waiting',
-    // The same word Care uses for the same queue: changes waiting for a person.
+    // The same word Check uses for the same queue: changes waiting for a person.
     label: 'Waiting',
     descFirst: true,
     compare: (left, right) => compareNumber(left.ov?.review_queue.pending, right.ov?.review_queue.pending),
@@ -416,7 +416,7 @@ function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
               </p>
               <p>
                 <strong className="text-foreground font-medium">From generated reports</strong> counts the waiting
-                changes whose every cited source came out of the wiki itself — promoted answers, briefings, care
+                changes whose every cited source came out of the wiki itself — promoted answers, briefings, check
                 reports. That is provenance, not a verdict: it says where the evidence came from, so distilled human
                 knowledge is not buried under machine-written backlog.
               </p>

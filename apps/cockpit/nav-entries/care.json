@@ -1,7 +1,7 @@
 {
   "to": "/care",
-  "label": "Care",
-  "icon": "HeartPulse",
+  "label": "Check",
+  "icon": "ShieldCheck",
   "scope": "knowledge:read",
   "group": "wiki",
   "api": ["/v1/spaces/{space}/health", "/v1/spaces/{space}/schedules", "/v1/spaces/{space}/outputs"]

@@ -29,7 +29,7 @@ import { coverageOf, filingStanding, kindWord, outputLabel, OUTPUT_KINDS } from 
  * worth being knowledge — had nowhere to go.
  *
  * So one list holds all three kinds of thing this system produces: answers
- * somebody asked for, the briefings the scheduler writes, and the care reports
+ * somebody asked for, the briefings the scheduler writes, and the check reports
  * it writes beside them. They are one object with a different `kind`, and they
  * are one list because "what did the system tell me" is one question. The kind
  * filter is there for the reader who came for one of them; the default is
@@ -50,7 +50,7 @@ const KIND_OPTIONS: readonly { value: string; label: string }[] = [
   { value: 'all', label: 'Everything produced' },
   { value: 'answer', label: 'Answers' },
   { value: 'briefing', label: 'Briefings' },
-  { value: 'health', label: 'Care reports' },
+  { value: 'health', label: 'Check reports' },
 ]
 
 /** Derived from the facade so a field the server stops sending stops compiling. */
@@ -123,7 +123,7 @@ export function AnswersPage() {
   return (
     <Page
       title="Answers"
-      description="Every answer, briefing and care report this wiki has produced — and which of them were filed back into it."
+      description="Every answer, briefing and check report this wiki has produced — and which of them were filed back into it."
       actions={
         <Button asChild variant="outline">
           <Link to="/search" search={(prev) => prev} data-testid="answers-ask">

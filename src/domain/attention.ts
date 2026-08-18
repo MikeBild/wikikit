@@ -1,5 +1,5 @@
 import type { Db } from '../db/postgres.ts'
-import { lintSpace, type LintFinding } from './lint.ts'
+import { lintSpace, type LintFinding, type LintRule, type LintSeverity } from './lint.ts'
 import { isoString, sha256Hex, summarizeSource } from './sources.ts'
 import { NotFoundError, ValidationError } from './errors.ts'
 
@@ -18,12 +18,23 @@ export interface AttentionItem {
   note: string | null
   source: { label: string; href: string; actor: string | null }
   available_actions: string[]
+  finding: {
+    rule: LintRule
+    severity: LintSeverity
+    message: LintFinding['message']
+  } | null
   previous_rejection: { proposal_id: string; reviewed_at: string; note: string | null } | null
 }
 
 export interface AttentionPage {
   generated_at: string
-  counts: { open: number; overdue: number; oldest_days: number | null; by_kind: Record<AttentionKind, number> }
+  counts: {
+    open: number
+    overdue: number
+    oldest_days: number | null
+    by_kind: Record<AttentionKind, number>
+    care_by_severity: Record<LintSeverity, number>
+  }
   items: AttentionItem[]
   next_cursor: string | null
   recent_activity: AttentionItem[]
@@ -72,6 +83,25 @@ function careActions(finding: LintFinding): string[] {
   return ['open_page', 'edit_page']
 }
 
+function detailString(finding: LintFinding, key: string): string | null {
+  const value = finding.details?.[key]
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function careTarget(finding: LintFinding): string {
+  if (finding.rule === 'missing-charter') return '/charter'
+  if (finding.rule === 'stale-captures') {
+    const ingestId = detailString(finding, 'ingest_id')
+    return ingestId ? `/inbox?triage=${encodeURIComponent(ingestId)}` : '/inbox'
+  }
+  const proposalId = detailString(finding, 'proposal_id')
+  if (proposalId) return `/decisions/proposals/${encodeURIComponent(proposalId)}`
+  if (finding.concept_slug) return `/pages/${encodeURIComponent(finding.concept_slug)}`
+  const sourceId = detailString(finding, 'source_id')
+  if (sourceId) return `/sources/${encodeURIComponent(sourceId)}`
+  return '/care'
+}
+
 async function openItems(
   db: Db,
   spaceId: string,
@@ -115,6 +145,7 @@ async function openItems(
       note: null,
       source: { label: 'Change proposal', href: `/decisions/proposals/${proposal.id}`, actor: null },
       available_actions: ['open_review'],
+      finding: null,
       previous_rejection:
         proposal.previous_id && proposal.previous_at
           ? {
@@ -150,6 +181,7 @@ async function openItems(
       note: null,
       source: { label: 'Inbox capture', href: `/inbox?triage=${capture.id}`, actor: null },
       available_actions: ['triage', 'defer', 'discard'],
+      finding: null,
       previous_rejection: null,
     })
   }
@@ -176,6 +208,7 @@ async function openItems(
       note: null,
       source: { label: 'Produced output', href: `/answers/${output.id}`, actor: null },
       available_actions: ['open_output', 'promote', 'defer', 'discard'],
+      finding: null,
       previous_rejection: null,
     })
   }
@@ -184,19 +217,20 @@ async function openItems(
   const checkedAt = new Date().toISOString()
   for (const finding of lint.findings) {
     const label = finding.message.default_text
-    const target = finding.concept_slug ? `/pages/${finding.concept_slug}` : '/care'
+    const target = careTarget(finding)
     items.push({
       key: careKey(finding),
       kind: 'care',
       state: 'open',
       title: label,
-      summary: `Rule: ${finding.rule}`,
+      summary: '',
       effect: 'Review the finding and choose a repair; checking itself changes nothing.',
       created_at: checkedAt,
       remind_at: null,
       note: null,
-      source: { label: 'Care check', href: target, actor: null },
+      source: { label: 'Check finding', href: target, actor: null },
       available_actions: careActions(finding),
+      finding: { rule: finding.rule, severity: finding.severity, message: finding.message },
       previous_rejection: null,
     })
   }
@@ -231,6 +265,7 @@ async function decidedItems(db: Db, spaceId: string): Promise<AttentionItem[]> {
     note: null,
     source: { label: 'Reviewed proposal', href: `/decisions/proposals/${row.id}`, actor: null },
     available_actions: ['open_review'],
+    finding: null,
     previous_rejection: null,
   }))
 }
@@ -239,6 +274,7 @@ function parseSnapshot(row: OverlayRow): AttentionItem {
   const snapshot = typeof row.snapshot === 'string' ? (JSON.parse(row.snapshot) as AttentionItem) : row.snapshot
   return {
     ...snapshot,
+    finding: snapshot.finding ?? null,
     state: row.state,
     remind_at: row.remind_at ? isoString(row.remind_at) : null,
     note: row.note,
@@ -290,14 +326,20 @@ export async function getAttention(
   const page = filtered.slice(offset, offset + limit)
   const now = Date.now()
   const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0, output: 0, care: 0 }
+  const care_by_severity: Record<LintSeverity, number> = { error: 0, warn: 0, info: 0 }
   for (const item of open) by_kind[item.kind] += 1
+  for (const item of open) {
+    if (item.finding) care_by_severity[item.finding.severity] += 1
+  }
+  const aged = open.filter((item) => item.kind !== 'care')
   return {
     generated_at: new Date(now).toISOString(),
     counts: {
       open: open.length,
       overdue: deferred.filter((item) => item.remind_at && new Date(item.remind_at).getTime() <= now).length,
-      oldest_days: open.length ? Math.max(...open.map((item) => daysOld(item.created_at, now))) : null,
+      oldest_days: aged.length ? Math.max(...aged.map((item) => daysOld(item.created_at, now))) : null,
       by_kind,
+      care_by_severity,
     },
     items: page,
     next_cursor: offset + limit < filtered.length ? Buffer.from(String(offset + limit)).toString('base64url') : null,

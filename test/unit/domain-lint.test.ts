@@ -261,7 +261,11 @@ describe('lintSpace', () => {
       details: { claims: 2 },
     })
     expect(byRule.get('unreviewed-proposals')!.details).toMatchObject({ proposal_id: 'prop-1' })
-    expect(byRule.get('dangling-sources')!.details).toEqual({ source_id: 'src-1' })
+    expect(byRule.get('dangling-sources')!.details).toEqual({
+      source_id: 'src-1',
+      source_title: 'src-1',
+      source_kind: 'url',
+    })
     // Both unsourced findings, in order — a finding that only states the fault
     // is a complaint, so each one carries the fix in its message.
     const unsourced = readable.filter((finding) => finding.rule === 'unsourced-concepts')

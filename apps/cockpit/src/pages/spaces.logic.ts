@@ -3,7 +3,7 @@
  *
  * The page holds TWO independent reads: the space list (identity — slug, name,
  * settings) and `/v1/stats/overview` (numbers). The rules here are all about
- * what happens when only one of them has answered, and they are the Care
+ * what happens when only one of them has answered, and they are the Check
  * page's rules restated across wikis:
  *
  *  - **Identity renders before numbers.** A row exists the moment the space

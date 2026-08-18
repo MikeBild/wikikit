@@ -906,7 +906,7 @@ async function danglingSources(db: Db, spaceId: string): Promise<LintFindingDraf
     rule: 'dangling-sources' as const,
     severity: LINT_SEVERITY['dangling-sources'],
     message: `source "${row.title ?? row.id}" (${row.kind}) is not cited by any claim`,
-    details: { source_id: row.id },
+    details: { source_id: row.id, source_title: row.title ?? row.id, source_kind: row.kind },
   }))
 }
 

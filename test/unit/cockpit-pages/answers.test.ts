@@ -33,12 +33,12 @@ describe('the three kinds, in the reader’s words', () => {
     expect([...OUTPUT_KINDS]).toEqual(['answer', 'briefing', 'health'])
   })
 
-  test('health is called a care report, because the page it belongs to is called Care', () => {
+  test('health is called a check report, because the page it belongs to is called Check', () => {
     // A console that names one thing twice makes the reader work out that they
     // are the same thing.
     expect(kindWord('answer')).toBe('Answer')
     expect(kindWord('briefing')).toBe('Briefing')
-    expect(kindWord('health')).toBe('Care report')
+    expect(kindWord('health')).toBe('Check report')
   })
 
   test('a kind from a newer server prints ITSELF rather than being folded in', () => {

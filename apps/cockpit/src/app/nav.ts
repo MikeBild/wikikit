@@ -2,12 +2,12 @@ import {
   Archive,
   BookOpen,
   CircleCheckBig,
-  HeartPulse,
   Inbox,
   KeyRound,
   MessageSquareQuote,
   ScrollText,
   Search,
+  ShieldCheck,
   Server,
   Scale,
   FolderKanban,
@@ -61,10 +61,7 @@ export interface NavEntry {
   exact?: boolean
 }
 
-/**
- * The wiki block is the six-step lifecycle: capture, triage, retrieve, care,
- * check and remember. Decisions is the one human-attention queue across it.
- */
+/** The wiki block follows the end-user's places: arrive, read, find, ask, check. */
 export const NAV: readonly NavEntry[] = [
   {
     to: '/',
@@ -76,7 +73,7 @@ export const NAV: readonly NavEntry[] = [
     // `health` rather than `stats/coverage`: the composed read carries the same
     // coverage block AND the two live queues the loop is measured by, so the
     // front page asks once for the numbers it used to guess at.
-    api: ['/v1/spaces/{space}/attention'],
+    api: ['/v1/spaces/{space}/attention', '/v1/spaces/{space}/concepts'],
   },
   {
     to: '/inbox',
@@ -104,6 +101,14 @@ export const NAV: readonly NavEntry[] = [
       '/v1/spaces/{space}/concepts/{slug}/restore',
       '/v1/spaces/{space}/proposals',
     ],
+  },
+  {
+    to: '/search',
+    label: 'Search',
+    icon: Search,
+    scope: 'knowledge:read',
+    group: 'wiki',
+    api: ['/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
   },
   {
     to: '/decisions',
@@ -137,8 +142,8 @@ export const NAV: readonly NavEntry[] = [
   },
   {
     to: '/care',
-    label: 'Care',
-    icon: HeartPulse,
+    label: 'Check',
+    icon: ShieldCheck,
     scope: 'knowledge:read',
     group: 'wiki',
     // `knowledge:read` reveals it, and the schedule controls inside are admin.
@@ -181,14 +186,6 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'archive',
     api: ['/v1/spaces/{space}/charter', '/v1/spaces/{space}/charter/versions'],
-  },
-  {
-    to: '/search',
-    label: 'Search',
-    icon: Search,
-    scope: 'knowledge:read',
-    group: 'archive',
-    api: ['/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
   },
   {
     to: '/spaces',

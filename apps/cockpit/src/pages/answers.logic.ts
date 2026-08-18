@@ -5,7 +5,7 @@ import { toneFor, type Tone } from '@/pages/home.logic'
  *
  * The list this file serves holds three things the database calls one thing:
  * an answer somebody asked for, a briefing the scheduler wrote overnight, and a
- * care report the same worker produced. Keeping them in one list is the whole
+ * check report the same worker produced. Keeping them in one list is the whole
  * point — "what did this system tell me" is one question, and splitting it
  * across three pages is how the two nobody asked for become invisible. So the
  * rules that let one row carry three shapes live here rather than as conditions
@@ -41,14 +41,13 @@ export const OUTPUT_KINDS: readonly string[] = ['answer', 'briefing', 'health']
 /**
  * The three kinds in the reader's words.
  *
- * "Care report" rather than "Health report": the page it belongs to is called
- * Care, and a console that names one thing twice makes the reader work out that
- * they are the same thing.
+ * "Check report" rather than the internal wire value "health": the page it
+ * belongs to is called Check, so the same thing keeps the same visible name.
  */
 const KIND_WORDS: Record<string, string> = {
   answer: 'Answer',
   briefing: 'Briefing',
-  health: 'Care report',
+  health: 'Check report',
 }
 
 /**
