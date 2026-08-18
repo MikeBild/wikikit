@@ -17,36 +17,19 @@
 //   WIKIKIT_API_KEY=wk_... \
 //   bun scripts/deploy/verify-cockpit-loop.ts
 //
-// IT WRITES. It creates a page and approves it, which publishes knowledge —
-// so it refuses to run outside a space whose name marks it as disposable
-// unless told otherwise, and the page it writes says in its own text where it
-// came from. Point it at a quarantine space, or at one you are willing to have
-// a verification artifact sitting in.
+// IT WRITES, but only inside a wiki it creates for this run. The `finally`
+// block deletes that wiki through the public API, so a successful or failed
+// verification never leaves a permanent test category or fixture behind.
 import { chromium, type Page } from 'playwright'
 
 const BASE = (process.env.WIKIKIT_DEPLOY_URL ?? process.env.WIKIKIT_URL ?? '').replace(/\/$/, '')
 const KEY = process.env.WIKIKIT_API_KEY ?? ''
-const SPACE = process.env.VERIFY_SPACE ?? 'wikikit-e2e'
 const STAMP = process.env.VERIFY_STAMP ?? new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')
+const SPACE = `cockpit-verify-${STAMP}-${crypto.randomUUID().slice(0, 8)}`.toLowerCase()
 const SLUG = `cockpit-verification-${STAMP}`.toLowerCase().replace(/[^a-z0-9-]/g, '-')
 
 if (!BASE || !KEY) {
   console.error('✗ WIKIKIT_DEPLOY_URL and WIKIKIT_API_KEY are required. This script signs in and writes.')
-  process.exit(2)
-}
-
-/**
- * A space this script is willing to publish into without being told twice.
- *
- * Approving a change is not reversible by another approval — it is knowledge
- * agents will answer from. A verification that quietly seeds somebody's real
- * wiki is the kind of tool people stop trusting after exactly one run.
- */
-if (!/e2e|test|scratch|verify|quarantine/i.test(SPACE) && process.env.VERIFY_I_MEAN_IT !== '1') {
-  console.error(
-    `✗ "${SPACE}" does not look like a disposable wiki, and this script publishes a page into it.\n` +
-      `  Point VERIFY_SPACE at a quarantine space, or set VERIFY_I_MEAN_IT=1 if you meant this one.`,
-  )
   process.exit(2)
 }
 
@@ -82,8 +65,18 @@ async function signIn(page: Page): Promise<{ name: string; scopes: string[] } | 
 const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const page = await context.newPage()
+let wikiCreated = false
 
 try {
+  const created = await fetch(`${BASE}/v1/spaces`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ slug: SPACE, name: `Cockpit verification ${STAMP}`, settings: { language: 'en' } }),
+  })
+  check('a temporary wiki is created for this run', created.status === 201, `HTTP ${created.status}`)
+  if (created.status !== 201) throw new Error(`could not create temporary wiki: HTTP ${created.status}`)
+  wikiCreated = true
+
   const session = await signIn(page)
   check('signing in through the funnel lands back in the console', session !== null)
   const scopes = session?.scopes ?? []
@@ -121,16 +114,6 @@ try {
   await page.click('[data-testid="nav-pages"]')
   await page.waitForTimeout(800)
   check('?space= survives a sidebar click', new URL(page.url()).searchParams.get('space') === SPACE, page.url())
-
-  const firstPage = page.locator('[data-testid^="pages-row-"][data-testid$="-link"]').first()
-  if (await firstPage.count()) {
-    await firstPage.click()
-    await page.waitForTimeout(1200)
-    check('a page renders as a document', (await page.locator('.wk-doc').count()) > 0)
-    check('its claims carry expandable citations', (await page.locator('details').count()) >= 0)
-  } else {
-    findings.push('this wiki holds no page — the reading checks were SKIPPED, not passed')
-  }
 
   // ---- the loop ------------------------------------------------------------
   await page.goto(`${BASE}/cockpit/pages/new?space=${SPACE}`, { waitUntil: 'networkidle' })
@@ -186,6 +169,14 @@ try {
   }
 } finally {
   await browser.close()
+  if (wikiCreated) {
+    const removed = await fetch(`${BASE}/v1/spaces/${encodeURIComponent(SPACE)}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ confirm_slug: SPACE }),
+    }).catch(() => null)
+    check('the temporary wiki is deleted in teardown', removed?.status === 204, `HTTP ${removed?.status ?? 'error'}`)
+  }
 }
 
 console.log(`\n\x1b[32m✓ ${ok.length} checks passed\x1b[0m`)
@@ -195,4 +186,4 @@ if (findings.length) {
   for (const line of findings) console.log(`   ✗ ${line}`)
   process.exit(1)
 }
-console.log(`\n  it left ${SLUG} in ${SPACE}. Delete it, or leave it as the record of this run.`)
+console.log(`\n  temporary wiki ${SPACE} was removed.`)

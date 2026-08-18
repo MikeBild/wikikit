@@ -148,11 +148,11 @@ export const zAgentContextRequest = z.object({
 export const SPACE_LANGUAGES = ['en', 'de', 'simple'] as const
 
 const zSpaceSettings = z.record(z.string(), z.unknown()).superRefine((settings, ctx) => {
-  if ('environment' in settings && settings.environment !== 'production' && settings.environment !== 'test') {
+  if ('environment' in settings) {
     ctx.addIssue({
       code: 'custom',
       path: ['environment'],
-      message: 'settings.environment must be one of: production, test',
+      message: 'settings.environment is no longer supported',
     })
   }
   if ('language' in settings && !SPACE_LANGUAGES.includes(settings.language as never)) {
@@ -189,6 +189,10 @@ export const zCreateSpaceRequest = z.object({
 export const zUpdateSpaceSettingsRequest = z.object({
   settings: zSpaceSettings,
   replace: z.boolean().default(false),
+})
+
+export const zDeleteSpaceRequest = z.object({
+  confirm_slug: z.string().regex(SPACE_SLUG),
 })
 
 export const zSpaceResponse = z.object({
@@ -1806,7 +1810,6 @@ export const zSpacesOverviewResponse = z.strictObject({
       space: z.string(),
       name: z.string(),
       purpose: z.string().nullable(),
-      environment: z.enum(['production', 'test']),
       attention: z.strictObject({
         open: z.number().int().nonnegative(),
         oldest_days: z.number().int().nullable(),
@@ -1874,6 +1877,33 @@ export const zAttentionResponse = z.object({
   recent_activity: z.array(zAttentionItem),
 })
 
+export const zGlobalAttentionQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().max(500).optional(),
+})
+
+export const zGlobalAttentionResponse = z.object({
+  generated_at: z.string(),
+  counts: z.object({
+    open: z.number().int().nonnegative(),
+    oldest_days: z.number().int().nullable(),
+    by_kind: z.object({ proposal: z.number().int().nonnegative(), triage: z.number().int().nonnegative() }),
+  }),
+  items: z.array(
+    z.object({
+      space: z.string(),
+      space_name: z.string(),
+      key: z.string(),
+      kind: zAttentionKind,
+      title: z.string(),
+      summary: z.string(),
+      created_at: z.string(),
+      available_actions: z.array(z.string()),
+    }),
+  ),
+  next_cursor: z.string().nullable(),
+})
+
 export const zAttentionStateRequest = z.object({
   state: z.enum(['open', 'deferred', 'discarded']),
   remind_at: z.iso.datetime().nullable().optional(),
@@ -1902,6 +1932,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zAgentContextRequest,
   zCreateSpaceRequest,
   zUpdateSpaceSettingsRequest,
+  zDeleteSpaceRequest,
   zSpaceResponse,
   zSpaceListResponse,
   zCharterQuery,
@@ -1965,6 +1996,8 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zSpacesOverviewResponse,
   zAttentionQuery,
   zAttentionResponse,
+  zGlobalAttentionQuery,
+  zGlobalAttentionResponse,
   zAttentionStateRequest,
   zScheduleSetRequest,
   zScheduleResponse,

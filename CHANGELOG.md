@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.47.0 - 2026-08-18
+
+### Changed
+
+- Start is now a compact operator surface with one cross-wiki search and one
+  flat table of open proposals and inbox-triage tasks with direct actions.
+- Search covers every visible wiki by default and can be narrowed to the
+  current wiki. Grounded Q&A remains explicitly wiki-scoped.
+- Browser verification creates a unique temporary wiki and always deletes it
+  during teardown, including after a failed assertion.
+
+### Added
+
+- Global search and attention APIs that rank and collect results across the
+  wikis visible to the authenticated key without client-side fan-out.
+- Explicit, confirmed wiki deletion for global administrators, blocked while
+  ingest work is queued or running and otherwise handled through FK cascades.
+
+### Removed
+
+- The test-wiki environment distinction, its list filter and its Cockpit
+  settings. All visible wikis now follow one lifecycle.
+- Dashboard summaries, recent-decision panels and nested cards from Start.
+
+### Fixed
+
+- Empty task summaries, German and English search-scope labels, responsive
+  table spacing and empty `204 No Content` responses are now rendered and
+  serialized correctly.
+
 ## 0.46.1 - 2026-08-18
 
 ### Fixed

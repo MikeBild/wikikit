@@ -21,6 +21,8 @@ export const wk = {
       unwrapAs<{ slug: string }>(api.POST('/v1/spaces', { body: body as never })),
     settings: (space: string, body: Record<string, unknown>) =>
       unwrapAs<unknown>(api.POST('/v1/spaces/{space}/settings', { params: { path: { space } }, body: body as never })),
+    remove: (space: string) =>
+      unwrapAs<void>(api.DELETE('/v1/spaces/{space}', { params: { path: { space } }, body: { confirm_slug: space } })),
   },
 
   concepts: {
@@ -82,6 +84,7 @@ export const wk = {
   },
 
   search: {
+    global: (query: Record<string, unknown>) => unwrap(api.GET('/v1/search', { params: { query: query as never } })),
     run: (space: string, query: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/search', { params: { path: { space }, query: query as never } })),
     ask: (space: string, body: Record<string, unknown>) =>
@@ -146,6 +149,8 @@ export const wk = {
   },
 
   attention: {
+    global: (query?: Record<string, unknown>) =>
+      unwrap(api.GET('/v1/attention', { params: { query: query as never } })),
     list: (space: string, query?: Record<string, unknown>) =>
       unwrap(api.GET('/v1/spaces/{space}/attention', { params: { path: { space }, query: query as never } })),
     setState: (space: string, key: string, body: Record<string, unknown>) =>
@@ -312,10 +317,12 @@ export const keys = {
   // answers, and a mutation must invalidate the one it changed by naming it.
   streams: (space: string, query?: unknown) => ['spaces', space, 'source-streams', query ?? null] as const,
   search: (space: string, query: unknown) => ['spaces', space, 'search', query] as const,
+  globalSearch: (query: unknown) => ['search', 'global', query] as const,
   proposals: (space: string, query?: unknown) => ['spaces', space, 'proposals', query ?? null] as const,
   proposal: (id: string) => ['proposals', id] as const,
   proposalLint: (id: string) => ['proposals', id, 'lint'] as const,
   attention: (space: string, query?: unknown) => ['spaces', space, 'attention', query ?? null] as const,
+  globalAttention: (query?: unknown) => ['attention', 'global', query ?? null] as const,
   triage: (id: string) => ['ingests', id, 'triage'] as const,
   ingestJob: (id: string) => ['ingests', id] as const,
   // The query slot is part of the key for the same reason it is on sources: the

@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
-import { ForbiddenError } from '../../src/domain/errors.ts'
+import { ForbiddenError, ValidationError } from '../../src/domain/errors.ts'
 import type { Principal } from '../../src/http/auth.ts'
 import { HANDLERS, ROUTES, type HandlerInput, type HttpDeps } from '../../src/http/routes.ts'
 import { SCHEMAS } from '../../src/http/schemas.ts'
@@ -16,6 +16,9 @@ import { SCHEMAS } from '../../src/http/schemas.ts'
 const CONTRACT_TABLE: [string, string, string | null][] = [
   ['get', '/v1/spaces', 'knowledge:read'],
   ['post', '/v1/spaces', 'admin'],
+  ['delete', '/v1/spaces/{space}', 'admin'],
+  ['get', '/v1/search', 'knowledge:read'],
+  ['get', '/v1/attention', 'knowledge:read'],
   ['get', '/v1/agent/briefing', 'knowledge:read'],
   ['post', '/v1/agent/context', 'knowledge:read'],
   ['get', '/v1/spaces/{space}', 'knowledge:read'],
@@ -287,6 +290,44 @@ describe('createSpaceHandler — space-binding guard (§5.2)', () => {
     const input = handlerInput({ body: { slug: 'demo', name: 'Demo' } })
     const result = await HANDLERS.createSpaceHandler!(handlerDeps(db), input)
     expect(result!.status).toBe(201)
+  })
+})
+
+describe('deleteSpaceHandler — explicit global destructive boundary', () => {
+  test('a space-scoped admin key cannot delete a wiki', async () => {
+    const { db, calls } = fakeDb([])
+    await expect(
+      HANDLERS.deleteSpaceHandler!(
+        handlerDeps(db),
+        handlerInput({
+          principal: principal({ spaceId: SPACE_ROW.id, scopes: ['admin'] }),
+          params: { space: 'demo' },
+          body: { confirm_slug: 'demo' },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('requires an exact slug confirmation before touching data', async () => {
+    const { db, calls } = fakeDb([])
+    await expect(
+      HANDLERS.deleteSpaceHandler!(
+        handlerDeps(db),
+        handlerInput({ params: { space: 'demo' }, body: { confirm_slug: 'other' } }),
+      ),
+    ).rejects.toBeInstanceOf(ValidationError)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('deletes an idle wiki and answers 204', async () => {
+    const { db, calls } = fakeDb([{ match: /SELECT \* FROM "public"\."wk_spaces"/, rows: [SPACE_ROW] }])
+    const result = await HANDLERS.deleteSpaceHandler!(
+      handlerDeps(db),
+      handlerInput({ params: { space: 'demo' }, body: { confirm_slug: 'demo' } }),
+    )
+    expect(result!.status).toBe(204)
+    expect(calls.some((call) => call.sql.includes('DELETE FROM "public"."wk_spaces"'))).toBe(true)
   })
 })
 

@@ -211,6 +211,17 @@ describe('http server', () => {
     expect(viaHeader.status).toBe(200)
   })
 
+  test('204 responses have no JSON body or content headers', async () => {
+    const res = await fetch(`${base}/v1/spaces/demo`, {
+      method: 'DELETE',
+      headers: { ...auth(BOOTSTRAP), 'content-type': 'application/json' },
+      body: JSON.stringify({ confirm_slug: 'demo' }),
+    })
+    expect(res.status).toBe(204)
+    expect(res.headers.get('content-type')).toBeNull()
+    expect(await res.text()).toBe('')
+  })
+
   test('proposal inspection is any-of read|review: an approve-only reviewer key gets past the scope gate', async () => {
     // The human review page asks for a knowledge:approve key; approve implies
     // review, and proposal GETs accept review — so the gate must NOT 403 here

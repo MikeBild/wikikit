@@ -406,7 +406,6 @@ export interface SpacesOverview {
     space: string
     name: string
     purpose: string | null
-    environment: 'production' | 'test'
     attention: {
       open: number
       oldest_days: number | null
@@ -526,7 +525,6 @@ export async function spacesOverview(db: Db, spaces: readonly OverviewSpace[]): 
       space: space.slug,
       name: space.name,
       purpose: typeof purpose === 'string' && purpose.length > 0 ? purpose : null,
-      environment: settings.environment === 'test' ? ('test' as const) : ('production' as const),
       attention: {
         open: row.open,
         oldest_days: row.oldest_days,

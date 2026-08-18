@@ -24,7 +24,6 @@ export interface OverviewItem {
   space: string
   name: string
   purpose: string | null
-  environment: 'production' | 'test'
   attention: {
     open: number
     oldest_days: number | null

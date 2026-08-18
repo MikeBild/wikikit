@@ -87,7 +87,6 @@ interface OverviewWire {
     space: string
     name: string
     purpose: string | null
-    environment: 'production' | 'test'
     attention: {
       open: number
       oldest_days: number | null
@@ -208,7 +207,6 @@ describe('cross-wiki overview (integration)', () => {
 
     const alpha = body.items.find((item) => item.space === 'alpha')!
     expect(alpha.purpose).toBe('First wiki')
-    expect(alpha.environment).toBe('production')
     expect(alpha.attention).toEqual({
       open: 2,
       oldest_days: 21,

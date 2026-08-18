@@ -171,12 +171,14 @@ The loop the product turns on — edit a page → submit a change → read its d
 
 ```
 WIKIKIT_DEPLOY_URL=https://<installation> WIKIKIT_API_KEY=wk_... \
-  VERIFY_SPACE=<a disposable wiki> bun run verify:cockpit-loop
+  bun run verify:cockpit-loop
 ```
 
 It signs in through the funnel, so a mismatched `WIKIKIT_PUBLIC_URL` fails it.
-It also WRITES: approving publishes knowledge, so it refuses a space whose name
-does not mark it disposable unless `VERIFY_I_MEAN_IT=1`.
+It also writes: the script creates a uniquely named temporary wiki, exercises
+the complete review path there and deletes the wiki through the public API in
+`finally`, including after a failed browser assertion. It therefore requires a
+global administrator credential and does not retain verification data.
 
 `scripts/deploy/verify-cockpit-prod.md` remains for the judgements a script
 cannot make — whether the wording reads right, whether a confirmation is

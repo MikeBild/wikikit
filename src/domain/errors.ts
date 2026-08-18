@@ -83,6 +83,7 @@ export type ConflictCode =
   | 'concept_not_deleted'
   | 'ingest_not_captured'
   | 'output_not_promotable'
+  | 'space_busy'
 
 export class ConflictError extends DomainError {
   constructor(

@@ -1,4 +1,4 @@
-import { toneFor, type Tone } from '@/pages/home.logic'
+import { toneFor, type Tone } from '@/lib/metrics-format'
 import type { TranslationKey } from '@/lib/i18n'
 
 /**
@@ -24,7 +24,8 @@ import type { TranslationKey } from '@/lib/i18n'
  *    (CUI-SEV-2).
  *
  * Import-free of anything with a DOM in it, like `inbox.logic.ts`, so the unit
- * tier can prove these without a renderer. `toneFor` comes from `home.logic`
+ * tier can prove these without a renderer. `toneFor` comes from the shared
+ * metric presentation helpers.
  * because the console has exactly one state → tone table and a second one here
  * would be a second reading of the same five words.
  */

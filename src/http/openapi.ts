@@ -113,14 +113,10 @@ export function buildOpenApi(routes: RouteDef[], opts: { version: string }): Ope
 
     const responses = op.responses as Record<string, unknown>
     for (const [status, spec] of Object.entries(route.responses)) {
-      responses[status] = {
-        description: spec.desc,
-        content: spec.schema
-          ? { [spec.type]: { schema: ref(spec.schema, 'output') } }
-          : spec.type
-            ? { [spec.type]: {} }
-            : undefined,
-      }
+      const response: Record<string, unknown> = { description: spec.desc }
+      if (spec.schema && spec.type) response.content = { [spec.type]: { schema: ref(spec.schema, 'output') } }
+      else if (spec.type) response.content = { [spec.type]: {} }
+      responses[status] = response
     }
     if (route.scope) {
       op.security = [{ oauth2: [] }, { bearerAuth: [] }, { apiKey: [] }]

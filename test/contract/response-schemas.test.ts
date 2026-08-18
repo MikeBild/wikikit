@@ -447,9 +447,10 @@ function stubDb(): Db {
     },
 
     async call<R>(fn: string): Promise<R[]> {
-      if (fn === 'wk_search') {
+      if (fn === 'wk_search' || fn === 'wk_search_spaces') {
         return [
           {
+            ...(fn === 'wk_search_spaces' ? { space_id: SPACE_ID } : {}),
             kind: 'concept',
             concept_slug: 'wikikit',
             claim_id: null,
@@ -719,7 +720,6 @@ function testConfig(): Config {
     databaseUrl: 'postgresql://stub',
     keyPepper: 'response-schema-test-pepper',
     bootstrapApiKey: BOOTSTRAP,
-    environment: 'test',
     llmProvider: 'anthropic' as const,
     llmApiKey: '',
     llmApiKeyEnv: 'ANTHROPIC_API_KEY',
@@ -964,6 +964,7 @@ const CASES: RouteCase[] = [
     status: 202,
   },
   { template: '/v1/spaces/{space}/search', method: 'get', url: '/v1/spaces/demo/search?q=wikikit', status: 200 },
+  { template: '/v1/search', method: 'get', url: '/v1/search?q=wikikit', status: 200 },
   {
     template: '/v1/spaces/{space}/query',
     method: 'post',
@@ -993,6 +994,7 @@ const CASES: RouteCase[] = [
   // no verdict on top. strictObject, so a field the handler invents fails here.
   { template: '/v1/spaces/{space}/health', method: 'get', url: '/v1/spaces/demo/health', status: 200 },
   { template: '/v1/spaces/{space}/attention', method: 'get', url: '/v1/spaces/demo/attention', status: 200 },
+  { template: '/v1/attention', method: 'get', url: '/v1/attention', status: 200 },
   { template: '/v1/stats/overview', method: 'get', url: '/v1/stats/overview', status: 200 },
   { template: '/v1/spaces/{space}/schedules', method: 'get', url: '/v1/spaces/demo/schedules', status: 200 },
   {

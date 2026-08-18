@@ -81,6 +81,14 @@ describe('buildOpenApi', () => {
     expect(Object.keys(exp.responses['200']!.content ?? {})).toEqual(['application/zip'])
   })
 
+  test('204 responses declare no representation', () => {
+    const del = doc.paths['/v1/spaces/{space}']!.delete as {
+      responses: Record<string, { content?: Record<string, unknown> }>
+    }
+    expect(del.responses['204']).toBeDefined()
+    expect(del.responses['204']!.content).toBeUndefined()
+  })
+
   test('authenticated routes gain the implicit 400/401/403/404/500 envelope responses', () => {
     const op = doc.paths['/v1/spaces/{space}/lint']!.get as { responses: Record<string, unknown> }
     for (const status of ['400', '401', '403', '404', '500']) {

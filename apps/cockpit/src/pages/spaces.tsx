@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { Ellipsis, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
@@ -10,6 +10,7 @@ import { DataState } from '@/components/data-state'
 import { DisabledReason } from '@/components/disabled-reason'
 import { Fact } from '@/components/fact'
 import { I18nText } from '@/components/i18n-text'
+import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -43,7 +44,7 @@ import { useSpace } from '@/lib/space'
 import { compareNumber, compareText } from '@/lib/table-view'
 import { toast } from '@/lib/toast'
 import { waitedDays } from '@/pages/care.logic'
-import { count } from '@/pages/home.logic'
+import { count } from '@/lib/metrics-format'
 import { attentionOrder, mergeOverview, type OverviewItem } from '@/pages/spaces.logic'
 
 /**
@@ -90,7 +91,6 @@ const LANGUAGES = [
 ] as const
 
 type Language = (typeof LANGUAGES)[number]['value']
-type Environment = 'production' | 'test'
 
 /** `SPACE_SLUG` in src/http/schemas.ts. A slug the server would refuse is caught before the click. */
 const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/
@@ -111,10 +111,6 @@ function readString(settings: Record<string, unknown>, key: string): string {
 function readLanguage(settings: Record<string, unknown>): Language | null {
   const value = settings.language
   return LANGUAGES.some((entry) => entry.value === value) ? (value as Language) : null
-}
-
-function readEnvironment(settings: Record<string, unknown>): Environment {
-  return settings.environment === 'test' ? 'test' : 'production'
 }
 
 function readImports(settings: Record<string, unknown>): string[] {
@@ -166,21 +162,6 @@ const COLUMNS: readonly DataColumn<Row>[] = [
         </div>
         <span className="text-muted-foreground truncate font-mono text-xs">{space.slug}</span>
       </div>
-    ),
-  },
-  {
-    id: 'environment',
-    label: 'Environment',
-    priority: 'optional',
-    width: 'compact',
-    compare: (left, right) => compareText(readEnvironment(left.settings), readEnvironment(right.settings)),
-    cell: (space) => (
-      <Badge
-        tone={readEnvironment(space.settings) === 'test' ? 'warning' : 'neutral'}
-        className="h-auto min-h-5 max-w-full break-words text-center whitespace-normal"
-      >
-        {readEnvironment(space.settings) === 'test' ? 'Test' : 'Production'}
-      </Badge>
     ),
   },
   {
@@ -262,7 +243,6 @@ export function SpacesPage() {
 
   const [page, setPage] = useState<CursorPage>(firstPage)
   const [creating, setCreating] = useState(false)
-  const [showTests, setShowTests] = useState(false)
   const { view, setView } = useTableView('spaces', COLUMNS)
 
   const spaces = useQuery({ queryKey: keys.spaces(), queryFn: () => wk.spaces.list() })
@@ -273,9 +253,11 @@ export function SpacesPage() {
 
   // Attention order — oldest wait first — is the DEFAULT order; a sort the
   // operator picks through the header overrides it inside the table.
-  const rows = attentionOrder(mergeOverview(spaces.data?.items ?? [], overview.data))
-    .filter(({ space }) => showTests || readEnvironment(space.settings) !== 'test')
-    .map(({ space, ov }) => ({ ...space, current: space.slug === current, ov }))
+  const rows = attentionOrder(mergeOverview(spaces.data?.items ?? [], overview.data)).map(({ space, ov }) => ({
+    ...space,
+    current: space.slug === current,
+    ov,
+  }))
 
   return (
     <Page
@@ -292,15 +274,6 @@ export function SpacesPage() {
     >
       <div className="flex flex-col gap-6">
         <TotalsStrip overview={overview} />
-
-        <label className="flex w-fit items-center gap-2 text-sm" data-testid="spaces-show-tests">
-          <Checkbox
-            checked={showTests}
-            onCheckedChange={(checked) => setShowTests(checked === true)}
-            data-testid="spaces-show-tests-toggle"
-          />
-          {t('spaces.showTests')}
-        </label>
 
         <DataTable
           testId="spaces"
@@ -381,7 +354,7 @@ function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
           }
           testId="spaces-totals-help"
         >
-          {t('home.global.title')}
+          {t('spaces.overviewTitle')}
         </SectionHeading>
         <DataState testId="spaces-overview" query={overview} skeleton={<TotalsSkeleton />}>
           {(data) => {
@@ -393,7 +366,7 @@ function TotalsStrip({ overview }: { overview: UseQueryResult<Overview> }) {
                   label={t('spaces.wikisWithOpen')}
                   value={count(data.totals.wikis_with_open)}
                 />
-                <Fact testId="overview-pending" label={t('home.global.open')} value={count(data.totals.open)} />
+                <Fact testId="overview-pending" label={t('spaces.openDecisions')} value={count(data.totals.open)} />
                 <Fact
                   testId="overview-oldest"
                   label={t('spaces.oldest')}
@@ -435,7 +408,8 @@ function RowActions({ slug }: { slug: string }) {
   const can = useCan()
   const { t } = useI18n()
   const admin = can('admin')
-  const [open, setOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   return (
     <div className="flex justify-end">
@@ -475,17 +449,90 @@ function RowActions({ slug }: { slug: string }) {
                 </span>
               </a>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!admin} data-testid={`space-settings-${slug}`} onSelect={() => setOpen(true)}>
+            <DropdownMenuItem
+              disabled={!admin}
+              data-testid={`space-settings-${slug}`}
+              onSelect={() => setSettingsOpen(true)}
+            >
               <span className="flex flex-col gap-0.5">
                 <span>{t('spaces.settings')}</span>
                 {!admin ? <span className="text-muted-foreground text-xs">{t('spaces.settingsAdmin')}</span> : null}
               </span>
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!admin}
+              variant="destructive"
+              data-testid={`space-delete-${slug}`}
+              onSelect={() => setDeleteOpen(true)}
+            >
+              {t('spaces.delete')}
+            </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      {open ? <SettingsDialog slug={slug} onClose={() => setOpen(false)} /> : null}
+      {settingsOpen ? <SettingsDialog slug={slug} onClose={() => setSettingsOpen(false)} /> : null}
+      {deleteOpen ? <DeleteWikiDialog slug={slug} onClose={() => setDeleteOpen(false)} /> : null}
     </div>
+  )
+}
+
+function DeleteWikiDialog({ slug, onClose }: { slug: string; onClose: () => void }) {
+  const client = useQueryClient()
+  const navigate = useNavigate()
+  const current = useSpace()
+  const { t } = useI18n()
+  const [confirmation, setConfirmation] = useState('')
+  const remove = useMutation({
+    mutationFn: () => wk.spaces.remove(slug),
+    onSuccess: async () => {
+      toast({ tone: 'success', title: t('spaces.deleteDone', { slug }) })
+      onClose()
+      await Promise.all([
+        client.invalidateQueries({ queryKey: keys.spaces() }),
+        client.invalidateQueries({ queryKey: keys.overview() }),
+        client.invalidateQueries({ queryKey: keys.globalAttention() }),
+      ])
+      if (current === slug) void navigate({ to: '/spaces', search: { space: undefined } as never, replace: true })
+    },
+  })
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent data-testid="space-delete-dialog" closeDisabled={remove.isPending}>
+        <DialogHeader>
+          <DialogTitle>{t('spaces.deleteTitle')}</DialogTitle>
+          <DialogDescription>{t('spaces.deleteDescription', { slug })}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="space-delete-confirm">{t('spaces.deleteConfirm', { slug })}</Label>
+          <Input
+            id="space-delete-confirm"
+            value={confirmation}
+            disabled={remove.isPending}
+            onChange={(event) => setConfirmation(event.target.value)}
+            className="font-mono"
+            data-testid="space-delete-confirm"
+          />
+          {remove.error ? (
+            <Alert tone="danger" title={t('spaces.deleteFailed')}>
+              {remove.error.message}
+            </Alert>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={remove.isPending} onClick={onClose} data-testid="space-delete-cancel">
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={confirmation !== slug || remove.isPending}
+            onClick={() => remove.mutate()}
+            data-testid="space-delete-submit"
+          >
+            {t('spaces.delete')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -535,12 +582,7 @@ function ExchangeNote() {
 }
 
 /**
- * Creating a wiki, behind a confirmation that says the part nobody expects.
- *
- * WikiKit has no delete-space endpoint — not one this console withholds, one
- * that does not exist — so a slug typed here is permanent and is the address
- * every link into this wiki will carry forever. That is the fact the `details`
- * box exists to state.
+ * Creating a wiki, behind a confirmation that explains its stable address.
  *
  * `purpose` is deliberately NOT collected here even though `wk.spaces.create`'s
  * signature accepts one: the server's `zCreateSpaceRequest` is `{slug, name,
@@ -633,8 +675,8 @@ function CreateDialog({ onClose }: { onClose: () => void }) {
                   that is not bound to one particular wiki.
                 </p>
                 <p>
-                  <strong>WikiKit has no way to delete a wiki.</strong> The slug is permanent and is the address every
-                  link, API call and export filename will carry.
+                  The slug is the stable address every link, API call and export filename will carry. Deleting the wiki
+                  later permanently removes all of its data.
                 </p>
               </div>
             }
@@ -728,7 +770,6 @@ function SettingsForm({
   const [useWhen, setUseWhen] = useState(() => readString(context, 'use_when'))
   const [keywords, setKeywords] = useState(() => readKeywords(context).join(', '))
   const [language, setLanguage] = useState<Language>(() => readLanguage(space.settings) ?? DEFAULT_LANGUAGE)
-  const [environment, setEnvironment] = useState<Environment>(() => readEnvironment(space.settings))
   const [imports, setImports] = useState<string[]>(() => readImports(space.settings))
 
   /**
@@ -747,7 +788,6 @@ function SettingsForm({
     mutationFn: () =>
       wk.spaces.settings(space.slug, {
         settings: {
-          environment,
           purpose: purpose.trim(),
           language,
           imports,
@@ -783,36 +823,6 @@ function SettingsForm({
   return (
     <>
       <div className="flex flex-col gap-4 overflow-y-auto">
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel
-            htmlFor="space-settings-environment"
-            helpTitle="About wiki environments"
-            help={<p>Production and test wikis are separated in the switcher. Test wikis can be hidden.</p>}
-            testId="space-environment-help"
-          >
-            Environment
-          </FieldLabel>
-          <Select
-            value={environment}
-            disabled={save.isPending}
-            onValueChange={(next) => setEnvironment(next as Environment)}
-          >
-            <SelectTrigger id="space-settings-environment" data-testid="space-settings-environment" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="production" data-testid="space-settings-environment-production">
-                  Production
-                </SelectItem>
-                <SelectItem value="test" data-testid="space-settings-environment-test">
-                  Test
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="flex flex-col gap-1.5">
           <FieldLabel
             htmlFor="space-settings-purpose"

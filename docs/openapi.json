@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.46.1",
+    "version": "0.47.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -203,6 +203,51 @@
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "knowledge:read"
+      },
+      "delete": {
+        "summary": "Permanently delete a wiki and all dependent data; requires exact slug confirmation",
+        "operationId": "deleteSpace",
+        "responses": {
+          "204": { "description": "Wiki deleted or already absent" },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "409": {
+            "description": "Wiki still has queued or running ingest work",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "space",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zDeleteSpaceRequest" } } }
+        },
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
       }
     },
     "/v1/spaces/{space}/settings": {
@@ -251,6 +296,136 @@
         },
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "summary": "Search reviewed knowledge across every wiki visible to the current key",
+        "operationId": "globalSearch",
+        "responses": {
+          "200": {
+            "description": "Globally ranked hits",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zSearchResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["concept", "claim"] }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 50 }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["approved_only", "approved_then_sources"] }
+          },
+          { "name": "include_imports", "in": "query", "required": false, "schema": { "type": "boolean" } },
+          {
+            "name": "evidence_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          {
+            "name": "evidence_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          {
+            "name": "evidence_source_kind",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["meeting", "article", "note"] }
+          }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
+      }
+    },
+    "/v1/attention": {
+      "get": {
+        "summary": "List open human tasks across every wiki visible to the current key",
+        "operationId": "globalAttention",
+        "responses": {
+          "200": {
+            "description": "Global open task queue",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zGlobalAttentionResponse" } } }
+          },
+          "400": {
+            "description": "bad_request — request failed schema validation",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200 }
+          },
+          { "name": "cursor", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 500 } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "knowledge:read"
       }
     },
     "/v1/spaces/{space}/charter": {
@@ -2089,7 +2264,7 @@
         "summary": "Set an operator-only attention state without changing the underlying knowledge object",
         "operationId": "setAttention",
         "responses": {
-          "204": { "description": "Attention state updated", "content": { "application/json": {} } },
+          "204": { "description": "Attention state updated" },
           "400": {
             "description": "bad_request — request failed schema validation",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
@@ -3220,7 +3395,7 @@
     },
     "/v1/stats/overview": {
       "get": {
-        "summary": "Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded.",
+        "summary": "Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose and visible page count — plus server-side totals. Findings are observations and are excluded.",
         "operationId": "spacesOverview",
         "responses": {
           "200": {
@@ -4761,6 +4936,151 @@
         },
         "required": ["settings"]
       },
+      "zDeleteSpaceRequest": {
+        "type": "object",
+        "properties": { "confirm_slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" } },
+        "required": ["confirm_slug"]
+      },
+      "zSearchResponse": {
+        "type": "object",
+        "properties": {
+          "hits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": { "type": "string", "enum": ["concept", "claim", "source_chunk"] },
+                "tier": { "type": "string", "enum": ["approved", "source_evidence"] },
+                "matched_via": { "type": "string", "enum": ["lexical", "vector", "both"] },
+                "slug": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "claim_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "title": { "type": "string" },
+                "headline": { "type": "string" },
+                "rank": { "type": "number" },
+                "source_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "chunk_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "heading": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "evidence": {
+                  "type": "object",
+                  "properties": {
+                    "claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "uncited_claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "sources": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["claims", "uncited_claims", "sources"],
+                  "additionalProperties": false
+                },
+                "not_measured": {
+                  "type": "object",
+                  "properties": {
+                    "reason": { "type": "string", "enum": ["reference_target"] },
+                    "withheld_claims": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["reason"],
+                  "additionalProperties": false
+                },
+                "space": { "type": "string" }
+              },
+              "required": [
+                "kind",
+                "tier",
+                "slug",
+                "claim_id",
+                "title",
+                "headline",
+                "rank",
+                "source_id",
+                "chunk_id",
+                "url",
+                "heading",
+                "space"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "searched_spaces": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["hits", "searched_spaces"],
+        "additionalProperties": false
+      },
+      "zGlobalAttentionResponse": {
+        "type": "object",
+        "properties": {
+          "generated_at": { "type": "string" },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "open": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "oldest_days": {
+                "anyOf": [
+                  { "type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991 },
+                  { "type": "null" }
+                ]
+              },
+              "by_kind": {
+                "type": "object",
+                "properties": {
+                  "proposal": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "triage": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["proposal", "triage"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["open", "oldest_days", "by_kind"],
+            "additionalProperties": false
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "space": { "type": "string" },
+                "space_name": { "type": "string" },
+                "key": { "type": "string" },
+                "kind": { "type": "string", "enum": ["proposal", "triage"] },
+                "title": { "type": "string" },
+                "summary": { "type": "string" },
+                "created_at": { "type": "string" },
+                "available_actions": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["space", "space_name", "key", "kind", "title", "summary", "created_at", "available_actions"],
+              "additionalProperties": false
+            }
+          },
+          "next_cursor": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["generated_at", "counts", "items", "next_cursor"],
+        "additionalProperties": false
+      },
       "zCharterResponse": {
         "type": "object",
         "properties": {
@@ -5778,96 +6098,6 @@
           "slug": { "type": "string" }
         },
         "required": ["proposal_id", "status", "action", "slug"],
-        "additionalProperties": false
-      },
-      "zSearchResponse": {
-        "type": "object",
-        "properties": {
-          "hits": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "kind": { "type": "string", "enum": ["concept", "claim", "source_chunk"] },
-                "tier": { "type": "string", "enum": ["approved", "source_evidence"] },
-                "matched_via": { "type": "string", "enum": ["lexical", "vector", "both"] },
-                "slug": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "claim_id": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    { "type": "null" }
-                  ]
-                },
-                "title": { "type": "string" },
-                "headline": { "type": "string" },
-                "rank": { "type": "number" },
-                "source_id": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    { "type": "null" }
-                  ]
-                },
-                "chunk_id": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    { "type": "null" }
-                  ]
-                },
-                "url": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "heading": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "evidence": {
-                  "type": "object",
-                  "properties": {
-                    "claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-                    "uncited_claims": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-                    "sources": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
-                  },
-                  "required": ["claims", "uncited_claims", "sources"],
-                  "additionalProperties": false
-                },
-                "not_measured": {
-                  "type": "object",
-                  "properties": {
-                    "reason": { "type": "string", "enum": ["reference_target"] },
-                    "withheld_claims": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
-                  },
-                  "required": ["reason"],
-                  "additionalProperties": false
-                },
-                "space": { "type": "string" }
-              },
-              "required": [
-                "kind",
-                "tier",
-                "slug",
-                "claim_id",
-                "title",
-                "headline",
-                "rank",
-                "source_id",
-                "chunk_id",
-                "url",
-                "heading",
-                "space"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "searched_spaces": { "type": "array", "items": { "type": "string" } }
-        },
-        "required": ["hits", "searched_spaces"],
         "additionalProperties": false
       },
       "zQueryRequest": {
@@ -7760,7 +7990,6 @@
                 "space": { "type": "string" },
                 "name": { "type": "string" },
                 "purpose": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "environment": { "type": "string", "enum": ["production", "test"] },
                 "attention": {
                   "type": "object",
                   "properties": {
@@ -7786,7 +8015,7 @@
                 },
                 "concepts": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
               },
-              "required": ["space", "name", "purpose", "environment", "attention", "concepts"],
+              "required": ["space", "name", "purpose", "attention", "concepts"],
               "additionalProperties": false
             }
           }

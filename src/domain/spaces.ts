@@ -1,6 +1,6 @@
 import type { Db } from '../db/postgres.ts'
 import { seedDefaultBriefing, type DefaultBriefing } from '../schedule.ts'
-import { NotFoundError, ValidationError } from './errors.ts'
+import { ConflictError, NotFoundError, ValidationError } from './errors.ts'
 import { isoString } from './sources.ts'
 
 export interface Space {
@@ -41,11 +41,14 @@ export async function createSpace(
   defaultBriefing?: DefaultBriefing | null,
   logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void },
 ): Promise<Space> {
+  if (args.settings && 'environment' in args.settings) {
+    throw new ValidationError('settings.environment is no longer supported')
+  }
   try {
     const [row] = await db.insert<SpaceRow>('wk_spaces', {
       slug: args.slug,
       name: args.name,
-      settings: JSON.stringify({ environment: 'production', ...(args.settings ?? {}) }),
+      settings: JSON.stringify(args.settings ?? {}),
     })
     const space = toSpace(row!)
     await seedDefaultBriefing(db, space.id, defaultBriefing ?? null, logger)
@@ -74,6 +77,9 @@ export async function updateSpaceSettings(
   space: Space,
   args: { settings: Record<string, unknown>; replace: boolean },
 ): Promise<Space> {
+  if ('environment' in args.settings) {
+    throw new ValidationError('settings.environment is no longer supported')
+  }
   const settings = args.replace ? args.settings : { ...space.settings, ...args.settings }
   const [row] = await db.update<SpaceRow>(
     'wk_spaces',
@@ -82,4 +88,22 @@ export async function updateSpaceSettings(
   )
   if (!row) throw new NotFoundError(`space '${space.slug}' not found`)
   return toSpace(row)
+}
+
+/** Permanently remove one wiki and every dependent row through FK cascades. */
+export async function deleteSpace(db: Db, slug: string): Promise<void> {
+  const [space] = await db.select<SpaceRow>('wk_spaces', { slug: `eq.${slug}`, limit: 1 })
+  // Deletion is deliberately idempotent: a retry after a lost 204 is safe.
+  if (!space) return
+  const active = await db.select<{ id: string }>('wk_ingest_jobs', {
+    space_id: `eq.${space.id}`,
+    status: 'in.(queued,running)',
+    limit: 1,
+  })
+  if (active.length > 0) {
+    throw new ConflictError('space_busy', `space '${slug}' still has queued or running ingest work`, {
+      nextBestActions: ['wait for queued and running ingests to finish, then retry the deletion'],
+    })
+  }
+  await db.remove('wk_spaces', { id: `eq.${space.id}` })
 }

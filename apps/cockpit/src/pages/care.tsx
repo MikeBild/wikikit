@@ -26,7 +26,7 @@ import type { TranslationKey } from '@/lib/i18n'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { toast } from '@/lib/toast'
-import { count, durationHours, staleShare, windowLabel } from '@/pages/home.logic'
+import { count, durationHours, staleShare, windowLabel } from '@/lib/metrics-format'
 import { type LintFinding } from '@/pages/system.logic'
 import {
   backlogStanding,

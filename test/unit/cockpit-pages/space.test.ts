@@ -52,19 +52,19 @@ describe('the storage key', () => {
   })
 })
 
-describe('production and test wikis in the resolved list', () => {
+describe('wikis in the resolved list', () => {
   const OPTIONS = [
-    { slug: 'z-test', name: 'Z test', environment: 'test' as const },
-    { slug: 'z-production', name: 'Z production', environment: 'production' as const },
-    { slug: 'a-production', name: 'A production', environment: 'production' as const },
-    { slug: 'a-test', name: 'A test', environment: 'test' as const },
+    { slug: 'z-test', name: 'Z test' },
+    { slug: 'z-production', name: 'Z production' },
+    { slug: 'a-production', name: 'A production' },
+    { slug: 'a-test', name: 'A test' },
   ]
 
-  test('sorts production first and alphabetizes inside both environments', () => {
+  test('sorts wikis alphabetically by slug', () => {
     expect(sortSpaceOptions(OPTIONS).map((option) => option.slug)).toEqual([
       'a-production',
-      'z-production',
       'a-test',
+      'z-production',
       'z-test',
     ])
   })

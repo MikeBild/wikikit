@@ -67,6 +67,10 @@ export type WhitelistedFn =
   | 'wk_search_sources'
   | 'wk_search_hybrid'
   | 'wk_search_sources_hybrid'
+  | 'wk_search_spaces'
+  | 'wk_search_sources_spaces'
+  | 'wk_search_spaces_hybrid'
+  | 'wk_search_sources_spaces_hybrid'
   | 'wk_reindex_space'
   | 'wk_space_search_config'
   | 'wk_split_proposal'
@@ -213,6 +217,52 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
       // The evidence filters mirror theirs the same way — NULL is the SQL
       // default and means "do not narrow", never "match nothing".
       return [args[0], args[1], args[2] ?? 20, args[3] ?? null, args[4] ?? null, args[5] ?? null]
+    },
+    result: (response) => response.rows,
+  },
+  wk_search_spaces: {
+    sql: 'SELECT * FROM public.wk_search_spaces($1, $2, $3, $4)',
+    normalize: (args) => {
+      if (args.length < 2 || args.length > 4) {
+        throw new Error(`wk_search_spaces expects [space_ids, query, kind?, limit?] — got ${args.length} args`)
+      }
+      return [args[0], args[1], args[2] ?? null, args[3] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_search_sources_spaces: {
+    sql: 'SELECT * FROM public.wk_search_sources_spaces($1, $2, $3, $4, $5, $6)',
+    normalize: (args) => {
+      if (args.length < 2 || args.length > 6) {
+        throw new Error(
+          `wk_search_sources_spaces expects [space_ids, query, limit?, from?, to?, source_kind?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2] ?? 20, args[3] ?? null, args[4] ?? null, args[5] ?? null]
+    },
+    result: (response) => response.rows,
+  },
+  wk_search_spaces_hybrid: {
+    sql: 'SELECT * FROM public.wk_search_spaces_hybrid($1, $2, $3, $4, $5)',
+    normalize: (args) => {
+      if (args.length < 3 || args.length > 5) {
+        throw new Error(
+          `wk_search_spaces_hybrid expects [space_ids, query, embedding, kind?, limit?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2], args[3] ?? null, args[4] ?? 20]
+    },
+    result: (response) => response.rows,
+  },
+  wk_search_sources_spaces_hybrid: {
+    sql: 'SELECT * FROM public.wk_search_sources_spaces_hybrid($1, $2, $3, $4, $5, $6, $7)',
+    normalize: (args) => {
+      if (args.length < 3 || args.length > 7) {
+        throw new Error(
+          `wk_search_sources_spaces_hybrid expects [space_ids, query, embedding, limit?, from?, to?, source_kind?] — got ${args.length} args`,
+        )
+      }
+      return [args[0], args[1], args[2], args[3] ?? 20, args[4] ?? null, args[5] ?? null, args[6] ?? null]
     },
     result: (response) => response.rows,
   },

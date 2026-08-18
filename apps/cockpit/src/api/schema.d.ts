@@ -67,7 +67,8 @@ export interface paths {
         get: operations["getSpace"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Permanently delete a wiki and all dependent data; requires exact slug confirmation */
+        delete: operations["deleteSpace"];
         options?: never;
         head?: never;
         patch?: never;
@@ -84,6 +85,40 @@ export interface paths {
         put?: never;
         /** Merge or replace stable space metadata used for context discovery */
         post: operations["updateSpaceSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search reviewed knowledge across every wiki visible to the current key */
+        get: operations["globalSearch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List open human tasks across every wiki visible to the current key */
+        get: operations["globalAttention"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -939,7 +974,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded. */
+        /** Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose and visible page count — plus server-side totals. Findings are observations and are excluded. */
         get: operations["spacesOverview"];
         put?: never;
         post?: never;
@@ -1724,6 +1759,63 @@ export interface components {
             /** @default false */
             replace: boolean;
         };
+        zDeleteSpaceRequest: {
+            confirm_slug: string;
+        };
+        zSearchResponse: {
+            hits: {
+                /** @enum {string} */
+                kind: "concept" | "claim" | "source_chunk";
+                /** @enum {string} */
+                tier: "approved" | "source_evidence";
+                /** @enum {string} */
+                matched_via?: "lexical" | "vector" | "both";
+                slug: string | null;
+                claim_id: string | null;
+                title: string;
+                headline: string;
+                rank: number;
+                source_id: string | null;
+                chunk_id: string | null;
+                url: string | null;
+                heading: string | null;
+                evidence?: {
+                    claims: number;
+                    uncited_claims: number;
+                    sources: number;
+                };
+                not_measured?: {
+                    /** @enum {string} */
+                    reason: "reference_target";
+                    withheld_claims?: number;
+                };
+                space: string;
+            }[];
+            searched_spaces: string[];
+        };
+        zGlobalAttentionResponse: {
+            generated_at: string;
+            counts: {
+                open: number;
+                oldest_days: number | null;
+                by_kind: {
+                    proposal: number;
+                    triage: number;
+                };
+            };
+            items: {
+                space: string;
+                space_name: string;
+                key: string;
+                /** @enum {string} */
+                kind: "proposal" | "triage";
+                title: string;
+                summary: string;
+                created_at: string;
+                available_actions: string[];
+            }[];
+            next_cursor: string | null;
+        };
         zCharterResponse: {
             space: string;
             rev: number | null;
@@ -2152,37 +2244,6 @@ export interface components {
             /** @enum {string} */
             action: "delete" | "restore";
             slug: string;
-        };
-        zSearchResponse: {
-            hits: {
-                /** @enum {string} */
-                kind: "concept" | "claim" | "source_chunk";
-                /** @enum {string} */
-                tier: "approved" | "source_evidence";
-                /** @enum {string} */
-                matched_via?: "lexical" | "vector" | "both";
-                slug: string | null;
-                claim_id: string | null;
-                title: string;
-                headline: string;
-                rank: number;
-                source_id: string | null;
-                chunk_id: string | null;
-                url: string | null;
-                heading: string | null;
-                evidence?: {
-                    claims: number;
-                    uncited_claims: number;
-                    sources: number;
-                };
-                not_measured?: {
-                    /** @enum {string} */
-                    reason: "reference_target";
-                    withheld_claims?: number;
-                };
-                space: string;
-            }[];
-            searched_spaces: string[];
         };
         zQueryRequest: {
             question: string;
@@ -2916,8 +2977,6 @@ export interface components {
                 space: string;
                 name: string;
                 purpose: string | null;
-                /** @enum {string} */
-                environment: "production" | "test";
                 attention: {
                     open: number;
                     oldest_days: number | null;
@@ -4102,6 +4161,84 @@ export interface operations {
             };
         };
     };
+    deleteSpace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                space: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["zDeleteSpaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Wiki deleted or already absent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description Wiki still has queued or running ingest work */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
     updateSpaceSettings: {
         parameters: {
             query?: never;
@@ -4124,6 +4261,148 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["zSpaceResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    globalSearch: {
+        parameters: {
+            query: {
+                q: string;
+                kind?: "concept" | "claim";
+                limit?: number;
+                mode?: "approved_only" | "approved_then_sources";
+                include_imports?: boolean;
+                evidence_from?: string;
+                evidence_to?: string;
+                evidence_source_kind?: "meeting" | "article" | "note";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Globally ranked hits */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zSearchResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    globalAttention: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Global open task queue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zGlobalAttentionResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */
@@ -6716,9 +6995,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description bad_request — request failed schema validation */
             400: {

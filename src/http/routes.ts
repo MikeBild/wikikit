@@ -66,12 +66,20 @@ import { getTriageSuggestion, resolveTriage, suggestTriage } from '../domain/tri
 import {
   getAttention,
   getAttentionItem,
+  getGlobalAttention,
   setAttentionState,
   type AttentionKind,
   type AttentionState,
 } from '../domain/attention.ts'
 import { listStreams, tombstoneStream } from '../domain/source-streams.ts'
-import { createSpace, getSpaceBySlug, listSpaces, updateSpaceSettings, type Space } from '../domain/spaces.ts'
+import {
+  createSpace,
+  deleteSpace,
+  getSpaceBySlug,
+  listSpaces,
+  updateSpaceSettings,
+  type Space,
+} from '../domain/spaces.ts'
 import { exportSpace, importBundle } from '../export/import.ts'
 import { extractDocument } from '../ingest/extract.ts'
 import type { IngestPipeline } from '../ingest/pipeline.ts'
@@ -93,7 +101,7 @@ import {
 } from '../stats.ts'
 import { getCoverageStats, recordConceptRead, recordCoverageGap } from '../domain/coverage.ts'
 import { answerQuestion } from '../query/answer.ts'
-import { search, searchAcrossImports } from '../query/search.ts'
+import { search, searchAcrossImports, searchAcrossSpaces } from '../query/search.ts'
 import { listWebhookDeliveries, listWebhookEndpoints, registerWebhookEndpoint } from '../webhooks.ts'
 import { listSchedules, replaceSchedules } from '../schedule.ts'
 import { ROLE_SCOPES, type RoleName } from './auth.ts'
@@ -133,7 +141,7 @@ export interface RouteDef {
   }
   /** Body is raw bytes (zip upload), not JSON — the server skips JSON parsing. */
   rawBody?: true
-  responses: Record<number, { schema?: string; type: string; desc: string }>
+  responses: Record<number, { schema?: string; type?: string; desc: string }>
 }
 
 // Shared error responses appended by openapi.ts to every authenticated route;
@@ -191,6 +199,38 @@ export const ROUTES: RouteDef[] = [
     handler: 'updateSpaceSettingsHandler',
     request: { params: 'zSpaceParams', body: 'zUpdateSpaceSettingsRequest' },
     responses: { 200: { schema: 'zSpaceResponse', type: 'application/json', desc: 'Updated space' } },
+  },
+  {
+    method: 'delete',
+    path: '/v1/spaces/{space}',
+    scope: 'admin',
+    summary: 'Permanently delete a wiki and all dependent data; requires exact slug confirmation',
+    handler: 'deleteSpaceHandler',
+    request: { params: 'zSpaceParams', body: 'zDeleteSpaceRequest' },
+    responses: {
+      204: { desc: 'Wiki deleted or already absent' },
+      409: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Wiki still has queued or running ingest work' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/search',
+    scope: 'knowledge:read',
+    summary: 'Search reviewed knowledge across every wiki visible to the current key',
+    handler: 'globalSearchHandler',
+    request: { query: 'zSearchQuery' },
+    responses: { 200: { schema: 'zSearchResponse', type: 'application/json', desc: 'Globally ranked hits' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/attention',
+    scope: 'knowledge:read',
+    summary: 'List open human tasks across every wiki visible to the current key',
+    handler: 'globalAttentionHandler',
+    request: { query: 'zGlobalAttentionQuery' },
+    responses: {
+      200: { schema: 'zGlobalAttentionResponse', type: 'application/json', desc: 'Global open task queue' },
+    },
   },
   {
     method: 'get',
@@ -631,7 +671,7 @@ export const ROUTES: RouteDef[] = [
     summary: 'Set an operator-only attention state without changing the underlying knowledge object',
     handler: 'setAttentionHandler',
     request: { params: 'zAttentionParams', body: 'zAttentionStateRequest' },
-    responses: { 204: { type: 'application/json', desc: 'Attention state updated' } },
+    responses: { 204: { desc: 'Attention state updated' } },
   },
   {
     method: 'get',
@@ -904,7 +944,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/stats/overview',
     scope: 'knowledge:read',
     summary:
-      'Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose, environment and visible page count — plus server-side totals. Findings are observations and are excluded.',
+      'Cross-wiki overview: per visible space the actual human decisions, their kinds, the age of the oldest, purpose and visible page count — plus server-side totals. Findings are observations and are excluded.',
     handler: 'spacesOverviewHandler',
     responses: {
       200: { schema: 'zSpacesOverviewResponse', type: 'application/json', desc: 'Overview of every visible space' },
@@ -1322,6 +1362,46 @@ export const HANDLERS: Record<string, Handler> = {
     const body = input.body as { slug: string; name: string; settings?: Record<string, unknown> }
     const space = await createSpace(deps.db, body, deps.config.defaultBriefing, deps.logger)
     return { status: 201, body: space }
+  },
+
+  async deleteSpaceHandler(deps, input) {
+    if (input.principal!.spaceId) throw new ForbiddenError('a space-scoped key cannot delete spaces')
+    const slug = input.params.space!
+    const body = input.body as { confirm_slug: string }
+    if (body.confirm_slug !== slug) throw new ValidationError('confirm_slug must exactly match the wiki slug')
+    await deleteSpace(deps.db, slug)
+    return { status: 204 }
+  },
+
+  async globalSearchHandler(deps, input) {
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    const query = input.query as {
+      q: string
+      kind?: 'concept' | 'claim'
+      limit?: number
+      mode?: 'approved_only' | 'approved_then_sources'
+      evidence_from?: string
+      evidence_to?: string
+      evidence_source_kind?: 'meeting' | 'article' | 'note'
+    }
+    return {
+      status: 200,
+      body: await searchAcrossSpaces(deps.db, visible, query, {
+        llm: deps.llm,
+        vector: deps.vector,
+        scaffoldingKinds: deps.config.scaffoldingKinds,
+      }),
+    }
+  },
+
+  async globalAttentionHandler(deps, input) {
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    return {
+      status: 200,
+      body: await getGlobalAttention(deps.db, visible, input.query as { limit?: number; cursor?: string }),
+    }
   },
 
   async getSpaceHandler(deps, input) {

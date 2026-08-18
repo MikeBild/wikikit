@@ -74,7 +74,7 @@ export const NAV: readonly NavEntry[] = [
     // `health` rather than `stats/coverage`: the composed read carries the same
     // coverage block AND the two live queues the loop is measured by, so the
     // front page asks once for the numbers it used to guess at.
-    api: ['/v1/spaces/{space}/attention', '/v1/spaces/{space}/concepts', '/v1/stats/overview'],
+    api: ['/v1/attention'],
   },
   {
     to: '/spaces',
@@ -86,6 +86,7 @@ export const NAV: readonly NavEntry[] = [
       '/v1/spaces',
       '/v1/spaces/{space}',
       '/v1/spaces/{space}/settings',
+      '/v1/spaces/{space}',
       '/v1/spaces/{space}/export',
       '/v1/stats/overview',
     ],
@@ -122,15 +123,15 @@ export const NAV: readonly NavEntry[] = [
     label: 'Search',
     icon: Search,
     scope: 'knowledge:read',
-    group: 'wiki',
-    api: ['/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
+    group: 'home',
+    api: ['/v1/search', '/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
   },
   {
     to: '/decisions',
     label: 'Decisions',
     icon: CircleCheckBig,
     scope: 'knowledge:read',
-    group: 'home',
+    group: 'wiki',
     api: [
       '/v1/spaces/{space}/attention',
       '/v1/spaces/{space}/attention/{key}',

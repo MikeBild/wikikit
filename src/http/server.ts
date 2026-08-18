@@ -367,6 +367,11 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       res,
     })
     if (!result) return // handler streamed/ended the response itself
+    if (result.status === 204) {
+      res.writeHead(204, result.headers)
+      res.end()
+      return
+    }
     if (result.text !== undefined) {
       res.writeHead(result.status, { 'content-type': 'text/plain; charset=utf-8', ...result.headers })
       res.end(result.text)

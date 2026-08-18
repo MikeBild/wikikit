@@ -17,7 +17,7 @@ import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useSpace } from '@/lib/space'
 import { useI18n } from '@/lib/i18n-context'
 import type { FilterSpec } from '@/lib/url-filters'
-import { count } from '@/pages/home.logic'
+import { count } from '@/lib/metrics-format'
 import { coverageOf, filingStanding, kindWord, outputLabel, OUTPUT_KINDS } from '@/pages/answers.logic'
 
 /**

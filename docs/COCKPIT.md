@@ -192,16 +192,14 @@ browser against a real deployment: sign in through the funnel, read a page,
 edit it, submit a change, read its diff and lint, approve it, and see the page
 come back changed. Sixteen assertions, forty seconds.
 
-**It writes.** Approving publishes knowledge, and no second approval undoes
-that — so it refuses to run against a space whose name does not mark it
-disposable (`e2e`, `test`, `scratch`, `verify`, `quarantine`) unless
-`VERIFY_I_MEAN_IT=1` says otherwise, and the page it leaves says in its own
-text where it came from.
+**It writes into a temporary wiki.** The script creates that wiki before the
+browser flow and deletes it through the public API in `finally`, including when
+the browser flow fails. A run therefore needs an administrator credential but
+never needs or leaves a separate test-wiki classification.
 
 ```
 WIKIKIT_DEPLOY_URL=https://<installation> \
 WIKIKIT_API_KEY=wk_... \
-VERIFY_SPACE=<a disposable wiki> \
 bun run verify:cockpit-loop
 ```
 

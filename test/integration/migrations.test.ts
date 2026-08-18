@@ -60,6 +60,45 @@ describe('migrations (integration)', () => {
     expect(reviewChannel.rows[0]?.is_nullable).toBe('YES') // historical reviews stay unknown/null
   })
 
+  it('0045 removes leaked test wikis and the retired environment setting', async () => {
+    const cleanup = EMBEDDED_MIGRATIONS.find((migration) => migration.tag === '0045_wk_global_operator_surface')
+    expect(cleanup, 'the environment cleanup migration must ship in the embedded bundle').toBeDefined()
+
+    const kept = await client.query<{ id: string }>(
+      `INSERT INTO public.wk_spaces (slug, name, settings)
+       VALUES ('migration-0045-kept', 'Kept', '{"environment":"production","purpose":"keep"}'::jsonb)
+       RETURNING id`,
+    )
+    const discarded = await client.query<{ id: string }>(
+      `INSERT INTO public.wk_spaces (slug, name, settings)
+       VALUES ('migration-0045-test', 'Disposable', '{"environment":"test"}'::jsonb)
+       RETURNING id`,
+    )
+    await client.query(
+      `INSERT INTO public.wk_sources (space_id, content_hash, kind, title, summary, raw_content, markdown)
+       VALUES ($1::uuid, 'migration-0045-source', 'text', 'Disposable source', '', 'fixture', 'fixture')`,
+      [discarded.rows[0]!.id],
+    )
+
+    // Reproduce a host that already contains rows from the retired model but
+    // has not journalled the one-time cleanup yet.
+    await client.query(`DELETE FROM public.wk_migrations WHERE tag = '0045_wk_global_operator_surface'`)
+    const report = await runMigrations({ databaseUrl: url })
+    expect(report.applied).toEqual(['0045_wk_global_operator_surface'])
+
+    const gone = await client.query(`SELECT id FROM public.wk_spaces WHERE id = $1::uuid`, [discarded.rows[0]!.id])
+    expect(gone.rows).toEqual([])
+    const cascaded = await client.query(`SELECT id FROM public.wk_sources WHERE content_hash = 'migration-0045-source'`)
+    expect(cascaded.rows).toEqual([])
+
+    const retained = await client.query<{ settings: Record<string, unknown> }>(
+      `SELECT settings FROM public.wk_spaces WHERE id = $1::uuid`,
+      [kept.rows[0]!.id],
+    )
+    expect(retained.rows[0]?.settings).toEqual({ purpose: 'keep' })
+    await client.query(`DELETE FROM public.wk_spaces WHERE id = $1::uuid`, [kept.rows[0]!.id])
+  })
+
   it('leaves exactly ONE source-search function per name, widened by defaults', async () => {
     // 0040 appends three defaulted filter parameters, which is a new signature
     // rather than a replacement — so it drops the earlier one in the same file.

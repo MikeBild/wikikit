@@ -48,6 +48,24 @@ export interface AttentionPage {
   recent_activity: AttentionItem[]
 }
 
+export interface GlobalAttentionItem {
+  space: string
+  space_name: string
+  key: string
+  kind: AttentionKind
+  title: string
+  summary: string
+  created_at: string
+  available_actions: string[]
+}
+
+export interface GlobalAttentionPage {
+  generated_at: string
+  counts: { open: number; oldest_days: number | null; by_kind: Record<AttentionKind, number> }
+  items: GlobalAttentionItem[]
+  next_cursor: string | null
+}
+
 interface OverlayRow {
   item_key: string
   kind: AttentionKind
@@ -331,6 +349,83 @@ export async function getAttention(
     items: page,
     next_cursor: offset + limit < filtered.length ? Buffer.from(String(offset + limit)).toString('base64url') : null,
     recent_activity: decided.slice(0, 10),
+  }
+}
+
+/** One flat, globally ordered queue for the cockpit start page. */
+export async function getGlobalAttention(
+  db: Db,
+  spaces: readonly { id: string; slug: string; name: string }[],
+  args: { limit?: number; cursor?: string },
+): Promise<GlobalAttentionPage> {
+  const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
+  const offset = args.cursor ? Number(Buffer.from(args.cursor, 'base64url').toString('utf8')) : 0
+  if (!Number.isInteger(offset) || offset < 0) throw new ValidationError('cursor is invalid')
+  if (spaces.length === 0) {
+    return {
+      generated_at: new Date().toISOString(),
+      counts: { open: 0, oldest_days: null, by_kind: { proposal: 0, triage: 0 } },
+      items: [],
+      next_cursor: null,
+    }
+  }
+  const result = await db.query<{
+    space_id: string
+    key: string
+    kind: AttentionKind
+    title: string
+    summary: string
+    created_at: Date | string
+  }>(
+    `SELECT open.space_id, open.key, open.kind, open.title, open.summary, open.created_at
+       FROM (
+         SELECT p.space_id, 'proposal:' || p.id::text AS key, 'proposal'::text AS kind,
+                p.title, p.summary, p.created_at
+           FROM wk_change_proposals p
+          WHERE p.space_id = ANY($1::uuid[]) AND p.status = 'pending'
+         UNION ALL
+         SELECT j.space_id, 'triage:' || j.id::text AS key, 'triage'::text AS kind,
+                coalesce(nullif(j.input->'triage'->>'title', ''), nullif(j.input->>'title', ''), 'Captured note') AS title,
+                coalesce(nullif(j.input->'triage'->>'summary', ''), left(coalesce(j.input->>'markdown', j.input->>'text', j.input->>'url', ''), 320)) AS summary,
+                j.created_at
+           FROM wk_ingest_jobs j
+          WHERE j.space_id = ANY($1::uuid[]) AND j.status = 'captured'
+       ) open
+       LEFT JOIN wk_attention_states state
+         ON state.space_id = open.space_id AND state.item_key = open.key
+      WHERE state.item_key IS NULL
+      ORDER BY open.created_at ASC, open.space_id ASC, open.key ASC`,
+    [spaces.map((space) => space.id)],
+  )
+  const bySpace = new Map(spaces.map((space) => [space.id, space]))
+  const all: GlobalAttentionItem[] = result.rows.flatMap((row) => {
+    const space = bySpace.get(row.space_id)
+    if (!space) return []
+    return [
+      {
+        space: space.slug,
+        space_name: space.name,
+        key: row.key,
+        kind: row.kind,
+        title: row.title,
+        summary: row.summary,
+        created_at: isoString(row.created_at),
+        available_actions: row.kind === 'proposal' ? ['open_review'] : ['triage', 'defer', 'discard'],
+      },
+    ]
+  })
+  const now = Date.now()
+  const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0 }
+  for (const item of all) by_kind[item.kind] += 1
+  return {
+    generated_at: new Date(now).toISOString(),
+    counts: {
+      open: all.length,
+      oldest_days: all.length ? Math.max(...all.map((item) => daysOld(item.created_at, now))) : null,
+      by_kind,
+    },
+    items: all.slice(offset, offset + limit),
+    next_cursor: offset + limit < all.length ? Buffer.from(String(offset + limit)).toString('base64url') : null,
   }
 }
 

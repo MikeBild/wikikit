@@ -6,10 +6,10 @@ shortcut around human review.
 
 ## End-user model
 
-- **Start — Where is work waiting?** The cross-wiki overview comes first, then
-  the selected wiki's search, open decisions and published pages.
+- **Start — Where is work waiting?** One global search and one compact table of
+  open human tasks provide direct entry points without dashboard summaries.
 - **Wikis — Which knowledge areas exist?** Wikis are a primary destination;
-  production wikis lead and test wikis are hidden until requested.
+  every visible wiki appears in the same list and can be opened directly.
 - **Inbox — What arrived?** Files, URLs and pasted text wait here until their
   destination is clear.
 - **Pages and Search — What do we know?** Published knowledge and archived-only
@@ -23,7 +23,9 @@ shortcut around human review.
 
 ## Navigation and routes
 
-- `/` leads with all visible production wikis and then the selected wiki.
+- `/` contains global search and the global open-task table.
+- `/search` searches every visible wiki by default. A user may narrow results
+  to the current wiki; grounded Q&A is available only in that narrower scope.
 - `/spaces` is the complete wiki list and is not installation-only navigation.
 - `/decisions` is the single attention queue for proposals and triage.
 - `/care` contains check observations; findings are not decisions.

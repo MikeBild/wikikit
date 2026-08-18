@@ -13,7 +13,6 @@ function item(
     space,
     name: space,
     purpose: null,
-    environment: 'production',
     attention: {
       open: 0,
       oldest_days: null,

@@ -169,6 +169,10 @@ interface SearchRow {
   matched_via?: string
 }
 
+interface GlobalSearchRow extends SearchRow {
+  space_id: string
+}
+
 interface SourceChunkRow {
   source_id: string
   chunk_id: string
@@ -179,6 +183,10 @@ interface SourceChunkRow {
   headline: string
   rank: number | string
   matched_via?: string
+}
+
+interface GlobalSourceChunkRow extends SourceChunkRow {
+  space_id: string
 }
 
 /**
@@ -328,6 +336,118 @@ export async function search(db: Db, spaceId: string, args: SearchArgs, deps: Se
 
 /** A hit tagged with the space that produced it (0023 provenance). */
 export type FederatedHit = SearchHit & { space: string }
+
+/**
+ * Search every wiki visible to a principal in one ranked database call per
+ * tier. One query embedding is shared by all wikis; evidence is then attached
+ * in bounded batches for only the wikis represented on the result page.
+ */
+export async function searchAcrossSpaces(
+  db: Db,
+  spaces: readonly { id: string; slug: string }[],
+  args: SearchArgs,
+  deps: SearchDeps,
+): Promise<{ hits: FederatedHit[]; searched_spaces: string[] }> {
+  const input = zSearchArgs.parse(args)
+  if (spaces.length === 0) return { hits: [], searched_spaces: [] }
+  const byId = new Map(spaces.map((space) => [space.id, space.slug]))
+  const embedding = await queryEmbedding(deps, input.q)
+  const rows = embedding
+    ? await db.call<GlobalSearchRow>('wk_search_spaces_hybrid', [
+        spaces.map((space) => space.id),
+        input.q,
+        embedding,
+        input.kind ?? null,
+        input.limit,
+      ])
+    : await db.call<GlobalSearchRow>('wk_search_spaces', [
+        spaces.map((space) => space.id),
+        input.q,
+        input.kind ?? null,
+        input.limit,
+      ])
+
+  const hits: FederatedHit[] = rows.flatMap((row) => {
+    const space = byId.get(row.space_id)
+    if (!space) return []
+    return [
+      {
+        space,
+        kind: row.kind === 'claim' ? ('claim' as const) : ('concept' as const),
+        tier: 'approved' as const,
+        ...(asMatchedVia(row.matched_via) ? { matched_via: asMatchedVia(row.matched_via) } : {}),
+        slug: row.concept_slug,
+        claim_id: row.claim_id,
+        title: row.title,
+        headline: row.headline,
+        rank: Number(row.rank),
+        source_id: null,
+        chunk_id: null,
+        url: null,
+        heading: null,
+      },
+    ]
+  })
+
+  for (const space of spaces) {
+    const spaceHits = hits.filter((hit) => hit.space === space.slug)
+    if (spaceHits.length === 0) continue
+    const slugs = [...new Set(spaceHits.flatMap((hit) => (hit.slug ? [hit.slug] : [])))]
+    if (slugs.length === 0) continue
+    const readings = await conceptReadingsBySlug(db, space.id, slugs, { scaffoldingKinds: deps.scaffoldingKinds })
+    for (let index = hits.length - 1; index >= 0; index--) {
+      const hit = hits[index]!
+      if (hit.space !== space.slug || !hit.slug) continue
+      const reading = readings.get(hit.slug)
+      if (!reading && hit.kind === 'claim') {
+        hits.splice(index, 1)
+        continue
+      }
+      if (hit.kind !== 'concept') continue
+      if (reading?.evidence) hit.evidence = reading.evidence
+      if (reading?.not_measured) hit.not_measured = reading.not_measured
+    }
+  }
+
+  if (input.mode === 'approved_then_sources' && !input.kind) {
+    const filters = [input.evidence_from ?? null, input.evidence_to ?? null, input.evidence_source_kind ?? null]
+    const sourceRows = embedding
+      ? await db.call<GlobalSourceChunkRow>('wk_search_sources_spaces_hybrid', [
+          spaces.map((space) => space.id),
+          input.q,
+          embedding,
+          input.limit,
+          ...filters,
+        ])
+      : await db.call<GlobalSourceChunkRow>('wk_search_sources_spaces', [
+          spaces.map((space) => space.id),
+          input.q,
+          input.limit,
+          ...filters,
+        ])
+    for (const row of sourceRows) {
+      const space = byId.get(row.space_id)
+      if (!space) continue
+      hits.push({
+        space,
+        kind: 'source_chunk',
+        tier: 'source_evidence',
+        ...(asMatchedVia(row.matched_via) ? { matched_via: asMatchedVia(row.matched_via) } : {}),
+        slug: null,
+        claim_id: null,
+        title: row.title,
+        headline: row.headline,
+        rank: Number(row.rank),
+        source_id: row.source_id,
+        chunk_id: row.chunk_id,
+        url: row.url,
+        heading: row.heading,
+      })
+    }
+  }
+
+  return { hits, searched_spaces: spaces.map((space) => space.slug) }
+}
 
 /**
  * Search the request space and — when it declares settings.imports — every

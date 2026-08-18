@@ -25,17 +25,10 @@ export const SPACE_STORAGE_KEY = 'wk-cockpit-space'
 export interface SpaceOption {
   slug: string
   name: string
-  environment: 'production' | 'test'
 }
 
 export function sortSpaceOptions(options: readonly SpaceOption[]): SpaceOption[] {
-  return [...options].sort((left, right) =>
-    left.environment === right.environment
-      ? left.slug.localeCompare(right.slug)
-      : left.environment === 'production'
-        ? -1
-        : 1,
-  )
+  return [...options].sort((left, right) => left.slug.localeCompare(right.slug))
 }
 
 export interface SpaceValue {

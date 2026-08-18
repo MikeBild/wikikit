@@ -1,4 +1,4 @@
-import { toneFor, type Tone } from '@/pages/home.logic'
+import { toneFor, type Tone } from '@/lib/metrics-format'
 import type { Locale } from '@/lib/i18n'
 
 /**

@@ -72,8 +72,8 @@ describe('the Cockpit action hierarchy', () => {
     expect(streams).not.toContain('data-testid={`streams-row-${index + 1}-seen`}')
 
     const spaces = source('apps/cockpit/src/pages/spaces.tsx')
-    expect(spaces).toMatch(/id: 'environment',[\s\S]{0,100}priority: 'optional'/)
-    expect(spaces).toContain('whitespace-normal')
+    expect(spaces).not.toContain("id: 'environment'")
+    expect(spaces).toContain("overflow: 'wrap'")
 
     const inbox = source('apps/cockpit/src/pages/inbox.tsx')
     expect(inbox).toMatch(/id: 'arrived',[\s\S]{0,100}priority: 'optional'/)

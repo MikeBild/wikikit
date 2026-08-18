@@ -93,6 +93,12 @@ const ANSWER_TOP_K = 8
 
 type KindChoice = 'all' | 'concept' | 'claim'
 type ModeChoice = 'approved_only' | 'approved_then_sources'
+type ScopeChoice = 'all' | 'wiki'
+
+const SCOPE_OPTIONS: readonly { id: ScopeChoice; label: string }[] = [
+  { id: 'all', label: 'All wikis' },
+  { id: 'wiki', label: 'This wiki' },
+]
 
 const KIND_OPTIONS: readonly { id: KindChoice; label: string }[] = [
   { id: 'all', label: 'Everything' },
@@ -115,6 +121,7 @@ const MODE_OPTIONS: readonly { id: ModeChoice; label: string }[] = [
  * four share one decode of one address.
  */
 const FILTERS: readonly FilterSpec[] = [
+  { key: 'scope', values: ['wiki'], fallback: 'all' },
   { key: 'kind', values: ['concept', 'claim'], fallback: 'all' },
   { key: 'mode', values: ['approved_then_sources'], fallback: 'approved_only' },
   ...EVIDENCE_FILTERS,
@@ -130,8 +137,9 @@ export function SearchPage() {
   const q = typeof search.q === 'string' ? search.q.trim().slice(0, MAX_QUERY) : ''
 
   const { filters, setFilters } = useUrlFilters('search', FILTERS)
-  const { text } = useI18n()
+  const { t, text } = useI18n()
   const kind = (filters.kind ?? 'all') as KindChoice
+  const scope = (filters.scope ?? 'all') as ScopeChoice
   const mode = (filters.mode ?? 'approved_only') as ModeChoice
   const evidenceAge = filters.evidence_age ?? 'any'
   const evidenceKind = filters.evidence_kind ?? 'any'
@@ -152,8 +160,8 @@ export function SearchPage() {
   )
 
   const results = useQuery({
-    queryKey: keys.search(space, params),
-    queryFn: () => wk.search.run(space, params),
+    queryKey: scope === 'all' ? keys.globalSearch(params) : keys.search(space, params),
+    queryFn: () => (scope === 'all' ? wk.search.global(params) : wk.search.run(space, params)),
     // A search with no words is not a search. Without this the page would ask
     // the server for the empty string on every first paint and get a 400 for it.
     enabled: q !== '',
@@ -205,7 +213,7 @@ export function SearchPage() {
   return (
     <Page
       title="Search"
-      description="Find what this wiki has approved — and, when you ask for it, the archived sources behind it."
+      description="Find approved knowledge across every wiki or narrow the search to the selected wiki."
     >
       <div className="flex flex-col gap-6">
         <form onSubmit={submit} className="flex flex-col gap-3" data-testid="search-form">
@@ -224,7 +232,7 @@ export function SearchPage() {
               defaultValue={q}
               maxLength={MAX_QUERY}
               placeholder="A word or a phrase"
-              aria-label="Search this wiki"
+              aria-label={scope === 'all' ? t('search.scopeAllInput') : t('search.scopeWikiInput')}
               data-testid="search-input"
             />
             <Button type="submit" data-testid="search-submit">
@@ -233,6 +241,13 @@ export function SearchPage() {
             </Button>
           </div>
           <div className="flex flex-wrap gap-2">
+            <SegmentedControl
+              value={scope}
+              options={SCOPE_OPTIONS}
+              label="Where to search"
+              data-testid="search-scope-choice"
+              onChange={(next) => setFilters({ scope: next })}
+            />
             <SegmentedControl
               value={kind}
               options={KIND_OPTIONS}
@@ -308,8 +323,8 @@ export function SearchPage() {
           <EmptyState
             icon={Search}
             data-testid="search-idle"
-            title="Search this wiki"
-            description="Search approved knowledge or include archived source evidence."
+            title={scope === 'all' ? t('search.scopeAllTitle') : t('search.scopeWikiTitle')}
+            description={scope === 'all' ? t('search.scopeAllDescription') : t('search.scopeWikiDescription')}
           />
         ) : (
           <DataState
@@ -350,54 +365,48 @@ export function SearchPage() {
               />
             }
           >
-            {(data) => <Results hits={data.hits} searched={data.searched_spaces} space={space} />}
+            {(data) => <Results hits={data.hits} space={space} />}
           </DataState>
         )}
 
-        <AskPanel
-          question={q}
-          mode={mode}
-          pending={ask.isPending}
-          error={ask.error}
-          // The answer is shown only while it is still ABOUT the question on
-          // screen. The mutation's own variables carry that fact, so editing the
-          // query retires the old answer without an effect and without a stale
-          // paragraph sitting under a different question.
-          answer={
-            ask.data !== undefined &&
-            ask.variables?.question === q &&
-            ask.variables.mode === mode &&
-            // Same rule extended to the filters: an answer produced over a
-            // wider archive is not an answer to the narrowed page now on
-            // screen, so it retires the moment either filter moves.
-            ask.variables.evidence_from === params.evidence_from &&
-            ask.variables.evidence_source_kind === params.evidence_source_kind
-              ? ask.data
-              : undefined
-          }
-          onAsk={() =>
-            ask.mutate({
-              question: q,
-              mode,
-              evidence_from: params.evidence_from,
-              evidence_source_kind: params.evidence_source_kind,
-            })
-          }
-        />
+        {scope === 'wiki' ? (
+          <AskPanel
+            question={q}
+            mode={mode}
+            pending={ask.isPending}
+            error={ask.error}
+            // The answer is shown only while it is still ABOUT the question on
+            // screen. The mutation's own variables carry that fact, so editing the
+            // query retires the old answer without an effect and without a stale
+            // paragraph sitting under a different question.
+            answer={
+              ask.data !== undefined &&
+              ask.variables?.question === q &&
+              ask.variables.mode === mode &&
+              // Same rule extended to the filters: an answer produced over a
+              // wider archive is not an answer to the narrowed page now on
+              // screen, so it retires the moment either filter moves.
+              ask.variables.evidence_from === params.evidence_from &&
+              ask.variables.evidence_source_kind === params.evidence_source_kind
+                ? ask.data
+                : undefined
+            }
+            onAsk={() =>
+              ask.mutate({
+                question: q,
+                mode,
+                evidence_from: params.evidence_from,
+                evidence_source_kind: params.evidence_source_kind,
+              })
+            }
+          />
+        ) : null}
       </div>
     </Page>
   )
 }
 
-function Results({
-  hits,
-  searched,
-  space,
-}: {
-  hits: readonly SearchHit[]
-  searched: readonly string[]
-  space: string
-}) {
+function Results({ hits, space }: { hits: readonly SearchHit[]; space: string }) {
   const approved = hits.filter((hit) => hit.tier === 'approved')
   const evidence = hits.filter((hit) => hit.tier === 'source_evidence')
   // Measured per tier because the server limits per tier: a search that filled
@@ -413,12 +422,6 @@ function Results({
 
   return (
     <div className="flex flex-col gap-6">
-      {searched.length > 1 ? (
-        <p className="text-muted-foreground text-xs" data-testid="search-scope">
-          Searched {searched.join(', ')}.
-        </p>
-      ) : null}
-
       {approved.length > 0 ? (
         <section className="flex flex-col gap-3" aria-labelledby="search-approved-heading">
           <div className="flex flex-col gap-1">
@@ -495,6 +498,7 @@ function ApprovedHit({ hit, index, space }: { hit: SearchHit; index: number; spa
         <Link
           to="/pages/$slug"
           params={{ slug: hit.slug }}
+          search={{ space: hit.space }}
           data-testid={`search-hit-${index}`}
           className="font-medium underline-offset-2 hover:underline"
         >
@@ -651,6 +655,7 @@ function EvidenceHit({ hit, index }: { hit: SearchHit; index: number }) {
           <Link
             to="/sources/$id"
             params={{ id: hit.source_id }}
+            search={{ space: hit.space }}
             data-testid={`search-evidence-${index}-source`}
             className="underline underline-offset-2"
           >

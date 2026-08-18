@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
-import { search, searchAcrossImports } from '../../src/query/search.ts'
+import { search, searchAcrossImports, searchAcrossSpaces } from '../../src/query/search.ts'
 
 interface Call {
   sql: string
@@ -458,6 +458,33 @@ describe('search — hybrid dispatch', () => {
       },
     }),
   }
+
+  test('global search shares one embedding and one ranked database call across all visible wikis', async () => {
+    let embeddings = 0
+    const { db, calls } = fakeDb([{ match: 'wk_search_spaces_hybrid', rows: [] }])
+    await searchAcrossSpaces(
+      db,
+      [
+        { id: SPACE, slug: 'alpha' },
+        { id: 'a4b0c9d8-0000-4000-8000-000000000002', slug: 'beta' },
+      ],
+      { q: 'okf' },
+      {
+        scaffoldingKinds: BUILT_IN_SCAFFOLDING_KINDS,
+        vector: { available: true },
+        llm: {
+          ...embedOk,
+          embed: async () => {
+            embeddings += 1
+            return embedOk.embed()
+          },
+        },
+      },
+    )
+    expect(embeddings).toBe(1)
+    expect(calls.filter((call) => call.sql.includes('wk_search_spaces_hybrid')).length).toBe(1)
+    expect(calls[0]!.values[0]).toEqual([SPACE, 'a4b0c9d8-0000-4000-8000-000000000002'])
+  })
 
   test('with pgvector + embed provider, both tiers go through the hybrid RPCs and carry matched_via', async () => {
     const { db, calls } = fakeDb([

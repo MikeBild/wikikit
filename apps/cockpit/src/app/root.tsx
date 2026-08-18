@@ -5,17 +5,13 @@ import { EmptyState } from '@/components/empty-state'
 import { Alert } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/lib/session'
+import { useI18n } from '@/lib/i18n-context'
 import { sortSpaceOptions } from '@/lib/space'
 import { SpaceProvider } from '@/components/space-provider'
 
 interface SpaceRow {
   slug: string
   name: string
-  settings: Record<string, unknown>
-}
-
-function spaceEnvironment(row: SpaceRow): 'production' | 'test' {
-  return row.settings.environment === 'test' ? 'test' : 'production'
 }
 
 /**
@@ -33,6 +29,7 @@ function spaceEnvironment(row: SpaceRow): 'production' | 'test' {
  */
 export function Root() {
   const session = useSession()
+  const { t } = useI18n()
   const query = useQuery({ queryKey: keys.spaces(), queryFn: () => wk.spaces.list() })
 
   if (query.isPending) {
@@ -47,8 +44,8 @@ export function Root() {
   if (query.error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <Alert tone="danger" title="Could not list wikis" className="max-w-md" data-testid="wiki-list-error">
-          {query.error instanceof Error ? query.error.message : 'The spaces endpoint did not answer.'}
+        <Alert tone="danger" title={t('root.listError')} className="max-w-md" data-testid="wiki-list-error">
+          {query.error instanceof Error ? query.error.message : t('root.listErrorDescription')}
         </Alert>
       </div>
     )
@@ -63,7 +60,6 @@ export function Root() {
     (query.data?.items ?? []).map((row: SpaceRow) => ({
       slug: row.slug,
       name: row.name,
-      environment: spaceEnvironment(row),
     })),
   )
   const spaces = options.map((option) => option.slug)
@@ -74,10 +70,7 @@ export function Root() {
   if (spaces.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          title="No wikis yet"
-          description="A wiki holds pages, the sources behind them and the changes waiting for review. Create one over the API to get started."
-        />
+        <EmptyState title={t('root.emptyTitle')} description={t('root.emptyDescription')} />
       </div>
     )
   }

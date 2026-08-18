@@ -283,6 +283,52 @@ async function main(): Promise<void> {
           continue
         }
 
+        // The compact operator flow is a browser contract, not only a source
+        // convention. These checks exercise the real controls in addition to
+        // measuring the resulting layout.
+        if (route === '/') {
+          if ((await page.locator('[data-testid="home-search"]').count()) !== 1)
+            findings.push({ route, viewport: viewport.name, what: 'the global home search is missing' })
+          for (const retired of ['home-knowledge', 'home-recent', 'home-global']) {
+            if ((await page.locator(`[data-testid="${retired}"]`).count()) > 0)
+              findings.push({
+                route,
+                viewport: viewport.name,
+                what: `retired home section is still rendered: ${retired}`,
+              })
+          }
+        }
+        if (route === '/spaces' && (await page.locator('[data-testid="spaces-show-tests"]').count()) > 0) {
+          findings.push({ route, viewport: viewport.name, what: 'the retired test-wiki filter is still rendered' })
+        }
+        if (route === '/search') {
+          const all = page.locator('[data-testid="search-scope-choice-all"]')
+          const wiki = page.locator('[data-testid="search-scope-choice-wiki"]')
+          if ((await all.getAttribute('data-state')) !== 'on')
+            findings.push({ route, viewport: viewport.name, what: 'global search is not the default scope' })
+          if ((await page.locator('[data-testid="search-ask"]').count()) > 0)
+            findings.push({ route, viewport: viewport.name, what: 'Q&A is visible in the global search scope' })
+          await wiki.click()
+          const ask = page.locator('[data-testid="search-ask"]')
+          const opened = await ask
+            .waitFor({ state: 'visible', timeout: 5_000 })
+            .then(() => true)
+            .catch(() => false)
+          if (!opened)
+            findings.push({
+              route,
+              viewport: viewport.name,
+              what: 'Q&A did not appear after choosing the current wiki',
+            })
+          await all.click()
+          const closed = await ask
+            .waitFor({ state: 'detached', timeout: 5_000 })
+            .then(() => true)
+            .catch(() => false)
+          if (!closed)
+            findings.push({ route, viewport: viewport.name, what: 'Q&A stayed visible after returning to all wikis' })
+        }
+
         checked += 1
         for (const what of await page.evaluate<string[]>(PROBE)) {
           findings.push({ route, viewport: viewport.name, what })
