@@ -77,6 +77,13 @@ describe('the Cockpit action hierarchy', () => {
 
     const inbox = source('apps/cockpit/src/pages/inbox.tsx')
     expect(inbox).toMatch(/id: 'arrived',[\s\S]{0,100}priority: 'optional'/)
+
+    const home = source('apps/cockpit/src/pages/home.tsx')
+    expect(home).toContain('position={index + 1}')
+    expect(home).toContain('data-testid={`home-task-${position}-action`}')
+    expect(home).not.toMatch(/data-testid=\{`home-task-[^`]*task\.(?:key|space)/)
+    expect(home).toContain('className="hidden max-w-36 align-top lg:table-cell"')
+    expect(home).toContain('className="w-44 min-w-44 align-top whitespace-nowrap text-right"')
   })
 
   test('icons beside button copy use the shadcn data-icon contract', () => {

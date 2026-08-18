@@ -80,18 +80,18 @@ export function HomePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('home.compact.columnWiki')}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{t('home.compact.columnWiki')}</TableHead>
                     <TableHead>{t('home.compact.columnTask')}</TableHead>
                     <TableHead className="hidden md:table-cell">{t('home.compact.columnType')}</TableHead>
                     <TableHead className="hidden lg:table-cell">{t('home.compact.columnWaiting')}</TableHead>
-                    <TableHead className="w-1 text-right">
+                    <TableHead className="w-44 min-w-44 whitespace-nowrap text-right">
                       <span className="sr-only">{t('home.compact.columnAction')}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {attention.data.items.map((task) => (
-                    <TaskRow key={`${task.space}:${task.key}`} task={task} />
+                  {attention.data.items.map((task, index) => (
+                    <TaskRow key={`${task.space}:${task.key}`} task={task} position={index + 1} />
                   ))}
                 </TableBody>
               </Table>
@@ -103,7 +103,7 @@ export function HomePage() {
   )
 }
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task, position }: { task: Task; position: number }) {
   const { t } = useI18n()
   const proposalId = task.kind === 'proposal' ? task.key.slice('proposal:'.length) : null
   const triageId = task.kind === 'triage' ? task.key.slice('triage:'.length) : null
@@ -113,7 +113,7 @@ function TaskRow({ task }: { task: Task }) {
         to="/decisions/proposals/$id"
         params={{ id: proposalId }}
         search={{ space: task.space }}
-        data-testid={`home-task-action-${task.key}`}
+        data-testid={`home-task-${position}-action`}
       >
         {t('home.compact.reviewProposal')}
       </Link>
@@ -123,26 +123,27 @@ function TaskRow({ task }: { task: Task }) {
       <Link
         to="/inbox"
         search={{ space: task.space, triage: triageId } as never}
-        data-testid={`home-task-action-${task.key}`}
+        data-testid={`home-task-${position}-action`}
       >
         {t('home.compact.triageInbox')}
       </Link>
     </Button>
   )
   return (
-    <TableRow data-testid={`home-task-${task.space}-${task.key}`}>
-      <TableCell className="max-w-36 align-top">
+    <TableRow data-testid={`home-task-${position}`}>
+      <TableCell className="hidden max-w-36 align-top lg:table-cell">
         <Link
           to="/"
           search={{ space: task.space }}
           className="block min-w-0 underline-offset-4 hover:underline"
-          data-testid={`home-task-wiki-${task.space}`}
+          data-testid={`home-task-${position}-wiki`}
         >
           <span className="block truncate font-medium">{task.space_name}</span>
           <span className="block truncate font-mono text-xs text-muted-foreground">{task.space}</span>
         </Link>
       </TableCell>
       <TableCell className="min-w-0 align-top whitespace-normal">
+        <span className="mb-0.5 block truncate text-xs text-muted-foreground lg:hidden">{task.space_name}</span>
         <span className="block font-medium">{task.title}</span>
         {task.summary ? (
           <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{task.summary}</span>
@@ -156,7 +157,7 @@ function TaskRow({ task }: { task: Task }) {
       <TableCell className="hidden align-top text-sm text-muted-foreground lg:table-cell">
         <RelativeTime value={task.created_at} />
       </TableCell>
-      <TableCell className="align-top text-right">{action}</TableCell>
+      <TableCell className="w-44 min-w-44 align-top whitespace-nowrap text-right">{action}</TableCell>
     </TableRow>
   )
 }

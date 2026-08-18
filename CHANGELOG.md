@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.47.1 - 2026-08-18
+
+### Fixed
+
+- The compact Start task table now gives its direct action column the width of
+  its content, folds the wiki name into the task on phones and uses stable,
+  unique, readable selectors even when several tasks belong to the same wiki.
+
 ## 0.47.0 - 2026-08-18
 
 ### Changed
