@@ -273,6 +273,7 @@ export const wk = {
     http: (space: string) => unwrap(api.GET('/v1/spaces/{space}/stats/http', { params: { path: { space } } })),
     usage: (space: string) => unwrap(api.GET('/v1/spaces/{space}/stats/usage', { params: { path: { space } } })),
     llm: (space: string) => unwrap(api.GET('/v1/spaces/{space}/stats/llm', { params: { path: { space } } })),
+    llmAll: () => unwrap(api.GET('/v1/stats/llm')),
     webhooks: (space: string) => unwrap(api.GET('/v1/spaces/{space}/stats/webhooks', { params: { path: { space } } })),
     mcp: () => unwrap(api.GET('/v1/stats/mcp')),
   },
@@ -336,6 +337,7 @@ export const keys = {
   identities: () => ['identities'] as const,
   stats: (space: string, kind: string) => ['spaces', space, 'stats', kind] as const,
   mcpStats: () => ['stats', 'mcp'] as const,
+  llmAllStats: () => ['stats', 'llm'] as const,
   // No space in it, like mcpStats: switching wiki must not invalidate the one
   // answer that is about all of them.
   overview: () => ['stats', 'overview'] as const,

@@ -34,6 +34,9 @@ const ANSWER_BEFORE = {
   not_in_knowledge_base: false,
   agent_run_id: RUN_ID,
   source_citations: [{ source_id: SOURCE_ID, chunk_id: CHUNK_ID, title: 'A note' }],
+  tokens_used: 128,
+  tokens_budget: 36_000,
+  truncated: false,
 }
 
 describe('zQueryResponse carries output_id (additive)', () => {

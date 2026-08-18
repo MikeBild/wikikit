@@ -19,7 +19,7 @@ describe('the attention queue contains decisions, not check observations', () =>
       open: 0,
       overdue: 0,
       oldest_days: null,
-      by_kind: { proposal: 0, triage: 0, output: 0 },
+      by_kind: { proposal: 0, triage: 0 },
     })
     expect(page.items).toEqual([])
     expect(queries.some((sql) => sql.includes('NOT EXISTS (SELECT 1 FROM wk_citations'))).toBe(false)

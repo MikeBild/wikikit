@@ -6,6 +6,7 @@
 // collect it with an ordinary HTTP connector, while other clients can use the
 // same resources with an existing knowledge:read credential.
 import type { Db } from './db/postgres.ts'
+import type { ModelPrices } from './config.ts'
 import { ValidationError } from './domain/errors.ts'
 
 export const STATS_BUCKETS = ['hour', 'day', 'month', 'year'] as const
@@ -292,12 +293,20 @@ export async function getKnowledgeStats(db: Db, spaceId: string, window: StatsWi
 const ZERO_LLM = () => ({
   calls: 0,
   tokens: { input: 0, output: 0, cache_read: 0, total: 0 },
+  cost_usd: { input: 0, output: 0, cache_read: 0, total: 0 },
+  unpriced: {
+    calls: 0,
+    tokens: { input: 0, output: 0, cache_read: 0, total: 0 },
+    models: [] as string[],
+  },
+  cache_hit_ratio: null as number | null,
   duration_ms: { total: 0, avg: 0, max: 0 },
   by_kind: {} as Record<string, number>,
   by_model: {} as Record<string, number>,
 })
 
 interface LlmRow {
+  space_id: string
   ts: Date | string
   kind: string
   model: string
@@ -310,9 +319,63 @@ interface LlmRow {
   duration_max: unknown
 }
 
-export async function getLlmStats(db: Db, spaceId: string, window: StatsWindow) {
+function applyLlmRow(values: ReturnType<typeof ZERO_LLM>, row: LlmRow, prices: ModelPrices): void {
+  const calls = number(row.calls)
+  const input = number(row.input_tokens)
+  const output = number(row.output_tokens)
+  const cacheRead = number(row.cache_read_tokens)
+  values.calls += calls
+  values.tokens.input += input
+  values.tokens.output += output
+  values.tokens.cache_read += cacheRead
+  values.duration_ms.total += number(row.duration_total)
+  values.duration_ms.max = Math.max(values.duration_ms.max, number(row.duration_max))
+  values.by_kind[row.kind] = (values.by_kind[row.kind] ?? 0) + calls
+  values.by_model[row.model] = (values.by_model[row.model] ?? 0) + calls
+  const price = prices[row.model]
+  if (price) {
+    values.cost_usd.input += (input * price.input) / 1_000_000
+    values.cost_usd.output += (output * price.output) / 1_000_000
+    values.cost_usd.cache_read += (cacheRead * price.cache_read) / 1_000_000
+  } else {
+    values.unpriced.calls += calls
+    values.unpriced.tokens.input += input
+    values.unpriced.tokens.output += output
+    values.unpriced.tokens.cache_read += cacheRead
+    if (!values.unpriced.models.includes(row.model)) values.unpriced.models.push(row.model)
+  }
+}
+
+function finishLlm(values: ReturnType<typeof ZERO_LLM>): ReturnType<typeof ZERO_LLM> {
+  values.tokens.total = values.tokens.input + values.tokens.output + values.tokens.cache_read
+  values.cost_usd.total = values.cost_usd.input + values.cost_usd.output + values.cost_usd.cache_read
+  values.unpriced.tokens.total =
+    values.unpriced.tokens.input + values.unpriced.tokens.output + values.unpriced.tokens.cache_read
+  const cacheBase = values.tokens.input + values.tokens.cache_read
+  values.cache_hit_ratio = cacheBase > 0 ? values.tokens.cache_read / cacheBase : null
+  values.duration_ms.avg = values.calls ? values.duration_ms.total / values.calls : 0
+  values.unpriced.models.sort()
+  return values
+}
+
+function aggregateLlm(rows: readonly LlmRow[], window: StatsWindow, prices: ModelPrices) {
+  const byTs = new Map<string, ReturnType<typeof ZERO_LLM>>()
+  for (const row of rows) {
+    const ts = iso(row.ts)
+    const values = byTs.get(ts) ?? ZERO_LLM()
+    applyLlmRow(values, row, prices)
+    byTs.set(ts, values)
+  }
+  const buckets = bucketKeys(window).map((ts) => ({ ts, ...finishLlm(byTs.get(ts) ?? ZERO_LLM()) }))
+  const totals = ZERO_LLM()
+  for (const row of rows) applyLlmRow(totals, row, prices)
+  return envelope(window, buckets, finishLlm(totals))
+}
+
+async function readLlmRows(db: Db, spaceIds: readonly string[], window: StatsWindow): Promise<LlmRow[]> {
+  if (!spaceIds.length) return []
   const { rows } = await db.query<LlmRow>(
-    `SELECT date_trunc($4, created_at) AS ts, kind, model,
+    `SELECT space_id, date_trunc($4, created_at) AS ts, kind, model,
             count(*)::integer AS calls,
             coalesce(sum((usage->>'input_tokens')::bigint), 0)::bigint AS input_tokens,
             coalesce(sum((usage->>'output_tokens')::bigint), 0)::bigint AS output_tokens,
@@ -321,46 +384,41 @@ export async function getLlmStats(db: Db, spaceId: string, window: StatsWindow) 
             coalesce(avg(duration_ms), 0)::double precision AS duration_avg,
             coalesce(max(duration_ms), 0)::integer AS duration_max
        FROM wk_agent_runs
-      WHERE space_id = $1 AND created_at >= $2 AND created_at < $3
-      GROUP BY 1, kind, model ORDER BY 1, kind, model`,
-    [spaceId, window.from, window.to, window.bucket],
+      WHERE space_id = ANY($1::uuid[]) AND created_at >= $2 AND created_at < $3
+      GROUP BY space_id, 2, kind, model ORDER BY space_id, 2, kind, model`,
+    [spaceIds, window.from, window.to, window.bucket],
   )
-  const byTs = new Map<string, ReturnType<typeof ZERO_LLM>>()
-  for (const row of rows) {
-    const ts = iso(row.ts)
-    const values = byTs.get(ts) ?? ZERO_LLM()
-    const calls = number(row.calls)
-    values.calls += calls
-    values.tokens.input += number(row.input_tokens)
-    values.tokens.output += number(row.output_tokens)
-    values.tokens.cache_read += number(row.cache_read_tokens)
-    values.duration_ms.total += number(row.duration_total)
-    values.duration_ms.max = Math.max(values.duration_ms.max, number(row.duration_max))
-    values.by_kind[row.kind] = (values.by_kind[row.kind] ?? 0) + calls
-    values.by_model[row.model] = (values.by_model[row.model] ?? 0) + calls
-    byTs.set(ts, values)
+  return rows
+}
+
+export async function getLlmStats(db: Db, spaceId: string, window: StatsWindow, prices: ModelPrices = {}) {
+  return aggregateLlm(await readLlmRows(db, [spaceId], window), window, prices)
+}
+
+export async function getLlmStatsAcrossSpaces(
+  db: Db,
+  spaces: readonly { id: string; slug: string; name: string }[],
+  window: StatsWindow,
+  prices: ModelPrices = {},
+) {
+  const rows = await readLlmRows(
+    db,
+    spaces.map((space) => space.id),
+    window,
+  )
+  const aggregate = aggregateLlm(rows, window, prices)
+  return {
+    ...aggregate,
+    per_space: spaces.map((space) => ({
+      space: space.slug,
+      name: space.name,
+      totals: aggregateLlm(
+        rows.filter((row) => row.space_id === space.id),
+        window,
+        prices,
+      ).totals,
+    })),
   }
-  const buckets = bucketKeys(window).map((ts) => {
-    const values = byTs.get(ts) ?? ZERO_LLM()
-    values.tokens.total = values.tokens.input + values.tokens.output + values.tokens.cache_read
-    values.duration_ms.avg = values.calls ? values.duration_ms.total / values.calls : 0
-    return { ts, ...values }
-  })
-  const totals = buckets.reduce((sum, bucket) => {
-    sum.calls += bucket.calls
-    sum.tokens.input += bucket.tokens.input
-    sum.tokens.output += bucket.tokens.output
-    sum.tokens.cache_read += bucket.tokens.cache_read
-    sum.duration_ms.total += bucket.duration_ms.total
-    sum.duration_ms.max = Math.max(sum.duration_ms.max, bucket.duration_ms.max)
-    for (const [kind, value] of Object.entries(bucket.by_kind)) sum.by_kind[kind] = (sum.by_kind[kind] ?? 0) + value
-    for (const [model, value] of Object.entries(bucket.by_model))
-      sum.by_model[model] = (sum.by_model[model] ?? 0) + value
-    return sum
-  }, ZERO_LLM())
-  totals.tokens.total = totals.tokens.input + totals.tokens.output + totals.tokens.cache_read
-  totals.duration_ms.avg = totals.calls ? totals.duration_ms.total / totals.calls : 0
-  return envelope(window, buckets, totals)
 }
 
 const WEBHOOK_METRICS = ['events', 'pending', 'delivering', 'delivered', 'failed', 'dead'] as const

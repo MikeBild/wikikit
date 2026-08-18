@@ -115,7 +115,9 @@ Product analytics are available at `/v1/spaces/{space}/stats/*`. Existing
 resources cover ingest, graph growth, LLM and webhook operations; opt-in usage
 resources add actual HTTP, search/read/query/proposal and review behavior.
 Global MCP sessions/protocol/tool usage is available to admins at
-`GET /v1/stats/mcp`. All readers query WikiKit's own PostgreSQL data and return
+`GET /v1/stats/mcp`; measured model tokens, configured cost, cache use and
+unpriced usage across visible wikis are available at `GET /v1/stats/llm`. All
+readers query WikiKit's own PostgreSQL data and return
 bounded aggregates only. Content, prompts, search/question text, MCP
 arguments/results, raw paths/query strings, network identifiers, credentials
 and dynamic resource ids are never captured.

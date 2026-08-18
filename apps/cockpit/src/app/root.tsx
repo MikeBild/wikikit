@@ -10,6 +10,7 @@ import { SpaceProvider } from '@/components/space-provider'
 
 interface SpaceRow {
   slug: string
+  name: string
   settings: Record<string, unknown>
 }
 
@@ -59,7 +60,11 @@ export function Root() {
   // shape of failure an optional chain hides: no error, no empty response, just
   // a page quietly claiming nothing exists.
   const options = sortSpaceOptions(
-    (query.data?.items ?? []).map((row: SpaceRow) => ({ slug: row.slug, environment: spaceEnvironment(row) })),
+    (query.data?.items ?? []).map((row: SpaceRow) => ({
+      slug: row.slug,
+      name: row.name,
+      environment: spaceEnvironment(row),
+    })),
   )
   const spaces = options.map((option) => option.slug)
 

@@ -120,7 +120,7 @@ export async function buildAgentBriefing(
 
   // Only the briefed spaces — the caller chose them, this function enumerates
   // nothing. This block is proposal-specific; the end-user overview also
-  // counts triage and unpromoted outputs because those require a person too.
+  // counts inbox triage because that requires a person too. Reports are history.
   const overview = await reviewOverview(
     db,
     spaces.map((space) => space.id),

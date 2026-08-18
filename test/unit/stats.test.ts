@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import type { Db } from '../../src/db/postgres.ts'
-import { getIngestStats, getKnowledgeStats, getLlmStats, getWebhookStats, resolveStatsWindow } from '../../src/stats.ts'
+import {
+  getIngestStats,
+  getKnowledgeStats,
+  getLlmStats,
+  getLlmStatsAcrossSpaces,
+  getWebhookStats,
+  resolveStatsWindow,
+} from '../../src/stats.ts'
 
 function dbWith(rows: Record<string, unknown>[]): Db {
   return { query: async () => ({ rows, rowCount: rows.length }) } as unknown as Db
@@ -114,14 +121,48 @@ describe('database-backed product stats', () => {
       ]),
       'space-id',
       window,
+      { 'model-a': { input: 2, output: 10, cache_read: 0.2 } },
     )
     expect(result.totals).toMatchObject({
       calls: 2,
       tokens: { input: 10, output: 4, cache_read: 20, total: 34 },
+      cost_usd: { input: 0.00002, output: 0.00004, cache_read: 0.000004 },
+      unpriced: { calls: 0, tokens: { input: 0, output: 0, cache_read: 0, total: 0 }, models: [] },
+      cache_hit_ratio: 2 / 3,
       duration_ms: { total: 600, avg: 300, max: 400 },
       by_kind: { synthesize: 2 },
       by_model: { 'model-a': 2 },
     })
+    expect(result.totals.cost_usd.total).toBeCloseTo(0.000064)
+  })
+
+  test('unknown models are counted openly and cross-wiki totals retain their owners', async () => {
+    const result = await getLlmStatsAcrossSpaces(
+      dbWith([
+        {
+          space_id: 'a-id',
+          ts: '2026-07-18T08:00:00.000Z',
+          kind: 'answer',
+          model: 'unknown-model',
+          calls: '2',
+          input_tokens: '100',
+          output_tokens: '20',
+          cache_read_tokens: '0',
+          duration_total: '500',
+          duration_avg: '250',
+          duration_max: '300',
+        },
+      ]),
+      [
+        { id: 'a-id', slug: 'alpha', name: 'Alpha' },
+        { id: 'b-id', slug: 'beta', name: 'Beta' },
+      ],
+      window,
+      {},
+    )
+    expect(result.totals.unpriced).toMatchObject({ calls: 2, tokens: { total: 120 }, models: ['unknown-model'] })
+    expect(result.per_space[0]?.totals.unpriced.calls).toBe(2)
+    expect(result.per_space[1]?.totals.calls).toBe(0)
   })
 
   test('webhook stats expose delivery outcomes without endpoints or payloads', async () => {

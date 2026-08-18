@@ -410,7 +410,7 @@ export interface SpacesOverview {
     attention: {
       open: number
       oldest_days: number | null
-      by_kind: { proposal: number; triage: number; output: number }
+      by_kind: { proposal: number; triage: number }
     }
     concepts: number
   }[]
@@ -419,7 +419,7 @@ export interface SpacesOverview {
 interface AttentionOverviewRow {
   open: number
   oldest_days: number | null
-  by_kind: { proposal: number; triage: number; output: number }
+  by_kind: { proposal: number; triage: number }
   concepts: number
 }
 
@@ -434,14 +434,14 @@ export async function attentionOverview(
     overview.set(id, {
       open: 0,
       oldest_days: null,
-      by_kind: { proposal: 0, triage: 0, output: 0 },
+      by_kind: { proposal: 0, triage: 0 },
       concepts: 0,
     })
   }
 
   const attention = await db.query<{
     space_id: string
-    kind: 'proposal' | 'triage' | 'output'
+    kind: 'proposal' | 'triage'
     open: number
     oldest_days: number
   }>(
@@ -462,14 +462,6 @@ export async function attentionOverview(
             AND NOT EXISTS (
               SELECT 1 FROM wk_attention_states a
                WHERE a.space_id = j.space_id AND a.item_key = 'triage:' || j.id::text
-            )
-         UNION ALL
-         SELECT space_id, 'output'::text AS kind, created_at
-           FROM wk_outputs o
-          WHERE o.space_id = ANY($1::uuid[]) AND o.promoted_at IS NULL
-            AND NOT EXISTS (
-              SELECT 1 FROM wk_attention_states a
-               WHERE a.space_id = o.space_id AND a.item_key = 'output:' || o.id::text
             )
        ) item
       GROUP BY item.space_id, item.kind`,
@@ -522,7 +514,7 @@ export async function spacesOverview(db: Db, spaces: readonly OverviewSpace[]): 
     const row = rows.get(space.id) ?? {
       open: 0,
       oldest_days: null,
-      by_kind: { proposal: 0, triage: 0, output: 0 },
+      by_kind: { proposal: 0, triage: 0 },
       concepts: 0,
     }
     // The same fallback the cockpit's wiki list renders: both keys feed context

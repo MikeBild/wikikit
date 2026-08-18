@@ -3,6 +3,6 @@
   "label": "Search",
   "icon": "Search",
   "scope": "knowledge:read",
-  "group": "archive",
+  "group": "wiki",
   "api": ["/v1/spaces/{space}/search", "/v1/spaces/{space}/query"]
 }

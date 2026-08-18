@@ -3,7 +3,7 @@
 // process.env by design (downstream libs read it), so isolation matters.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { DEFAULT_SOURCE_INDEX_DAYS, loadConfig } from '../../src/config.ts'
+import { DEFAULT_SOURCE_INDEX_DAYS, loadConfig, parseModelPrices } from '../../src/config.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 
 // Deleted (and restored) per test. Isolation needs BOTH this list and
@@ -29,6 +29,8 @@ const MANAGED = [
   'WIKIKIT_MODEL_SYNTHESIS',
   'WIKIKIT_MODEL_CLASSIFY',
   'WIKIKIT_MODEL_ANSWER',
+  'WIKIKIT_MODEL_PRICES',
+  'WIKIKIT_ANSWER_TOKEN_BUDGET',
   'WIKIKIT_EMBEDDING_PROVIDER',
   'WIKIKIT_MODEL_EMBEDDING',
   'WIKIKIT_MAX_BODY_BYTES',
@@ -121,6 +123,39 @@ describe('zero-config dev defaults', () => {
     expect(config.usageTelemetryEnabled).toBe(false)
     expect(config.usageRetentionDays).toBe(90)
     expect(config.mcpElicitationTimeoutMs).toBe(300_000)
+  })
+
+  test('answer evidence has a bounded token budget near the previous effective ceiling', () => {
+    expect(loadConfig().answerTokenBudget).toBe(36_000)
+    process.env.WIKIKIT_ANSWER_TOKEN_BUDGET = '12000'
+    expect(loadConfig().answerTokenBudget).toBe(12_000)
+    process.env.WIKIKIT_ANSWER_TOKEN_BUDGET = '999'
+    expect(() => loadConfig()).toThrow(/WIKIKIT_ANSWER_TOKEN_BUDGET/)
+  })
+})
+
+describe('model prices', () => {
+  test('ships no guessed prices and accepts explicit per-million rates', () => {
+    expect(parseModelPrices('')).toEqual({})
+    process.env.WIKIKIT_MODEL_PRICES =
+      '{"answer-model":{"input":3,"output":15,"cache_read":0.3},"embed-model":{"input":0.02,"output":0,"cache_read":0}}'
+    expect(loadConfig().modelPrices).toEqual({
+      'answer-model': { input: 3, output: 15, cache_read: 0.3 },
+      'embed-model': { input: 0.02, output: 0, cache_read: 0 },
+    })
+  })
+
+  test('rejects malformed, incomplete, negative and unknown price fields at boot', () => {
+    for (const raw of [
+      'not-json',
+      '[]',
+      '{"m":{"input":1,"output":2}}',
+      '{"m":{"input":1,"output":2,"cache_read":-1}}',
+      '{"m":{"input":1,"output":2,"cache_read":0,"other":3}}',
+    ]) {
+      process.env.WIKIKIT_MODEL_PRICES = raw
+      expect(() => loadConfig(), raw).toThrow(/WIKIKIT_MODEL_PRICES/)
+    }
   })
 })
 

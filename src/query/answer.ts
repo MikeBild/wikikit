@@ -21,7 +21,7 @@ import { getConcept } from '../domain/concepts.ts'
 import { LlmNotConfiguredError, NotFoundError } from '../domain/errors.ts'
 import type { LlmProvider } from '../llm/provider.ts'
 import type { AnswerEvidence } from '../llm/schemas.ts'
-import { fitTokenBudget } from '../ingest/chunk.ts'
+import { estimateTokens, fitTokenBudget } from '../ingest/chunk.ts'
 import { search } from './search.ts'
 
 const zAnswerArgs = z.object({
@@ -51,6 +51,37 @@ export interface QueryAnswer {
    * prompt forces such statements to be labeled as uncurated in the text.
    */
   source_citations: { source_id: string; chunk_id: string; title: string | null }[]
+  /** Estimated evidence tokens actually sent to the model. */
+  tokens_used: number
+  /** Configured maximum for evidence in this answer. */
+  tokens_budget: number
+  /** True when any candidate or per-page tail could not be sent. */
+  truncated: boolean
+}
+
+export interface BudgetPack<T> {
+  items: T[]
+  tokens_used: number
+  tokens_budget: number
+  truncated: boolean
+}
+
+/** Deterministic ranked packing: an oversized block is skipped so later small evidence can still fit. */
+export function packEvidence<T extends { text: string }>(items: readonly T[], budget: number): BudgetPack<T> {
+  const tokensBudget = Math.max(0, Math.floor(budget))
+  const packed: T[] = []
+  let used = 0
+  let truncated = false
+  for (const item of items) {
+    const tokens = estimateTokens(item.text)
+    if (used + tokens > tokensBudget) {
+      truncated = true
+      continue
+    }
+    packed.push(item)
+    used += tokens
+  }
+  return { items: packed, tokens_used: used, tokens_budget: tokensBudget, truncated }
 }
 
 // Per-concept evidence cap. Separate from WIKIKIT_MAX_INGEST_TOKENS on
@@ -81,7 +112,7 @@ export async function answerQuestion(
   // default on the bag and none on the field — because forwarding a value this
   // function cannot supply is exactly what a caller forgets; `vector` stays
   // optional beside it because a lexical-only installation genuinely has none.
-  deps: { vector?: { available: boolean }; scaffoldingKinds: readonly string[] },
+  deps: { vector?: { available: boolean }; scaffoldingKinds: readonly string[]; tokenBudget?: number },
 ): Promise<QueryAnswer> {
   const input = zAnswerArgs.parse(args)
   if (!llm.configured) throw new LlmNotConfiguredError(llm.apiKeyEnv)
@@ -111,8 +142,14 @@ export async function answerQuestion(
   )
   const slugs = [...new Set(hits.flatMap((hit) => (hit.slug ? [hit.slug] : [])))]
 
-  const evidence: AnswerEvidence[] = []
-  const titles = new Map<string, string>()
+  type EvidenceCandidate = {
+    text: string
+    evidence: AnswerEvidence
+    concept?: { slug: string; title: string }
+    source?: { source_id: string; chunk_id: string; title: string | null }
+  }
+  const candidates: EvidenceCandidate[] = []
+  let pageTruncated = false
 
   for (const slug of slugs) {
     let concept
@@ -125,15 +162,15 @@ export async function answerQuestion(
       if (error instanceof NotFoundError) continue
       throw error
     }
-    titles.set(slug, concept.title)
-
     const page = fitTokenBudget(concept.markdown, EVIDENCE_TOKENS_PER_CONCEPT)
-    evidence.push({
+    pageTruncated ||= page.truncated
+    const conceptEvidence: AnswerEvidence = {
       kind: 'concept',
       slug,
       text: `# ${concept.title}\n\n${concept.summary}\n\n${page.markdown}`,
       status: null,
-    })
+    }
+    candidates.push({ text: conceptEvidence.text, evidence: conceptEvidence, concept: { slug, title: concept.title } })
 
     // Claims travel as separate evidence items so their STATUS reaches the
     // model — the prompt requires disputed claims to be presented as
@@ -143,12 +180,13 @@ export async function answerQuestion(
     for (const claim of concept.claims) {
       if (claim.status !== 'verified' && claim.status !== 'disputed') continue
       const quote = claim.citations[0]?.quote
-      evidence.push({
+      const claimEvidence: AnswerEvidence = {
         kind: 'claim',
         slug,
         text: `${claim.subject} ${claim.predicate} ${claim.object}${quote ? ` (source quote: "${quote}")` : ''}`,
         status: claim.status,
-      })
+      }
+      candidates.push({ text: claimEvidence.text, evidence: claimEvidence, concept: { slug, title: concept.title } })
     }
   }
 
@@ -156,25 +194,42 @@ export async function answerQuestion(
   // capped in count (each chunk is already <= ~400 tokens by construction).
   // The prompt (answer.v1) forces statements grounded ONLY here to be
   // labeled uncurated and cited as [source:<id>].
-  const chunkTitles = new Map<string, { source_id: string; chunk_id: string; title: string | null }>()
+  const loadedChunkIds = new Set<string>()
   for (const hit of hits) {
     if (hit.kind !== 'source_chunk' || !hit.source_id || !hit.chunk_id) continue
-    if (chunkTitles.size >= EVIDENCE_SOURCE_CHUNKS) break
+    if (loadedChunkIds.size >= EVIDENCE_SOURCE_CHUNKS) break
+    if (loadedChunkIds.has(hit.chunk_id)) continue
     const [chunk] = await db.select<{ content: string; heading: string | null }>('wk_source_chunks', {
       id: `eq.${hit.chunk_id}`,
       space_id: `eq.${spaceId}`,
       limit: 1,
     })
     if (!chunk) continue
-    chunkTitles.set(hit.source_id, { source_id: hit.source_id, chunk_id: hit.chunk_id, title: hit.title || null })
-    evidence.push({
+    loadedChunkIds.add(hit.chunk_id)
+    const source = { source_id: hit.source_id, chunk_id: hit.chunk_id, title: hit.title || null }
+    const sourceEvidence: AnswerEvidence = {
       kind: 'source_chunk',
       slug: null,
       source_id: hit.source_id,
       text: `${hit.title ? `Source: ${hit.title}\n` : ''}${chunk.heading ? `${chunk.heading}\n` : ''}${chunk.content}`,
       status: null,
-    })
+    }
+    candidates.push({ text: sourceEvidence.text, evidence: sourceEvidence, source })
   }
+
+  const packed = packEvidence(candidates, deps.tokenBudget ?? 36_000)
+  const evidence = packed.items.map((candidate) => candidate.evidence)
+  const titles = new Map(
+    packed.items.flatMap((candidate) =>
+      candidate.concept ? [[candidate.concept.slug, candidate.concept.title] as const] : [],
+    ),
+  )
+  const chunkTitles = new Map(
+    packed.items.flatMap((candidate) =>
+      candidate.source ? [[candidate.source.source_id, candidate.source] as const] : [],
+    ),
+  )
+  const truncated = packed.truncated || pageTruncated
 
   const result = await llm.answer({ question: input.question, evidence })
 
@@ -185,7 +240,12 @@ export async function answerQuestion(
     model: result.run.model,
     prompt_version: result.run.prompt_version,
     input_hash: result.run.input_hash,
-    usage: JSON.stringify(result.run.usage),
+    usage: JSON.stringify({
+      ...result.run.usage,
+      tokens_used: packed.tokens_used,
+      tokens_budget: packed.tokens_budget,
+      truncated,
+    }),
     duration_ms: result.run.duration_ms,
   })
 
@@ -209,5 +269,8 @@ export async function answerQuestion(
     not_in_knowledge_base: result.output.not_in_knowledge_base,
     agent_run_id: run!.id,
     source_citations: sourceCitations,
+    tokens_used: packed.tokens_used,
+    tokens_budget: packed.tokens_budget,
+    truncated,
   }
 }

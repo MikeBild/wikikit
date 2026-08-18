@@ -1048,7 +1048,7 @@ export const TOOLS: McpToolDef[] = [
       'Read what this wiki has PRODUCED: past grounded answers, plus the scheduled briefings and health reports. ' +
       'Omit output_id to list them newest-first (?kind= narrows to answer|briefing|health); pass one to read a single ' +
       'output whole. Reach for this before asking a question the wiki may already have answered, to see whether a ' +
-      'good answer is already waiting to be filed back into the knowledge base, and to find the output_id ' +
+      'good answer is already waiting to become a reviewed knowledge proposal, and to find the answer output_id ' +
       'wikikit_promote_output needs. These rows are NOT knowledge — they are derived artifacts, and an answer counts ' +
       'as evidence only once a human has approved its promotion.',
     scope: 'knowledge:read',
@@ -1101,7 +1101,8 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_promote_output',
     description:
-      'File a produced output back into the wiki as a source: its markdown is archived, marked as derived from the ' +
+      'Propose knowledge from a produced ANSWER. Briefings and health reports are operational history and are refused. ' +
+      'The answer markdown is archived, marked as derived from the ' +
       'wiki itself, and run through the ORDINARY ingest pipeline — content-hash dedup, the verbatim-quote grounding ' +
       'guard, contradiction detection, and one ChangeProposal a HUMAN must approve. Nothing becomes knowledge here. ' +
       'Returns the ingest_id to poll with wikikit_ingest_status. Use it for an answer a person has called correct ' +
@@ -1139,10 +1140,10 @@ export const TOOLS: McpToolDef[] = [
   {
     name: 'wikikit_overview',
     description:
-      'One LLM-free read across EVERY wiki this key can see: per space the proposals, inbox triage and generated ' +
-      'outputs that still require a person, the age of the oldest, and the visible page count — plus totals summed ' +
-      'server-side. Check findings are observations and are deliberately excluded. Use this first to decide WHERE ' +
-      'attention is owed, then wikikit_health on the space you pick. Reports numbers and never a verdict.',
+      'One LLM-free read across EVERY wiki this key can see: per space the proposals and inbox triage that require a ' +
+      'person, the age of the oldest, and the visible page count — plus totals summed server-side. Scheduled reports ' +
+      'and check findings are deliberately excluded. Use this first to decide WHERE attention is owed, then ' +
+      'wikikit_health on the space you pick. Reports numbers and never a verdict.',
     scope: 'knowledge:read',
     inputSchema: zOverviewToolInput,
     annotations: READ_ANNOTATIONS,

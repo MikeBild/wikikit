@@ -13,6 +13,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs } from '@/components/ui/tabs'
 import { useI18n } from '@/lib/i18n-context'
+import { LOCALE_TAGS } from '@/lib/i18n'
 import { pollAlways } from '@/lib/live'
 import { useSpace } from '@/lib/space'
 import {
@@ -21,6 +22,8 @@ import {
   declarationSentence,
   durationMs,
   measured,
+  llmCacheRatio,
+  llmCost,
   originLegend,
   percent,
   readDescriptor,
@@ -76,8 +79,9 @@ import {
  * On this page that is not hypothetical: one of them is refused by design for
  * most sessions.
  *
- * No chart. This console vendors no chart library, and a sparkline of requests
- * per hour is the first thing here nobody could act on.
+ * No chart on this overview. Trends and configured model cost have their own
+ * Model usage page; this page keeps the operational totals that belong beside
+ * readiness, traffic and knowledge checks.
  */
 
 /**
@@ -133,7 +137,8 @@ async function fetchDescriptor(): Promise<ServiceDescriptor> {
 
 export function SystemPage() {
   const space = useSpace()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const localeTag = LOCALE_TAGS[locale]
   const [section, setSection] = useState<'overview' | 'knowledge' | 'activity'>('overview')
 
   // Readiness on a fixed cadence, and it is the only poll on the page. It is a
@@ -526,7 +531,7 @@ export function SystemPage() {
                 <DataState testId="system-llm" query={llm} skeleton={<FactsSkeleton facts={3} />}>
                   {(data) => (
                     <div className="flex flex-col gap-3">
-                      <dl className="grid grid-cols-3 gap-3">
+                      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                         <Fact testId="llm-calls" label="Calls" value={count(data.totals.calls)} />
                         <Fact
                           testId="llm-tokens"
@@ -540,7 +545,31 @@ export function SystemPage() {
                           value={averageMs(data.totals.calls, data.totals.duration_ms.avg)}
                           hint={`${durationMs(data.totals.duration_ms.max)} slowest`}
                         />
+                        <Fact
+                          testId="llm-cost"
+                          label={t('modelUsage.cost')}
+                          value={llmCost(
+                            data.totals.cost_usd.total,
+                            data.totals.calls,
+                            data.totals.unpriced.calls,
+                            localeTag,
+                          )}
+                        />
+                        <Fact
+                          testId="llm-cache"
+                          label={t('modelUsage.cache')}
+                          value={llmCacheRatio(data.totals.cache_hit_ratio, localeTag)}
+                        />
                       </dl>
+                      {data.totals.unpriced.calls > 0 ? (
+                        <p className="text-warning text-xs" data-testid="llm-unpriced">
+                          {t('modelUsage.unpriced.description', {
+                            calls: data.totals.unpriced.calls.toLocaleString(localeTag),
+                            tokens: data.totals.unpriced.tokens.total.toLocaleString(localeTag),
+                            models: data.totals.unpriced.models.join(', '),
+                          })}
+                        </p>
+                      ) : null}
                       <Models by={data.totals.by_model} />
                       <StatsWindow from={data.from} to={data.to} testId="llm-window" />
                     </div>

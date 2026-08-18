@@ -1,4 +1,4 @@
-// The console, in a real browser, at two real widths.
+// The console, in a real browser, at four release widths.
 //
 // WHY this exists when there are unit tests: nothing in `bun test` has a layout
 // engine. A test can prove `DataTable` renders the rows it was given; it cannot
@@ -29,12 +29,13 @@
 //   bun scripts/check-cockpit-browser.ts --remote <url>      against a deployment
 //   bun scripts/check-cockpit-browser.ts --remote <url> --space workkit-ops --locale de
 //   bun scripts/check-cockpit-browser.ts --remote <url> --local-assets assets/cockpit
+//   bun scripts/check-cockpit-browser.ts --screenshots <directory>
 //
 // Remote mode is READ-ONLY and mints nothing: it is pointed at installations
 // this script does not own, and a checker that creates credentials on somebody
 // else's deployment is a checker nobody dares run.
-import { readFile } from 'node:fs/promises'
-import { extname, relative, resolve, sep } from 'node:path'
+import { mkdir, readFile } from 'node:fs/promises'
+import { extname, join, relative, resolve, sep } from 'node:path'
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
 import { DE_PHRASES } from '../apps/cockpit/src/lib/i18n.ts'
 
@@ -44,13 +45,14 @@ interface Viewport {
   height: number
 }
 
-// 390×844 is the phone floor the contract names (CUI-RESP-1). 1280×800 is a
-// laptop — included because the two fail differently: the phone catches
-// overflow, the laptop catches a sidebar that steals width from a wide table.
+// The four widths are the release matrix. The narrow pair catch controls that
+// push past their surface; the wide pair catch tables that waste or steal the
+// room an operator actually has.
 const VIEWPORTS: Viewport[] = [
   { name: 'phone', width: 390, height: 844 },
   { name: 'tablet', width: 768, height: 1024 },
   { name: 'laptop', width: 1280, height: 800 },
+  { name: 'desktop', width: 1920, height: 1080 },
 ]
 
 interface Finding {
@@ -176,10 +178,18 @@ async function main(): Promise<void> {
   const locale = localeFlag >= 0 ? process.argv[localeFlag + 1] : undefined
   const localAssetsFlag = process.argv.indexOf('--local-assets')
   const localAssets = localAssetsFlag >= 0 ? process.argv[localAssetsFlag + 1] : undefined
+  const screenshotsFlag = process.argv.indexOf('--screenshots')
+  const screenshots = screenshotsFlag >= 0 ? process.argv[screenshotsFlag + 1] : undefined
   if (locale !== undefined && locale !== 'en' && locale !== 'de') {
     console.error('✗ --locale must be en or de')
     process.exit(2)
   }
+  if (screenshotsFlag >= 0 && !screenshots) {
+    console.error('✗ --screenshots needs an output directory')
+    process.exit(2)
+  }
+  const screenshotDirectory = screenshots ? resolve(screenshots) : undefined
+  if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true })
 
   let chromium: typeof import('playwright').chromium
   try {
@@ -285,6 +295,13 @@ async function main(): Promise<void> {
             findings.push({ route, viewport: viewport.name, what: `untranslated text: ${phrase}` })
           }
         }
+        if (screenshotDirectory) {
+          const routeName = route === '/' ? 'home' : route.slice(1).replaceAll('/', '-')
+          await page.screenshot({
+            path: join(screenshotDirectory, `${locale ?? 'auto'}-${viewport.name}-${routeName}.png`),
+            fullPage: false,
+          })
+        }
       }
       await context.close()
     }
@@ -293,6 +310,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`› checked ${checked} route/viewport pairs against ${base}${space ? ` in ${space}` : ''}`)
+  if (screenshotDirectory) console.log(`› screenshots: ${screenshotDirectory}`)
   if (!findings.length) {
     console.log(`\x1b[32m✓ no layout${locale === 'de' ? ' or German localisation' : ''} findings\x1b[0m`)
     // Said out loud rather than left implied: a green run means these three

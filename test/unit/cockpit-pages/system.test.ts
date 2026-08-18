@@ -18,6 +18,8 @@ import { join } from 'node:path'
 import { describeFailure } from '../../../apps/cockpit/src/lib/failure.ts'
 import {
   declarationSentence,
+  llmCacheRatio,
+  llmCost,
   MARKER_ORIGINS,
   originLegend,
   originStanding,
@@ -29,6 +31,19 @@ import {
 import { zKnowledgeConfigResponse } from '../../../src/http/schemas.ts'
 
 const BUILT_IN = 'structural-reference'
+
+describe('model cost and cache formatting', () => {
+  test('does not label a wholly unpriced window as zero cost', () => {
+    expect(llmCost(0, 4, 4, 'en-US')).toBe('—')
+    expect(llmCost(1.5, 4, 1, 'en-US')).toBe('$1.50')
+  })
+
+  test('distinguishes no cache measurement from a measured zero', () => {
+    expect(llmCacheRatio(null, 'en-US')).toBe('—')
+    expect(llmCacheRatio(0, 'en-US')).toBe('0%')
+    expect(llmCacheRatio(0.125, 'de-DE')).toBe('12,5\u00a0%')
+  })
+})
 
 /** A response, built from whatever markers a case wants to talk about. */
 function config(configured: boolean, items: ScaffoldingMarker[]): KnowledgeConfig {

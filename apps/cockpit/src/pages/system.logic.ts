@@ -491,6 +491,29 @@ export function averageMs(calls: number | null | undefined, avg: number | null |
   return durationMs(avg)
 }
 
+/** Known configured spend. A wholly unpriced window is unknown, never free. */
+export function llmCost(
+  value: number | null | undefined,
+  calls: number,
+  unpricedCalls: number,
+  locale = CONSOLE_LOCALE,
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  if (calls > 0 && calls === unpricedCalls && value === 0) return '—'
+  const digits = value > 0 && value < 0.01 ? 4 : 2
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value)
+}
+
+export function llmCacheRatio(value: number | null | undefined, locale = CONSOLE_LOCALE): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(value)
+}
+
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS

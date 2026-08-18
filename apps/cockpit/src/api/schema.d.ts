@@ -543,7 +543,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages. */
+        /** Read one output. Accept: text/markdown returns its document; for an answer this is the document knowledge proposal promotion would archive. */
         get: operations["getOutput"];
         put?: never;
         post?: never;
@@ -562,7 +562,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job. */
+        /** Propose knowledge from a grounded answer: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Briefing and health reports are history and return output_not_promotable. Idempotent — a second answer promotion returns the first job. */
         post: operations["promoteOutput"];
         delete?: never;
         options?: never;
@@ -958,6 +958,23 @@ export interface paths {
         };
         /** Global privacy-safe MCP sessions, protocol operations, tools, outcomes and latency */
         get: operations["mcpUsageStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/stats/llm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cross-wiki measured LLM tokens, configured cost, cache use and explicit unpriced usage */
+        get: operations["llmAllStats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2196,6 +2213,9 @@ export interface components {
                 chunk_id: string;
                 title: string | null;
             }[];
+            tokens_used: number;
+            tokens_budget: number;
+            truncated: boolean;
             output_id: string | null;
         };
         zOutputListResponse: {
@@ -2350,13 +2370,12 @@ export interface components {
                 by_kind: {
                     proposal: number;
                     triage: number;
-                    output: number;
                 };
             };
             items: {
                 key: string;
                 /** @enum {string} */
-                kind: "proposal" | "triage" | "output";
+                kind: "proposal" | "triage";
                 /** @enum {string} */
                 state: "open" | "deferred" | "discarded" | "decided";
                 title: string;
@@ -2392,7 +2411,7 @@ export interface components {
             recent_activity: {
                 key: string;
                 /** @enum {string} */
-                kind: "proposal" | "triage" | "output";
+                kind: "proposal" | "triage";
                 /** @enum {string} */
                 state: "open" | "deferred" | "discarded" | "decided";
                 title: string;
@@ -2905,7 +2924,6 @@ export interface components {
                     by_kind: {
                         proposal: number;
                         triage: number;
-                        output: number;
                     };
                 };
                 concepts: number;
@@ -3336,6 +3354,133 @@ export interface components {
                 retention_days: number;
             };
         };
+        zLlmAllStatsResponse: {
+            /** @enum {string} */
+            bucket: "hour" | "day" | "month" | "year";
+            /** @constant */
+            tz: "UTC";
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            buckets: {
+                calls: number;
+                tokens: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                cost_usd: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                unpriced: {
+                    calls: number;
+                    tokens: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    models: string[];
+                };
+                cache_hit_ratio: number | null;
+                duration_ms: {
+                    total: number;
+                    avg: number;
+                    max: number;
+                };
+                by_kind: {
+                    [key: string]: number;
+                };
+                by_model: {
+                    [key: string]: number;
+                };
+                /** Format: date-time */
+                ts: string;
+            }[];
+            totals: {
+                calls: number;
+                tokens: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                cost_usd: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                unpriced: {
+                    calls: number;
+                    tokens: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    models: string[];
+                };
+                cache_hit_ratio: number | null;
+                duration_ms: {
+                    total: number;
+                    avg: number;
+                    max: number;
+                };
+                by_kind: {
+                    [key: string]: number;
+                };
+                by_model: {
+                    [key: string]: number;
+                };
+            };
+            per_space: {
+                space: string;
+                name: string;
+                totals: {
+                    calls: number;
+                    tokens: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    cost_usd: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    unpriced: {
+                        calls: number;
+                        tokens: {
+                            input: number;
+                            output: number;
+                            cache_read: number;
+                            total: number;
+                        };
+                        models: string[];
+                    };
+                    cache_hit_ratio: number | null;
+                    duration_ms: {
+                        total: number;
+                        avg: number;
+                        max: number;
+                    };
+                    by_kind: {
+                        [key: string]: number;
+                    };
+                    by_model: {
+                        [key: string]: number;
+                    };
+                };
+            }[];
+        };
         zCoverageStatsResponse: {
             /** @constant */
             schema_version: "wikikit.coverage-stats.v1";
@@ -3468,6 +3613,23 @@ export interface components {
                     cache_read: number;
                     total: number;
                 };
+                cost_usd: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                unpriced: {
+                    calls: number;
+                    tokens: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    models: string[];
+                };
+                cache_hit_ratio: number | null;
                 duration_ms: {
                     total: number;
                     avg: number;
@@ -3490,6 +3652,23 @@ export interface components {
                     cache_read: number;
                     total: number;
                 };
+                cost_usd: {
+                    input: number;
+                    output: number;
+                    cache_read: number;
+                    total: number;
+                };
+                unpriced: {
+                    calls: number;
+                    tokens: {
+                        input: number;
+                        output: number;
+                        cache_read: number;
+                        total: number;
+                    };
+                    models: string[];
+                };
+                cache_hit_ratio: number | null;
                 duration_ms: {
                     total: number;
                     avg: number;
@@ -6334,7 +6513,7 @@ export interface operations {
                     "application/json": components["schemas"]["zErrorEnvelope"];
                 };
             };
-            /** @description already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted */
+            /** @description output_not_promotable for reports, or already_ingested when this exact answer text is already archived; the output stays unpromoted */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6448,7 +6627,7 @@ export interface operations {
         parameters: {
             query?: {
                 state?: "open" | "deferred" | "discarded" | "decided";
-                kind?: "proposal" | "triage" | "output";
+                kind?: "proposal" | "triage";
                 limit?: number;
                 cursor?: string;
             };
@@ -8338,6 +8517,76 @@ export interface operations {
                 };
             };
             /** @description Invalid usage statistics query */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    llmAllStats: {
+        parameters: {
+            query?: {
+                bucket?: "hour" | "day" | "month" | "year";
+                from?: string;
+                to?: string;
+                tz?: "UTC";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Global LLM statistics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zLlmAllStatsResponse"];
+                };
+            };
+            /** @description Invalid or excessive time window */
             400: {
                 headers: {
                     [name: string]: unknown;

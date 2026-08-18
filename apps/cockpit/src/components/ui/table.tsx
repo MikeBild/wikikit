@@ -7,16 +7,8 @@ import { cn } from '@/lib/utils'
 /** WikiKit tables fit their surface; only intrinsically wide documents may scroll horizontally. */
 function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
-    <div data-slot="table-container" className="relative w-full min-w-0 overflow-hidden">
-      <table
-        data-slot="table"
-        className={cn(
-          'w-full table-fixed caption-bottom text-sm',
-          '[&_tr>:last-child]:max-w-40 [&_tr>:last-child]:flex-wrap',
-          className,
-        )}
-        {...props}
-      />
+    <div data-slot="table-container" className="@container/table relative w-full min-w-0 overflow-hidden">
+      <table data-slot="table" className={cn('w-full table-fixed caption-bottom text-sm', className)} {...props} />
     </div>
   )
 }

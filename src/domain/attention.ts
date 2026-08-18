@@ -2,7 +2,7 @@ import type { Db } from '../db/postgres.ts'
 import { isoString, summarizeSource } from './sources.ts'
 import { NotFoundError, ValidationError } from './errors.ts'
 
-export type AttentionKind = 'proposal' | 'triage' | 'output'
+export type AttentionKind = 'proposal' | 'triage'
 export type AttentionState = 'open' | 'deferred' | 'discarded' | 'decided'
 
 export interface AttentionOrigin {
@@ -226,32 +226,6 @@ async function openItems(db: Db, spaceId: string): Promise<AttentionItem[]> {
     })
   }
 
-  const outputs = await db.query<{
-    id: string
-    title: string
-    markdown: string
-    created_at: Date | string
-  }>(
-    `SELECT id, title, markdown, created_at FROM wk_outputs WHERE space_id = $1 AND promoted_at IS NULL ORDER BY created_at`,
-    [spaceId],
-  )
-  for (const output of outputs.rows) {
-    items.push({
-      key: `output:${output.id}`,
-      kind: 'output',
-      state: 'open',
-      title: output.title,
-      summary: summarizeSource(output.markdown, 320),
-      effect: 'May be filed back through ordinary ingest and review.',
-      created_at: isoString(output.created_at),
-      remind_at: null,
-      note: null,
-      origins: [{ kind: 'output', label: output.title, href: `/answers/${output.id}`, provenance: 'generated' }],
-      targets: [{ kind: 'unspecified', label: 'Target chosen during filing', href: null, change: 'choose' }],
-      available_actions: ['open_output', 'promote', 'defer', 'discard'],
-      previous_rejection: null,
-    })
-  }
   return items
 }
 
@@ -344,7 +318,7 @@ export async function getAttention(
   const filtered = args.kind ? selected.filter((item) => item.kind === args.kind) : selected
   const page = filtered.slice(offset, offset + limit)
   const now = Date.now()
-  const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0, output: 0 }
+  const by_kind: Record<AttentionKind, number> = { proposal: 0, triage: 0 }
   for (const item of open) by_kind[item.kind] += 1
   return {
     generated_at: new Date(now).toISOString(),

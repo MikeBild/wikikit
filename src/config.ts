@@ -99,6 +99,49 @@ function bool(name: string, fallback = false): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase())
 }
 
+export interface ModelPrice {
+  /** USD per one million measured tokens. */
+  readonly input: number
+  readonly output: number
+  readonly cache_read: number
+}
+
+export type ModelPrices = Readonly<Record<string, ModelPrice>>
+
+export function parseModelPrices(raw: string): ModelPrices {
+  if (!raw.trim()) return Object.freeze({})
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error('WIKIKIT_MODEL_PRICES must be a JSON object')
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('WIKIKIT_MODEL_PRICES must be a JSON object')
+  }
+  const prices: Record<string, ModelPrice> = {}
+  for (const [model, value] of Object.entries(parsed)) {
+    if (!model.trim() || value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error(`WIKIKIT_MODEL_PRICES.${model || '(empty)'} must be an object`)
+    }
+    const rate = value as Record<string, unknown>
+    const keys = Object.keys(rate)
+    if (keys.length !== 3 || !['input', 'output', 'cache_read'].every((key) => keys.includes(key))) {
+      throw new Error(`WIKIKIT_MODEL_PRICES.${model} must contain exactly input, output and cache_read`)
+    }
+    for (const key of keys) {
+      if (!['input', 'output', 'cache_read'].includes(key)) {
+        throw new Error(`WIKIKIT_MODEL_PRICES.${model}.${key} is not supported`)
+      }
+      if (typeof rate[key] !== 'number' || !Number.isFinite(rate[key]) || Number(rate[key]) < 0) {
+        throw new Error(`WIKIKIT_MODEL_PRICES.${model}.${key} must be a finite non-negative number`)
+      }
+    }
+    prices[model] = { input: Number(rate.input), output: Number(rate.output), cache_read: Number(rate.cache_read) }
+  }
+  return Object.freeze(prices)
+}
+
 export interface Config {
   readonly root: string
   readonly production: boolean
@@ -121,6 +164,10 @@ export interface Config {
   readonly modelSynthesis: string
   readonly modelClassify: string
   readonly modelAnswer: string
+  /** Configured USD rates per million measured tokens; an absent model stays explicitly unpriced. */
+  readonly modelPrices?: ModelPrices
+  /** Global evidence budget for one grounded answer. */
+  readonly answerTokenBudget?: number
   readonly maxBodyBytes: number
   readonly maxIngestTokens: number
   readonly ingestConcurrency: number
@@ -864,6 +911,8 @@ export function loadConfig(): Config {
     modelSynthesis,
     modelClassify,
     modelAnswer,
+    modelPrices: parseModelPrices(str('WIKIKIT_MODEL_PRICES')),
+    answerTokenBudget: integer('WIKIKIT_ANSWER_TOKEN_BUDGET', 36_000, { min: 1000, max: 200_000 }),
     maxBodyBytes: integer('WIKIKIT_MAX_BODY_BYTES', 10 * 1024 * 1024, { min: 1024, max: 250 * 1024 * 1024 }),
     maxIngestTokens: integer('WIKIKIT_MAX_INGEST_TOKENS', 100_000, { min: 1000, max: 1_000_000 }),
     ingestConcurrency: integer('WIKIKIT_INGEST_CONCURRENCY', 2, { min: 1, max: 16 }),

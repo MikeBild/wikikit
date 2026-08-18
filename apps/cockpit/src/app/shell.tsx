@@ -1,24 +1,13 @@
 import { Link, Outlet, useMatches } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import {
-  Check,
-  ChevronDown,
-  ChevronsUpDown,
-  Languages,
-  LogOut,
-  Monitor,
-  Moon,
-  Palette,
-  Sun,
-  UserRound,
-} from 'lucide-react'
+import { ChevronDown, ChevronsUpDown, Languages, LogOut, Monitor, Moon, Palette, Sun, UserRound } from 'lucide-react'
 import { Fragment, useState, type ComponentType, type ReactNode } from 'react'
 import { entryFor, GROUPS, NAV, type NavEntry, type NavGroup } from '@/app/nav'
 import { endSession } from '@/api/client'
 import { keys, wk } from '@/api/wk'
 import { scopesLabel } from '@/lib/scopes'
 import { useCan, useSession } from '@/lib/session'
-import { useSpaceContext, visibleSpaceOptions } from '@/lib/space'
+import { useSpaceContext } from '@/lib/space'
 import { toastFailure } from '@/lib/toast'
 import { useTheme, type Theme } from '@/lib/theme'
 import { useI18n, type LocalePreference } from '@/lib/i18n-context'
@@ -36,7 +25,6 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -111,7 +99,6 @@ export function Shell() {
             <div className="flex h-8 items-center px-2 text-sm font-semibold tracking-[0.16em] group-data-[collapsible=icon]:hidden">
               WIKIKIT
             </div>
-            <SpaceSwitcher />
           </SidebarHeader>
 
           <SidebarContent>
@@ -163,90 +150,6 @@ export function Shell() {
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
-  )
-}
-
-/**
- * Which wiki you are reading, at the top of the sidebar.
- *
- * A dropdown rather than a `<select>`: it has to survive the sidebar
- * collapsing to a 3rem rail, where a native select has no room for its label
- * and no tooltip to explain itself.
- *
- * Hidden entirely when the session is bound to one wiki. A switcher with one
- * option that cannot change is a control that teaches the reader nothing and
- * costs them a click to discover that.
- */
-function SpaceSwitcher() {
-  const { space, available, options, setSpace, locked } = useSpaceContext()
-  const { t } = useI18n()
-  const [showTests, setShowTests] = useState(false)
-  if (locked || available.length < 2) {
-    return space ? (
-      <div
-        data-testid="space-current"
-        className="text-muted-foreground truncate px-2 pb-1 text-xs group-data-[collapsible=icon]:hidden"
-      >
-        {space}
-      </div>
-    ) : null
-  }
-  const visibleOptions = visibleSpaceOptions(options, space, showTests)
-  const production = visibleOptions.filter((option) => option.environment === 'production')
-  const tests = options.filter((option) => option.environment === 'test')
-  const visibleTests = visibleOptions.filter((option) => option.environment === 'test')
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton data-testid="space-switcher" tooltip={space ?? t('space.fallback')}>
-              <span className="truncate">{space ?? t('space.choose')}</span>
-              <ChevronsUpDown data-icon="inline-end" className="ml-auto" />
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="right" align="start" className="min-w-48">
-            <DropdownMenuGroup>
-              {production.length ? <DropdownMenuLabel>Production</DropdownMenuLabel> : null}
-              {production.map((option) => (
-                <DropdownMenuItem
-                  key={option.slug}
-                  data-testid={`space-${option.slug}`}
-                  onSelect={() => setSpace(option.slug)}
-                >
-                  {option.slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
-                  <span className="truncate">{option.slug}</span>
-                </DropdownMenuItem>
-              ))}
-              {tests.length ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={showTests}
-                    data-testid="space-show-tests"
-                    onCheckedChange={(checked) => setShowTests(Boolean(checked))}
-                    onSelect={(event) => event.preventDefault()}
-                  >
-                    Show test wikis
-                  </DropdownMenuCheckboxItem>
-                  {visibleTests.length ? <DropdownMenuLabel>Test</DropdownMenuLabel> : null}
-                  {visibleTests.map((option) => (
-                    <DropdownMenuItem
-                      key={option.slug}
-                      data-testid={`space-${option.slug}`}
-                      onSelect={() => setSpace(option.slug)}
-                    >
-                      {option.slug === space ? <Check data-icon="inline-start" /> : <span className="w-4" />}
-                      <span className="truncate">{option.slug}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              ) : null}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
   )
 }
 
@@ -470,6 +373,7 @@ const NAV_KEYS: Record<string, TranslationKey> = {
   '/api-keys': 'nav.apiKeys',
   '/identities': 'nav.identities',
   '/webhooks': 'nav.webhooks',
+  '/model-usage': 'nav.modelUsage',
   '/system': 'nav.system',
 }
 
@@ -496,6 +400,7 @@ const PAGE_KEYS: Record<string, { title: TranslationKey; description: Translatio
   'API keys': { title: 'nav.apiKeys', description: 'page.apiKeys.description' },
   People: { title: 'nav.identities', description: 'page.identities.description' },
   Webhooks: { title: 'nav.webhooks', description: 'page.webhooks.description' },
+  'Model usage': { title: 'nav.modelUsage', description: 'page.modelUsage.description' },
   System: { title: 'nav.system', description: 'page.system.description' },
 }
 
@@ -522,6 +427,14 @@ export function Page({
   const localizedTitle = page ? t(page.title) : text(title)
   const localizedDescription = page ? t(page.description) : description ? text(description) : undefined
   const crumbs = useCrumbs(localizedTitle)
+  const pathname = useMatches().at(-1)?.pathname ?? '/'
+  const entry = entryFor(pathname)
+  const { space, options } = useSpaceContext()
+  const currentWiki = options.find((option) => option.slug === space)
+  const showWikiContext =
+    Boolean(currentWiki) &&
+    entry !== undefined &&
+    (entry.group === 'wiki' || entry.group === 'archive' || entry.to === '/decisions' || entry.to === '/model-usage')
   return (
     <div data-testid="page" data-page={title} className="mx-auto w-full min-w-0 max-w-7xl p-4 sm:p-6">
       {/*
@@ -532,6 +445,14 @@ export function Page({
       */}
       <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex min-w-0 flex-col gap-1">
+          {showWikiContext && currentWiki ? (
+            <p className="text-muted-foreground text-xs" data-testid="wiki-context">
+              {t('page.wikiContext', { name: currentWiki.name })}{' '}
+              <Link to="/spaces" className="underline underline-offset-4" data-testid="wiki-context-change">
+                {t('page.wikiChange')}
+              </Link>
+            </p>
+          ) : null}
           {/*
             A crumb is a link exactly when it names a route. The group does not
             — there is no page for "Wiki" — so it renders as text; the section a

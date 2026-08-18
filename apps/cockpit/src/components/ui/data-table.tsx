@@ -83,7 +83,7 @@ export interface DataColumn<Row> {
   /** Identifies the row or carries its actions. Hiding it breaks the list. */
   required?: boolean
   hiddenByDefault?: boolean
-  /** Responsive importance. Secondary columns collapse on phones; optional columns also collapse on tablets. */
+  /** Responsive importance. Secondary columns collapse on narrow surfaces; optional columns collapse one step earlier. */
   priority?: 'essential' | 'secondary' | 'optional'
   /** @deprecated Use `priority: 'secondary'`. */
   mobileHidden?: boolean
@@ -520,8 +520,8 @@ function ColumnMenu<Row>({
 
 function columnClassName<Row>(column: DataColumn<Row>): string {
   return cn(
-    (column.mobileHidden || column.priority === 'secondary') && 'max-md:hidden',
-    column.priority === 'optional' && 'max-lg:hidden',
+    (column.mobileHidden || column.priority === 'secondary') && '@max-xl/table:hidden',
+    column.priority === 'optional' && '@max-2xl/table:hidden',
     column.width === 'compact' && 'w-24',
     column.width === 'normal' && 'w-40',
     column.width === 'wide' && 'w-64',

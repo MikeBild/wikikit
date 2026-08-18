@@ -253,7 +253,7 @@ describe('renderBriefing', () => {
     // surface reported the installation as healthy. "436 waiting" reads the same
     // on the day it appears as it does a month later; "21 days old" does not.
     const text = renderBriefing(facts)
-    expect(text).toContain('436 change(s) pending review.')
+    expect(text).toContain('436 knowledge change(s) await review.')
     expect(text).toContain('21 day(s) old')
     expect(text).toContain('Ingest: quarterly report')
   })
@@ -271,7 +271,7 @@ describe('renderBriefing', () => {
       ...facts,
       pending: { count: 0, oldest_days: null, oldest_since: null, oldest_title: null },
     })
-    expect(quiet).toContain('The review queue is empty.')
+    expect(quiet).toContain('No knowledge change is waiting for your decision.')
     expect(quiet).not.toContain('day(s) old')
   })
 
@@ -299,6 +299,15 @@ describe('renderBriefing', () => {
     expect(many).toContain('- Change 20')
     expect(many).not.toContain('- Change 21\n')
     expect(many).toContain('…and 10 more')
+  })
+
+  test('renders a German report with an explicit path to the decisions it summarizes', () => {
+    const text = renderBriefing(facts, { language: 'de', space: 'wissen' })
+    expect(text).toContain('# Kurzbericht')
+    expect(text).toContain('## Was du entscheiden musst')
+    expect(text).toContain('Wissensänderung(en) warten auf Prüfung')
+    expect(text).toContain('[Entscheidungen öffnen](/cockpit/decisions?space=wissen)')
+    expect(text).not.toContain('Waiting for your decision')
   })
 })
 

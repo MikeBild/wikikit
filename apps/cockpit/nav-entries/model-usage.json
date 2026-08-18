@@ -1,0 +1,8 @@
+{
+  "to": "/model-usage",
+  "label": "Model usage",
+  "icon": "ChartNoAxesCombined",
+  "scope": "knowledge:read",
+  "group": "installation",
+  "api": ["/v1/spaces/{space}/stats/llm", "/v1/stats/llm"]
+}

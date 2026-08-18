@@ -188,6 +188,11 @@ const systemRoute = createRoute({
   path: '/system',
   component: lazyRouteComponent(() => import('@/pages/system'), 'SystemPage'),
 })
+const modelUsageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/model-usage',
+  component: lazyRouteComponent(() => import('@/pages/model-usage'), 'ModelUsagePage'),
+})
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
@@ -213,6 +218,7 @@ const routeTree = rootRoute.addChildren([
   apiKeysRoute,
   identitiesRoute,
   webhooksRoute,
+  modelUsageRoute,
   systemRoute,
 ])
 

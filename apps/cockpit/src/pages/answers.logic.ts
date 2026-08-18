@@ -1,4 +1,5 @@
 import { toneFor, type Tone } from '@/pages/home.logic'
+import type { TranslationKey } from '@/lib/i18n'
 
 /**
  * What an Output IS to a reader, with no DOM under it.
@@ -70,7 +71,7 @@ export interface OutputRow {
 }
 
 export interface Standing {
-  label: string
+  label: TranslationKey
   tone: Tone
 }
 
@@ -86,9 +87,10 @@ export interface Standing {
  * present, visibly not a verdict.
  */
 export function filingStanding(row: OutputRow): Standing {
+  if (row.kind !== 'answer') return { label: 'outputs.status.report', tone: toneFor('unknown') }
   return row.promoted_ingest_id
-    ? { label: 'In the wiki', tone: toneFor('succeeded') }
-    : { label: 'Not filed', tone: toneFor('unknown') }
+    ? { label: 'outputs.status.proposed', tone: toneFor('succeeded') }
+    : { label: 'outputs.status.saved', tone: toneFor('unknown') }
 }
 
 /**
@@ -122,5 +124,5 @@ export function outputLabel(row: OutputRow, fallback: string): string {
 
 /** Whether the promote action has anything left to do on this row. */
 export function promotable(row: OutputRow): boolean {
-  return !row.promoted_ingest_id
+  return row.kind === 'answer' && !row.promoted_ingest_id
 }

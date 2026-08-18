@@ -1,12 +1,13 @@
-// wk_outputs — what the knowledge base produced, and the one door back in
+// wk_outputs — what the knowledge base produced; answers have one reviewed door back in
 // (CONTRACTS §1, §4).
 //
 // An answer, a scheduled briefing or a health report is a derived artifact: it
 // is regenerable, it is not evidence, and it is NOT knowledge. This module owns
-// its whole lifecycle — record it, list it, read it, promote it, expire it —
+// its whole lifecycle — record it, list it, read it, propose answer knowledge, expire it —
 // and protects two invariants that nothing else can:
 //
-//   1. PROMOTION IS ORDINARY INGEST, NEVER A SHORTCUT. promoteOutput does not
+//   1. ANSWER PROMOTION IS ORDINARY INGEST, NEVER A SHORTCUT. Reports are
+//      operational history and are rejected before ingest. promoteOutput does not
 //      write concepts or claims. It renders the output as markdown and hands it
 //      to the same pipeline a human's document goes through, so the promoted
 //      text inherits content-hash dedup, the verbatim-quote grounding guard,
@@ -30,7 +31,7 @@
 // lists rows.
 import { z } from 'zod'
 import type { Db } from '../db/postgres.ts'
-import { NotFoundError } from './errors.ts'
+import { ConflictError, NotFoundError } from './errors.ts'
 import { clampLimit, decodeCursor, encodeCursor, isoString, summarizeSource } from './sources.ts'
 
 /**
@@ -315,6 +316,18 @@ export interface PromoteDeps {
  */
 export async function promoteOutput(db: Db, deps: PromoteDeps, id: string): Promise<{ ingest_id: string }> {
   const output = await getOutput(db, id)
+  if (output.kind !== 'answer') {
+    throw new ConflictError(
+      'output_not_promotable',
+      `${output.kind} outputs are operational reports and cannot be proposed as wiki knowledge`,
+      {
+        nextBestActions: [
+          'read the report as history',
+          'open the decisions queue to act on the proposals or triage items named by the report',
+        ],
+      },
+    )
+  }
   if (output.promoted_ingest_id) return { ingest_id: output.promoted_ingest_id }
 
   const enqueued = await deps.ingest.enqueue(db, output.space_id, {

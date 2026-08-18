@@ -24,6 +24,7 @@ export const SPACE_STORAGE_KEY = 'wk-cockpit-space'
 
 export interface SpaceOption {
   slug: string
+  name: string
   environment: 'production' | 'test'
 }
 
@@ -37,25 +38,11 @@ export function sortSpaceOptions(options: readonly SpaceOption[]): SpaceOption[]
   )
 }
 
-export function visibleSpaceOptions(
-  options: readonly SpaceOption[],
-  current: string | null,
-  showTests: boolean,
-): SpaceOption[] {
-  return options.filter((option) => option.environment === 'production' || showTests || option.slug === current)
-}
-
 export interface SpaceValue {
   /** The chosen wiki, or null before the space list has resolved. */
   space: string | null
-  /** Every wiki this credential can see, in the order the server listed them. */
-  available: readonly string[]
-  /** Display metadata used to keep production and test wikis visibly apart. */
+  /** Display metadata for the current wiki and links back to the overview. */
   options: readonly SpaceOption[]
-  /** Switch wikis: rewrites the URL, which is what actually changes anything. */
-  setSpace(next: string): void
-  /** True when the credential is bound to one space and cannot leave it. */
-  locked: boolean
 }
 
 export const SpaceContext = createContext<SpaceValue | null>(null)

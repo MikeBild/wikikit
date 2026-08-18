@@ -7,7 +7,7 @@ export function Fact({ testId, label, value, hint }: { testId: string; label: st
       <div className="flex min-w-0 flex-col gap-0.5" data-testid={testId}>
         <dt className="text-muted-foreground text-xs">{label}</dt>
         <dd className="text-base font-medium tabular-nums">{value}</dd>
-        {hint ? <dd className="text-muted-foreground truncate text-xs">{hint}</dd> : null}
+        {hint ? <dd className="text-muted-foreground break-words text-xs leading-snug">{hint}</dd> : null}
       </div>
     </I18nText>
   )

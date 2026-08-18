@@ -1,5 +1,5 @@
-import { useCallback, useMemo, type ReactNode } from 'react'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useEffect, useMemo, type ReactNode } from 'react'
+import { useRouterState } from '@tanstack/react-router'
 import { readStoredSpace, resolveSpace, SpaceContext, storeSpace, type SpaceOption, type SpaceValue } from '@/lib/space'
 
 /**
@@ -20,27 +20,19 @@ export function SpaceProvider({
   children: ReactNode
 }) {
   const available = useMemo(() => options.map((option) => option.slug), [options])
-  const navigate = useNavigate()
   const search = useRouterState({ select: (state) => state.location.search as { space?: string } })
   const fromUrl = typeof search.space === 'string' ? search.space : null
 
   const space = lockedTo ?? resolveSpace(fromUrl, readStoredSpace(), available)
 
-  const setSpace = useCallback(
-    (next: string) => {
-      storeSpace(next)
-      // Replace, not push: switching wiki is changing what you are looking at,
-      // not a step in a journey. Pushing would make Back walk through every
-      // wiki somebody clicked past.
-      void navigate({ to: '/', search: { space: next }, replace: true })
-    },
-    [navigate],
-  )
+  // The address remains the source of truth. Remembering its resolved value is
+  // only the fallback for the next visit without `?space=`; it never changes
+  // the current URL and therefore cannot silently switch an open page.
+  useEffect(() => {
+    if (space) storeSpace(space)
+  }, [space])
 
-  const value = useMemo<SpaceValue>(
-    () => ({ space, available, options, setSpace, locked: lockedTo !== null }),
-    [space, available, options, setSpace, lockedTo],
-  )
+  const value = useMemo<SpaceValue>(() => ({ space, options }), [space, options])
 
   return <SpaceContext.Provider value={value}>{children}</SpaceContext.Provider>
 }

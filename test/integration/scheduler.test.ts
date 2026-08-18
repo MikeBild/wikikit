@@ -343,11 +343,11 @@ describe('the schedule worker (integration)', () => {
     // weeks old, and every surface reporting the installation as healthy.
     const [briefing] = await outputs('briefing')
     expect(briefing!.title).toMatch(/^Briefing \d{4}-\d{2}-\d{2}$/)
-    expect(briefing!.markdown).toContain('1 change(s) pending review.')
+    expect(briefing!.markdown).toContain('1 knowledge change(s) await review.')
     expect(briefing!.markdown).toContain('21 day(s) old')
     // LLM-free by construction: a daily job that costs money is a daily job
     // somebody switches off, and the moment it is off the wiki goes quiet again.
-    expect(briefing!.markdown).toContain('## Waiting for your decision')
+    expect(briefing!.markdown).toContain('## What you need to decide')
   })
 
   // ----------------------------------------------------------------- health

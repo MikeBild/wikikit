@@ -36,7 +36,6 @@ const STATE_KEYS: Record<AttentionState, TranslationKey> = {
 const KIND_KEYS: Record<AttentionKind, TranslationKey> = {
   proposal: 'attention.kind.proposal',
   triage: 'attention.kind.triage',
-  output: 'attention.kind.output',
 }
 
 export function DecisionsPage() {
@@ -60,7 +59,7 @@ export function DecisionsPage() {
 
   return (
     <Page title="Decisions" description={t('page.decisions.description')}>
-      <div className="flex w-full max-w-[780px] flex-col gap-6" data-testid="attention-list">
+      <div className="flex w-full min-w-0 flex-col gap-6" data-testid="attention-list">
         {data?.counts.overdue ? (
           <Alert tone="danger" title={t('decisions.overdueTitle')}>
             {t('decisions.overdueDescription', { count: data.counts.overdue })}
@@ -445,10 +444,7 @@ function TriageForm({
 function TaskLink({ item, testId }: { item: AttentionItem; testId: string }) {
   const { t } = useI18n()
   if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">{t('decisions.sortAbove')}</span>
-  const href =
-    item.kind === 'proposal'
-      ? `/decisions/proposals/${item.key.slice('proposal:'.length)}`
-      : item.origins.find((origin) => origin.href)?.href
+  const href = `/decisions/proposals/${item.key.slice('proposal:'.length)}`
   if (!href) return null
   return (
     <Button asChild size="sm">

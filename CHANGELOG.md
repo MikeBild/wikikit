@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.46.0 - 2026-08-18
+
+### Changed
+
+- Scheduled briefings and check reports are now report history, never human
+  decisions and never promotable knowledge. Only proposals and unresolved inbox
+  triage appear in Decisions; only grounded answers can create a reviewed
+  knowledge proposal.
+- The Cockpit no longer has a second wiki selector in the sidebar. The URL is
+  authoritative, the Wikis page changes it, and scoped pages show the selected
+  wiki as passive context.
+- Newly generated briefings and check reports follow the wiki language and
+  explain what, if anything, a person needs to decide.
+
+### Added
+
+- Configured per-model input, output and cache-read prices, measured USD cost,
+  cache-hit ratios and explicit unpriced-usage totals per wiki and across the
+  installation.
+- A localized Model usage view with token and cost time series, plus a global
+  administrator view. Unknown prices remain visible and are never presented as
+  zero cost.
+- A real evidence-token budget for grounded answers. Responses now report the
+  budget, used estimate and whether evidence was truncated.
+- Playwright release screenshots and layout checks at 390, 768, 1280 and 1920
+  pixels across every Cockpit navigation route.
+
+### Fixed
+
+- Wiki tables, decision lists and wide Cockpit views now share responsive
+  container rules, flexible identity columns and one compact row-action menu.
+  Fact explanations wrap instead of silently clipping on phones.
+- German and English copy now consistently distinguishes answers, reports,
+  knowledge proposals, selected wikis and model-usage measurements.
+
 ## 0.45.0 - 2026-08-18
 
 ### Changed

@@ -75,12 +75,11 @@ check.
 - **Do** — sign back in.
 - **Expect** — the theme is still dark. Signing out does not reset it.
 
-## 3. The wiki switcher
+## 3. The current wiki
 
-_Skip if this credential can see only one wiki._
-
-- **Do** — open `$t('space-switcher')` and choose another wiki.
-- **Expect** — the URL carries `?space=<slug>` and the page reloads its content.
+- **Do** — open **Wikis**, then open a different wiki by its name.
+- **Expect** — the URL carries `?space=<slug>`, the page reloads its content and
+  the passive context above the title names that wiki.
 - **Do** — copy that URL into another tab.
 - **Expect** — the same wiki opens. The choice is an address, not a preference.
 - **Fail if** — the second tab opens a different wiki. Stored state is
@@ -146,7 +145,7 @@ This is the product. If nothing else is checked, check this.
 
 - **Do** — **Sources** → **Add documents**, and ingest something small.
 - **Expect** — a job appears and progresses; when it finishes, the page says
-  the synthesised pages are waiting in Changes, and links there.
+  the synthesised pages are waiting in Decisions, and links there.
 - **Fail if** — the job spins forever after reaching a terminal state, or a
   `quota_blocked` job is reported as finished. It is parked, not done.
 - **Do** — follow the link.

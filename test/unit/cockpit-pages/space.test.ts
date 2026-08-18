@@ -5,12 +5,7 @@
 // the one thing a link must get right: two people following the same URL must
 // land in the same wiki, whatever either of their browsers remembers.
 import { describe, expect, test } from 'bun:test'
-import {
-  resolveSpace,
-  sortSpaceOptions,
-  SPACE_STORAGE_KEY,
-  visibleSpaceOptions,
-} from '../../../apps/cockpit/src/lib/space.ts'
+import { resolveSpace, sortSpaceOptions, SPACE_STORAGE_KEY } from '../../../apps/cockpit/src/lib/space.ts'
 
 const AVAILABLE = ['handbook', 'platform', 'research']
 
@@ -57,12 +52,12 @@ describe('the storage key', () => {
   })
 })
 
-describe('production and test wikis in the switcher', () => {
+describe('production and test wikis in the resolved list', () => {
   const OPTIONS = [
-    { slug: 'z-test', environment: 'test' as const },
-    { slug: 'z-production', environment: 'production' as const },
-    { slug: 'a-production', environment: 'production' as const },
-    { slug: 'a-test', environment: 'test' as const },
+    { slug: 'z-test', name: 'Z test', environment: 'test' as const },
+    { slug: 'z-production', name: 'Z production', environment: 'production' as const },
+    { slug: 'a-production', name: 'A production', environment: 'production' as const },
+    { slug: 'a-test', name: 'A test', environment: 'test' as const },
   ]
 
   test('sorts production first and alphabetizes inside both environments', () => {
@@ -72,18 +67,5 @@ describe('production and test wikis in the switcher', () => {
       'a-test',
       'z-test',
     ])
-  })
-
-  test('hides test probes until requested but never hides the current wiki', () => {
-    expect(visibleSpaceOptions(OPTIONS, 'a-production', false).map((option) => option.slug)).toEqual([
-      'z-production',
-      'a-production',
-    ])
-    expect(visibleSpaceOptions(OPTIONS, 'z-test', false).map((option) => option.slug)).toEqual([
-      'z-test',
-      'z-production',
-      'a-production',
-    ])
-    expect(visibleSpaceOptions(OPTIONS, 'a-production', true)).toEqual(OPTIONS)
   })
 })

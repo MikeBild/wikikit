@@ -17,7 +17,7 @@ function item(
     attention: {
       open: 0,
       oldest_days: null,
-      by_kind: { proposal: 0, triage: 0, output: 0 },
+      by_kind: { proposal: 0, triage: 0 },
       ...overrides,
     },
     concepts: 0,

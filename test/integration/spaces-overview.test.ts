@@ -91,7 +91,7 @@ interface OverviewWire {
     attention: {
       open: number
       oldest_days: number | null
-      by_kind: { proposal: number; triage: number; output: number }
+      by_kind: { proposal: number; triage: number }
     }
     concepts: number
   }[]
@@ -212,7 +212,7 @@ describe('cross-wiki overview (integration)', () => {
     expect(alpha.attention).toEqual({
       open: 2,
       oldest_days: 21,
-      by_kind: { proposal: 1, triage: 1, output: 0 },
+      by_kind: { proposal: 1, triage: 1 },
     })
     expect(alpha.concepts).toBe(1)
 
@@ -222,7 +222,7 @@ describe('cross-wiki overview (integration)', () => {
     expect(beta.attention).toEqual({
       open: 0,
       oldest_days: null,
-      by_kind: { proposal: 0, triage: 0, output: 0 },
+      by_kind: { proposal: 0, triage: 0 },
     })
     expect(beta.concepts).toBe(0)
 

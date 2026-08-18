@@ -45,6 +45,9 @@ question ──POST /v1/spaces/{space}/query──▶ grounded answer, kept as a
   ──▶ a human judges it worth keeping
   ──POST /v1/outputs/{id}/promote──▶ its markdown archived as a source marked
       derived_from_output_id ──▶ THE SAME pipeline above, ending in a proposal
+
+scheduled briefing / health check ──▶ report history only; never a decision
+  and never promotable
 ```
 
 Key invariants:
@@ -58,8 +61,9 @@ Key invariants:
 - **Every LLM call is audited.** Model, prompt version, input hash and token
   usage land in an agent-run ledger and in the `agent_meta` of every generated
   row — revision history answers "which model wrote this, from which source?".
-- **An answer never becomes evidence on its own.** Outputs are kept so they can
-  be re-read, handed on and promoted, but nothing promotes them automatically.
+- **An answer never becomes evidence on its own.** Answers are kept so they can
+  be re-read, handed on and explicitly proposed as knowledge. Briefings and
+  health checks remain reports and cannot be promoted.
   Filing good answers back without a human would leave the wiki quoting itself:
   every claim would still carry a verbatim quote from an archived document, and
   the document would be the wiki. Promotion is an explicit act, it runs the
@@ -125,10 +129,10 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/spaces/{space}/search`                   | knowledge:read    | LLM-free full-text search; ranked hits with `<mark>` headlines, concept hits carrying the same `evidence` summary as the concept list. `?mode=approved_then_sources` appends the archived-source tier, and `?evidence_from=`/`?evidence_to=` (ISO instants, half-open) plus `?evidence_source_kind=meeting\|article\|note` narrow THAT tier only — approved hits are answered identically with the filters set. Hits carry `matched_via` (`lexical`/`vector`/`both`) when the hybrid ranker answered, and omit it otherwise |
 | POST   | `/v1/spaces/{space}/query`                    | knowledge:read    | Grounded Q&A with inline citations (LLM; 503 without a key). Takes the same `evidence_*` filters as search, so an answer never leans on archived sources the list beside it excluded. The answer is kept as an output; the response additively carries `output_id` (null only if the row could not be written) |
 | GET    | `/v1/spaces/{space}/outputs`                  | knowledge:read    | What this wiki produced, newest-first: answers, scheduled briefings, health reports (`?kind=answer\|briefing\|health`, `?limit=`, `?cursor=`); rows carry the full markdown |
-| GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one output; `Accept: text/markdown` returns the document promotion would archive (title, question, answer, cited pages) |
-| POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | File an output back into the wiki: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Idempotent — a second promote returns the first job |
+| GET    | `/v1/outputs/{id}`                            | knowledge:read    | Read one answer or scheduled report; `Accept: text/markdown` returns the complete stored document |
+| POST   | `/v1/outputs/{id}/promote`                    | knowledge:propose | Propose an answer as knowledge: its markdown is archived as a source marked derived from the wiki itself and runs the ORDINARY pipeline → `202 {ingest_id}`. Briefing/health reports return 409 `output_not_promotable`. Idempotent — a second answer promotion returns the first job |
 | GET    | `/v1/spaces/{space}/health`                   | knowledge:read    | Composed maintenance report in one LLM-free read: lint findings + severity census (`?tier=quick\|deep`, default deep), coverage, the review queue with the age of its oldest change, the live ingest queue incl. parked thoughts. No verdict — the counts are the answer |
-| GET    | `/v1/spaces/{space}/attention`                | knowledge:read    | Human attention queue across proposals, captures, outputs and care findings |
+| GET    | `/v1/spaces/{space}/attention`                | knowledge:read    | Human attention queue across proposals and inbox triage. Reports and read-only check findings are excluded |
 | PUT    | `/v1/spaces/{space}/attention/{key}`          | knowledge:propose | Defer, discard or restore one queue item without changing its underlying knowledge object |
 | GET    | `/v1/spaces/{space}/schedules`                | admin             | The recurring briefing/health schedules of this space (at most one per kind) |
 | PUT    | `/v1/spaces/{space}/schedules`                | admin             | Replace the COMPLETE schedule set (daily at HH:MM, or weekly on a weekday, in an IANA timezone). A kind left out is removed — hence no DELETE route. Idempotent |
@@ -155,13 +159,14 @@ snapshot: `docs/openapi.json`). The `{space}` path segment is the space slug.
 | GET    | `/v1/installation/knowledge-config`           | admin             | This installation's effective knowledge-shaping configuration, each value attributed as built-in or configured — never secrets |
 | GET    | `/v1/stats/overview`                          | knowledge:read    | Cross-wiki overview: per visible space the actionable decision count, its oldest age and visible page count — plus server-side totals. Check findings are excluded. LLM-free, no verdict |
 | GET    | `/v1/stats/mcp`                               | admin             | Global privacy-safe MCP session, protocol and tool usage |
+| GET    | `/v1/stats/llm`                               | admin             | Global measured LLM tokens, configured cost, cache use and explicit unpriced usage, with per-space totals |
 | GET    | `/v1/spaces/{space}/stats/http`              | knowledge:read    | HTTP calls, outcomes, latency/size and exact-window adoption |
 | GET    | `/v1/spaces/{space}/stats/usage`             | knowledge:read    | Cross-transport search/read/query/ingest/proposal behavior |
 | GET    | `/v1/spaces/{space}/stats/coverage`          | knowledge:read    | Coverage insights: disputed claims, review latency, freshness, read/link hubs, gap topics |
 | GET    | `/v1/spaces/{space}/stats/reviews`           | knowledge:read    | Cross-transport proposal inspection and review behavior |
 | GET    | `/v1/spaces/{space}/stats/ingests`           | knowledge:read    | Time-bucketed ingest lifecycle and duration aggregates |
 | GET    | `/v1/spaces/{space}/stats/knowledge`         | knowledge:read    | Time-bucketed knowledge growth and review activity |
-| GET    | `/v1/spaces/{space}/stats/llm`               | knowledge:read    | Time-bucketed LLM calls, tokens and duration |
+| GET    | `/v1/spaces/{space}/stats/llm`               | knowledge:read    | Time-bucketed measured LLM calls, tokens, configured USD cost, cache ratio and explicit unpriced usage |
 | GET    | `/v1/spaces/{space}/stats/webhooks`          | knowledge:read    | Time-bucketed webhook events and outcomes |
 | GET    | `/health`                                     | public            | Liveness — `200 "ok"` while the process is up |
 | GET    | `/ready`                                      | public            | Readiness — `{status, version}`; 503 while draining |
@@ -704,9 +709,9 @@ API. Resources are not scope-gated; the same files are public over HTTP.
 | `wikikit_history` | knowledge:read | Revisions incl. agent_meta (model, prompt version) | true | false | true | false |
 | `wikikit_lint` | knowledge:read | Knowledge health findings; `tier:'quick'` runs only the pulse rules, default `'deep'` everything | true | false | true | false |
 | `wikikit_health` | knowledge:read | One LLM-free read of how a wiki is doing: every lint finding with a severity census (`tier` as in `wikikit_lint`), the coverage block, the review queue WITH the age of its oldest change, and the live ingest queue incl. parked thoughts. Reports numbers, never a verdict | true | false | true | false |
-| `wikikit_overview` | knowledge:read | One LLM-free read across every visible wiki: proposals, inbox triage and generated outputs still requiring a person, the oldest age and visible page count, plus server-side totals. Check findings are excluded. Overview first, then `wikikit_health` on the space that needs attention | true | false | true | false |
+| `wikikit_overview` | knowledge:read | One LLM-free read across every visible wiki: proposals and inbox triage requiring a person, the oldest age and visible page count, plus server-side totals. Reports and check findings are excluded. Overview first, then `wikikit_health` on the space that needs attention | true | false | true | false |
 | `wikikit_outputs` | knowledge:read | What the wiki produced: past grounded answers plus scheduled briefings and health reports; omit `output_id` to list (`kind` narrows), pass it to read one whole. NOT knowledge — derived artifacts | true | false | true | false |
-| `wikikit_promote_output` | knowledge:propose | File an output back in as a source marked derived from the wiki itself; runs the ORDINARY pipeline (dedup, grounding guard, contradiction detection) and ends in one proposal a HUMAN approves → `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | false |
+| `wikikit_promote_output` | knowledge:propose | Propose an answer as knowledge by filing it as a source marked derived from the wiki itself; briefing/health reports are rejected. Runs the ORDINARY pipeline (dedup, grounding guard, contradiction detection) and ends in one proposal a HUMAN approves → `{status:"running", ingest_id, poll_with:"wikikit_ingest_status"}` | false | true | true | false |
 | `wikikit_charter` | knowledge:read | Read the space charter — virtual document (authored steering markdown + derived KB overview); `rev` for a version | true | false | true | false |
 | `wikikit_charter_history` | knowledge:read | List charter revisions (newest first) — the document version history | true | false | true | false |
 | `wikikit_charter_set` | admin | Write the charter: authored text versions directly, an edited overview routes through the review gate → `{rev, ingest_ids}` | false | true | false | false |
@@ -952,6 +957,8 @@ Invalid values fail the boot, not the request.
 | `WIKIKIT_MODEL_SYNTHESIS` | synthesis model; default is an Anthropic id — set per provider, a foreign id fails the boot | `claude-sonnet-5` |
 | `WIKIKIT_MODEL_CLASSIFY` | cheap/filter model: classification + session distillation; set per provider, a foreign id fails the boot | `claude-haiku-4-5` |
 | `WIKIKIT_MODEL_ANSWER` | grounded-answer model; default is an Anthropic id — set per provider, a foreign id fails the boot | `claude-sonnet-5` |
+| `WIKIKIT_MODEL_PRICES` | strict JSON model → `{input,output,cache_read}` USD per million measured tokens; no guessed prices | `{}` |
+| `WIKIKIT_ANSWER_TOKEN_BUDGET` | estimated evidence-token ceiling for one grounded answer (1000–200000); truncation is reported | `36000` |
 | `WIKIKIT_EMBEDDING_PROVIDER` | optional hybrid-retrieval embedding provider: `none`/`openai`/`google`; also needs pgvector installed on the database host as an OS package | `none` (lexical-only) |
 | `WIKIKIT_MODEL_EMBEDDING` | embedding model (must produce 1536-dim vectors); checked against `WIKIKIT_EMBEDDING_PROVIDER` at boot unless that is `none` | `text-embedding-3-small` |
 | `WIKIKIT_MAX_BODY_BYTES` | max request body → 413 | `10485760` (10 MiB) |

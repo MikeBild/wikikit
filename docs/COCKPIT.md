@@ -15,8 +15,9 @@ console is built on, because it is the model a reader already has:
 | a change                | a change proposal | what an edit becomes              |
 | a source                | a source          | archived verbatim, read-only      |
 | Guidelines / Leitlinien | the charter       | how this wiki wants to be written |
-| an answer               | an output         | what the wiki produced, kept      |
-| Care / Pflege           | health + lint     | one read: what needs attention    |
+| an answer               | an output         | a grounded answer, kept           |
+| a report                | an output         | scheduled history, not a decision |
+| Check / Prüfen          | health + lint     | read-only findings and next steps |
 
 **Guidelines is the charter, renamed on screen only.** Every technical name is
 untouched — `GET|PUT|DELETE /v1/spaces/{space}/charter`, the `wikikit_charter*`
@@ -30,36 +31,35 @@ So editing a page does not save a page. It submits a change, and somebody with
 **Submit change**, never Save, because the second word would promise something
 the server does not do.
 
-## The sidebar is the loop
+## The sidebar follows the end-user flow
 
-The Wiki block has five entries and they are in the order the work happens:
+The three entries at the top work across scopes: **Start** gives the overview,
+**Wikis** chooses the current knowledge area, and **Decisions** contains only
+work that actually waits for a person. The current wiki then has five places in
+the order a reader uses them:
 
-**Inbox → Pages → Changes → Answers → Care.** Something arrives; it becomes
-pages; a human decides them; a reader asks a question; what the asking exposes
-gets maintained. An operator who reads the sidebar downwards has read the
-product — that is the whole reason the order is not alphabetical and not
-frequency-of-use.
+**Inbox → Pages → Search → Answers → Check.** Something arrives; it becomes
+reviewed pages; a reader finds or asks for knowledge; the generated answers and
+scheduled reports remain traceable; Check explains read-only findings and links
+to the place where each fix can be made.
 
-Everything that is a way INTO one of those five rather than a step of the loop
-sits below in **Archive & control**, which starts collapsed: Sources (what the
-pages are quoted from), Decisions (what approving them recorded), Guidelines
-(what steers synthesis), Search. Nine open entries is a menu; five is a model.
+Everything that explains or steers the wiki rather than serving that reading
+flow sits below in **Archive & control**, which starts collapsed: Sources (what
+the pages quote), Decision log (what people decided), and Guidelines (what
+steers synthesis).
 The block is collapsible but not separated — it is still about the knowledge,
 one level in. **Installation** stays the only separated block, because it is the
 only one about WikiKit itself rather than about what it holds.
 
-**Changes stays visible**, even though folding the review queue into the Inbox
-— which already lists the pending changes beside what arrived — would reach a
-tidy four entries. It is the one queue whose neglect does real damage:
-unreviewed proposals accumulate silently, an automatic feeder can outrun a human
-reviewer by hundreds, and a hidden queue never says so. Tidiness is not worth a
-review backlog nobody sees.
+**Decisions stays visible at the top** because a review backlog must not hide in
+one selected wiki. Its count includes proposals and unresolved inbox triage;
+scheduled reports and check findings are context, not decisions.
 
-`knowledge:read` reveals Inbox, Answers and Care; the write controls inside them
+`knowledge:read` reveals Inbox, Answers and Check; the write controls inside them
 gate themselves. Watching what arrived is not the same right as adding to it,
 and seeing what a wiki needs is not the same right as deciding when a report
 runs. The usual treatment is a disabled control wrapped in a `DisabledReason`.
-Care's schedule form is the deliberate exception and is HIDDEN instead: reading
+Check's schedule form is the deliberate exception and is HIDDEN instead: reading
 the timetable is itself an `admin` route, so a disabled form would sit over a
 403, and a reader gets one sentence saying who can change it.
 
@@ -166,6 +166,15 @@ service's configuration surface and does not appear in `.env.example`.
 bun run build:cockpit      # vite build → assets/cockpit → src/cockpit-embedded.ts
 bun run gen:cockpit-types  # regenerate api/schema.d.ts from docs/openapi.json
 bun run check:cockpit-drift
+```
+
+The Playwright layout sweep checks every navigation route at 390, 768, 1280
+and 1920 pixels. Add `--screenshots <directory>` to retain one viewport image
+per route for release review:
+
+```
+WIKIKIT_API_KEY=wk_... bun scripts/check-cockpit-browser.ts \
+  --space <wiki> --locale de --screenshots <directory>
 ```
 
 `apps/cockpit/PAGES.md` is the contract for writing a page: two files, a nav

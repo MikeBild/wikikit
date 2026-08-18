@@ -88,6 +88,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['delete', '/v1/identities/{provider}/{subject}', 'admin'],
   ['get', '/v1/installation/knowledge-config', 'admin'],
   ['get', '/v1/stats/overview', 'knowledge:read'],
+  ['get', '/v1/stats/llm', 'admin'],
   ['get', '/v1/stats/mcp', 'admin'],
   ['get', '/v1/spaces/{space}/stats/http', 'knowledge:read'],
   ['get', '/v1/spaces/{space}/stats/usage', 'knowledge:read'],

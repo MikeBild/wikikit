@@ -3,9 +3,9 @@
 The cockpit is a **wiki**. That is not a metaphor for the code — it is the
 promise the whole interface makes, and every page keeps it or breaks it:
 
-- A **space is a wiki.** `useSpace()` gives you its slug. Never let a page pick
-  one, never put a space selector on a page — the sidebar owns that choice and
-  the URL carries it.
+- A **space is a wiki.** `useSpace()` gives you its slug. Never put a second
+  selector on a page or in the sidebar: the Wikis overview chooses it, the URL
+  carries it, and scoped pages show the chosen wiki as passive context.
 - A **concept is a page**, written in Markdown. It is read as a rendered
   document, not as a form full of fields.
 - **Editing is proposing.** Nothing a human writes becomes visible knowledge
@@ -20,7 +20,7 @@ Write the words a reader would use. "Pages", "Decisions", "Sources", "Wikis". Th
 API says concept, proposal, source, space — keep that in the code, where it
 matches the tables, and out of the interface. Same rule for the newer surfaces:
 the console says **Answers** where the API says outputs, **Guidelines** where it
-says charter, and **Care** for the composed health read. The technical name
+says charter, and **Check** for the composed health read. The technical name
 stays in the route, the facade call, the query key and every `data-testid`; only
 the label changes, so a rename is never a contract change.
 
@@ -125,7 +125,7 @@ The real vocabularies, from the migrations — do not invent members:
 | concept revision | `proposed`, `current`, `superseded`, `rejected`                                                                         |
 | decision         | `proposed`, `active`, `superseded` — an in-force decision is `active`, never `current`                                  |
 | relation         | `proposed`, `active`, `removed`                                                                                         |
-| output           | kinds `answer`, `briefing`, `health` — no status column: an output is promoted or it is not (`promoted_at`)             |
+| output           | kinds `answer`, `briefing`, `health` — only answers may have `promoted_at`; reports remain read-only history            |
 | schedule         | kinds `briefing`, `health`; `enabled` plus `next_run_at` — null means not armed, and a null never fires                 |
 
 ## Lists

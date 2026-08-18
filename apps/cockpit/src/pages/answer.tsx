@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { Spinner } from '@/components/ui/spinner'
 import { liveReadOptions } from '@/lib/live'
+import { useI18n } from '@/lib/i18n-context'
 import { useCan } from '@/lib/session'
 import { useSpace } from '@/lib/space'
 import { toast } from '@/lib/toast'
@@ -23,7 +24,8 @@ import { coverageOf, kindWord, outputLabel } from '@/pages/answers.logic'
 import { describeIngest } from '@/pages/sources.logic'
 
 /**
- * One thing this wiki produced, and the one door back into it.
+ * One thing this wiki produced. Answers have one reviewed door back into it;
+ * reports remain read-only operational history.
  *
  * The document is read first and acted on second, and that ordering is the
  * whole reason promotion lives here rather than on the list: filing an answer
@@ -78,6 +80,7 @@ export function AnswerPage() {
 }
 
 function OutputDocument({ output, space }: { output: Output; space: string }) {
+  const { t } = useI18n()
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-wrap items-center gap-2 text-xs" aria-label="What this is">
@@ -126,7 +129,19 @@ function OutputDocument({ output, space }: { output: Output; space: string }) {
         )}
       </article>
 
-      <Promotion output={output} space={space} />
+      {output.kind === 'answer' ? (
+        <Promotion output={output} space={space} />
+      ) : (
+        <section className="border-border flex flex-col gap-3 rounded-lg border p-4" data-testid="report-explanation">
+          <h2 className="text-sm font-semibold">{t('answer.report.title')}</h2>
+          <p className="text-muted-foreground text-sm">{t('answer.report.description')}</p>
+          <Button asChild variant="outline" size="sm" className="w-fit">
+            <Link to="/decisions" search={(prev) => prev} data-testid="report-open-decisions">
+              {t('answer.report.openDecisions')}
+            </Link>
+          </Button>
+        </section>
+      )}
     </div>
   )
 }
@@ -181,13 +196,14 @@ function Citations({ citations }: { citations: Output['citations'] }) {
  */
 function Promotion({ output, space }: { output: Output; space: string }) {
   const can = useCan()
+  const { t } = useI18n()
   const client = useQueryClient()
   const mayPropose = can('knowledge:propose')
 
   const promote = useMutation({
     mutationFn: () => wk.outputs.promote(output.id),
     onSuccess: async () => {
-      toast({ tone: 'success', title: 'Filed back — a change is waiting for review' })
+      toast({ tone: 'success', title: t('answer.propose.success') })
       // The whole space subtree by prefix, plus this row: promotion adds an
       // ingest job and (usually) a change proposal, and both are read on pages
       // registered under keys with a query slot that `keys.space` is a prefix
@@ -215,15 +231,12 @@ function Promotion({ output, space }: { output: Output; space: string }) {
         aria-labelledby="answer-file-heading"
       >
         <h2 id="answer-file-heading" className="text-sm font-semibold">
-          Take this into the wiki
+          {t('answer.propose.title')}
         </h2>
-        <p className="text-muted-foreground text-sm">
-          The text above is archived as a source and read into pages, exactly like a document dropped in the Inbox.
-          Nothing here becomes visible knowledge until somebody approves the change it raises.
-        </p>
+        <p className="text-muted-foreground text-sm">{t('answer.propose.description')}</p>
         <Confirm
-          title="File this back into the wiki?"
-          description="The text above is archived as a source and read into pages."
+          title={t('answer.propose.confirmTitle')}
+          description={t('answer.propose.confirmDescription')}
           /*
             The exact effect, and the part an operator cannot see from the
             button: this makes REVIEW WORK. A wiki whose answers are filed back
@@ -248,7 +261,7 @@ function Promotion({ output, space }: { output: Output; space: string }) {
               </p>
             </div>
           }
-          confirmLabel="File it back"
+          confirmLabel={t('answer.propose.action')}
           ids={{
             dialog: 'answer-promote-dialog',
             accept: 'answer-promote-confirm',
@@ -259,7 +272,7 @@ function Promotion({ output, space }: { output: Output; space: string }) {
         >
           {(open) => (
             <DisabledReason
-              reason={mayPropose ? null : 'Needs knowledge:propose — filing this back raises a change for review.'}
+              reason={mayPropose ? null : t('answer.propose.permission')}
               data-testid="answer-promote-reason"
             >
               <Button
@@ -271,7 +284,7 @@ function Promotion({ output, space }: { output: Output; space: string }) {
                 {/* The label does not rewrite itself while it works
                   (CUI-ACT-5): the spinner and the disabled state carry that. */}
                 {promote.isPending ? <Spinner data-icon="inline-start" /> : <BookUp data-icon="inline-start" />}
-                File it back
+                {t('answer.propose.action')}
               </Button>
             </DisabledReason>
           )}
@@ -292,6 +305,7 @@ function Promotion({ output, space }: { output: Output; space: string }) {
  * drift into three readings of one status.
  */
 function PromotionOutcome({ ingestId, at }: { ingestId: string; at: string | null }) {
+  const { t } = useI18n()
   const job = useQuery({
     queryKey: keys.ingestJob(ingestId),
     queryFn: () => wk.ingest.job(ingestId),
@@ -306,7 +320,7 @@ function PromotionOutcome({ ingestId, at }: { ingestId: string; at: string | nul
       >
         <div className="flex flex-wrap items-center gap-2">
           <h2 id="answer-filed-heading" className="text-sm font-semibold">
-            Filed back into the wiki
+            {t('answer.propose.outcome')}
           </h2>
           <RelativeTime value={at} data-testid="answer-filed-at" className="text-muted-foreground text-xs" />
         </div>
@@ -333,7 +347,7 @@ function PromotionOutcome({ ingestId, at }: { ingestId: string; at: string | nul
                     data-testid="answer-filed-change"
                     className="text-sm underline-offset-4 hover:underline"
                   >
-                    Review the change
+                    {t('answer.propose.review')}
                   </Link>
                 ) : null}
               </div>

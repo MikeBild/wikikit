@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Download, Plus, Settings2 } from 'lucide-react'
+import { Ellipsis, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
@@ -34,6 +34,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTableView } from '@/hooks/use-table-view'
 import { firstPage, type CursorPage } from '@/lib/cursor'
 import { useI18n } from '@/lib/i18n-context'
@@ -145,7 +146,10 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     id: 'wiki',
     label: 'Wiki',
     required: true,
-    className: 'max-w-48 whitespace-normal',
+    // The identity owns the remaining width. A fixed 16rem here plus the
+    // decision and action columns exceeded the complete 390px phone surface.
+    width: 'fill',
+    overflow: 'wrap',
     compare: (left, right) => compareText(left.slug, right.slug),
     cell: (space) => (
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -158,11 +162,7 @@ const COLUMNS: readonly DataColumn<Row>[] = [
           >
             {space.name}
           </Link>
-          {space.current ? (
-            <Badge tone="accent" data-testid={`space-current-${space.slug}`}>
-              Reading
-            </Badge>
-          ) : null}
+          {space.current ? <CurrentWikiBadge slug={space.slug} /> : null}
         </div>
         <span className="text-muted-foreground truncate font-mono text-xs">{space.slug}</span>
       </div>
@@ -172,6 +172,7 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     id: 'environment',
     label: 'Environment',
     priority: 'optional',
+    width: 'compact',
     compare: (left, right) => compareText(readEnvironment(left.settings), readEnvironment(right.settings)),
     cell: (space) => (
       <Badge
@@ -184,8 +185,11 @@ const COLUMNS: readonly DataColumn<Row>[] = [
   },
   {
     id: 'waiting',
-    label: 'Open decisions',
+    // The table and overview already establish that these are decisions. The
+    // short label stays readable in the required phone column.
+    label: 'Open',
     descFirst: true,
+    width: 'compact',
     compare: (left, right) => compareNumber(left.ov?.attention.open, right.ov?.attention.open),
     cell: (space) => <WaitingCell slug={space.slug} attention={space.ov?.attention ?? null} />,
   },
@@ -193,6 +197,7 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     id: 'oldest',
     label: 'Oldest',
     priority: 'secondary',
+    width: 'compact',
     descFirst: true,
     compare: (left, right) => compareNumber(left.ov?.attention.oldest_days, right.ov?.attention.oldest_days),
     cell: (space) => <WaitedCell days={space.ov?.attention.oldest_days ?? null} />,
@@ -201,6 +206,7 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     id: 'pages',
     label: 'Pages',
     priority: 'optional',
+    width: 'compact',
     descFirst: true,
     compare: (left, right) => compareNumber(left.ov?.concepts, right.ov?.concepts),
     cell: (space) => <span className="tabular-nums">{count(space.ov?.concepts)}</span>,
@@ -209,10 +215,11 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     id: 'purpose',
     label: 'Purpose',
     priority: 'secondary',
+    width: 'fill',
     // `TableCell` is `whitespace-nowrap`, which is right for a slug and wrong for
     // a sentence: without the override this column would be one unbreakable line
     // and would set the table's width on its own.
-    className: 'max-w-80 whitespace-normal',
+    overflow: 'wrap',
     compare: (left, right) => compareText(readString(left.settings, 'purpose'), readString(right.settings, 'purpose')),
     cell: (space) => {
       // `purpose` first, `description` as the fallback: both are read by context
@@ -227,7 +234,8 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     label: 'Actions',
     headerHidden: true,
     required: true,
-    className: 'w-px',
+    width: 'compact',
+    className: 'w-14 text-right',
     // A component rather than JSX assembled here, so this array can stay at
     // module scope: `useTableView` re-derives the whole view whenever the column
     // array changes identity, and a list rebuilt on every render re-sorts its
@@ -236,6 +244,15 @@ const COLUMNS: readonly DataColumn<Row>[] = [
     cell: (space) => <RowActions slug={space.slug} />,
   },
 ]
+
+function CurrentWikiBadge({ slug }: { slug: string }) {
+  const { t } = useI18n()
+  return (
+    <Badge tone="accent" data-testid={`space-current-${slug}`}>
+      {t('spaces.current')}
+    </Badge>
+  )
+}
 
 export function SpacesPage() {
   const current = useSpace()
@@ -421,82 +438,54 @@ function RowActions({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false)
 
   return (
-    /*
-      `flex-wrap`, because below `md` the table pins this last cell to the right
-      edge and caps it at 144px (see components/ui/table.tsx). Two controls in a
-      row do not fit that, and a control that overflows a pinned cell is a control
-      a phone cannot reach — which on this page means export and settings.
-    */
-    <div className="flex flex-wrap justify-end gap-1">
-      <Button asChild size="sm">
-        <Link to="/" search={{ space: slug }} data-testid={`space-enter-${slug}`}>
-          {t('spaces.openWiki')}
-        </Link>
-      </Button>
-      <ExportMenu slug={slug} />
-      <DisabledReason
-        reason={admin ? null : 'Needs admin — settings decide how this wiki is read.'}
-        data-testid={`space-settings-${slug}-reason`}
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid={`space-settings-${slug}`}
-          disabled={!admin}
-          onClick={() => setOpen(true)}
-        >
-          <Settings2 data-icon="inline-start" />
-          Settings
-        </Button>
-      </DisabledReason>
+    <div className="flex justify-end">
+      <DropdownMenu>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  data-testid={`space-actions-${slug}`}
+                  aria-label={t('spaces.moreActions')}
+                >
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t('spaces.moreActions')}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <DropdownMenuContent align="end" className="w-72">
+          <DropdownMenuGroup>
+            <DropdownMenuItem asChild>
+              <a href={`/v1/spaces/${slug}/export?format=md`} download data-testid={`space-export-${slug}-md`}>
+                <span className="flex flex-col gap-0.5">
+                  <span>{t('spaces.exportMarkdown')}</span>
+                  <span className="text-muted-foreground text-xs">{t('spaces.exportMarkdownHelp')}</span>
+                </span>
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={`/v1/spaces/${slug}/export?format=okf`} download data-testid={`space-export-${slug}-okf`}>
+                <span className="flex flex-col gap-0.5">
+                  <span>{t('spaces.exportOkf')}</span>
+                  <span className="text-muted-foreground text-xs">{t('spaces.exportOkfHelp')}</span>
+                </span>
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!admin} data-testid={`space-settings-${slug}`} onSelect={() => setOpen(true)}>
+              <span className="flex flex-col gap-0.5">
+                <span>{t('spaces.settings')}</span>
+                {!admin ? <span className="text-muted-foreground text-xs">{t('spaces.settingsAdmin')}</span> : null}
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {open ? <SettingsDialog slug={slug} onClose={() => setOpen(false)} /> : null}
     </div>
-  )
-}
-
-/**
- * Export is a NAVIGATION, not a mutation: the endpoint answers a zip with a
- * `content-disposition`, so an anchor does exactly the right thing and a fetch
- * would only mean holding the whole bundle in memory to hand it back to the
- * browser. Same-origin, so the session cookie rides along without this page
- * knowing anything about credentials.
- *
- * A link and not a button, because it navigates and changes nothing (CUI-ACT-1).
- */
-function ExportMenu({ slug }: { slug: string }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" data-testid={`space-export-${slug}`}>
-          <Download data-icon="inline-start" />
-          Export
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-w-72">
-        <DropdownMenuGroup>
-          <DropdownMenuItem asChild>
-            <a href={`/v1/spaces/${slug}/export?format=md`} download data-testid={`space-export-${slug}-md`}>
-              <div className="flex flex-col gap-0.5">
-                <span>Markdown tree</span>
-                <span className="text-muted-foreground text-xs">
-                  One file per page, decision and source. Readable in any editor.
-                </span>
-              </div>
-            </a>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <a href={`/v1/spaces/${slug}/export?format=okf`} download data-testid={`space-export-${slug}-okf`}>
-              <div className="flex flex-col gap-0.5">
-                <span>Open Knowledge Format</span>
-                <span className="text-muted-foreground text-xs">
-                  The interchange bundle: claims, citations and relations survive the round trip.
-                </span>
-              </div>
-            </a>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

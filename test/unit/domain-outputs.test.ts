@@ -15,7 +15,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type PoolLike } from '../../src/db/postgres.ts'
-import { NotFoundError } from '../../src/domain/errors.ts'
+import { ConflictError, NotFoundError } from '../../src/domain/errors.ts'
 import {
   cleanupOutputs,
   getOutput,
@@ -208,6 +208,32 @@ describe('promoteOutput', () => {
     )
     expect(result).toEqual({ ingest_id: JOB_ID })
     expect(called).toBe(0)
+  })
+
+  test('briefings and health reports remain history and never open knowledge work', async () => {
+    for (const kind of ['briefing', 'health'] as const) {
+      const { db } = fakeDb([{ match: /FROM "public"\."wk_outputs"/, rows: [row({ kind })] }])
+      let called = false
+      try {
+        await promoteOutput(
+          db,
+          {
+            ingest: {
+              async enqueue() {
+                called = true
+                return { ingest_id: JOB_ID }
+              },
+            },
+          },
+          OUTPUT_ID,
+        )
+        throw new Error('expected report promotion to fail')
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConflictError)
+        expect((error as ConflictError).code).toBe('output_not_promotable')
+      }
+      expect(called).toBe(false)
+    }
   })
 })
 

@@ -28,7 +28,7 @@ export interface OverviewItem {
   attention: {
     open: number
     oldest_days: number | null
-    by_kind: { proposal: number; triage: number; output: number }
+    by_kind: { proposal: number; triage: number }
   }
   concepts: number
 }

@@ -74,7 +74,7 @@ export function HomePage() {
         </Button>
       }
     >
-      <div className="flex w-full max-w-5xl flex-col gap-8">
+      <div className="flex w-full min-w-0 flex-col gap-8">
         <Card data-testid="home-all-wikis">
           <CardHeader className="border-b bg-muted/35">
             <div className="flex flex-wrap items-start justify-between gap-3">

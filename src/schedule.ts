@@ -538,10 +538,10 @@ function localStamp(timeZone: string, instant: Date): string {
 }
 
 /** `- item` lines, capped, with an honest tail instead of a truncated one. */
-function bulletList(items: string[]): string[] {
+function bulletList(items: string[], language: 'en' | 'de' = 'en'): string[] {
   const shown = items.slice(0, MAX_ITEMS_PER_SECTION).map((item) => `- ${item}`)
   const hidden = items.length - shown.length
-  if (hidden > 0) shown.push(`- …and ${hidden} more`)
+  if (hidden > 0) shown.push(language === 'de' ? `- …und ${hidden} weitere` : `- …and ${hidden} more`)
   return shown
 }
 
@@ -556,13 +556,24 @@ function bulletList(items: string[]): string[] {
  * both documents render through here so neither can drift into the cheerful
  * version.
  */
-function thinSection(gaps: { enabled: boolean; items: { lexeme: string; count: number }[] }): string[] {
+function thinSection(
+  gaps: { enabled: boolean; items: { lexeme: string; count: number }[] },
+  language: 'en' | 'de' = 'en',
+): string[] {
   if (!gaps.enabled) {
-    return ['Not measured — this installation does not record unanswered questions.']
+    return [
+      language === 'de'
+        ? 'Nicht gemessen – diese Installation erfasst keine unbeantworteten Fragen.'
+        : 'Not measured — this installation does not record unanswered questions.',
+    ]
   }
-  if (!gaps.items.length) return ['No unanswered question was recorded.']
+  if (!gaps.items.length) {
+    return [language === 'de' ? 'Es wurde keine unbeantwortete Frage erfasst.' : 'No unanswered question was recorded.']
+  }
   return [
-    'Questions the wiki could not answer, by topic:',
+    language === 'de'
+      ? 'Themen, zu denen das Wiki keine Antwort hatte:'
+      : 'Questions the wiki could not answer, by topic:',
     '',
     ...bulletList(gaps.items.map((topic) => `${topic.lexeme} — ${topic.count}`)),
   ]
@@ -688,47 +699,92 @@ async function collectBriefingFacts(
  * to renderOutputSource, whose determinism exists so promoting one answer twice
  * dedupes: a briefing is about a window, and two windows are two documents.
  */
-export function renderBriefing(facts: BriefingFacts): string {
+export function renderBriefing(
+  facts: BriefingFacts,
+  options: { language?: 'en' | 'de' | 'simple'; space?: string } = {},
+): string {
+  const language = options.language === 'de' ? 'de' : 'en'
   const lines: string[] = []
   const until = new Date(facts.until)
-  lines.push(`# Briefing — ${localDate(facts.timezone, until)}`, '')
+  lines.push(`# ${language === 'de' ? 'Kurzbericht' : 'Briefing'} — ${localDate(facts.timezone, until)}`, '')
   lines.push(
     facts.since
-      ? `Window: ${localStamp(facts.timezone, new Date(facts.since))} → ${localStamp(facts.timezone, until)} (${facts.timezone})`
-      : `Window: up to ${localStamp(facts.timezone, until)} (${facts.timezone}) — first run, so no earlier briefing to measure from.`,
+      ? `${language === 'de' ? 'Zeitraum' : 'Window'}: ${localStamp(facts.timezone, new Date(facts.since))} → ${localStamp(facts.timezone, until)} (${facts.timezone})`
+      : language === 'de'
+        ? `Zeitraum: bis ${localStamp(facts.timezone, until)} (${facts.timezone}) – erster Lauf, daher gibt es keinen früheren Bericht zum Vergleichen.`
+        : `Window: up to ${localStamp(facts.timezone, until)} (${facts.timezone}) — first run, so no earlier briefing to measure from.`,
     '',
   )
 
-  lines.push('## Approved since the last briefing', '')
+  lines.push(language === 'de' ? '## Seit dem letzten Bericht übernommen' : '## Approved since the last briefing', '')
   if (facts.approved.count === 0) {
-    lines.push('Nothing was approved in this window.', '')
+    lines.push(
+      language === 'de' ? 'In diesem Zeitraum wurde nichts freigegeben.' : 'Nothing was approved in this window.',
+      '',
+    )
   } else {
-    lines.push(`${facts.approved.count} change(s) approved, ${facts.concepts.length} page(s) now visible.`, '')
-    lines.push(...bulletList(facts.approved.titles), '')
+    lines.push(
+      language === 'de'
+        ? `${facts.approved.count} Änderung(en) freigegeben; ${facts.concepts.length} Seite(n) sind jetzt sichtbar.`
+        : `${facts.approved.count} change(s) approved, ${facts.concepts.length} page(s) now visible.`,
+      '',
+    )
+    lines.push(...bulletList(facts.approved.titles, language), '')
     if (facts.concepts.length) {
-      lines.push('Pages:', '')
-      lines.push(...bulletList(facts.concepts.map((concept) => `${concept.title} (\`${concept.slug}\`)`)), '')
+      lines.push(language === 'de' ? 'Seiten:' : 'Pages:', '')
+      lines.push(
+        ...bulletList(
+          facts.concepts.map((concept) => `${concept.title} (\`${concept.slug}\`)`),
+          language,
+        ),
+        '',
+      )
     }
   }
 
-  lines.push('## Waiting for your decision', '')
+  lines.push(language === 'de' ? '## Was du entscheiden musst' : '## What you need to decide', '')
   if (facts.pending.count === 0) {
-    lines.push('The review queue is empty.', '')
+    lines.push(
+      language === 'de'
+        ? 'Es wartet keine Wissensänderung auf deine Entscheidung.'
+        : 'No knowledge change is waiting for your decision.',
+      '',
+    )
   } else {
     const age =
       facts.pending.oldest_days == null
-        ? 'unknown age'
-        : `${facts.pending.oldest_days} day(s) old${facts.pending.oldest_since ? ` (since ${localDate(facts.timezone, new Date(facts.pending.oldest_since))})` : ''}`
-    lines.push(`${facts.pending.count} change(s) pending review.`, '')
-    lines.push(`Oldest: ${age}${facts.pending.oldest_title ? ` — ${facts.pending.oldest_title}` : ''}`, '')
+        ? language === 'de'
+          ? 'Alter unbekannt'
+          : 'unknown age'
+        : language === 'de'
+          ? `${facts.pending.oldest_days} Tag(e)${facts.pending.oldest_since ? ` (seit ${localDate(facts.timezone, new Date(facts.pending.oldest_since))})` : ''}`
+          : `${facts.pending.oldest_days} day(s) old${facts.pending.oldest_since ? ` (since ${localDate(facts.timezone, new Date(facts.pending.oldest_since))})` : ''}`
+    lines.push(
+      language === 'de'
+        ? `${facts.pending.count} Wissensänderung(en) warten auf Prüfung.`
+        : `${facts.pending.count} knowledge change(s) await review.`,
+      '',
+    )
+    lines.push(
+      `${language === 'de' ? 'Älteste' : 'Oldest'}: ${age}${facts.pending.oldest_title ? ` — ${facts.pending.oldest_title}` : ''}`,
+      '',
+    )
+    if (options.space) {
+      lines.push(
+        `[${language === 'de' ? 'Entscheidungen öffnen' : 'Open decisions'}](/cockpit/decisions?space=${encodeURIComponent(options.space)})`,
+        '',
+      )
+    }
   }
 
-  lines.push('## Where the wiki is thin', '')
-  lines.push(...thinSection(facts.thin), '')
+  lines.push(language === 'de' ? '## Wo Wissen fehlt' : '## Where the wiki is thin', '')
+  lines.push(...thinSection(facts.thin, language), '')
 
-  lines.push('## Inbox', '')
+  lines.push(language === 'de' ? '## Eingang' : '## Inbox', '')
   lines.push(
-    `${facts.inbox.queued} source(s) still being processed; ${facts.inbox.failed_since} ingest(s) failed in this window.`,
+    language === 'de'
+      ? `${facts.inbox.queued} Quelle(n) werden noch verarbeitet; ${facts.inbox.failed_since} Verarbeitung(en) sind in diesem Zeitraum fehlgeschlagen.`
+      : `${facts.inbox.queued} source(s) still being processed; ${facts.inbox.failed_since} ingest(s) failed in this window.`,
     '',
   )
 
@@ -744,20 +800,26 @@ export function renderBriefing(facts: BriefingFacts): string {
  * why the policy belongs to the operator. This renderer's whole job is to make
  * the census readable in a document somebody skims over coffee.
  */
-export function renderHealth(health: SpaceHealth, at: { timezone: string; instant: Date }): string {
+export function renderHealth(
+  health: SpaceHealth,
+  at: { timezone: string; instant: Date; language?: 'en' | 'de' | 'simple' },
+): string {
+  const language = at.language === 'de' ? 'de' : 'en'
   const findings = health.lint.findings
   const counts = health.lint.counts
   const lines: string[] = []
-  lines.push(`# Health — ${localDate(at.timezone, at.instant)}`, '')
+  lines.push(`# ${language === 'de' ? 'Prüfbericht' : 'Health'} — ${localDate(at.timezone, at.instant)}`, '')
   lines.push(
-    `${counts.error} fault(s), ${counts.warn} warning(s), ${counts.info} note(s) across ${findings.length} finding(s).`,
+    language === 'de'
+      ? `${counts.error} Fehler, ${counts.warn} Warnung(en) und ${counts.info} Hinweis(e) in ${findings.length} Befund(en).`
+      : `${counts.error} fault(s), ${counts.warn} warning(s), ${counts.info} note(s) across ${findings.length} finding(s).`,
     '',
   )
 
   for (const [severity, heading] of [
-    ['error', 'Faults'],
-    ['warn', 'Warnings'],
-    ['info', 'Notes'],
+    ['error', language === 'de' ? 'Fehler' : 'Faults'],
+    ['warn', language === 'de' ? 'Warnungen' : 'Warnings'],
+    ['info', language === 'de' ? 'Hinweise' : 'Notes'],
   ] as const) {
     const scoped = findings.filter((finding) => finding.severity === severity)
     if (!scoped.length) continue
@@ -768,34 +830,47 @@ export function renderHealth(health: SpaceHealth, at: { timezone: string; instan
           const where = finding.concept_slug ? ` (\`${finding.concept_slug}\`)` : ''
           return `${finding.rule}: ${oneLine(finding.message)}${where}`
         }),
+        language,
       ),
       '',
     )
   }
 
-  lines.push('## Waiting for your decision', '')
+  lines.push(language === 'de' ? '## Was du entscheiden musst' : '## What you need to decide', '')
   const { pending, oldest_days: oldestDays } = health.review_queue
   lines.push(
     pending === 0
-      ? 'No changes are waiting for review.'
-      : `${pending} change(s) pending review; oldest ${oldestDays == null ? 'of unknown age' : `${oldestDays} day(s) old`}.`,
+      ? language === 'de'
+        ? 'Es wartet keine Wissensänderung auf Prüfung.'
+        : 'No knowledge change is waiting for review.'
+      : language === 'de'
+        ? `${pending} Wissensänderung(en) warten auf Prüfung; die älteste wartet ${oldestDays == null ? 'seit unbekannter Zeit' : `${oldestDays} Tag(e)`}.`
+        : `${pending} knowledge change(s) await review; oldest ${oldestDays == null ? 'of unknown age' : `${oldestDays} day(s) old`}.`,
     '',
   )
 
   const freshness = health.coverage.freshness
-  lines.push('## Freshness', '')
+  lines.push(language === 'de' ? '## Aktualität' : '## Freshness', '')
   // The pair, never a share: health.ts refuses a ratio whose denominator can be
   // zero, and a document is no place to reintroduce one.
-  lines.push(`${freshness.concepts} page(s); ${freshness.stale_over_90d} untouched for over 90 days.`, '')
+  lines.push(
+    language === 'de'
+      ? `${freshness.concepts} Seite(n); ${freshness.stale_over_90d} seit mehr als 90 Tagen unverändert.`
+      : `${freshness.concepts} page(s); ${freshness.stale_over_90d} untouched for over 90 days.`,
+    '',
+  )
 
-  lines.push('## Where the wiki is thin', '')
-  lines.push(...thinSection(health.coverage.gap_topics), '')
+  lines.push(language === 'de' ? '## Wo Wissen fehlt' : '## Where the wiki is thin', '')
+  lines.push(...thinSection(health.coverage.gap_topics, language), '')
 
   const queue = health.ingest_queue
-  lines.push('## Inbox', '')
+  lines.push(language === 'de' ? '## Eingang' : '## Inbox', '')
   lines.push(
-    `${queue.depth} source(s) in flight (${queue.queued} queued, ${queue.running} running)` +
-      `${queue.quota_blocked ? `, ${queue.quota_blocked} parked on a provider quota window` : ''}.`,
+    language === 'de'
+      ? `${queue.depth} Quelle(n) in Verarbeitung (${queue.queued} wartend, ${queue.running} laufend)` +
+          `${queue.quota_blocked ? `, ${queue.quota_blocked} wegen eines Anbieterlimits pausiert` : ''}.`
+      : `${queue.depth} source(s) in flight (${queue.queued} queued, ${queue.running} running)` +
+          `${queue.quota_blocked ? `, ${queue.quota_blocked} parked on a provider quota window` : ''}.`,
     '',
   )
   // Parked thoughts get their own sentence, not a clause in the flight count:
@@ -803,7 +878,9 @@ export function renderHealth(health: SpaceHealth, at: { timezone: string; instan
   // the stale-captures rule turns into a warning at thirty days.
   if (queue.captured) {
     lines.push(
-      `${queue.captured} thought(s) parked${queue.oldest_captured_days == null ? '' : `; oldest ${queue.oldest_captured_days} day(s)`}.`,
+      language === 'de'
+        ? `${queue.captured} Notiz(en) warten auf Einordnung${queue.oldest_captured_days == null ? '' : `; älteste ${queue.oldest_captured_days} Tag(e)`}.`
+        : `${queue.captured} thought(s) parked${queue.oldest_captured_days == null ? '' : `; oldest ${queue.oldest_captured_days} day(s)`}.`,
       '',
     )
   }
@@ -840,9 +917,14 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
       wakers.add(wake)
     })
 
-  async function spaceSlug(spaceId: string): Promise<string> {
-    const [space] = await db.select<{ slug: string }>('wk_spaces', { id: `eq.${spaceId}`, limit: 1 })
-    return space?.slug ?? spaceId
+  async function spaceInfo(spaceId: string): Promise<{ slug: string; language: 'en' | 'de' | 'simple' }> {
+    const [space] = await db.select<{ slug: string; settings: Record<string, unknown> | string }>('wk_spaces', {
+      id: `eq.${spaceId}`,
+      limit: 1,
+    })
+    const settings = typeof space?.settings === 'string' ? JSON.parse(space.settings) : (space?.settings ?? {})
+    const language = settings.language === 'de' || settings.language === 'simple' ? settings.language : 'en'
+    return { slug: space?.slug ?? spaceId, language }
   }
 
   /**
@@ -933,10 +1015,11 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
       sinceIsReal,
       gapTopicsEnabled: config.coverageGapTopicsEnabled === true,
     })
-    const markdown = renderBriefing(facts)
+    const info = await spaceInfo(schedule.space_id)
+    const markdown = renderBriefing(facts, info)
     const output = await recordOutput(db, schedule.space_id, {
       kind: 'briefing',
-      title: `Briefing ${localDate(schedule.timezone, until)}`,
+      title: `${info.language === 'de' ? 'Kurzbericht' : 'Briefing'} ${localDate(schedule.timezone, until)}`,
       markdown,
       // The pages that changed are the briefing's citations, so the Output
       // links into the wiki the same way an answer does.
@@ -970,9 +1053,10 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
         sourceIndexDays: config.sourceIndexDays ?? DEFAULT_SOURCE_INDEX_DAYS,
       },
     )
-    const markdown = renderHealth(health, { timezone: schedule.timezone, instant })
+    const info = await spaceInfo(schedule.space_id)
+    const markdown = renderHealth(health, { timezone: schedule.timezone, instant, language: info.language })
     const counts = health.lint.counts
-    const slug = await spaceSlug(schedule.space_id)
+    const slug = info.slug
     // Output row and outbox event in ONE transaction, per the transactional
     // outbox contract src/webhooks.ts documents: the event exists iff the report
     // it announces committed, so no consumer can be told about a report that is
@@ -980,7 +1064,7 @@ export function createScheduler(deps: SchedulerDeps, config: SchedulerConfig): S
     const output = await db.tx(async (tx) => {
       const written = await recordOutput(tx, schedule.space_id, {
         kind: 'health',
-        title: `Health ${localDate(schedule.timezone, instant)}`,
+        title: `${info.language === 'de' ? 'Prüfbericht' : 'Health'} ${localDate(schedule.timezone, instant)}`,
         markdown,
       })
       // The push seam. It carries the census and the queue, not the document:

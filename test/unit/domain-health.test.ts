@@ -50,7 +50,6 @@ describe('spacesOverview', () => {
       [
         { space_id: A, kind: 'proposal', open: 3, oldest_days: 21 },
         { space_id: A, kind: 'triage', open: 2, oldest_days: 4 },
-        { space_id: B, kind: 'output', open: 1, oldest_days: 2 },
       ],
       [{ space_id: A, concepts: 9 }],
     )
@@ -64,7 +63,7 @@ describe('spacesOverview', () => {
         name: 'Alpha',
         purpose: 'first',
         environment: 'production',
-        attention: { open: 5, oldest_days: 21, by_kind: { proposal: 3, triage: 2, output: 0 } },
+        attention: { open: 5, oldest_days: 21, by_kind: { proposal: 3, triage: 2 } },
         concepts: 9,
       },
       {
@@ -72,11 +71,11 @@ describe('spacesOverview', () => {
         name: 'Beta',
         purpose: 'second',
         environment: 'production',
-        attention: { open: 1, oldest_days: 2, by_kind: { proposal: 0, triage: 0, output: 1 } },
+        attention: { open: 0, oldest_days: null, by_kind: { proposal: 0, triage: 0 } },
         concepts: 0,
       },
     ])
-    expect(overview.totals).toEqual({ open: 6, oldest_days: 21, wikis_with_open: 2 })
+    expect(overview.totals).toEqual({ open: 5, oldest_days: 21, wikis_with_open: 1 })
   })
 
   test('a wiki that states no purpose answers null, and empty totals carry a null age', async () => {

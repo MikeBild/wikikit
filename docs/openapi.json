@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "WikiKit API",
-    "version": "0.45.0",
+    "version": "0.46.0",
     "description": "Headless, AI-native knowledge system for humans and agents. Markdown-first knowledge in; structured, cited, review-gated knowledge out. Scopes: knowledge:read | knowledge:propose | knowledge:review | knowledge:approve | admin (approve implies review). MCP (Streamable HTTP) is available at POST /mcp, outside this REST surface; remote MCP clients use OAuth 2.1 discovery, PKCE and explicitly requested scopes."
   },
   "servers": [{ "url": "/" }],
@@ -1847,7 +1847,7 @@
     },
     "/v1/outputs/{id}": {
       "get": {
-        "summary": "Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages.",
+        "summary": "Read one output. Accept: text/markdown returns its document; for an answer this is the document knowledge proposal promotion would archive.",
         "operationId": "getOutput",
         "responses": {
           "200": {
@@ -1893,7 +1893,7 @@
     },
     "/v1/outputs/{id}/promote": {
       "post": {
-        "summary": "Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job.",
+        "summary": "Propose knowledge from a grounded answer: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Briefing and health reports are history and return output_not_promotable. Idempotent — a second answer promotion returns the first job.",
         "operationId": "promoteOutput",
         "responses": {
           "202": {
@@ -1917,7 +1917,7 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "409": {
-            "description": "already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted",
+            "description": "output_not_promotable for reports, or already_ingested when this exact answer text is already archived; the output stays unpromoted",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
           },
           "429": {
@@ -2070,7 +2070,7 @@
             "name": "kind",
             "in": "query",
             "required": false,
-            "schema": { "type": "string", "enum": ["proposal", "triage", "output"] }
+            "schema": { "type": "string", "enum": ["proposal", "triage"] }
           },
           {
             "name": "limit",
@@ -3317,6 +3317,69 @@
             "schema": { "type": "string", "enum": ["organic", "synthetic", "internal", "all"] }
           },
           { "name": "group_by", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 200 } }
+        ],
+        "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
+        "x-required-scope": "admin"
+      }
+    },
+    "/v1/stats/llm": {
+      "get": {
+        "summary": "Cross-wiki measured LLM tokens, configured cost, cache use and explicit unpriced usage",
+        "operationId": "llmAllStats",
+        "responses": {
+          "200": {
+            "description": "Global LLM statistics",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zLlmAllStatsResponse" } } }
+          },
+          "400": {
+            "description": "Invalid or excessive time window",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "401": {
+            "description": "unauthorized — missing, unknown or revoked API key",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "403": {
+            "description": "insufficient_scope — key lacks the required scope or is scoped to another space",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "404": {
+            "description": "not_found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/zErrorEnvelope" } } }
+          }
+        },
+        "parameters": [
+          {
+            "name": "bucket",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["hour", "day", "month", "year"] }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          { "name": "tz", "in": "query", "required": false, "schema": { "type": "string", "const": "UTC" } }
         ],
         "security": [{ "oauth2": [] }, { "bearerAuth": [] }, { "apiKey": [] }],
         "x-required-scope": "admin"
@@ -5867,6 +5930,9 @@
               "additionalProperties": false
             }
           },
+          "tokens_used": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "tokens_budget": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+          "truncated": { "type": "boolean" },
           "output_id": {
             "anyOf": [
               {
@@ -5884,6 +5950,9 @@
           "not_in_knowledge_base",
           "agent_run_id",
           "source_citations",
+          "tokens_used",
+          "tokens_budget",
+          "truncated",
           "output_id"
         ],
         "additionalProperties": false
@@ -6345,12 +6414,8 @@
               },
               "by_kind": {
                 "type": "object",
-                "properties": {
-                  "proposal": { "type": "number" },
-                  "triage": { "type": "number" },
-                  "output": { "type": "number" }
-                },
-                "required": ["proposal", "triage", "output"],
+                "properties": { "proposal": { "type": "number" }, "triage": { "type": "number" } },
+                "required": ["proposal", "triage"],
                 "additionalProperties": false
               }
             },
@@ -6363,7 +6428,7 @@
               "type": "object",
               "properties": {
                 "key": { "type": "string" },
-                "kind": { "type": "string", "enum": ["proposal", "triage", "output"] },
+                "kind": { "type": "string", "enum": ["proposal", "triage"] },
                 "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
@@ -6447,7 +6512,7 @@
               "type": "object",
               "properties": {
                 "key": { "type": "string" },
-                "kind": { "type": "string", "enum": ["proposal", "triage", "output"] },
+                "kind": { "type": "string", "enum": ["proposal", "triage"] },
                 "state": { "type": "string", "enum": ["open", "deferred", "discarded", "decided"] },
                 "title": { "type": "string" },
                 "summary": { "type": "string" },
@@ -7710,10 +7775,9 @@
                       "type": "object",
                       "properties": {
                         "proposal": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-                        "triage": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
-                        "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                        "triage": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
                       },
-                      "required": ["proposal", "triage", "output"],
+                      "required": ["proposal", "triage"],
                       "additionalProperties": false
                     }
                   },
@@ -8482,6 +8546,288 @@
         ],
         "additionalProperties": false
       },
+      "zLlmAllStatsResponse": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string", "enum": ["hour", "day", "month", "year"] },
+          "tz": { "type": "string", "const": "UTC" },
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "tokens": {
+                  "type": "object",
+                  "properties": {
+                    "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                  },
+                  "required": ["input", "output", "cache_read", "total"],
+                  "additionalProperties": false
+                },
+                "cost_usd": {
+                  "type": "object",
+                  "properties": {
+                    "input": { "type": "number", "minimum": 0 },
+                    "output": { "type": "number", "minimum": 0 },
+                    "cache_read": { "type": "number", "minimum": 0 },
+                    "total": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["input", "output", "cache_read", "total"],
+                  "additionalProperties": false
+                },
+                "unpriced": {
+                  "type": "object",
+                  "properties": {
+                    "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "tokens": {
+                      "type": "object",
+                      "properties": {
+                        "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["input", "output", "cache_read", "total"],
+                      "additionalProperties": false
+                    },
+                    "models": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["calls", "tokens", "models"],
+                  "additionalProperties": false
+                },
+                "cache_hit_ratio": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
+                "duration_ms": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "number", "minimum": 0 },
+                    "avg": { "type": "number", "minimum": 0 },
+                    "max": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["total", "avg", "max"],
+                  "additionalProperties": false
+                },
+                "by_kind": {
+                  "type": "object",
+                  "propertyNames": { "type": "string" },
+                  "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "by_model": {
+                  "type": "object",
+                  "propertyNames": { "type": "string" },
+                  "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "ts": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                }
+              },
+              "required": [
+                "calls",
+                "tokens",
+                "cost_usd",
+                "unpriced",
+                "cache_hit_ratio",
+                "duration_ms",
+                "by_kind",
+                "by_model",
+                "ts"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "tokens": {
+                "type": "object",
+                "properties": {
+                  "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                },
+                "required": ["input", "output", "cache_read", "total"],
+                "additionalProperties": false
+              },
+              "cost_usd": {
+                "type": "object",
+                "properties": {
+                  "input": { "type": "number", "minimum": 0 },
+                  "output": { "type": "number", "minimum": 0 },
+                  "cache_read": { "type": "number", "minimum": 0 },
+                  "total": { "type": "number", "minimum": 0 }
+                },
+                "required": ["input", "output", "cache_read", "total"],
+                "additionalProperties": false
+              },
+              "unpriced": {
+                "type": "object",
+                "properties": {
+                  "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "tokens": {
+                    "type": "object",
+                    "properties": {
+                      "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    },
+                    "required": ["input", "output", "cache_read", "total"],
+                    "additionalProperties": false
+                  },
+                  "models": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["calls", "tokens", "models"],
+                "additionalProperties": false
+              },
+              "cache_hit_ratio": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
+              "duration_ms": {
+                "type": "object",
+                "properties": {
+                  "total": { "type": "number", "minimum": 0 },
+                  "avg": { "type": "number", "minimum": 0 },
+                  "max": { "type": "number", "minimum": 0 }
+                },
+                "required": ["total", "avg", "max"],
+                "additionalProperties": false
+              },
+              "by_kind": {
+                "type": "object",
+                "propertyNames": { "type": "string" },
+                "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "by_model": {
+                "type": "object",
+                "propertyNames": { "type": "string" },
+                "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              }
+            },
+            "required": [
+              "calls",
+              "tokens",
+              "cost_usd",
+              "unpriced",
+              "cache_hit_ratio",
+              "duration_ms",
+              "by_kind",
+              "by_model"
+            ],
+            "additionalProperties": false
+          },
+          "per_space": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "space": { "type": "string" },
+                "name": { "type": "string" },
+                "totals": {
+                  "type": "object",
+                  "properties": {
+                    "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "tokens": {
+                      "type": "object",
+                      "properties": {
+                        "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["input", "output", "cache_read", "total"],
+                      "additionalProperties": false
+                    },
+                    "cost_usd": {
+                      "type": "object",
+                      "properties": {
+                        "input": { "type": "number", "minimum": 0 },
+                        "output": { "type": "number", "minimum": 0 },
+                        "cache_read": { "type": "number", "minimum": 0 },
+                        "total": { "type": "number", "minimum": 0 }
+                      },
+                      "required": ["input", "output", "cache_read", "total"],
+                      "additionalProperties": false
+                    },
+                    "unpriced": {
+                      "type": "object",
+                      "properties": {
+                        "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "tokens": {
+                          "type": "object",
+                          "properties": {
+                            "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                            "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                          },
+                          "required": ["input", "output", "cache_read", "total"],
+                          "additionalProperties": false
+                        },
+                        "models": { "type": "array", "items": { "type": "string" } }
+                      },
+                      "required": ["calls", "tokens", "models"],
+                      "additionalProperties": false
+                    },
+                    "cache_hit_ratio": {
+                      "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }]
+                    },
+                    "duration_ms": {
+                      "type": "object",
+                      "properties": {
+                        "total": { "type": "number", "minimum": 0 },
+                        "avg": { "type": "number", "minimum": 0 },
+                        "max": { "type": "number", "minimum": 0 }
+                      },
+                      "required": ["total", "avg", "max"],
+                      "additionalProperties": false
+                    },
+                    "by_kind": {
+                      "type": "object",
+                      "propertyNames": { "type": "string" },
+                      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    },
+                    "by_model": {
+                      "type": "object",
+                      "propertyNames": { "type": "string" },
+                      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    }
+                  },
+                  "required": [
+                    "calls",
+                    "tokens",
+                    "cost_usd",
+                    "unpriced",
+                    "cache_hit_ratio",
+                    "duration_ms",
+                    "by_kind",
+                    "by_model"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["space", "name", "totals"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["bucket", "tz", "from", "to", "buckets", "totals", "per_space"],
+        "additionalProperties": false
+      },
       "zCoverageStatsResponse": {
         "type": "object",
         "properties": {
@@ -8786,6 +9132,38 @@
                   "required": ["input", "output", "cache_read", "total"],
                   "additionalProperties": false
                 },
+                "cost_usd": {
+                  "type": "object",
+                  "properties": {
+                    "input": { "type": "number", "minimum": 0 },
+                    "output": { "type": "number", "minimum": 0 },
+                    "cache_read": { "type": "number", "minimum": 0 },
+                    "total": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["input", "output", "cache_read", "total"],
+                  "additionalProperties": false
+                },
+                "unpriced": {
+                  "type": "object",
+                  "properties": {
+                    "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "tokens": {
+                      "type": "object",
+                      "properties": {
+                        "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                        "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                      },
+                      "required": ["input", "output", "cache_read", "total"],
+                      "additionalProperties": false
+                    },
+                    "models": { "type": "array", "items": { "type": "string" } }
+                  },
+                  "required": ["calls", "tokens", "models"],
+                  "additionalProperties": false
+                },
+                "cache_hit_ratio": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
                 "duration_ms": {
                   "type": "object",
                   "properties": {
@@ -8812,7 +9190,17 @@
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
                 }
               },
-              "required": ["calls", "tokens", "duration_ms", "by_kind", "by_model", "ts"],
+              "required": [
+                "calls",
+                "tokens",
+                "cost_usd",
+                "unpriced",
+                "cache_hit_ratio",
+                "duration_ms",
+                "by_kind",
+                "by_model",
+                "ts"
+              ],
               "additionalProperties": false
             }
           },
@@ -8831,6 +9219,38 @@
                 "required": ["input", "output", "cache_read", "total"],
                 "additionalProperties": false
               },
+              "cost_usd": {
+                "type": "object",
+                "properties": {
+                  "input": { "type": "number", "minimum": 0 },
+                  "output": { "type": "number", "minimum": 0 },
+                  "cache_read": { "type": "number", "minimum": 0 },
+                  "total": { "type": "number", "minimum": 0 }
+                },
+                "required": ["input", "output", "cache_read", "total"],
+                "additionalProperties": false
+              },
+              "unpriced": {
+                "type": "object",
+                "properties": {
+                  "calls": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "tokens": {
+                    "type": "object",
+                    "properties": {
+                      "input": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "output": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "cache_read": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    },
+                    "required": ["input", "output", "cache_read", "total"],
+                    "additionalProperties": false
+                  },
+                  "models": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["calls", "tokens", "models"],
+                "additionalProperties": false
+              },
+              "cache_hit_ratio": { "anyOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] },
               "duration_ms": {
                 "type": "object",
                 "properties": {
@@ -8852,7 +9272,16 @@
                 "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
               }
             },
-            "required": ["calls", "tokens", "duration_ms", "by_kind", "by_model"],
+            "required": [
+              "calls",
+              "tokens",
+              "cost_usd",
+              "unpriced",
+              "cache_hit_ratio",
+              "duration_ms",
+              "by_kind",
+              "by_model"
+            ],
             "additionalProperties": false
           }
         },

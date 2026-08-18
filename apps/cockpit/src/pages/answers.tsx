@@ -15,6 +15,7 @@ import { useTableView } from '@/hooks/use-table-view'
 import { useUrlFilters } from '@/hooks/use-url-filters'
 import { firstPage, resetPage, type CursorPage } from '@/lib/cursor'
 import { useSpace } from '@/lib/space'
+import { useI18n } from '@/lib/i18n-context'
 import type { FilterSpec } from '@/lib/url-filters'
 import { count } from '@/pages/home.logic'
 import { coverageOf, filingStanding, kindWord, outputLabel, OUTPUT_KINDS } from '@/pages/answers.logic'
@@ -58,6 +59,7 @@ type OutputListRow = Awaited<ReturnType<typeof wk.outputs.list>>['items'][number
 
 export function AnswersPage() {
   const space = useSpace()
+  const { t } = useI18n()
   const { filters, setFilters } = useUrlFilters('answers', KIND_FILTERS)
   const kind = filters.kind ?? 'all'
   const [page, setPage] = useState<CursorPage>(firstPage)
@@ -105,7 +107,7 @@ export function AnswersPage() {
           const standing = filingStanding(row)
           // The word as well as the tone: a state is never carried by colour
           // alone (CUI-A11Y-5). The TableCell owns `answers-row-N-state`.
-          return <Badge tone={standing.tone}>{standing.label}</Badge>
+          return <Badge tone={standing.tone}>{t(standing.label)}</Badge>
         },
       },
       {
@@ -115,7 +117,7 @@ export function AnswersPage() {
         cell: (row) => <RelativeTime value={row.created_at} />,
       },
     ],
-    [],
+    [t],
   )
 
   const view = useTableView('answers', columns, 'cursor')
@@ -123,7 +125,7 @@ export function AnswersPage() {
   return (
     <Page
       title="Answers"
-      description="Every answer, briefing and check report this wiki has produced — and which of them were filed back into it."
+      description="Answers and operational reports this wiki has produced. Only answers can become a reviewed knowledge proposal."
       actions={
         <Button asChild variant="outline">
           <Link to="/search" search={(prev) => prev} data-testid="answers-ask">

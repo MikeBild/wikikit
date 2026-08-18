@@ -84,6 +84,7 @@ import {
   getKnowledgeStats,
   getKnowledgeUsageStats,
   getLlmStats,
+  getLlmStatsAcrossSpaces,
   getMcpUsageStats,
   getReviewUsageStats,
   getWebhookStats,
@@ -545,7 +546,7 @@ export const ROUTES: RouteDef[] = [
       503: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'llm_not_configured' },
     },
   },
-  // Outputs — the fourth place: what the wiki produced, and the door back in.
+  // Outputs — the fourth place: what the wiki produced. Answers have a reviewed door back in; reports do not.
   // There is deliberately NO DELETE. Retention collects unpromoted rows
   // (WIKIKIT_OUTPUT_RETENTION_DAYS) and a promoted one is provenance for a source
   // that exists forever, so nothing is left for a manual delete to accomplish —
@@ -567,7 +568,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/outputs/{id}',
     scope: 'knowledge:read',
     summary:
-      'Read one output. Accept: text/markdown returns the document that promotion would archive — title, question, answer, cited pages.',
+      'Read one output. Accept: text/markdown returns its document; for an answer this is the document knowledge proposal promotion would archive.',
     handler: 'getOutputHandler',
     request: { params: 'zIdParams' },
     responses: {
@@ -579,7 +580,7 @@ export const ROUTES: RouteDef[] = [
     path: '/v1/outputs/{id}/promote',
     scope: 'knowledge:propose',
     summary:
-      'Promote an output back into the wiki: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Idempotent — a second promote returns the first job.',
+      'Propose knowledge from a grounded answer: its markdown is archived as a source marked derived_from_output_id and runs the ORDINARY ingest pipeline, so a human still reviews the proposal. Briefing and health reports are history and return output_not_promotable. Idempotent — a second answer promotion returns the first job.',
     handler: 'promoteOutputHandler',
     request: { params: 'zIdParams' },
     responses: {
@@ -591,7 +592,7 @@ export const ROUTES: RouteDef[] = [
       409: {
         schema: 'zErrorEnvelope',
         type: 'application/json',
-        desc: 'already_ingested — this exact text is archived under another source (envelope carries source_id); the output stays unpromoted',
+        desc: 'output_not_promotable for reports, or already_ingested when this exact answer text is already archived; the output stays unpromoted',
       },
       429: {
         schema: 'zErrorEnvelope',
@@ -919,6 +920,18 @@ export const ROUTES: RouteDef[] = [
     responses: {
       200: { schema: 'zUsageStatsResponse', type: 'application/json', desc: 'Global MCP usage statistics' },
       400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid usage statistics query' },
+    },
+  },
+  {
+    method: 'get',
+    path: '/v1/stats/llm',
+    scope: 'admin',
+    summary: 'Cross-wiki measured LLM tokens, configured cost, cache use and explicit unpriced usage',
+    handler: 'llmAllStatsHandler',
+    request: { query: 'zStatsQuery' },
+    responses: {
+      200: { schema: 'zLlmAllStatsResponse', type: 'application/json', desc: 'Global LLM statistics' },
+      400: { schema: 'zErrorEnvelope', type: 'application/json', desc: 'Invalid or excessive time window' },
     },
   },
   {
@@ -1743,6 +1756,7 @@ export const HANDLERS: Record<string, Handler> = {
     const answer = await answerQuestion(deps.db, space.id, deps.llm, body, {
       vector: deps.vector,
       scaffoldingKinds: deps.config.scaffoldingKinds,
+      tokenBudget: deps.config.answerTokenBudget ?? 36_000,
     })
     // Demand-vs-coverage telemetry: an honest "the knowledge base does not
     // cover this" is a successful transport but an unanswered question — the
@@ -2486,7 +2500,17 @@ export const HANDLERS: Record<string, Handler> = {
   async llmStatsHandler(deps, input) {
     const space = await resolveSpace(deps, input, 'knowledge:read')
     const window = resolveStatsWindow(input.query)
-    return { status: 200, body: await getLlmStats(deps.db, space.id, window) }
+    return { status: 200, body: await getLlmStats(deps.db, space.id, window, deps.config.modelPrices) }
+  },
+
+  async llmAllStatsHandler(deps, input) {
+    const window = resolveStatsWindow(input.query)
+    const spaces = await listSpaces(deps.db)
+    const visible = input.principal!.spaceId ? spaces.filter((space) => space.id === input.principal!.spaceId) : spaces
+    return {
+      status: 200,
+      body: await getLlmStatsAcrossSpaces(deps.db, visible, window, deps.config.modelPrices),
+    }
   },
 
   async webhookStatsHandler(deps, input) {

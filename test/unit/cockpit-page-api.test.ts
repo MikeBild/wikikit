@@ -80,6 +80,7 @@ const PAGE_ROUTES: Record<string, string> = {
   'api-keys.tsx': '/api-keys',
   'identities.tsx': '/identities',
   'webhooks.tsx': '/webhooks',
+  'model-usage.tsx': '/model-usage',
   'system.tsx': '/system',
 }
 

@@ -5,6 +5,7 @@ import {
   Inbox,
   KeyRound,
   MessageSquareQuote,
+  ChartNoAxesCombined,
   ScrollText,
   Search,
   ShieldCheck,
@@ -231,6 +232,14 @@ export const NAV: readonly NavEntry[] = [
     scope: 'admin',
     group: 'installation',
     api: ['/v1/spaces/{space}/webhooks', '/v1/spaces/{space}/webhooks/{id}/deliveries'],
+  },
+  {
+    to: '/model-usage',
+    label: 'Model usage',
+    icon: ChartNoAxesCombined,
+    scope: 'knowledge:read',
+    group: 'installation',
+    api: ['/v1/spaces/{space}/stats/llm', '/v1/stats/llm'],
   },
   {
     to: '/system',

@@ -101,17 +101,22 @@ describe('whether a row has been filed back into the wiki', () => {
   test('promoted_ingest_id is the whole answer — the state is derived, not stored', () => {
     // Promotion opens an ingest job and writes its id here; re-promoting returns
     // the FIRST job, so the field is set exactly once and never cleared.
-    expect(filingStanding(answer({ promoted_ingest_id: 'job-1' }))).toEqual({ label: 'In the wiki', tone: 'success' })
+    expect(filingStanding(answer({ promoted_ingest_id: 'job-1' }))).toEqual({
+      label: 'outputs.status.proposed',
+      tone: 'success',
+    })
   })
 
   test('an answer nobody filed is not a FAILURE — it is an answer nobody filed', () => {
     // Deliberately the unknown tone rather than danger: visibly present,
     // visibly not a verdict.
-    expect(filingStanding(answer())).toEqual({ label: 'Not filed', tone: 'unknown' })
+    expect(filingStanding(answer())).toEqual({ label: 'outputs.status.saved', tone: 'unknown' })
   })
 
   test('the promote action is offered exactly while there is something to do', () => {
     expect(promotable(answer())).toBe(true)
     expect(promotable(answer({ promoted_ingest_id: 'job-1' }))).toBe(false)
+    expect(promotable(answer({ kind: 'briefing', question: null }))).toBe(false)
+    expect(promotable(answer({ kind: 'health', question: null }))).toBe(false)
   })
 })

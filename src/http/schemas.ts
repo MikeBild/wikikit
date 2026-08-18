@@ -856,9 +856,12 @@ export const zQueryResponse = z.object({
       title: z.string().nullable(),
     }),
   ),
+  tokens_used: z.number().int().nonnegative(),
+  tokens_budget: z.number().int().positive(),
+  truncated: z.boolean(),
   /**
    * The persisted Output this answer became — the handle for
-   * POST /v1/outputs/{id}/promote, which is the one door back into the wiki.
+   * POST /v1/outputs/{id}/promote, which opens the reviewed door back into the wiki for answers only.
    * ADDITIVE: every field above is unchanged and in place.
    *
    * NULLABLE, and the null is honest rather than convenient: the answer is
@@ -1550,6 +1553,18 @@ const zDurationMs = z.strictObject({
 const zLlmValues = z.strictObject({
   calls: z.number().int().nonnegative(),
   tokens: zTokenValues,
+  cost_usd: z.strictObject({
+    input: z.number().nonnegative(),
+    output: z.number().nonnegative(),
+    cache_read: z.number().nonnegative(),
+    total: z.number().nonnegative(),
+  }),
+  unpriced: z.strictObject({
+    calls: z.number().int().nonnegative(),
+    tokens: zTokenValues,
+    models: z.array(z.string()),
+  }),
+  cache_hit_ratio: z.number().min(0).max(1).nullable(),
   duration_ms: zDurationMs,
   by_kind: z.record(z.string(), z.number().int().nonnegative()),
   by_model: z.record(z.string(), z.number().int().nonnegative()),
@@ -1558,6 +1573,12 @@ export const zLlmStatsResponse = z.strictObject({
   ...zStatsEnvelope,
   buckets: z.array(zLlmValues.extend({ ts: z.iso.datetime() })),
   totals: zLlmValues,
+})
+export const zLlmAllStatsResponse = z.strictObject({
+  ...zStatsEnvelope,
+  buckets: z.array(zLlmValues.extend({ ts: z.iso.datetime() })),
+  totals: zLlmValues,
+  per_space: z.array(z.strictObject({ space: z.string(), name: z.string(), totals: zLlmValues })),
 })
 
 const zWebhookValues = z.strictObject({
@@ -1792,7 +1813,6 @@ export const zSpacesOverviewResponse = z.strictObject({
         by_kind: z.strictObject({
           proposal: z.number().int().nonnegative(),
           triage: z.number().int().nonnegative(),
-          output: z.number().int().nonnegative(),
         }),
       }),
       concepts: z.number().int().nonnegative(),
@@ -1800,7 +1820,7 @@ export const zSpacesOverviewResponse = z.strictObject({
   ),
 })
 
-const zAttentionKind = z.enum(['proposal', 'triage', 'output'])
+const zAttentionKind = z.enum(['proposal', 'triage'])
 const zAttentionState = z.enum(['open', 'deferred', 'discarded', 'decided'])
 const zAttentionItem = z.object({
   key: z.string(),
@@ -1847,7 +1867,7 @@ export const zAttentionResponse = z.object({
     open: z.number().int().nonnegative(),
     overdue: z.number().int().nonnegative(),
     oldest_days: z.number().int().nullable(),
-    by_kind: z.object({ proposal: z.number(), triage: z.number(), output: z.number() }),
+    by_kind: z.object({ proposal: z.number(), triage: z.number() }),
   }),
   items: z.array(zAttentionItem),
   next_cursor: z.string().nullable(),
@@ -1971,6 +1991,7 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zIngestStatsResponse,
   zKnowledgeStatsResponse,
   zLlmStatsResponse,
+  zLlmAllStatsResponse,
   zWebhookStatsResponse,
   zUsageStatsResponse,
   zCoverageStatsQuery,
