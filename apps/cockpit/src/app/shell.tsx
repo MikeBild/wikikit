@@ -143,7 +143,19 @@ export function Shell() {
               convention check and the family parity harness both grip — one
               selector across six products instead of six dialects.
             */}
-            <div data-testid="cockpit-wordmark" className="flex h-8 items-center gap-2 px-0.5">
+            {/*
+              `px-0.5` gibt dem Namen etwas Luft, und eingeklappt genau das
+              nicht: die Leiste ist dann 48px breit, der Kopf trägt 8px
+              Polsterung, und die zusätzlichen 2px haben das 32px-Quadrat auf
+              x=10..42 geschoben — Mitte 26 statt 24, wo die Achse aller
+              Nav-Icons liegt. §6 sagt „Icon bleibt, Name geht"; das Bleibende
+              soll dabei nicht wandern. Eingeklappt also keine seitliche
+              Polsterung, dann füllt das Quadrat den Kopf und sitzt auf 24.
+            */}
+            <div
+              data-testid="cockpit-wordmark"
+              className="flex h-8 items-center gap-2 px-0.5 group-data-[collapsible=icon]:px-0"
+            >
               {/*
                 `Library` — four strokes on a shelf. The suggested motif for
                 WikiKit, and kept rather than replaced: it is the only shelf in

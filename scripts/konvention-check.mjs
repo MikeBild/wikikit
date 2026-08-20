@@ -839,6 +839,36 @@ const ROUTE_PROBE = `(() => {
   }
 })()`
 
+/*
+  §6 — „Icon bleibt, Name geht", und das Bleibende bleibt auf der Achse.
+
+  Eingeklappt ist die Wortmarke das oberste Element einer Spalte aus Icons. Ein
+  Quadrat, das zwei Pixel neben dieser Spalte sitzt, liest sich als Fehler in
+  der Ausrichtung der ganzen Leiste — und zwei Pixel sind genau die Größe, die
+  niemand benennt und jeder sieht. Gemessen werden Mittelachsen, nicht Klassen:
+  eine Polsterung kann auf drei Wegen entstehen und muss auf allen dreien
+  auffallen.
+
+  Der eingeklappte Zustand wird HERGESTELLT und nicht abgewartet. Lässt er sich
+  nicht herstellen, ist das ein Befund — eine Prüfung, die bei fehlender
+  Voraussetzung stumm zurückkehrt, meldet Erfüllung, wo sie nichts gemessen hat.
+*/
+const AXIS_PROBE = `(() => {
+  const center = (element) => {
+    const box = element.getBoundingClientRect()
+    return box.width > 0 ? box.left + box.width / 2 : null
+  }
+  const name = document.querySelector('[data-testid="cockpit-wordmark-name"]')
+  const nameBox = name ? name.getBoundingClientRect() : null
+  const icon = document.querySelector('[data-testid="cockpit-wordmark-icon"]')
+  const navIcons = [...document.querySelectorAll('nav[aria-label] a[data-testid^="nav-"] svg')]
+  return {
+    collapsed: Boolean(name) && (!nameBox || nameBox.width === 0),
+    wordmark: icon ? center(icon) : null,
+    nav: navIcons.map(center).filter((value) => value !== null),
+  }
+})()`
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i
 const FORBIDDEN_BUTTONS = ['ok', 'submit']
 
@@ -1306,6 +1336,48 @@ async function main() {
       note('§1', 'Zone-A-Karte (Fixture „gate-clear")', `Zähler liest ${quietNumbers.zoneA ?? '(fehlt)'} statt 0`)
     }
 
+    /*
+      ---- Die eingeklappte Leiste, zuletzt --------------------------------
+
+      Zuletzt, weil das Einklappen ein Zustand ist, den kein Assert davor
+      sehen soll — und weil danach nichts mehr gemessen wird, muss er auch
+      nicht zurückgenommen werden.
+    */
+    const trigger = page.locator('[data-testid="sidebar-trigger"]')
+    if ((await trigger.count()) === 0) {
+      note('§6', 'Seitenleiste eingeklappt', 'kein [data-testid="sidebar-trigger"] — nicht geprüft')
+    } else {
+      await trigger.first().click()
+      await page.waitForTimeout(400)
+      const axis = await page.evaluate(AXIS_PROBE)
+      if (!axis.collapsed) {
+        note('§6', 'Seitenleiste eingeklappt', 'liess sich nicht einklappen — nicht geprüft')
+      } else if (axis.wordmark === null || axis.nav.length === 0) {
+        note(
+          '§6',
+          'Seitenleiste eingeklappt › Achse',
+          `nichts zu messen: Wortmarken-Quadrat ${axis.wordmark ?? '(keine Box)'}, ${axis.nav.length} Nav-Icons`,
+        )
+      } else {
+        // Alle Nav-Icons stehen auf einer Achse; weicht eines davon ab, ist
+        // schon das ein Befund, und der Vergleich unten hätte keinen Bezug.
+        const spread = Math.max(...axis.nav) - Math.min(...axis.nav)
+        if (spread > 1) {
+          note(
+            '§6',
+            'Seitenleiste eingeklappt › Nav-Icons',
+            `stehen selbst nicht auf einer Achse (${spread.toFixed(1)}px)`,
+          )
+        } else if (Math.abs(axis.wordmark - axis.nav[0]) > 1) {
+          note(
+            '§6',
+            'Seitenleiste eingeklappt › Wortmarke',
+            `Quadrat auf x=${axis.wordmark.toFixed(1)}, Nav-Icons auf x=${axis.nav[0].toFixed(1)}`,
+          )
+        }
+      }
+    }
+
     await context.close()
   } finally {
     await browser.close()
@@ -1415,6 +1487,7 @@ function report(base, violations, unmocked, swept, unchecked) {
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
     console.log('   Wortmarken-Icon (Schreibweise aus der berechneten text-transform, nicht aus innerText),')
     console.log('   Favicon das wirklich lädt und sich als Bild decodiert,')
+    console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
     console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
     return
   }
