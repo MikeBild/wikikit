@@ -776,9 +776,11 @@ const ZONE_A_PROBE = `(() => {
     heading: clean(card.querySelector('[data-slot="card-title"]')),
     countInHead: Boolean(count),
     countHref: count ? count.getAttribute('href') : null,
+    total: count ? Number(count.getAttribute('data-total')) : null,
     head: clean(head),
     rows: rows.length,
     linkedRows: rows.filter((row) => row.querySelector('a[href]')).length,
+    keys: rows.map((row) => row.getAttribute('data-space') + ':' + row.getAttribute('data-decision-key')),
   }
 })()`
 
@@ -1034,6 +1036,35 @@ async function main() {
         note('§1', 'Übersicht › Zone A', 'keine Positionen in der Karte (Fixture „gate-open")')
       } else if (zoneA.linkedRows !== zoneA.rows) {
         note('§1', 'Übersicht › Zone A › Zeilen', `${zoneA.linkedRows} von ${zoneA.rows} Zeilen verlinkt`)
+      }
+      /*
+        Die GERENDERTEN Zeilen, nicht nur die Zahl darüber (§8.1/§1).
+
+        Der Vierweg-Vergleich weiter unten hält vier Zähler gegeneinander und
+        hat trotzdem übersehen, dass der Kopf „6 offen" sagte und die Tabelle
+        darunter sieben Zeilen zeigte: die Fixture liefert die erste Position
+        bewusst zweimal, die Entscheidungs-Seite faltet sie, die Zone-A-Karte
+        nicht. Vier gleiche Zahlen über einer falschen Liste sind genau die
+        Art Grün, für die eine Prüfung nicht da ist.
+
+        Zwei Sätze, weil es zwei Fehler sind: eine Dublette (gleiche
+        Schlüssel) und eine Liste, die nicht zu ihrem Kopf passt. Die Fixture
+        liefert die Liste vollständig — dieselbe Annahme, unter der die Queue
+        weiter unten `data-capped="false"` verlangt.
+      */
+      if (new Set(zoneA.keys).size !== zoneA.keys.length) {
+        note(
+          '§1',
+          'Übersicht › Zone A › Dubletten',
+          `${zoneA.keys.length} Zeilen, ${new Set(zoneA.keys).size} Positionen`,
+        )
+      }
+      if (zoneA.rows !== zoneA.total) {
+        note(
+          '§1',
+          'Übersicht › Zone A › Zeilen vs. Kopf',
+          `Kopf sagt ${zoneA.total ?? '(keine Zahl)'}, die Karte zeigt ${zoneA.rows} Zeilen`,
+        )
       }
     }
 
@@ -1328,6 +1359,7 @@ function report(base, violations, unmocked, swept, unchecked) {
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
+    console.log('   Zone-A-Zeilen dublettenfrei und deckungsgleich mit dem Kopf,')
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
     console.log('   Wortmarken-Icon, Favicon das wirklich lädt und sich als Bild decodiert,')
     console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')

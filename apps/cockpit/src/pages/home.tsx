@@ -8,6 +8,7 @@ import {
   GLOBAL_ATTENTION_QUERY,
   bannerSubset,
   countOpenDecisions,
+  dedupe,
   summaryLine,
   type BannerSubset,
 } from '@/pages/decisions.logic'
@@ -47,6 +48,20 @@ export function HomePage() {
       })
     : null
   const incident = open ? bannerSubset(open) : null
+  /*
+    The SAME deduplicated list the counter above was computed from (§8.1/§1).
+
+    `countOpenDecisions` folds the feed by `space:key` before it counts,
+    because the feed repeats itself in production — a retry, a cursor overlap,
+    two synthesis runs on one source. The rows underneath used to be rendered
+    from `attention.data.items` unfolded, so the head said „6 offen" and the
+    table showed seven lines with one position twice. A card whose head and
+    body disagree about the same set is worse than a wrong number: nothing
+    looks broken, and the reader is the one who has to notice.
+
+    The decisions queue has always deduplicated. This is the same call.
+  */
+  const tasks = attention.data ? dedupe(attention.data.items) : []
 
   function search(event: FormEvent) {
     event.preventDefault()
@@ -125,10 +140,10 @@ export function HomePage() {
           <CardContent className="min-w-0">
             {attention.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}…</p> : null}
             {attention.isError ? <Alert tone="danger" title={t('home.compact.tasksError')} /> : null}
-            {attention.data && attention.data.items.length === 0 ? (
+            {attention.data && tasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('home.compact.tasksEmpty')}</p>
             ) : null}
-            {attention.data?.items.length ? (
+            {tasks.length ? (
               <div className="overflow-hidden rounded-lg border" data-testid="home-task-table">
                 <Table>
                   <TableHeader>
@@ -143,7 +158,7 @@ export function HomePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {attention.data.items.map((task, index) => (
+                    {tasks.map((task, index) => (
                       <TaskRow key={`${task.space}:${task.key}`} task={task} position={index + 1} />
                     ))}
                   </TableBody>
@@ -271,7 +286,16 @@ function TaskRow({ task, position }: { task: Task; position: number }) {
     </Button>
   )
   return (
-    <TableRow data-testid={`home-task-${position}`}>
+    /*
+      The identity of the position, on the row (§8.1/§1).
+
+      Named exactly like the queue's rows so one assert can hold both to the
+      same rule: the card's line count equals the counter in its head, and the
+      keys are distinct. Before this the check compared only NUMBERS across the
+      four surfaces, which is why a card that rendered a duplicate line under a
+      correct counter passed it.
+    */
+    <TableRow data-testid={`home-task-${position}`} data-space={task.space} data-decision-key={task.key}>
       <TableCell className="hidden max-w-36 align-top lg:table-cell">
         <Link
           to="/"
