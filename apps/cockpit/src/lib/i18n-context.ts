@@ -53,6 +53,7 @@ export interface I18nValue {
   text(source: string, values?: Readonly<Record<string, string | number>>): string
   number(value: number): string
   dateTime(value: string | number | Date): string
+  date(value: string | number | Date): string
 }
 
 export const I18nContext = createContext<I18nValue | null>(null)

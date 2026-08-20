@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { useI18n } from '@/lib/i18n-context'
+import { readableTitle, withoutOpaqueRefs } from '@/lib/presentation'
 
 import type { TranslationKey } from '@/lib/i18n'
 
@@ -173,7 +174,12 @@ function IncidentBanner({ subset }: { subset: BannerSubset }) {
 }
 
 function TaskRow({ task, position }: { task: Task; position: number }) {
-  const { t } = useI18n()
+  const { t, date } = useI18n()
+  // §5 — a row is named by what it is about, not by the identifier the source
+  // happened to carry. The date takes over the job the identifier was doing
+  // badly: telling one ingested session from the next.
+  const title = readableTitle(task.title, t('decisions.untitled'))
+  const summary = task.summary ? withoutOpaqueRefs(task.summary) : ''
   const proposalId = task.kind === 'proposal' ? task.key.slice('proposal:'.length) : null
   const triageId = task.kind === 'triage' ? task.key.slice('triage:'.length) : null
   const action = proposalId ? (
@@ -213,10 +219,11 @@ function TaskRow({ task, position }: { task: Task; position: number }) {
       </TableCell>
       <TableCell className="min-w-0 align-top whitespace-normal">
         <span className="mb-0.5 block truncate text-xs text-muted-foreground lg:hidden">{task.space_name}</span>
-        <span className="block font-medium">{task.title}</span>
-        {task.summary ? (
-          <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{task.summary}</span>
-        ) : null}
+        <span className="block font-medium">
+          {title.text}
+          {title.redacted ? ` · ${date(task.created_at)}` : ''}
+        </span>
+        {summary ? <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{summary}</span> : null}
       </TableCell>
       <TableCell className="hidden align-top md:table-cell">
         <Badge tone="neutral">

@@ -19,6 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSpaceContext } from '@/lib/space'
 import type { TranslationKey } from '@/lib/i18n'
 import { useI18n } from '@/lib/i18n-context'
+import { readableTitle, withoutOpaqueRefs } from '@/lib/presentation'
 import {
   AGING_DAYS,
   GLOBAL_ATTENTION_QUERY,
@@ -350,7 +351,7 @@ function DecisionEmpty({
  * every open row in it, because react-query keys it by wiki rather than by row.
  */
 function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
-  const { t } = useI18n()
+  const { t, date } = useI18n()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
   const space = row.space
@@ -375,6 +376,8 @@ function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
     enabled: expanded && row.detail === null,
   })
   const detail = row.detail ?? detailQuery.data?.items.find((entry) => entry.key === row.key) ?? null
+  const title = readableTitle(row.title, t('decisions.untitled'))
+  const summary = row.summary ? withoutOpaqueRefs(row.summary) : ''
   const proposalId = row.kind === 'proposal' ? row.key.slice('proposal:'.length) : null
   const proposal = useQuery({
     queryKey: proposalId ? keys.proposal(proposalId) : ['proposal-preview', 'none'],
@@ -408,8 +411,18 @@ function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
           </Link>
           <RelativeTime value={row.createdAt} />
         </div>
-        <CardTitle>{row.title}</CardTitle>
-        {row.summary ? <CardDescription>{row.summary}</CardDescription> : null}
+        {/*
+          §5/§8.3 — the title is a summary, never a raw identifier. The server
+          composes it from whatever the source was called, and an ingested
+          coding session is called "Codex session <id>": a row a reviewer can
+          neither say out loud nor tell apart from the next one. The date takes
+          over that job; the identifier keeps its own, in the panel below.
+        */}
+        <CardTitle>
+          {title.text}
+          {title.redacted ? ` · ${date(row.createdAt)}` : ''}
+        </CardTitle>
+        {summary ? <CardDescription>{summary}</CardDescription> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">{t(attentionEffectKey(row.kind))}</p>
@@ -426,6 +439,17 @@ function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-3 flex flex-col gap-3">
+            {/*
+              The raw title, in the one place §5 allows an identifier: the
+              detail depth. It is not a name, it is EVIDENCE of where the
+              position came from — the raw title survives capture on purpose,
+              so hiding it entirely would trade one loss for another.
+            */}
+            {title.redacted ? (
+              <p className="text-xs text-muted-foreground" data-testid={`${testId}-raw-title`}>
+                {t('decisions.rawTitle')}: <span className="font-mono break-all">{row.title}</span>
+              </p>
+            ) : null}
             {detail ? (
               <DecisionTrace item={detail} testId={`${testId}-trace`} />
             ) : detailQuery.isLoading ? (

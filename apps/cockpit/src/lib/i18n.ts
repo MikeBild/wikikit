@@ -154,6 +154,8 @@ const EN = {
   'attention.noAge': 'No dated work is waiting',
   'attention.effect.proposal': 'Wiki knowledge changes only after a person approves it.',
   'attention.effect.triage': 'Choose where this inbox item belongs.',
+  'decisions.untitled': 'Knowledge change without a title',
+  'decisions.rawTitle': 'Title as it arrived',
   'decisions.filters': 'Decision filters',
   'decisions.wikiFilter': 'Filter by wiki',
   'decisions.wikiAll': 'All wikis',
@@ -478,6 +480,8 @@ const DE: Record<TranslationKey, string> = {
   'attention.noAge': 'Keine datierte Aufgabe wartet',
   'attention.effect.proposal': 'Das Wiki-Wissen ändert sich erst nach menschlicher Freigabe.',
   'attention.effect.triage': 'Hier wird entschieden, wohin dieser Eingangseintrag gehört.',
+  'decisions.untitled': 'Wissensänderung ohne Titel',
+  'decisions.rawTitle': 'Titel, wie er ankam',
   'decisions.filters': 'Entscheidungsfilter',
   'decisions.wikiFilter': 'Nach Wiki filtern',
   'decisions.wikiAll': 'Alle Wikis',
@@ -1992,6 +1996,21 @@ export function translate(
 
 export function formatNumber(locale: Locale, value: number): string {
   return new Intl.NumberFormat(LOCALE_TAGS[locale]).format(value)
+}
+
+/**
+ * A calendar date, for places where the clock time is noise.
+ *
+ * Used where a machine-written title had its identifier removed and needs
+ * something to tell one run from the next: "Ingest: Codex session · 15. Aug.
+ * 2026" answers "which one?" the way a person would, and the minute it started
+ * does not.
+ */
+export function formatDate(locale: Locale, value: string | number | Date): string {
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.valueOf())
+    ? '—'
+    : new Intl.DateTimeFormat(LOCALE_TAGS[locale], { dateStyle: 'medium' }).format(date)
 }
 
 export function formatDateTime(locale: Locale, value: string | number | Date): string {

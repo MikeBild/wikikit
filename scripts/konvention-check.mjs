@@ -100,6 +100,19 @@ const OPEN_ITEMS = [
     summary: 'Ein Absatz zur Vertretung, belegt durch die Betriebsvereinbarung.',
     ageDays: 0,
   },
+  // Written the way the SERVER writes one, verbatim: the proposal title is
+  // composed from whatever the source was called, and an ingested coding
+  // session is called "Codex session <id>". Without a row like this the UUID
+  // prohibition below would only ever run over titles a human wrote, and would
+  // have passed on the day this console was shipping identifiers to readers.
+  {
+    space: 'handbuch',
+    key: 'proposal:11111111-1111-4111-8111-000000000016',
+    title: 'Ingest: Codex session 01a0103d-9c1f-4a6e-9e2f-2b71c0a5d4e8',
+    summary:
+      'Synthesized 8 concepts, 28 claims, 2 contradictions detected from source 8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62.',
+    ageDays: 4,
+  },
 ]
 
 /** How many of them §8.2 calls old, and how old the oldest is. */
