@@ -632,13 +632,47 @@ const SHELL_PROBE = `(() => {
     return box.width > 0 && box.height > 0
   }
   const wordmarkIcon = wordmark ? wordmark.querySelector('svg, img, [data-testid="cockpit-wordmark-icon"]') : null
+  /*
+    Die Wortmarke, wie sie DASTEHT — aus der berechneten Schreibweise, nicht
+    aus innerText.
+
+    innerText war eine zustandsabhängige Schranke und damit keine: er bildet
+    text-transform ab, ist aber leer, sobald das Element display:none trägt —
+    und eingeklappt trägt genau die Namenszeile das. Der Rückfall innerText
+    oder textContent landete dann auf textContent, wo „WikiKit" unabhängig von jeder
+    CSS-Transformation steht, und die Versalien-Schranke war blind. Dass der
+    Check heute immer mit ausgeklappter Leiste startet, macht sie nicht
+    tragfähig; es verschiebt nur den Tag, an dem sie schweigt.
+
+    Also: textContent als GESCHRIEBENE Fassung, getComputedStyle().textTransform
+    als angewandte Regel, die Anwendung hier in JavaScript. text-transform wird
+    vererbt, die Messung am Namenselement fängt also auch eine Klasse am
+    Container — und getComputedStyle liefert sie auch für ein Element, das
+    gerade nicht dargestellt wird.
+  */
+  const nameEl = wordmark ? wordmark.querySelector('[data-testid="cockpit-wordmark-name"]') : null
+  const authored = nameEl ? (nameEl.textContent || '').replace(/\\s+/g, ' ').trim() : null
+  const transform = nameEl ? getComputedStyle(nameEl).textTransform : null
+  const applied =
+    authored === null
+      ? null
+      : transform === 'uppercase'
+        ? authored.toUpperCase()
+        : transform === 'lowercase'
+          ? authored.toLowerCase()
+          : transform === 'capitalize'
+            ? authored.replace(/(^|\\s)(\\p{L})/gu, (whole, lead, letter) => lead + letter.toUpperCase())
+            : authored
   const iconLink = document.querySelector('link[rel~="icon"]')
   return {
     title: document.title,
     icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
     wordmark: wordmark
       ? {
-          name: text(wordmark),
+          nameElement: Boolean(nameEl),
+          name: applied,
+          authored: authored,
+          transform: transform,
           icon: Boolean(wordmarkIcon),
           iconShown: shown(wordmarkIcon),
         }
@@ -871,17 +905,35 @@ async function main() {
     // the state this assert was written to end.
     if (!shell.wordmark) {
       note('§5/§6', 'Sidebar › Wortmarke', 'kein [data-testid="cockpit-wordmark"] im DOM')
+    } else if (!shell.wordmark.nameElement) {
+      // Keine stille Rückkehr: ohne die Namenszeile ist nichts geprüft, und
+      // „nicht geprüft" ist ein Befund (§12), kein bestandener Satz.
+      note('§5/§6', 'Sidebar › Wortmarke', 'keine Namenszeile [data-testid="cockpit-wordmark-name"] im DOM')
     } else {
+      const seen = (where) =>
+        shell.wordmark.transform && shell.wordmark.transform !== 'none'
+          ? `${where} (text-transform: ${shell.wordmark.transform}, geschrieben „${shell.wordmark.authored}")`
+          : where
       if (shell.wordmark.name !== PRODUCT_NAME) {
-        note('§5/§6', 'Sidebar › Wortmarke', `„${shell.wordmark.name ?? '(leer)'}" statt „${PRODUCT_NAME}"`)
+        note(
+          '§5/§6',
+          'Sidebar › Wortmarke',
+          `„${shell.wordmark.name || '(leer)'}" statt „${PRODUCT_NAME}" — ${seen('so steht es da')}`,
+        )
       }
       // A SECOND assert, and not a redundant one: the first catches today's
       // „WIKIKIT", this one catches a name that drifts to all-caps or
       // all-lowercase by some other route — a CSS `text-transform`, say, which
       // the first assert cannot see because it reads the DOM text.
       const name = shell.wordmark.name ?? ''
-      if (name && (name === name.toUpperCase() || name === name.toLowerCase())) {
-        note('§5/§6', 'Sidebar › Wortmarke', `„${name}" ist durchgehend groß- oder kleingeschrieben`)
+      if (!name) {
+        note('§5/§6', 'Sidebar › Wortmarke', 'die Namenszeile trägt keinen Text — nicht geprüft')
+      } else if (name === name.toUpperCase() || name === name.toLowerCase()) {
+        note(
+          '§5/§6',
+          'Sidebar › Wortmarke',
+          `„${name}" ist durchgehend groß- oder kleingeschrieben — ${seen('gemessen')}`,
+        )
       }
       // §6 — an icon stands NEXT TO the name, and it is actually painted.
       // Presence in the DOM is not the claim: a glyph in a collapsed container
@@ -1361,7 +1413,8 @@ function report(base, violations, unmocked, swept, unchecked) {
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
     console.log('   Zone-A-Zeilen dublettenfrei und deckungsgleich mit dem Kopf,')
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
-    console.log('   Wortmarken-Icon, Favicon das wirklich lädt und sich als Bild decodiert,')
+    console.log('   Wortmarken-Icon (Schreibweise aus der berechneten text-transform, nicht aus innerText),')
+    console.log('   Favicon das wirklich lädt und sich als Bild decodiert,')
     console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
     return
   }

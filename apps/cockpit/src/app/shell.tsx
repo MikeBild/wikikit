@@ -164,7 +164,18 @@ export function Shell() {
               >
                 <Library aria-hidden="true" className="size-[18px]" />
               </span>
-              <span className="truncate text-sm font-semibold group-data-[collapsible=icon]:hidden">
+              {/*
+                Eine eigene Kennung auf der Namenszeile, nicht nur auf dem
+                Container: die Versalien-Schranke misst die berechnete
+                `text-transform` AN DIESEM Element, und ein Container trägt
+                nicht zwingend dieselbe. Eingeklappt steht diese Zeile auf
+                display:none — die Schranke greift trotzdem, weil sie eine
+                berechnete Eigenschaft liest und keinen gerenderten Text.
+              */}
+              <span
+                data-testid="cockpit-wordmark-name"
+                className="truncate text-sm font-semibold group-data-[collapsible=icon]:hidden"
+              >
                 {t('app.name')}
               </span>
             </div>
