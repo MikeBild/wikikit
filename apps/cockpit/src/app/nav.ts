@@ -62,7 +62,14 @@ export interface NavEntry {
   exact?: boolean
 }
 
-/** The wiki block follows the end-user's places: arrive, read, find, ask, check. */
+/**
+ * The wiki block follows the end-user's places: arrive, read, find, ask, check.
+ *
+ * The order of THIS array is the order of the sidebar inside each group, which
+ * is why the decisions entry sits second rather than beside the other queues:
+ * §8.1 puts it directly under the overview, and a table whose order is only
+ * incidentally right is a table that drifts the next time an entry is appended.
+ */
 export const NAV: readonly NavEntry[] = [
   {
     to: '/',
@@ -75,6 +82,30 @@ export const NAV: readonly NavEntry[] = [
     // coverage block AND the two live queues the loop is measured by, so the
     // front page asks once for the numbers it used to guess at.
     api: ['/v1/attention'],
+  },
+  {
+    to: '/decisions',
+    // Ungrouped and directly under the overview, and that position is a rule
+    // rather than a preference (Konvention §8.1): the one surface that collects
+    // human decisions is where an operator looks first, so it must not be one
+    // fold down inside a product group somebody has collapsed. `home` carries
+    // no label and does not collapse, which is what "ungrouped" means here.
+    label: 'Decisions',
+    icon: CircleCheckBig,
+    scope: 'knowledge:read',
+    group: 'home',
+    api: [
+      '/v1/spaces/{space}/attention',
+      '/v1/spaces/{space}/attention/{key}',
+      '/v1/ingests/{id}/triage',
+      '/v1/ingests/{id}/triage/resolve',
+      '/v1/proposals/{id}',
+      '/v1/proposals/{id}/lint',
+      '/v1/proposals/{id}/approve',
+      '/v1/proposals/{id}/reject',
+      '/v1/proposals/{id}/request-changes',
+      '/v1/proposals/{id}/split',
+    ],
   },
   {
     to: '/spaces',
@@ -125,25 +156,6 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'home',
     api: ['/v1/search', '/v1/spaces/{space}/search', '/v1/spaces/{space}/query'],
-  },
-  {
-    to: '/decisions',
-    label: 'Decisions',
-    icon: CircleCheckBig,
-    scope: 'knowledge:read',
-    group: 'wiki',
-    api: [
-      '/v1/spaces/{space}/attention',
-      '/v1/spaces/{space}/attention/{key}',
-      '/v1/ingests/{id}/triage',
-      '/v1/ingests/{id}/triage/resolve',
-      '/v1/proposals/{id}',
-      '/v1/proposals/{id}/lint',
-      '/v1/proposals/{id}/approve',
-      '/v1/proposals/{id}/reject',
-      '/v1/proposals/{id}/request-changes',
-      '/v1/proposals/{id}/split',
-    ],
   },
   {
     to: '/answers',
@@ -280,8 +292,9 @@ export interface NavGroup {
 /**
  * The groups, in the order an operator meets them.
  *
- * The Wiki block is the loop and nothing else: five entries somebody can hold
- * in their head, in the order the work happens. Everything that is a way INTO
+ * The Wiki block is the loop and nothing else: four entries somebody can hold
+ * in their head, in the order the work happens — the decisions queue left it
+ * for the ungrouped top of the sidebar, where §8.1 puts it. Everything that is a way INTO
  * one of those five rather than a step of the loop — the archive the pages are
  * quoted from, the decision log approving them writes, the guidelines that
  * steer synthesis, the search box — moved into `archive`, which starts CLOSED.

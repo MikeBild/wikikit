@@ -4,6 +4,7 @@ import { Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
+import { bannerSubset, countOpenDecisions, type BannerSubset } from '@/pages/decisions.logic'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,8 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { useI18n } from '@/lib/i18n-context'
+
+import type { TranslationKey } from '@/lib/i18n'
 
 type GlobalAttention = Awaited<ReturnType<typeof wk.attention.global>>
 type Task = GlobalAttention['items'][number]
@@ -24,6 +27,19 @@ export function HomePage() {
     queryFn: () => wk.attention.global({ limit: 200 }),
   })
 
+  // Measured against the response's own `generated_at`, not against the
+  // browser clock: the queue page ages its rows the same way, and two surfaces
+  // that disagree about what "three days" means produce two different rubrics
+  // from one set of rows.
+  const open = attention.data
+    ? countOpenDecisions({
+        items: attention.data.items,
+        counts: attention.data.counts,
+        nowMs: new Date(attention.data.generated_at).getTime(),
+      })
+    : null
+  const incident = open ? bannerSubset(open) : null
+
   function search(event: FormEvent) {
     event.preventDefault()
     const q = query.trim()
@@ -34,6 +50,8 @@ export function HomePage() {
   return (
     <Page title={t('nav.home')} description={t('page.home.description')}>
       <div className="flex min-w-0 flex-col gap-8">
+        {incident ? <IncidentBanner subset={incident} /> : null}
+
         <form className="flex max-w-4xl flex-col gap-2 sm:flex-row" onSubmit={search} data-testid="home-search">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -100,6 +118,52 @@ export function HomePage() {
         </section>
       </div>
     </Page>
+  )
+}
+
+const SUBSET_KEYS: Record<BannerSubset['kind'], TranslationKey> = {
+  blocking: 'home.incident.blocking',
+  overdue: 'home.incident.overdue',
+  aging: 'home.incident.aging',
+  open: 'home.incident.open',
+}
+
+/**
+ * §8.7's banner: red, above every tile on the overview, and not dismissible.
+ *
+ * Not dismissible is the whole point, so it is stated by omission rather than
+ * by a prop — `Alert` only lets `info` be closed. A banner an operator can wave
+ * away is a banner that is gone on the morning it matters, and "the dashboard
+ * said nothing" is indistinguishable from "nothing was wrong".
+ *
+ * Exactly one link, and it goes to the decisions page. Two links would make the
+ * banner a menu, and a banner that offers a choice is one an operator reads
+ * twice before doing anything.
+ */
+function IncidentBanner({ subset }: { subset: BannerSubset }) {
+  const { t } = useI18n()
+  // "mindestens" outranks "alle": a short list cannot honestly claim to have
+  // seen every position, so the hedge wins over the stronger sentence.
+  const key: TranslationKey =
+    subset.kind === 'aging' && subset.capped
+      ? 'home.incident.agingCapped'
+      : subset.kind === 'aging' && subset.all
+        ? 'home.incident.agingAll'
+        : SUBSET_KEYS[subset.kind]
+  return (
+    <Alert tone="danger" data-testid="incident-banner" title={t('home.incident.title', { total: subset.total })}>
+      <span
+        data-testid="incident-decisions-count"
+        data-subset={subset.kind}
+        data-subset-count={subset.count}
+        data-subset-total={subset.total}
+      >
+        {t(key, { count: subset.count, total: subset.total })}
+      </span>{' '}
+      <Link to="/decisions" className="underline underline-offset-4" data-testid="incident-decisions-link">
+        {t('home.incident.link')}
+      </Link>
+    </Alert>
   )
 }
 
