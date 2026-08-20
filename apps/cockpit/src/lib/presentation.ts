@@ -61,7 +61,14 @@ export interface ReadableTitle {
 
 /** Prose with every machine reference taken out, and no dangling clause left behind. */
 export function withoutOpaqueRefs(value: string): string {
-  const stripped = value.replace(OPAQUE_RUN_ALL, ' ').replace(/\s{2,}/g, ' ')
+  const stripped = value
+    .replace(OPAQUE_RUN_ALL, ' ')
+    .replace(/\s{2,}/g, ' ')
+    // The removal leaves the sentence's own punctuation floating: "… die Quelle
+    // ." is a period somebody stranded, and it reads as damage rather than as a
+    // sentence. Closing the gap keeps the period, which is the part that
+    // belonged to the author.
+    .replace(/\s+([.,;:!?])/g, '$1')
   const trimmed = (OPAQUE_RUN.test(value) ? stripped.replace(DANGLING_TAIL, '') : stripped).trim()
   return trimmed.replace(/[\s·:,;–—-]+$/u, '').trim()
 }

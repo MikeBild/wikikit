@@ -19,7 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useSpaceContext } from '@/lib/space'
 import type { TranslationKey } from '@/lib/i18n'
 import { useI18n } from '@/lib/i18n-context'
-import { readableTitle, withoutOpaqueRefs } from '@/lib/presentation'
+import { readableTitle } from '@/lib/presentation'
 import {
   AGING_DAYS,
   GLOBAL_ATTENTION_QUERY,
@@ -27,6 +27,7 @@ import {
   countOpenDecisions,
   decisionId,
   dedupe,
+  summaryLine,
   type SpaceTally,
 } from '@/pages/decisions.logic'
 
@@ -377,7 +378,7 @@ function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
   })
   const detail = row.detail ?? detailQuery.data?.items.find((entry) => entry.key === row.key) ?? null
   const title = readableTitle(row.title, t('decisions.untitled'))
-  const summary = row.summary ? withoutOpaqueRefs(row.summary) : ''
+  const summary = summaryLine(row.summary, t)
   const proposalId = row.kind === 'proposal' ? row.key.slice('proposal:'.length) : null
   const proposal = useQuery({
     queryKey: proposalId ? keys.proposal(proposalId) : ['proposal-preview', 'none'],
@@ -448,6 +449,17 @@ function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
             {title.redacted ? (
               <p className="text-xs text-muted-foreground" data-testid={`${testId}-raw-title`}>
                 {t('decisions.rawTitle')}: <span className="font-mono break-all">{row.title}</span>
+              </p>
+            ) : null}
+            {/*
+              The English original, for the same reason as the raw title: the
+              German line above is a DERIVATION, and a reader who wants to check
+              what the pipeline actually wrote should not have to open an API
+              client to do it.
+            */}
+            {row.summary && summary !== row.summary ? (
+              <p className="text-xs text-muted-foreground" data-testid={`${testId}-raw-summary`}>
+                {t('summary.original')}: <span className="break-words">{row.summary}</span>
               </p>
             ) : null}
             {detail ? (

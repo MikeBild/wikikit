@@ -403,6 +403,17 @@ const ZONE_A_PROBE = `(() => {
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i
 const FORBIDDEN_BUTTONS = ['ok', 'submit']
 
+/*
+  §5 — German on the top level, English only in the depth.
+
+  These are the pipeline's own words, not a translator's oversight: the ingest
+  job composes "Synthesized 8 concepts, 28 claims … from source <id>." and
+  stores it on the proposal, so it reaches the queue in English on a surface
+  that is German everywhere else. The check runs in a de-DE context, so any of
+  these on the visible surface is passthrough rather than legitimate English.
+*/
+const ENGLISH_PASSTHROUGH = [/\bSynthesized \d+ concepts?\b/i, /\bfrom source\b/i, /\b\d+ claims?\b/i]
+
 async function main() {
   let chromium
   try {
@@ -686,6 +697,12 @@ function collectSurface(note, where, surface) {
   for (const text of surface.texts) {
     if (/\bUnbekannt\b/.test(text)) note('§2', `${where} › sichtbarer Text`, `„${text.slice(0, 80)}"`)
     if (UUID.test(text)) note('§5/§8.3', `${where} › sichtbarer Text`, `„${text.slice(0, 80)}"`)
+    for (const pattern of ENGLISH_PASSTHROUGH) {
+      if (pattern.test(text)) {
+        note('§5', `${where} › sichtbarer Text (Backend-Passthrough)`, `„${text.slice(0, 80)}"`)
+        break
+      }
+    }
   }
   for (const label of surface.buttons) {
     if (FORBIDDEN_BUTTONS.includes(label.toLowerCase())) {
@@ -759,7 +776,8 @@ function report(base, violations, unmocked) {
     // held against these fixtures, not that the console is conformant.
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
-    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie)')
+    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
+    console.log('   deutsche Oberfläche ohne Backend-Passthrough)')
     return
   }
   for (const violation of violations) {

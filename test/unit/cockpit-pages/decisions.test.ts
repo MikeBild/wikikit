@@ -19,6 +19,8 @@ import {
   countOpenDecisions,
   decisionId,
   dedupe,
+  parseSynthesisSummary,
+  summaryLine,
   type OpenDecisionItem,
 } from '../../../apps/cockpit/src/pages/decisions.logic.ts'
 
@@ -239,5 +241,89 @@ describe('one global read for four surfaces', () => {
       const source = readFileSync(join(process.cwd(), caller), 'utf8')
       expect(source, `${caller} does not read the shared global query`).toContain('GLOBAL_ATTENTION_QUERY')
     }
+  })
+})
+
+describe('the one English sentence the pipeline writes into every ingest proposal', () => {
+  // `Synthesized 8 concepts, 28 claims, 2 contradictions detected from source
+  // <id>.` is composed by the ingest pipeline and handed to whatever renders
+  // it — so it arrives in the queue in English, on a surface §5 requires to be
+  // German at the top level. The numbers are the content; the English is only
+  // the shape they arrived in.
+  const de = (key: string, values: Readonly<Record<string, string | number>> = {}) =>
+    `${values.count ?? ''} ${key.replace('summary.', '')}`.trim()
+
+  test('reads the facts out of the sentence the server composes', () => {
+    expect(
+      parseSynthesisSummary(
+        'Synthesized 8 concepts, 28 claims, 2 contradictions detected from source 8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62.',
+      ),
+    ).toEqual([
+      { kind: 'concepts', count: 8 },
+      { kind: 'claims', count: 28 },
+      { kind: 'contradictions', count: 2 },
+    ])
+  })
+
+  test('concepts and claims are always stated, the rest only when they happened', () => {
+    // A missing key and a zero are different sentences (§4), and the pipeline
+    // omits a clause it has nothing to say about rather than writing "0".
+    expect(parseSynthesisSummary('Synthesized 1 concept, 1 claim')).toEqual([
+      { kind: 'concepts', count: 1 },
+      { kind: 'claims', count: 1 },
+    ])
+  })
+
+  test('the narrower clauses are not swallowed by the broader ones', () => {
+    const facts = parseSynthesisSummary(
+      'Synthesized 2 concepts, 9 claims, 3 supersessions, 1 decision, 2 decisions already recorded (not re-staged), 4 decision updates',
+    )
+    expect(facts).toEqual([
+      { kind: 'concepts', count: 2 },
+      { kind: 'claims', count: 9 },
+      { kind: 'supersessions', count: 3 },
+      { kind: 'decisions', count: 1 },
+      { kind: 'duplicates', count: 2 },
+      { kind: 'updates', count: 4 },
+    ])
+  })
+
+  test('prose it does not recognise is not a synthesis summary and is not guessed at', () => {
+    // A half-translated sentence is worse than an English one.
+    expect(parseSynthesisSummary('Zwei Absätze zur 14-Tage-Frist.')).toBeNull()
+    expect(parseSynthesisSummary('')).toBeNull()
+    expect(parseSynthesisSummary(null)).toBeNull()
+  })
+
+  test('the rendered line carries the numbers and none of the English', () => {
+    const line = summaryLine(
+      'Synthesized 8 concepts, 28 claims, 2 contradictions detected from source 8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62.',
+      de as never,
+    )
+    expect(line).toBe('8 concepts, 28 claims, 2 contradictions')
+    expect(line).not.toContain('Synthesized')
+    expect(line).not.toContain('from source')
+    expect(line).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/)
+  })
+
+  test('one of something asks for the singular key', () => {
+    expect(summaryLine('Synthesized 1 concept, 1 claim', de as never)).toBe('1 concept, 1 claim')
+  })
+
+  test('an unrecognised summary keeps its words and loses only its identifier', () => {
+    expect(summaryLine('Ein Absatz, belegt durch die Quelle 8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62.', de as never)).toBe(
+      'Ein Absatz, belegt durch die Quelle.',
+    )
+    expect(summaryLine('', de as never)).toBe('')
+  })
+
+  test('both surfaces render summaries through it', () => {
+    for (const caller of ['apps/cockpit/src/pages/home.tsx', 'apps/cockpit/src/pages/decisions.tsx']) {
+      expect(readFileSync(join(process.cwd(), caller), 'utf8'), caller).toContain('summaryLine(')
+    }
+    // The English original is not deleted, it moves into the detail depth.
+    expect(readFileSync(join(process.cwd(), 'apps/cockpit/src/pages/decisions.tsx'), 'utf8')).toContain(
+      'summary.original',
+    )
   })
 })

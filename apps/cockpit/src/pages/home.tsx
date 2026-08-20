@@ -4,7 +4,13 @@ import { Search } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
-import { GLOBAL_ATTENTION_QUERY, bannerSubset, countOpenDecisions, type BannerSubset } from '@/pages/decisions.logic'
+import {
+  GLOBAL_ATTENTION_QUERY,
+  bannerSubset,
+  countOpenDecisions,
+  summaryLine,
+  type BannerSubset,
+} from '@/pages/decisions.logic'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,7 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RelativeTime } from '@/components/ui/relative-time'
 import { useI18n } from '@/lib/i18n-context'
-import { readableTitle, withoutOpaqueRefs } from '@/lib/presentation'
+import { readableTitle } from '@/lib/presentation'
 
 import type { TranslationKey } from '@/lib/i18n'
 
@@ -248,7 +254,7 @@ function TaskRow({ task, position }: { task: Task; position: number }) {
   // happened to carry. The date takes over the job the identifier was doing
   // badly: telling one ingested session from the next.
   const title = readableTitle(task.title, t('decisions.untitled'))
-  const summary = task.summary ? withoutOpaqueRefs(task.summary) : ''
+  const summary = summaryLine(task.summary, t)
   const proposalId = task.kind === 'proposal' ? task.key.slice('proposal:'.length) : null
   /*
     §1 — one action per row, and the row itself leads there.

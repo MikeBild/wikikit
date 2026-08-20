@@ -111,7 +111,9 @@ describe('machine-written titles at the same boundary', () => {
       ['home.tsx', home],
     ] as const) {
       expect(source, `${name} renders titles without the presentation boundary`).toContain('readableTitle(')
-      expect(source, `${name} renders summaries without the presentation boundary`).toContain('withoutOpaqueRefs(')
+      // Summaries reach the same stripper through `summaryLine`, which derives
+      // the German line and falls back to the cleaned original.
+      expect(source, `${name} renders summaries without the presentation boundary`).toContain('summaryLine(')
     }
     // The raw title is not deleted, it moves: evidence about where a position
     // came from belongs in the detail depth, not in the name.

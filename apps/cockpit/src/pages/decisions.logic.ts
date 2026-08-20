@@ -32,6 +32,9 @@
  * make.
  */
 
+import type { TranslationKey } from '@/lib/i18n'
+import { withoutOpaqueRefs } from '@/lib/presentation'
+
 /** The shape the global attention feed hands over, restated free of the client. */
 export interface OpenDecisionItem {
   space: string
@@ -198,4 +201,89 @@ export function bySpace(items: readonly OpenDecisionItem[]): SpaceTally[] {
     else tallies.set(item.space, { space: item.space, name: item.space_name ?? item.space, count: 1 })
   }
   return [...tallies.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
+}
+
+/**
+ * The one English sentence the pipeline writes into every ingest proposal, and
+ * what it says in German.
+ *
+ * `Synthesized 8 concepts, 28 claims, 2 contradictions detected from source
+ * <id>.` is composed in the ingest pipeline, stored on the proposal and handed
+ * to whatever renders it — so it arrives in the queue in English, on a surface
+ * §5 requires to be German at the top level. The server is not the place to fix
+ * it: the summary is also an API value that other clients read, and translating
+ * it there would make the wire format depend on who is looking.
+ *
+ * So it is PARSED rather than translated word by word. The numbers are the
+ * content; the English is only the shape they arrived in. A sentence that does
+ * not match the shape is left exactly as it was (minus its identifier) — the
+ * console does not guess at prose it did not recognise, and a half-translated
+ * sentence is worse than an English one.
+ */
+export type SynthesisFactKind =
+  'concepts' | 'claims' | 'contradictions' | 'supersessions' | 'decisions' | 'duplicates' | 'updates'
+
+export interface SynthesisFact {
+  kind: SynthesisFactKind
+  count: number
+}
+
+/**
+ * In the order the pipeline writes them, with the lookaheads that keep the
+ * broader patterns from swallowing the narrower ones: "2 decisions already
+ * recorded" is not two decisions, and "3 claims not counted" is not three
+ * claims.
+ */
+const SYNTHESIS_PATTERNS: { kind: SynthesisFactKind; pattern: RegExp; always: boolean }[] = [
+  { kind: 'concepts', pattern: /\bSynthesized (\d+) concepts?\b/i, always: true },
+  { kind: 'claims', pattern: /\b(\d+) claims?\b(?! not counted)/i, always: true },
+  { kind: 'contradictions', pattern: /\b(\d+) contradictions? detected\b/i, always: false },
+  { kind: 'supersessions', pattern: /\b(\d+) supersessions?\b/i, always: false },
+  { kind: 'decisions', pattern: /\b(\d+) decisions?\b(?! (?:update|already))/i, always: false },
+  { kind: 'duplicates', pattern: /\b(\d+) decisions? already recorded\b/i, always: false },
+  { kind: 'updates', pattern: /\b(\d+) decision updates?\b/i, always: false },
+]
+
+/** The facts a synthesis summary states, or null when it is not one. */
+export function parseSynthesisSummary(summary: string | null | undefined): SynthesisFact[] | null {
+  const source = summary?.trim() ?? ''
+  if (!SYNTHESIS_PATTERNS[0]!.pattern.test(source)) return null
+  const facts: SynthesisFact[] = []
+  for (const { kind, pattern, always } of SYNTHESIS_PATTERNS) {
+    const match = source.match(pattern)
+    const count = match ? Number(match[1]) : 0
+    if (match || always) facts.push({ kind, count })
+  }
+  return facts
+}
+
+const FACT_KEYS: Record<SynthesisFactKind, { one: TranslationKey; many: TranslationKey }> = {
+  concepts: { one: 'summary.concept', many: 'summary.concepts' },
+  claims: { one: 'summary.claim', many: 'summary.claims' },
+  contradictions: { one: 'summary.contradiction', many: 'summary.contradictions' },
+  supersessions: { one: 'summary.supersession', many: 'summary.supersessions' },
+  decisions: { one: 'summary.decision', many: 'summary.decisions' },
+  duplicates: { one: 'summary.duplicate', many: 'summary.duplicates' },
+  updates: { one: 'summary.update', many: 'summary.updates' },
+}
+
+/**
+ * The summary line a reader sees, in their language where it can be, verbatim
+ * where it cannot.
+ *
+ * `translate` is a parameter rather than an import so this stays a pure
+ * function the test runner can exercise with a fake — the same split every
+ * `.logic.ts` in this console keeps.
+ */
+export function summaryLine(
+  summary: string | null | undefined,
+  translate: (key: TranslationKey, values?: Readonly<Record<string, string | number>>) => string,
+): string {
+  const source = summary?.trim() ?? ''
+  if (!source) return ''
+  const facts = parseSynthesisSummary(source)
+  if (!facts) return withoutOpaqueRefs(source)
+  return facts
+    .map((fact) => translate(FACT_KEYS[fact.kind][fact.count === 1 ? 'one' : 'many'], { count: fact.count }))
+    .join(', ')
 }
