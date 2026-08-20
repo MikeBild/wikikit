@@ -376,6 +376,30 @@ const NUMBERS_PROBE = `(() => {
   }
 })()`
 
+// §1's Zone A, read as an ANATOMY rather than as a presence: the card is only
+// worth having if the count and the age are in its head, where a reader meets
+// them before the rows, and if every row leads somewhere. A card with the
+// numbers buried three rows down is the table it replaced.
+const ZONE_A_PROBE = `(() => {
+  const clean = (element) => (element ? (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim() : null)
+  const card = document.querySelector('[data-testid="zone-a"]')
+  if (!card) return { card: false }
+  const head = card.querySelector('[data-slot="card-header"]')
+  const count = head ? head.querySelector('[data-testid="zone-a-decisions-count"]') : null
+  const rows = [...card.querySelectorAll('[data-testid]')].filter((element) =>
+    /^home-task-\\d+$/.test(element.getAttribute('data-testid')),
+  )
+  return {
+    card: true,
+    heading: clean(card.querySelector('[data-slot="card-title"]')),
+    countInHead: Boolean(count),
+    countHref: count ? count.getAttribute('href') : null,
+    head: clean(head),
+    rows: rows.length,
+    linkedRows: rows.filter((row) => row.querySelector('a[href]')).length,
+  }
+})()`
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i
 const FORBIDDEN_BUTTONS = ['ok', 'submit']
 
@@ -419,6 +443,7 @@ async function main() {
     const overview = await page.evaluate(SURFACE_PROBE)
     const banner = await page.evaluate(BANNER_PROBE)
     const numbers = await page.evaluate(NUMBERS_PROBE)
+    const zoneA = await page.evaluate(ZONE_A_PROBE)
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
     if (shell.role !== 'Administrator') {
@@ -474,6 +499,34 @@ async function main() {
         note('§8.7', 'Übersicht › Incident-Banner', `Link zeigt auf „${banner.links[0]}" statt auf /decisions`)
       }
     }
+    // §1 — Zone A is a CARD: the count and the age in the head, one action per
+    // row, and it is the short form of the decisions page rather than a second
+    // place to decide. The count is a link, because §1 has no counter without
+    // one.
+    if (!zoneA.card) {
+      note('§1', 'Übersicht › Zone A', 'keine Karte [data-testid="zone-a"]')
+    } else {
+      if (zoneA.heading !== 'Wartet auf dich') {
+        note('§1', 'Übersicht › Zone A › Überschrift', `„${zoneA.heading ?? '(keine)'}"`)
+      }
+      if (!zoneA.countInHead) {
+        note('§1', 'Übersicht › Zone A › Kopf', 'kein Zähler [data-testid="zone-a-decisions-count"] im Kopf')
+      } else if (!/\/decisions(\/|$|\?)/.test(zoneA.countHref ?? '')) {
+        note('§1', 'Übersicht › Zone A › Zähler', `„${zoneA.countHref ?? '(kein Link)'}" statt /decisions`)
+      }
+      // "Alter der ältesten Position" — either a measured age or the sentence
+      // that says there is none. A head with neither is a head that reports a
+      // number without saying how long it has been true.
+      if (!/älteste \d+ Tage|keine datierte Aufgabe/.test(zoneA.head ?? '')) {
+        note('§1', 'Übersicht › Zone A › Kopf', `kein Alter der ältesten Position: „${zoneA.head ?? '(leer)'}"`)
+      }
+      if (zoneA.rows === 0) {
+        note('§1', 'Übersicht › Zone A', 'keine Positionen in der Karte (Fixture „gate-open")')
+      } else if (zoneA.linkedRows !== zoneA.rows) {
+        note('§1', 'Übersicht › Zone A › Zeilen', `${zoneA.linkedRows} von ${zoneA.rows} Zeilen verlinkt`)
+      }
+    }
+
     collectSurface(note, 'Übersicht', overview)
 
     // §8.1/§8.7/§1 — the banner says how much of the queue has gone stale, and
@@ -706,7 +759,7 @@ function report(base, violations, unmocked) {
     // held against these fixtures, not that the console is conformant.
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
-    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung)')
+    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie)')
     return
   }
   for (const violation of violations) {

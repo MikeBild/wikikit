@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Search } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { GLOBAL_ATTENTION_QUERY, bannerSubset, countOpenDecisions, type BannerSubset } from '@/pages/decisions.logic'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { RelativeTime } from '@/components/ui/relative-time'
@@ -70,58 +71,81 @@ export function HomePage() {
           </Button>
         </form>
 
-        <section className="min-w-0" aria-labelledby="home-tasks-heading">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="home-tasks-heading" className="text-base font-semibold">
-              {t('home.compact.tasks')}
-            </h2>
-            {open ? (
-              /*
-                The same number the badge, the banner and the queue print, from
-                the same call — `data-total` carries it as a number so a checker
-                does not have to parse a sentence to find out whether the four
-                surfaces agree.
-              */
-              <p className="text-sm text-muted-foreground" data-testid="home-task-summary">
-                <span data-testid="zone-a-decisions-count" data-total={open.total}>
-                  {t('home.compact.taskCount', { count: open.total })}
-                </span>
-                {' · '}
-                {open.oldestAgeDays === null
-                  ? t('home.compact.taskUndated')
-                  : t('home.compact.taskOldest', { days: open.oldestAgeDays })}
-              </p>
-            ) : null}
-          </div>
+        {/*
+          Zone A (§1): every human gate in ONE card — the count in the head, the
+          age of the oldest position beside it, and one action per row. Amber
+          from one, and the card is the short form of the decisions page rather
+          than a second place to decide: it shows the top of the same queue and
+          links there.
 
-          {attention.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}…</p> : null}
-          {attention.isError ? <Alert tone="danger" title={t('home.compact.tasksError')} /> : null}
-          {attention.data && attention.data.items.length === 0 ? (
-            <p className="border-y py-4 text-sm text-muted-foreground">{t('home.compact.tasksEmpty')}</p>
-          ) : null}
-          {attention.data?.items.length ? (
-            <div className="overflow-hidden rounded-lg border" data-testid="home-task-table">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="hidden lg:table-cell">{t('home.compact.columnWiki')}</TableHead>
-                    <TableHead>{t('home.compact.columnTask')}</TableHead>
-                    <TableHead className="hidden md:table-cell">{t('home.compact.columnType')}</TableHead>
-                    <TableHead className="hidden lg:table-cell">{t('home.compact.columnWaiting')}</TableHead>
-                    <TableHead className="w-44 min-w-44 whitespace-nowrap text-right">
-                      <span className="sr-only">{t('home.compact.columnAction')}</span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {attention.data.items.map((task, index) => (
-                    <TaskRow key={`${task.space}:${task.key}`} task={task} position={index + 1} />
-                  ))}
-                </TableBody>
-              </Table>
+          The table did not go away, it moved INSIDE. It was already the right
+          content; what it lacked was a head that answered "how much and how
+          old" before a reader started reading rows.
+        */}
+        <Card
+          data-testid="zone-a"
+          data-total={open?.total ?? 0}
+          className={open?.total ? 'border-warning/40' : undefined}
+        >
+          <CardHeader className="gap-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <CardTitle id="home-tasks-heading">{t('home.zoneA.title')}</CardTitle>
+              {open ? (
+                <p className="text-sm text-muted-foreground">
+                  {/*
+                    No counter without a link (§1) — so the counter IS the link.
+                    `data-total` carries the number as a number, so a checker
+                    comparing the four surfaces does not have to parse a
+                    sentence to find it.
+                  */}
+                  <Link
+                    to="/decisions"
+                    data-testid="zone-a-decisions-count"
+                    data-total={open.total}
+                    className="underline underline-offset-4"
+                  >
+                    <Badge tone={open.total ? 'warning' : 'success'}>
+                      {t('home.compact.taskCount', { count: open.total })}
+                    </Badge>
+                  </Link>
+                  {' · '}
+                  {open.oldestAgeDays === null
+                    ? t('home.compact.taskUndated')
+                    : t('home.compact.taskOldest', { days: open.oldestAgeDays })}
+                </p>
+              ) : null}
             </div>
-          ) : null}
-        </section>
+          </CardHeader>
+          <CardContent className="min-w-0">
+            {attention.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}…</p> : null}
+            {attention.isError ? <Alert tone="danger" title={t('home.compact.tasksError')} /> : null}
+            {attention.data && attention.data.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('home.compact.tasksEmpty')}</p>
+            ) : null}
+            {attention.data?.items.length ? (
+              <div className="overflow-hidden rounded-lg border" data-testid="home-task-table">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="hidden lg:table-cell">{t('home.compact.columnWiki')}</TableHead>
+                      <TableHead>{t('home.compact.columnTask')}</TableHead>
+                      <TableHead className="hidden md:table-cell">{t('home.compact.columnType')}</TableHead>
+                      <TableHead className="hidden lg:table-cell">{t('home.compact.columnWaiting')}</TableHead>
+                      <TableHead className="w-44 min-w-44 whitespace-nowrap text-right">
+                        <span className="sr-only">{t('home.compact.columnAction')}</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {attention.data.items.map((task, index) => (
+                      <TaskRow key={`${task.space}:${task.key}`} task={task} position={index + 1} />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
       </div>
     </Page>
   )
@@ -173,6 +197,51 @@ function IncidentBanner({ subset }: { subset: BannerSubset }) {
   )
 }
 
+/**
+ * Where a waiting task is dealt with — stated once, rendered twice.
+ *
+ * A proposal is reviewed on its own page; an unsorted capture is sorted in the
+ * inbox. Two destinations, and the row needs both of them in two places (the
+ * title and the button), which is exactly the arrangement where they drift
+ * apart and a title quietly stops matching the button beside it.
+ */
+function TaskTarget({
+  task,
+  children,
+  className,
+  'data-testid': testId,
+}: {
+  task: Task
+  children: ReactNode
+  className?: string
+  'data-testid': string
+}) {
+  const proposalId = task.kind === 'proposal' ? task.key.slice('proposal:'.length) : null
+  if (proposalId) {
+    return (
+      <Link
+        to="/decisions/proposals/$id"
+        params={{ id: proposalId }}
+        search={{ space: task.space }}
+        className={className}
+        data-testid={testId}
+      >
+        {children}
+      </Link>
+    )
+  }
+  return (
+    <Link
+      to="/inbox"
+      search={{ space: task.space, triage: task.key.slice('triage:'.length) } as never}
+      className={className}
+      data-testid={testId}
+    >
+      {children}
+    </Link>
+  )
+}
+
 function TaskRow({ task, position }: { task: Task; position: number }) {
   const { t, date } = useI18n()
   // §5 — a row is named by what it is about, not by the identifier the source
@@ -181,27 +250,18 @@ function TaskRow({ task, position }: { task: Task; position: number }) {
   const title = readableTitle(task.title, t('decisions.untitled'))
   const summary = task.summary ? withoutOpaqueRefs(task.summary) : ''
   const proposalId = task.kind === 'proposal' ? task.key.slice('proposal:'.length) : null
-  const triageId = task.kind === 'triage' ? task.key.slice('triage:'.length) : null
-  const action = proposalId ? (
+  /*
+    §1 — one action per row, and the row itself leads there.
+
+    `TaskTarget` states the destination once and both the title and the button
+    render through it. A row whose only way in is a button on the far right is
+    a row people click at and miss; the title is what they aim for.
+  */
+  const action = (
     <Button asChild size="sm">
-      <Link
-        to="/decisions/proposals/$id"
-        params={{ id: proposalId }}
-        search={{ space: task.space }}
-        data-testid={`home-task-${position}-action`}
-      >
-        {t('home.compact.reviewProposal')}
-      </Link>
-    </Button>
-  ) : (
-    <Button asChild size="sm">
-      <Link
-        to="/inbox"
-        search={{ space: task.space, triage: triageId } as never}
-        data-testid={`home-task-${position}-action`}
-      >
-        {t('home.compact.triageInbox')}
-      </Link>
+      <TaskTarget task={task} data-testid={`home-task-${position}-action`}>
+        {proposalId ? t('home.compact.reviewProposal') : t('home.compact.triageInbox')}
+      </TaskTarget>
     </Button>
   )
   return (
@@ -219,10 +279,14 @@ function TaskRow({ task, position }: { task: Task; position: number }) {
       </TableCell>
       <TableCell className="min-w-0 align-top whitespace-normal">
         <span className="mb-0.5 block truncate text-xs text-muted-foreground lg:hidden">{task.space_name}</span>
-        <span className="block font-medium">
+        <TaskTarget
+          task={task}
+          className="block font-medium underline-offset-4 hover:underline"
+          data-testid={`home-task-${position}-open`}
+        >
           {title.text}
           {title.redacted ? ` · ${date(task.created_at)}` : ''}
-        </span>
+        </TaskTarget>
         {summary ? <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{summary}</span> : null}
       </TableCell>
       <TableCell className="hidden align-top md:table-cell">
