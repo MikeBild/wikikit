@@ -8,10 +8,14 @@
 // can be trusted. Nothing is broken in that failure, which is what makes it
 // expensive.
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   AGING_DAYS,
   ageInDays,
+  GLOBAL_ATTENTION_QUERY,
   bannerSubset,
+  bySpace,
   countOpenDecisions,
   decisionId,
   dedupe,
@@ -176,5 +180,64 @@ describe('what the incident banner says', () => {
     expect(bannerSubset(blocked)?.kind).toBe('blocking')
     const overdue = { ...openWith(2, 5), subsets: { blocking: 0, overdue: 2, aging: 2 } }
     expect(bannerSubset(overdue)?.kind).toBe('overdue')
+  })
+})
+
+describe('the wiki chips above the queue', () => {
+  test('names every wiki with something open, largest share first', () => {
+    const tallies = bySpace([
+      item({ key: 'a', space: 'onboarding', space_name: 'Onboarding' }),
+      item({ key: 'b', space: 'handbuch', space_name: 'Handbuch' }),
+      item({ key: 'c', space: 'handbuch', space_name: 'Handbuch' }),
+      item({ key: 'd', space: 'onboarding', space_name: 'Onboarding' }),
+      item({ key: 'e', space: 'handbuch', space_name: 'Handbuch' }),
+    ])
+    expect(tallies).toEqual([
+      { space: 'handbuch', name: 'Handbuch', count: 3 },
+      { space: 'onboarding', name: 'Onboarding', count: 2 },
+    ])
+  })
+
+  test('a wiki with nothing open has no chip — categories come from the data', () => {
+    expect(bySpace([])).toEqual([])
+  })
+
+  test('counts positions, not rows: a duplicate does not inflate a chip', () => {
+    const tallies = bySpace([
+      item({ key: 'a', space_name: 'Handbuch' }),
+      item({ key: 'a', space_name: 'Handbuch' }),
+      item({ key: 'b', space_name: 'Handbuch' }),
+    ])
+    expect(tallies).toEqual([{ space: 'handbuch', name: 'Handbuch', count: 2 }])
+  })
+
+  test('falls back to the slug when the feed names no wiki', () => {
+    expect(bySpace([item({ key: 'a' })])[0]!.name).toBe('handbuch')
+  })
+
+  test('ties break by name, so the chip order does not wobble between renders', () => {
+    const tallies = bySpace([
+      item({ key: 'a', space: 'zebra', space_name: 'Zebra' }),
+      item({ key: 'b', space: 'alpha', space_name: 'Alpha' }),
+    ])
+    expect(tallies.map((tally) => tally.space)).toEqual(['alpha', 'zebra'])
+  })
+})
+
+describe('one global read for four surfaces', () => {
+  test('the sidebar badge, the overview card, the banner and the queue share these arguments', () => {
+    // Stated once and imported four times. A second literal `{ limit: 200 }`
+    // would be a second react-query cache entry — and a fifth number that can
+    // disagree with the other four while the console is open.
+    expect(GLOBAL_ATTENTION_QUERY).toEqual({ limit: 200 })
+    const callers = [
+      'apps/cockpit/src/app/shell.tsx',
+      'apps/cockpit/src/pages/home.tsx',
+      'apps/cockpit/src/pages/decisions.tsx',
+    ]
+    for (const caller of callers) {
+      const source = readFileSync(join(process.cwd(), caller), 'utf8')
+      expect(source, `${caller} does not read the shared global query`).toContain('GLOBAL_ATTENTION_QUERY')
+    }
   })
 })

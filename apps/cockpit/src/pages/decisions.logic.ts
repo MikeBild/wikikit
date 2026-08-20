@@ -63,6 +63,17 @@ export interface OpenDecisions {
   capped: boolean
 }
 
+/**
+ * The one global attention read, stated once.
+ *
+ * The sidebar badge, the Zone-A card, the incident banner and the queue all
+ * call `wk.attention.global` with THESE arguments, so react-query hands the
+ * four of them one cache entry rather than four requests that can answer
+ * differently while the page is open. A second literal `{ limit: 200 }`
+ * somewhere would be a second cache entry and a fifth number.
+ */
+export const GLOBAL_ATTENTION_QUERY = { limit: 200 } as const
+
 /** §8.2's rubric boundary: three whole days of waiting. */
 export const AGING_DAYS = 3
 const DAY_MS = 86_400_000
@@ -72,10 +83,17 @@ export function decisionId(item: Pick<OpenDecisionItem, 'space' | 'key'>): strin
   return `${item.space}:${item.key}`
 }
 
-/** Distinct positions, first occurrence wins, order preserved. */
-export function dedupe(items: readonly OpenDecisionItem[]): OpenDecisionItem[] {
+/**
+ * Distinct positions, first occurrence wins, order preserved.
+ *
+ * Generic over the row rather than fixed to `OpenDecisionItem`: the queue
+ * deduplicates the SAME rows it then renders, and a signature that widened them
+ * to the identity fields would make the caller reach for the originals again —
+ * which is how a list and its count end up describing two different sets.
+ */
+export function dedupe<T extends Pick<OpenDecisionItem, 'space' | 'key'>>(items: readonly T[]): T[] {
   const seen = new Set<string>()
-  const unique: OpenDecisionItem[] = []
+  const unique: T[] = []
   for (const item of items) {
     const id = decisionId(item)
     if (seen.has(id)) continue
@@ -152,4 +170,32 @@ export function bannerSubset(open: OpenDecisions): BannerSubset | null {
     // A full list cannot be undercounting, whatever the flag says.
     capped: kind !== 'open' && open.capped,
   }
+}
+
+/** One wiki's share of the open queue. */
+export interface SpaceTally {
+  space: string
+  name: string
+  count: number
+}
+
+/**
+ * The wikis the open queue currently touches, largest share first.
+ *
+ * The chips built from this FILTER ROWS AND NOTHING ELSE. The four numbers on
+ * screen keep counting the whole installation while a chip is active, because
+ * a filter that also moves the counter turns "5 waiting" into "5 waiting in
+ * what I happen to be looking at" — and nobody reads a counter that way.
+ *
+ * Categories come from the data, never from a hardcoded list (§10): a wiki with
+ * nothing open has no chip, and the day it has something it gets one.
+ */
+export function bySpace(items: readonly OpenDecisionItem[]): SpaceTally[] {
+  const tallies = new Map<string, SpaceTally>()
+  for (const item of dedupe(items)) {
+    const existing = tallies.get(item.space)
+    if (existing) existing.count += 1
+    else tallies.set(item.space, { space: item.space, name: item.space_name ?? item.space, count: 1 })
+  }
+  return [...tallies.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))
 }

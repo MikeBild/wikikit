@@ -16,15 +16,47 @@ import { RelativeTime } from '@/components/ui/relative-time'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { useSpace } from '@/lib/space'
+import { useSpaceContext } from '@/lib/space'
 import type { TranslationKey } from '@/lib/i18n'
 import { useI18n } from '@/lib/i18n-context'
+import {
+  AGING_DAYS,
+  GLOBAL_ATTENTION_QUERY,
+  bySpace,
+  countOpenDecisions,
+  decisionId,
+  dedupe,
+  type SpaceTally,
+} from '@/pages/decisions.logic'
 
 type AttentionResponse = Awaited<ReturnType<typeof wk.attention.list>>
 type AttentionItem = AttentionResponse['items'][number]
 type AttentionState = 'open' | 'deferred' | 'discarded' | 'decided'
 type AttentionKind = AttentionItem['kind']
 type TriageSuggestion = NonNullable<Awaited<ReturnType<typeof wk.ingest.suggestTriage>>['suggestion']>
+
+/**
+ * One row of the queue, whichever feed it arrived on.
+ *
+ * The open tab reads the INSTALLATION-WIDE feed and the shelves read the
+ * current wiki, and the two answer different shapes: the global feed carries
+ * the wiki a position belongs to but not its origins, targets or rejection
+ * history. Rather than teach the card about two shapes, both are narrowed to
+ * this one here, and `detail` is null exactly when the full payload has not
+ * been fetched yet — §8.4's panel loads it when somebody opens the row, which
+ * is the only place it is shown.
+ */
+interface QueueRow {
+  space: string
+  spaceName: string
+  key: string
+  kind: AttentionKind
+  state: AttentionState
+  title: string
+  summary: string | null
+  createdAt: string
+  detail: AttentionItem | null
+}
 
 const STATE_KEYS: Record<AttentionState, TranslationKey> = {
   open: 'attention.state.open',
@@ -39,30 +71,106 @@ const KIND_KEYS: Record<AttentionKind, TranslationKey> = {
 }
 
 export function DecisionsPage() {
-  const space = useSpace()
+  const { space, options } = useSpaceContext()
   const { t } = useI18n()
   const [state, setState] = useState<AttentionState>('open')
   const [kind, setKind] = useState<AttentionKind | 'all'>('all')
-  const queryArgs = { state, ...(kind === 'all' ? {} : { kind }), limit: 200 }
-  const query = useQuery({
-    queryKey: keys.attention(space, queryArgs),
-    queryFn: () => wk.attention.list(space, queryArgs),
+  const [wiki, setWiki] = useState<string>('all')
+
+  /*
+    The open queue is the INSTALLATION, the shelves are this wiki.
+
+    §8.1 wants one queue and one counter for the whole installation, and the
+    console used to have neither: the page counted the current wiki, the
+    sidebar badge counted the current wiki, and the overview counted every
+    wiki — so an operator read "1" in two places and "3" in a third, all of
+    them correct, none of them the same question. The open tab now reads the
+    global feed with the SAME arguments as the overview and the badge, which
+    is why they cannot disagree: it is one cache entry.
+
+    The shelves stay per-wiki on purpose. They feed none of the four numbers,
+    the state they show is an operator note on a wiki's own object, and the
+    global feed does not carry deferred or discarded positions at all.
+  */
+  const openQuery = useQuery({
+    queryKey: keys.globalAttention(GLOBAL_ATTENTION_QUERY),
+    queryFn: () => wk.attention.global(GLOBAL_ATTENTION_QUERY),
+    enabled: state === 'open',
   })
-  const data = query.data
+  const shelfArgs = { state, ...(kind === 'all' ? {} : { kind }), limit: 200 }
+  const shelfQuery = useQuery({
+    queryKey: keys.attention(space ?? '', shelfArgs),
+    queryFn: () => wk.attention.list(space!, shelfArgs),
+    enabled: state !== 'open' && Boolean(space),
+  })
+  const query = state === 'open' ? openQuery : shelfQuery
+
+  const openData = openQuery.data
+  const open = openData
+    ? countOpenDecisions({
+        items: openData.items,
+        counts: openData.counts,
+        nowMs: new Date(openData.generated_at).getTime(),
+      })
+    : null
+  const tallies: SpaceTally[] = openData ? bySpace(openData.items) : []
+  const spaceName = (slug: string) =>
+    options.find((option) => option.slug === slug)?.name ?? tallies.find((tally) => tally.space === slug)?.name ?? slug
+
+  const generatedAt = new Date(
+    (state === 'open' ? openData?.generated_at : shelfQuery.data?.generated_at) ?? 0,
+  ).getTime()
+  const rows: QueueRow[] =
+    state === 'open'
+      ? dedupe(openData?.items ?? []).map((item) => ({
+          space: item.space,
+          spaceName: item.space_name ?? item.space,
+          key: item.key,
+          kind: item.kind,
+          state: 'open' as const,
+          title: item.title,
+          summary: item.summary || null,
+          createdAt: item.created_at,
+          detail: null,
+        }))
+      : (shelfQuery.data?.items ?? []).map((item) => ({
+          space: space ?? '',
+          spaceName: spaceName(space ?? ''),
+          key: item.key,
+          kind: item.kind,
+          state: item.state as AttentionState,
+          title: item.title,
+          summary: item.summary || null,
+          createdAt: item.created_at,
+          detail: item,
+        }))
+
+  // Chips filter ROWS. Neither the counter beside them nor the three other
+  // numbers on screen move when one is pressed — see decisions.logic.ts.
+  const visible = rows.filter(
+    (row) => (kind === 'all' || row.kind === kind) && (state !== 'open' || wiki === 'all' || row.space === wiki),
+  )
+  const filtered = kind !== 'all' || (state === 'open' && wiki !== 'all')
   const waitingLonger =
-    state === 'open' && data
-      ? data.items.filter(
-          (item) => new Date(data.generated_at).getTime() - new Date(item.created_at).getTime() >= 3 * 86_400_000,
-        )
+    state === 'open'
+      ? visible.filter((row) => generatedAt - new Date(row.createdAt).getTime() >= AGING_DAYS * 86_400_000)
       : []
-  const currentItems = data?.items.filter((item) => !waitingLonger.includes(item)) ?? []
+  const currentItems = visible.filter((row) => !waitingLonger.includes(row))
+  const total = state === 'open' ? (open?.total ?? 0) : rows.length
+  const oldestDays = state === 'open' ? (open?.oldestAgeDays ?? null) : (shelfQuery.data?.counts.oldest_days ?? null)
+  const data = state === 'open' ? openData : shelfQuery.data
 
   return (
     <Page title="Decisions" description={t('page.decisions.description')}>
-      <div className="flex w-full min-w-0 flex-col gap-6" data-testid="attention-list">
-        {data?.counts.overdue ? (
+      <div
+        className="flex w-full min-w-0 flex-col gap-6"
+        data-testid="attention-list"
+        data-total={total}
+        data-capped={state === 'open' ? String(Boolean(open?.capped)) : 'false'}
+      >
+        {state !== 'open' && shelfQuery.data?.counts.overdue ? (
           <Alert tone="danger" title={t('decisions.overdueTitle')}>
-            {t('decisions.overdueDescription', { count: data.counts.overdue })}
+            {t('decisions.overdueDescription', { count: shelfQuery.data.counts.overdue })}
           </Alert>
         ) : null}
 
@@ -103,16 +211,44 @@ export function DecisionsPage() {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          {state === 'open' && tallies.length ? (
+            <ToggleGroup
+              type="single"
+              value={wiki}
+              onValueChange={(value) => value && setWiki(value)}
+              variant="outline"
+              size="sm"
+              className="max-w-full flex-wrap justify-start"
+              aria-label={t('decisions.wikiFilter')}
+            >
+              <ToggleGroupItem value="all" data-testid="decisions-space-all">
+                {t('decisions.wikiAll')}
+              </ToggleGroupItem>
+              {tallies.map((tally) => (
+                <ToggleGroupItem key={tally.space} value={tally.space} data-testid={`decisions-space-${tally.space}`}>
+                  {tally.name} · {tally.count}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          ) : null}
           {data ? (
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Clock3 />
-              <span>
-                {data.counts.oldest_days == null
-                  ? t('attention.noAge')
-                  : t('attention.oldest', { count: data.counts.oldest_days })}
-              </span>
-              <Badge tone={data.counts.overdue ? 'danger' : data.counts.open ? 'warning' : 'success'}>
-                {t('attention.openCount', { count: data.counts.open })}
+              <span>{oldestDays == null ? t('attention.noAge') : t('attention.oldest', { count: oldestDays })}</span>
+              {/*
+                The counter beside the chips is the WHOLE installation, and it
+                does not move when a chip is pressed. A filter that also moves
+                the counter answers a question nobody asked ("how many are open
+                in what I am looking at") with the words of the question they
+                did ("how many are open").
+              */}
+              <Badge
+                tone={total ? 'warning' : 'success'}
+                data-testid="decisions-queue-count"
+                data-total={total}
+                data-visible={visible.length}
+              >
+                {t('attention.openCount', { count: total })}
               </Badge>
             </div>
           ) : null}
@@ -120,16 +256,23 @@ export function DecisionsPage() {
 
         {query.isLoading ? <p className="text-sm text-muted-foreground">{t('decisions.loading')}</p> : null}
         {query.isError ? <Alert tone="danger" title={t('decisions.error')} /> : null}
-        {data && data.items.length === 0 ? (
-          <DecisionEmpty state={state} filtered={kind !== 'all'} onShowAll={() => setKind('all')} />
+        {data && visible.length === 0 ? (
+          <DecisionEmpty
+            state={state}
+            filtered={filtered}
+            onShowAll={() => {
+              setKind('all')
+              setWiki('all')
+            }}
+          />
         ) : null}
         {waitingLonger.length ? (
           <section className="flex flex-col gap-3" aria-labelledby="decisions-waiting-longer">
             <h2 id="decisions-waiting-longer" className="text-sm font-semibold text-warning">
               {t('decisions.waitingLonger')}
             </h2>
-            {waitingLonger.map((item, index) => (
-              <AttentionCard key={item.key} item={item} space={space} testId={`decision-waiting-${index + 1}`} />
+            {waitingLonger.map((row, index) => (
+              <AttentionCard key={decisionId(row)} row={row} testId={`decision-waiting-${index + 1}`} />
             ))}
           </section>
         ) : null}
@@ -138,8 +281,8 @@ export function DecisionsPage() {
             className="flex flex-col gap-3"
             aria-label={state === 'open' ? t('decisions.needsAttention') : t(STATE_KEYS[state])}
           >
-            {currentItems.map((item, index) => (
-              <AttentionCard key={item.key} item={item} space={space} testId={`decision-item-${index + 1}`} />
+            {currentItems.map((row, index) => (
+              <AttentionCard key={decisionId(row)} row={row} testId={`decision-item-${index + 1}`} />
             ))}
           </section>
         ) : null}
@@ -192,19 +335,47 @@ function DecisionEmpty({
   )
 }
 
-function AttentionCard({ item, space, testId }: { item: AttentionItem; space: string; testId: string }) {
+/**
+ * One position in the queue.
+ *
+ * The card takes a `QueueRow`, not a feed payload, because the open tab and the
+ * shelves arrive on different endpoints with different shapes and a component
+ * that knows about both would have to guess which one it got.
+ *
+ * `detail` is the per-wiki payload — origins, targets, the earlier rejection —
+ * and the open tab does not have it: the installation-wide feed carries what a
+ * queue needs to be read (wiki, kind, title, summary, age) and not what one row
+ * needs to be JUDGED. So the row fetches it when somebody opens the panel,
+ * which is the only place any of it is shown. One request per wiki, shared by
+ * every open row in it, because react-query keys it by wiki rather than by row.
+ */
+function AttentionCard({ row, testId }: { row: QueueRow; testId: string }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
+  const space = row.space
   const stateMutation = useMutation({
     mutationFn: (state: 'open' | 'deferred' | 'discarded') =>
-      wk.attention.setState(space, item.key, {
+      wk.attention.setState(space, row.key, {
         state,
         ...(state === 'deferred' ? { remind_at: new Date(Date.now() + 3 * 86_400_000).toISOString() } : {}),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.attention(space).slice(0, -1) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.attention(space).slice(0, -1) })
+      // The badge, the overview card and the banner all read the global feed.
+      // Deciding here without invalidating it would leave three surfaces
+      // showing a number this page has just disproved.
+      void queryClient.invalidateQueries({ queryKey: keys.globalAttention().slice(0, -1) })
+    },
   })
-  const proposalId = item.kind === 'proposal' ? item.key.slice('proposal:'.length) : null
+  const detailArgs = { state: 'open', limit: 200 }
+  const detailQuery = useQuery({
+    queryKey: keys.attention(space, detailArgs),
+    queryFn: () => wk.attention.list(space, detailArgs),
+    enabled: expanded && row.detail === null,
+  })
+  const detail = row.detail ?? detailQuery.data?.items.find((entry) => entry.key === row.key) ?? null
+  const proposalId = row.kind === 'proposal' ? row.key.slice('proposal:'.length) : null
   const proposal = useQuery({
     queryKey: proposalId ? keys.proposal(proposalId) : ['proposal-preview', 'none'],
     queryFn: () => wk.proposals.get(proposalId!),
@@ -216,66 +387,82 @@ function AttentionCard({ item, space, testId }: { item: AttentionItem; space: st
     enabled: expanded && Boolean(proposalId),
   })
   return (
-    <Card data-kind={item.kind} data-state={item.state} data-testid={testId}>
+    <Card
+      data-kind={row.kind}
+      data-state={row.state}
+      data-decision-key={row.key}
+      data-space={row.space}
+      data-testid={testId}
+    >
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge tone={item.kind === 'proposal' ? 'accent' : 'neutral'}>{t(KIND_KEYS[item.kind])}</Badge>
-          <Badge tone={item.state === 'open' ? 'warning' : 'neutral'}>{t(STATE_KEYS[item.state])}</Badge>
-          <RelativeTime value={item.created_at} />
+          <Badge tone={row.kind === 'proposal' ? 'accent' : 'neutral'}>{t(KIND_KEYS[row.kind])}</Badge>
+          <Badge tone={row.state === 'open' ? 'warning' : 'neutral'}>{t(STATE_KEYS[row.state])}</Badge>
+          {/*
+            The wiki, named in the row rather than assumed from the switcher.
+            The queue is installation-wide now, so "which wiki is this?" is a
+            question the row has to answer on its own — §8.3's source reference.
+          */}
+          <Link to="/spaces" className="underline-offset-4 hover:underline" data-testid={`${testId}-wiki`}>
+            {row.spaceName}
+          </Link>
+          <RelativeTime value={row.createdAt} />
         </div>
-        <CardTitle>{item.title}</CardTitle>
-        {item.summary ? <CardDescription>{item.summary}</CardDescription> : null}
+        <CardTitle>{row.title}</CardTitle>
+        {row.summary ? <CardDescription>{row.summary}</CardDescription> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <p className="text-sm text-muted-foreground">{t(attentionEffectKey(item.kind))}</p>
-        <DecisionTrace item={item} testId={`${testId}-trace`} />
-        {item.previous_rejection ? (
+        <p className="text-sm text-muted-foreground">{t(attentionEffectKey(row.kind))}</p>
+        {detail?.previous_rejection ? (
           <Alert tone="warning" title={t('decisions.previousRejection')}>
-            {item.previous_rejection.note || t('decisions.previousRejectionNoNote')}
+            {detail.previous_rejection.note || t('decisions.previousRejectionNoNote')}
           </Alert>
         ) : null}
-        {proposalId ? (
-          <Collapsible open={expanded} onOpenChange={setExpanded}>
-            <CollapsibleTrigger asChild>
-              <Button variant="outline" size="sm" aria-expanded={expanded} data-testid={`${testId}-preview-toggle`}>
-                <ChevronDown data-icon="inline-start" />
-                {expanded ? t('decisions.hideEvidence') : t('decisions.showEvidence')}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3 flex flex-col gap-3">
-              {proposal.isLoading || lint.isLoading ? (
-                <p className="text-sm text-muted-foreground">{t('decisions.loadingDiff')}</p>
-              ) : null}
-              {proposal.data?.concepts.map((concept) => (
-                <div key={concept.slug} className="grid gap-3 md:grid-cols-2">
-                  <DiffBlock label={t('decisions.before')} value={concept.old_markdown ?? t('decisions.newPage')} />
-                  <DiffBlock label={t('decisions.after')} value={concept.new_markdown} />
-                </div>
-              ))}
-              {proposal.data?.sources.map((source) => (
-                <div key={source.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge tone="unknown">{t('decisions.sourceLocked')}</Badge>
-                  <span>{source.title}</span>
-                </div>
-              ))}
-              {lint.data ? (
-                <p className="text-xs text-muted-foreground">
-                  {t('decisions.checkSummary', {
-                    errors: lint.data.counts.error,
-                    warnings: lint.data.counts.warn,
-                  })}
-                </p>
-              ) : null}
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
-        {item.kind === 'triage' && item.state === 'open' ? (
-          <TriagePanel ingestId={item.key.slice('triage:'.length)} space={space} testId={`${testId}-triage`} />
+        <Collapsible open={expanded} onOpenChange={setExpanded}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" aria-expanded={expanded} data-testid={`${testId}-preview-toggle`}>
+              <ChevronDown data-icon="inline-start" />
+              {expanded ? t('decisions.hideEvidence') : t('decisions.showEvidence')}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-3 flex flex-col gap-3">
+            {detail ? (
+              <DecisionTrace item={detail} testId={`${testId}-trace`} />
+            ) : detailQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">{t('decisions.loadingDiff')}</p>
+            ) : null}
+            {proposal.isLoading || lint.isLoading ? (
+              <p className="text-sm text-muted-foreground">{t('decisions.loadingDiff')}</p>
+            ) : null}
+            {proposal.data?.concepts.map((concept) => (
+              <div key={concept.slug} className="grid gap-3 md:grid-cols-2">
+                <DiffBlock label={t('decisions.before')} value={concept.old_markdown ?? t('decisions.newPage')} />
+                <DiffBlock label={t('decisions.after')} value={concept.new_markdown} />
+              </div>
+            ))}
+            {proposal.data?.sources.map((source) => (
+              <div key={source.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge tone="unknown">{t('decisions.sourceLocked')}</Badge>
+                <span>{source.title}</span>
+              </div>
+            ))}
+            {lint.data ? (
+              <p className="text-xs text-muted-foreground">
+                {t('decisions.checkSummary', {
+                  errors: lint.data.counts.error,
+                  warnings: lint.data.counts.warn,
+                })}
+              </p>
+            ) : null}
+          </CollapsibleContent>
+        </Collapsible>
+        {row.kind === 'triage' && row.state === 'open' ? (
+          <TriagePanel ingestId={row.key.slice('triage:'.length)} space={space} testId={`${testId}-triage`} />
         ) : null}
       </CardContent>
       <CardFooter className="flex flex-wrap items-center justify-between gap-2 border-t bg-muted/20">
-        <TaskLink item={item} testId={testId} />
-        {item.state === 'open' ? (
+        <TaskLink row={row} testId={testId} />
+        {row.state === 'open' ? (
           <Confirm
             title={t('decisions.removeConfirmTitle')}
             description={t('decisions.removeConfirmDescription')}
@@ -441,14 +628,16 @@ function TriageForm({
   )
 }
 
-function TaskLink({ item, testId }: { item: AttentionItem; testId: string }) {
+function TaskLink({ row, testId }: { row: QueueRow; testId: string }) {
   const { t } = useI18n()
-  if (item.kind === 'triage') return <span className="text-xs text-muted-foreground">{t('decisions.sortAbove')}</span>
-  const href = `/decisions/proposals/${item.key.slice('proposal:'.length)}`
-  if (!href) return null
+  if (row.kind === 'triage') return <span className="text-xs text-muted-foreground">{t('decisions.sortAbove')}</span>
+  const href = `/decisions/proposals/${row.key.slice('proposal:'.length)}`
+  // The wiki travels with the link. The queue crosses wikis now, so a review
+  // opened from a row in another wiki must not land in whichever one the
+  // switcher happens to hold.
   return (
     <Button asChild size="sm">
-      <Link to={href as never} search data-testid={`${testId}-open-target`}>
+      <Link to={href as never} search={{ space: row.space } as never} data-testid={`${testId}-open-target`}>
         {t(taskActionKey(href))}
       </Link>
     </Button>

@@ -95,6 +95,10 @@ export const NAV: readonly NavEntry[] = [
     scope: 'knowledge:read',
     group: 'home',
     api: [
+      // The open queue is installation-wide (§8.1) and reads the global feed;
+      // the shelves and the state writes stay per-wiki, because a deferral is
+      // an operator's note on one wiki's object.
+      '/v1/attention',
       '/v1/spaces/{space}/attention',
       '/v1/spaces/{space}/attention/{key}',
       '/v1/ingests/{id}/triage',

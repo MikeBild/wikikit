@@ -5,6 +5,7 @@ import { Fragment, useState, type ComponentType, type ReactNode } from 'react'
 import { entryFor, GROUPS, NAV, type NavEntry, type NavGroup } from '@/app/nav'
 import { endSession } from '@/api/client'
 import { keys, wk } from '@/api/wk'
+import { GLOBAL_ATTENTION_QUERY, countOpenDecisions } from '@/pages/decisions.logic'
 import { scopesLabel } from '@/lib/scopes'
 import { useCan, useSession } from '@/lib/session'
 import { useSpaceContext } from '@/lib/space'
@@ -62,12 +63,30 @@ import { useSidebar } from '@/hooks/use-sidebar'
 export function Shell() {
   const can = useCan()
   const { t } = useI18n()
-  const { space } = useSpaceContext()
+  /*
+    The badge counts the INSTALLATION, not the wiki in the switcher.
+
+    §8.1 asks for one live counter of open positions, deduplicated — and a
+    counter that silently means "in the wiki you happen to have selected"
+    disagrees with the overview beside it, which has always counted every wiki.
+    Two correct numbers answering two different questions under one label is
+    worse than one wrong number: nothing looks broken.
+
+    Same arguments as the overview and the decisions queue, so react-query
+    serves all three from ONE cache entry rather than three requests that can
+    drift apart while the console is open.
+  */
   const attention = useQuery({
-    queryKey: keys.attention(space ?? '', { state: 'open', limit: 1 }),
-    queryFn: () => wk.attention.list(space!, { state: 'open', limit: 1 }),
-    enabled: Boolean(space),
+    queryKey: keys.globalAttention(GLOBAL_ATTENTION_QUERY),
+    queryFn: () => wk.attention.global(GLOBAL_ATTENTION_QUERY),
   })
+  const decisions = attention.data
+    ? countOpenDecisions({
+        items: attention.data.items,
+        counts: attention.data.counts,
+        nowMs: new Date(attention.data.generated_at).getTime(),
+      })
+    : null
 
   const signOut = useMutation({
     mutationFn: () => endSession(),
@@ -112,8 +131,14 @@ export function Shell() {
                     group={group}
                     items={items}
                     open={open}
-                    attentionCount={attention.data?.counts.open}
-                    attentionAlert={Boolean(attention.data?.counts.overdue)}
+                    attentionCount={decisions?.total}
+                    // §8.1 turns the counter red on an expired position or a
+                    // health problem. The global feed carries neither yet, so
+                    // the honest colour is amber from one — a red that can
+                    // never appear would be a promise, not a signal.
+                    attentionAlert={Boolean(
+                      decisions && (decisions.subsets.blocking > 0 || decisions.subsets.overdue > 0),
+                    )}
                   />
                 )
               })}

@@ -4,7 +4,7 @@ import { Search } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { keys, wk } from '@/api/wk'
 import { Page } from '@/app/shell'
-import { bannerSubset, countOpenDecisions, type BannerSubset } from '@/pages/decisions.logic'
+import { GLOBAL_ATTENTION_QUERY, bannerSubset, countOpenDecisions, type BannerSubset } from '@/pages/decisions.logic'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,8 +23,8 @@ export function HomePage() {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
   const attention = useQuery({
-    queryKey: keys.globalAttention({ limit: 200 }),
-    queryFn: () => wk.attention.global({ limit: 200 }),
+    queryKey: keys.globalAttention(GLOBAL_ATTENTION_QUERY),
+    queryFn: () => wk.attention.global(GLOBAL_ATTENTION_QUERY),
   })
 
   // Measured against the response's own `generated_at`, not against the
