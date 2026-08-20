@@ -835,6 +835,10 @@ const ROUTE_PROBE = `(() => {
     texts: surface.texts,
     buttons: surface.buttons,
     title: title ? (title.innerText || title.textContent || '').replace(/\\s+/g, ' ').trim() : null,
+    // Zwei verschiedene Titel, und sie werden hier auseinandergehalten:
+    // \`title\` ist die Überschrift der Seite, \`documentTitle\` die Beschriftung
+    // des Browser-Reiters. Nur der zweite steht unter der Familienregel.
+    documentTitle: document.title,
     notFound: Boolean(document.querySelector('[data-testid="not-found-home"]')),
   }
 })()`
@@ -976,12 +980,17 @@ async function main() {
       }
     }
 
-    // §5 — the browser tab says „<Produktname> Cockpit", exactly. The tab is
+    // §6 — the browser tab says „<Produktname> Cockpit", exactly. The tab is
     // the one part of the console an operator reads with six other tabs open,
     // so it is the place a lowercase product name is most visible and least
     // likely to be noticed by whoever wrote it.
+    //
+    // §6 und nicht mehr §5: v1.5 hat den Browser-Titel benannt und ihn zu
+    // Wortmarke und App-Icon gestellt, wo er hingehört. Der Satz misst
+    // dasselbe wie vorher; nur der Paragraf, den ein roter Lauf nennt, zeigt
+    // jetzt auf die Regel, die es tatsächlich sagt.
     if (shell.title !== `${PRODUCT_NAME} Cockpit`) {
-      note('§5', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
+      note('§6', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
     }
 
     // §6 — the tab icon is declared AND the file behind it answers with an
@@ -1314,6 +1323,25 @@ async function main() {
         continue
       }
       swept.push({ path: target.path, url: target.url, title: surface.title })
+      // §6 — der Browser-Reiter sagt „<Produktname> Cockpit", und zwar auf
+      // JEDER Route, nicht nur auf der Übersicht.
+      //
+      // Die Prüfung auf der Übersicht weiter oben ist genau so weit tragfähig,
+      // wie niemand den Titel je pro Route setzt. Heute tut das nichts — im
+      // ganzen Cockpit steht keine Zuweisung an `document.title` —, und genau
+      // deshalb ist die Stelle offen: ein `document.title = 'Seiten'` in einem
+      // Effekt ist in einer SPA die naheliegendste Ergänzung der Welt, sie
+      // lässt die Übersicht grün und macht die Beschriftung auf zweiundzwanzig
+      // anderen Routen still falsch. Der Sweep läuft ohnehin über alle Ziele;
+      // die Beschriftung mitzulesen kostet nichts und schließt den Zeitraum,
+      // in dem das unbemerkt bliebe.
+      if (surface.documentTitle !== `${PRODUCT_NAME} Cockpit`) {
+        note(
+          '§6',
+          `${where} › Browser-Titel <title>`,
+          `„${surface.documentTitle || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`,
+        )
+      }
       collectSurface(note, where, surface)
     }
 
@@ -1461,7 +1489,7 @@ async function stopCockpit(child) {
 }
 
 function report(base, violations, unmocked, swept, unchecked) {
-  console.log(`› checked the cockpit at ${base} against COCKPIT-KONVENTION.md v1.4 (fixtures, no database)`)
+  console.log(`› checked the cockpit at ${base} against COCKPIT-KONVENTION.md v1.5 (fixtures, no database)`)
   console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
   // Said out loud, on BOTH paths through this function, and before the verdict.
   // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
@@ -1484,7 +1512,7 @@ function report(base, violations, unmocked, swept, unchecked) {
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
     console.log('   Zone-A-Zeilen dublettenfrei und deckungsgleich mit dem Kopf,')
-    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
+    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel auf jeder Route,')
     console.log('   Wortmarken-Icon (Schreibweise aus der berechneten text-transform, nicht aus innerText),')
     console.log('   Favicon das wirklich lädt und sich als Bild decodiert,')
     console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
@@ -1494,7 +1522,7 @@ function report(base, violations, unmocked, swept, unchecked) {
   for (const violation of violations) {
     console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
   }
-  console.error(`\n${violations.length} Verstöße gegen COCKPIT-KONVENTION.md v1.4`)
+  console.error(`\n${violations.length} Verstöße gegen COCKPIT-KONVENTION.md v1.5`)
   process.exit(1)
 }
 
