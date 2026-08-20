@@ -27,7 +27,15 @@
 // list, because fixing them one rebuild at a time is how a checklist of nine
 // rules turns into nine mornings.
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+// The navigation table, imported rather than restated. `nav.ts` is DOM-free on
+// purpose (test/unit/cockpit-navigation.test.ts reads it the same way), so a
+// script with no browser around it can ask the console where its pages are.
+// A typed list of routes in THIS file would be a second source that cannot
+// notice when a page is added — which is how the sweep came to miss every
+// detail route in the first place.
+import { NAV } from '../apps/cockpit/src/app/nav.ts'
 
 const BASE = (process.env.COCKPIT_BASE_URL ?? '').replace(/\/$/, '')
 const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
@@ -165,6 +173,271 @@ const WORLDS = {
   },
 }
 
+/*
+  ── The detail surfaces, one specimen per collection ─────────────────────────
+
+  WHY these exist: until this run the sweep opened the TOP-LEVEL routes and
+  nothing else. Every page a reader reaches by clicking a row — a wiki page, an
+  archived source, an answer, a proposal under review, a logged decision — was
+  outside the check's world, which means §5 (German on the top level, no raw
+  identifiers on screen), §2 („Unbekannt") and §8.3 (button labels) were never
+  asserted there at all. That is not a theoretical hole: the same sweep in the
+  sibling products found a complete English field table with a full UUID in it
+  on one detail page, and an entirely English page on another.
+
+  The identifiers are REAL-shaped UUIDs rather than friendly words, and that is
+  the load-bearing part of these fixtures: a detail page that prints its own id
+  is precisely the violation being hunted, and a fixture keyed on „quelle-1"
+  would let it through.
+*/
+const CONCEPT_SLUG = 'rueckgaberecht'
+const SOURCE_ID = '8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62'
+const OUTPUT_ID = '5c2f9b3a-7d41-4e28-9f61-3a4b2c6d8e90'
+const DECISION_SLUG = 'freigabe-bleibt-menschlich'
+/** The first open position, so the queue and its detail page are the same object. */
+const PROPOSAL_ID = OPEN_ITEMS[0].key.slice('proposal:'.length)
+
+const CITATION = {
+  source_id: SOURCE_ID,
+  quote: 'Die Rückgabe ist innerhalb von 14 Tagen nach Zustellung möglich.',
+  locator: 'Abschnitt 3.2',
+  source_title: 'Support-Handbuch 2026',
+}
+
+const CONCEPT_DETAIL = {
+  slug: CONCEPT_SLUG,
+  title: 'Rückgaberecht',
+  summary: 'Kundinnen und Kunden können die Ware 14 Tage lang zurückgeben.',
+  markdown:
+    '## Frist\n\nDie Frist beträgt 14 Tage ab Zustellung.\n\n## Ausnahmen\n\nVerderbliche Ware ist ausgenommen.\n',
+  rev: 3,
+  updated_at: daysAgo(2),
+  claims: [
+    {
+      id: '22222222-2222-4222-8222-000000000001',
+      subject: 'Rückgabe',
+      predicate: 'Frist',
+      object: '14 Tage ab Zustellung',
+      status: 'verified',
+      confidence: 0.92,
+      citations: [CITATION],
+    },
+  ],
+  relations: [{ to_slug: 'versandkosten', kind: 'related', space: null }],
+  agent_meta: {},
+}
+
+const CONCEPT_HISTORY = {
+  slug: CONCEPT_SLUG,
+  revisions: [
+    {
+      id: '33333333-3333-4333-8333-000000000001',
+      rev: 3,
+      status: 'current',
+      title: 'Rückgaberecht',
+      summary: 'Kundinnen und Kunden können die Ware 14 Tage lang zurückgeben.',
+      base_revision_id: null,
+      proposal_id: null,
+      agent_meta: {},
+      created_at: daysAgo(2),
+    },
+  ],
+}
+
+const CONCEPT_NEIGHBORS = {
+  schema_version: '1',
+  relations: [{ slug: 'versandkosten', title: 'Versandkosten', kind: 'related', direction: 'out', space: null }],
+  same_source: [{ slug: 'versandkosten', title: 'Versandkosten', shared_sources: 1 }],
+}
+
+const SOURCE_DETAIL = {
+  id: SOURCE_ID,
+  kind: 'markdown',
+  url: null,
+  title: 'Support-Handbuch 2026',
+  raw_title: null,
+  summary: 'Das Handbuch des Supports, Stand Frühjahr 2026.',
+  content_hash: 'sha256:9f2b1c',
+  created_at: daysAgo(30),
+  raw_content: '# Support-Handbuch\n\nDie Rückgabe ist innerhalb von 14 Tagen nach Zustellung möglich.\n',
+  markdown: '# Support-Handbuch\n\nDie Rückgabe ist innerhalb von 14 Tagen nach Zustellung möglich.\n',
+  metadata: {},
+  language: 'de',
+  stream_id: null,
+  source_version: null,
+  observed_at: null,
+  effective_at: null,
+  supersedes_source_id: null,
+}
+
+const SOURCE_REFERENCES = {
+  items: [{ kind: 'page', id: CONCEPT_SLUG, label: 'Rückgaberecht', href: `/pages/${CONCEPT_SLUG}`, claim_count: 1 }],
+  next_cursor: null,
+}
+
+/*
+  The answer detail, and its summary is the pipeline's ENGLISH sentence on
+  purpose — the same passthrough §5 forbids on the queue. It reaches this page
+  by the same route (composed in the pipeline, stored on the record, rendered
+  wherever the record is shown), so a fixture that quietly wrote German here
+  would assert that the detail page is clean without ever putting it to the
+  question.
+*/
+const OUTPUT_DETAIL = {
+  id: OUTPUT_ID,
+  space_id: SPACES[0].id,
+  kind: 'answer',
+  title: 'Wie lange ist die Rückgabefrist?',
+  summary:
+    'Synthesized 8 concepts, 28 claims, 2 contradictions detected from source 8e065dc7-4b1a-4c33-9a77-1f0c1d3e5b62.',
+  question: 'Wie lange ist die Rückgabefrist?',
+  markdown: 'Die Frist beträgt **14 Tage** ab Zustellung.\n',
+  citations: [{ slug: CONCEPT_SLUG, title: 'Rückgaberecht' }],
+  not_in_knowledge_base: false,
+  agent_run_id: null,
+  promoted_ingest_id: null,
+  promoted_at: null,
+  created_at: daysAgo(3),
+}
+
+const DECISION_DETAIL = {
+  slug: DECISION_SLUG,
+  title: 'Freigaben bleiben menschlich',
+  status: 'active',
+  created_at: daysAgo(40),
+  context: 'Vorschläge aus der Synthese sollen nicht automatisch ins Wiki laufen.',
+  decision: 'Jeder Vorschlag braucht eine menschliche Freigabe.',
+  rationale: 'Wissensqualität hängt an der Prüfung, nicht am Durchsatz.',
+  alternatives: [],
+  agent_meta: {},
+}
+
+const PROPOSAL_DETAIL = {
+  id: PROPOSAL_ID,
+  space: SPACES[0].slug,
+  status: 'pending',
+  title: OPEN_ITEMS[0].title,
+  summary: OPEN_ITEMS[0].summary,
+  created_at: daysAgo(OPEN_ITEMS[0].ageDays),
+  reviewer: null,
+  review_note: null,
+  review_channel: null,
+  reviewed_at: null,
+  source_ids: [SOURCE_ID],
+  agent_meta: {},
+  changes_requested: false,
+  parent_proposal_id: null,
+  previous_rejection: null,
+  concept_lifecycle: [],
+  sources: [{ id: SOURCE_ID, title: 'Support-Handbuch 2026', url: null, kind: 'markdown', created_at: daysAgo(30) }],
+  concepts: [
+    {
+      slug: CONCEPT_SLUG,
+      is_new: false,
+      old_markdown: '## Frist\n\nDie Frist beträgt 14 Tage ab Zustellung.\n',
+      new_markdown: '## Frist\n\nDie Frist beträgt 14 Tage ab Zustellung der letzten Teillieferung.\n',
+      stale: false,
+      claims_added: [{ subject: 'Rückgabe', predicate: 'Frist', object: '14 Tage ab letzter Teillieferung' }],
+      claims_disputed: [],
+      claims_deprecated: [],
+      claims: [
+        {
+          subject: 'Rückgabe',
+          predicate: 'Frist',
+          object: '14 Tage ab letzter Teillieferung',
+          status: 'verified',
+          confidence: 0.88,
+          collides: false,
+          citations: [CITATION],
+        },
+      ],
+      relations_added: [],
+    },
+  ],
+  decisions: [],
+  relations_removed: [],
+}
+
+const PROPOSAL_LINT = { findings: [], counts: { error: 0, warn: 0, info: 0 } }
+
+/** Every detail read this run models, keyed by the exact pathname. */
+function detailReads() {
+  const reads = new Map([
+    [`/v1/outputs/${OUTPUT_ID}`, OUTPUT_DETAIL],
+    [`/v1/proposals/${PROPOSAL_ID}`, PROPOSAL_DETAIL],
+    [`/v1/proposals/${PROPOSAL_ID}/lint`, PROPOSAL_LINT],
+  ])
+  for (const space of SPACES) {
+    const prefix = `/v1/spaces/${space.slug}`
+    reads.set(`${prefix}/concepts/${CONCEPT_SLUG}`, CONCEPT_DETAIL)
+    reads.set(`${prefix}/concepts/${CONCEPT_SLUG}/history`, CONCEPT_HISTORY)
+    reads.set(`${prefix}/concepts/${CONCEPT_SLUG}/neighbors`, CONCEPT_NEIGHBORS)
+    reads.set(`${prefix}/sources/${SOURCE_ID}`, SOURCE_DETAIL)
+    reads.set(`${prefix}/sources/${SOURCE_ID}/references`, SOURCE_REFERENCES)
+    reads.set(`${prefix}/decisions/${DECISION_SLUG}`, DECISION_DETAIL)
+  }
+  return reads
+}
+
+const DETAIL_READS = detailReads()
+
+/*
+  ── Which addresses the sweep visits ─────────────────────────────────────────
+
+  Derived, never typed out, and from the two things that actually decide the
+  answer:
+
+   - `NAV` names every navigation target, so a page that joins the sidebar
+     joins this sweep in the same commit;
+   - `router.tsx` names every ROUTE, which is the larger set — the detail pages
+     are routed but never listed in the navigation, and those are exactly the
+     ones the sweep used to walk past.
+
+  A parameterised route is not an address until somebody says WHICH page:
+  `DETAIL_SPECIMENS` names one specimen per collection, and the fixtures above
+  serve it. A route whose parameters no fixture covers is NOT skipped — it is
+  carried into the report as „nicht geprüft" (§12). A gap has to look like a
+  gap; silence reads as coverage, and that is the whole reason this hole went
+  unnoticed for as long as it did.
+*/
+const ROUTER_SOURCE = readFileSync(new URL('../apps/cockpit/src/router.tsx', import.meta.url), 'utf8')
+
+const DETAIL_SPECIMENS = {
+  '/pages/$slug': { slug: CONCEPT_SLUG },
+  '/pages/$slug/edit': { slug: CONCEPT_SLUG },
+  '/sources/$id': { id: SOURCE_ID },
+  '/answers/$id': { id: OUTPUT_ID },
+  '/decisions/proposals/$id': { id: PROPOSAL_ID },
+  '/decision-log/$slug': { slug: DECISION_SLUG },
+}
+
+function sweepTargets() {
+  // The `(?<!base)` is not decoration: `basepath: '/cockpit'` is where the
+  // console is MOUNTED, not a route — the same exclusion
+  // test/unit/cockpit-navigation.test.ts makes when it reads this file.
+  const routed = [...ROUTER_SOURCE.matchAll(/(?<!base)path: '([^']+)'/g)].map((match) => match[1])
+  const paths = [...new Set([...NAV.map((entry) => entry.to), ...routed])].sort()
+  const visit = []
+  const unchecked = []
+  for (const path of paths) {
+    if (!path.includes('$')) {
+      visit.push({ path, url: path })
+      continue
+    }
+    const specimen = DETAIL_SPECIMENS[path]
+    if (!specimen) {
+      unchecked.push({ path, why: 'keine Fixture für die Parameter dieser Route' })
+      continue
+    }
+    const url = path.replace(/\$(\w+)/g, (whole, name) =>
+      specimen[name] === undefined ? whole : encodeURIComponent(specimen[name]),
+    )
+    if (url.includes('$')) unchecked.push({ path, why: 'die Fixture deckt nicht jeden Parameter der Route ab' })
+    else visit.push({ path, url })
+  }
+  return { visit, unchecked }
+}
+
 /**
  * The global feed, WITH one position delivered twice.
  *
@@ -188,13 +461,80 @@ function globalItems(items) {
   return rows.length ? [...rows, rows[0]] : rows
 }
 
+/*
+  ── The reads nobody wrote a fixture for ─────────────────────────────────────
+
+  They used to be answered with `{ items: [], next_cursor: null }`, which is a
+  valid answer for a LIST and nonsense for everything else. Five of the
+  console's own navigation targets — Wikis, Check, Guidelines, Model usage,
+  System — read composed objects rather than lists, so that answer put them on
+  the router's bare English „Something went wrong!" screen. The old sweep never
+  noticed because it never opened them.
+
+  So the fallback answers what the CONTRACT says instead: docs/openapi.json is
+  read, the concrete pathname is matched against the templated one, and a
+  minimal instance of the declared response schema is synthesised — arrays
+  empty, counters zero, nullable fields null. That is an empty INSTALLATION
+  rather than an empty list, which is a state the console has to render anyway,
+  and it keeps working when a page grows a read: the contract already describes
+  it.
+*/
+const OPENAPI = JSON.parse(readFileSync(new URL('../docs/openapi.json', import.meta.url), 'utf8'))
+
+/** Dates get a real instant: an empty string renders as „Invalid Date". */
+const DATE_FIELD = /(?:_at|^ts|^from$|^to$|_time)$/
+
+function schemaRef(node) {
+  if (!node || typeof node !== 'object') return node
+  if (!node.$ref) return node
+  return OPENAPI.components?.schemas?.[node.$ref.replace('#/components/schemas/', '')]
+}
+
+/** The smallest instance the declared schema allows, with nothing in it. */
+function emptyInstance(node, field = '', depth = 0) {
+  const schema = schemaRef(node)
+  if (!schema || typeof schema !== 'object' || depth > 12) return null
+  // A nullable union answers null: „measured, nothing there" is the state an
+  // empty installation is actually in, and §4 asks for it to be said rather
+  // than faked with a zero.
+  if (Array.isArray(schema.anyOf)) {
+    const nullable = schema.anyOf.find((branch) => schemaRef(branch)?.type === 'null')
+    return nullable ? null : emptyInstance(schema.anyOf[0], field, depth + 1)
+  }
+  if (Array.isArray(schema.enum)) return schema.enum[0] ?? null
+  if (schema.type === 'array') return []
+  if (schema.type === 'object' || schema.properties) {
+    const out = {}
+    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+      out[name] = emptyInstance(property, name, depth + 1)
+    }
+    return out
+  }
+  if (schema.type === 'integer' || schema.type === 'number') return 0
+  if (schema.type === 'boolean') return false
+  if (schema.type === 'string') return DATE_FIELD.test(field) ? new Date(NOW).toISOString() : ''
+  return null
+}
+
+/** The templated OpenAPI path a concrete request belongs to. */
+function contractSchema(pathname) {
+  for (const [template, item] of Object.entries(OPENAPI.paths ?? {})) {
+    const pattern = new RegExp(
+      `^${template.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{[^}]*\\\}/g, '[^/]+')}$`,
+    )
+    if (!pattern.test(pathname)) continue
+    return item.get?.responses?.['200']?.content?.['application/json']?.schema ?? null
+  }
+  return null
+}
+
 /**
  * One handler for every /v1 read, dispatching on the pathname.
  *
- * Unmatched paths answer an empty list rather than a failure, and are collected
- * so the run can say which reads it did not model. A 404 here would paint the
- * page with error alerts that the banner and empty-state assertions would then
- * be measuring instead of the product.
+ * Unmatched paths answer an empty-but-contract-shaped body rather than a
+ * failure, and are collected so the run can say which reads it did not model
+ * by hand. A 404 here would paint the page with error alerts that the banner
+ * and empty-state assertions would then be measuring instead of the product.
  */
 function mockApi(world, unmocked) {
   const state = WORLDS[world]
@@ -252,8 +592,16 @@ function mockApi(world, unmocked) {
       })
     }
 
+    // The detail reads, last because they are the most specific: a concept, a
+    // source, an answer, a proposal, a logged decision. Without them the detail
+    // routes below would render the empty-list fallback and the sweep would be
+    // measuring a skeleton instead of a page.
+    const detail = DETAIL_READS.get(path)
+    if (detail) return json(detail)
+
     unmocked.add(path)
-    return json({ items: [], next_cursor: null })
+    const shape = contractSchema(path)
+    return json(shape ? emptyInstance(shape) : { items: [], next_cursor: null })
   }
 }
 
@@ -434,6 +782,27 @@ const ZONE_A_PROBE = `(() => {
   }
 })()`
 
+/*
+  The surface probe again, plus the two things a SWEPT route has to say about
+  itself: what it calls itself, and whether it is actually the page it claims.
+
+  `notFound` is the false-green guard. Every route below mounts the same `Page`
+  shell, so waiting for `[data-testid="page"]` proves nothing about which page
+  arrived: a detail address whose fixture stopped matching lands on the
+  not-found screen, mounts perfectly, carries no UUID and no English of its own
+  — and would be counted as a clean detail page for as long as nobody looked.
+*/
+const ROUTE_PROBE = `(() => {
+  const surface = ${SURFACE_PROBE}
+  const title = document.querySelector('[data-testid="page-title"]')
+  return {
+    texts: surface.texts,
+    buttons: surface.buttons,
+    title: title ? (title.innerText || title.textContent || '').replace(/\\s+/g, ' ').trim() : null,
+    notFound: Boolean(document.querySelector('[data-testid="not-found-home"]')),
+  }
+})()`
+
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i
 const FORBIDDEN_BUTTONS = ['ok', 'submit']
 
@@ -461,6 +830,10 @@ async function main() {
   const base = BASE || `http://127.0.0.1:${PORT}`
   const violations = []
   const unmocked = new Set()
+  // Declared out here because the report needs them even when the run below
+  // throws: what was measured, and what was not, are both findings (§12).
+  const swept = []
+  let unchecked = []
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
   const browser = await chromium.launch()
@@ -790,6 +1163,47 @@ async function main() {
       await page.waitForTimeout(250)
     }
 
+    /*
+      ---- Every navigation target AND one detail route per collection -------
+
+      §5/§2/§8.3 applied to the pages a reader reaches by CLICKING a row rather
+      than by picking a navigation entry.
+
+      Before this, the check opened the overview and the decisions queue and
+      called it a sweep. Everything behind a row — a wiki page, its editor, an
+      archived source, an answer, a proposal under review, a logged decision —
+      was outside the world the check knew about, so the prohibitions on raw
+      identifiers, on English on the top level, on „Unbekannt" and on nameless
+      buttons simply did not reach them. Not a hypothetical: the same sweep in
+      the sibling products walked straight into a full English field table with
+      a UUID in it.
+
+      The routes come from `NAV` and from the router, so a page added tomorrow
+      is swept tomorrow without anybody remembering this loop exists.
+    */
+    const targets = sweepTargets()
+    unchecked = targets.unchecked
+    for (const target of targets.visit) {
+      const where = `Route ${target.path}`
+      try {
+        await open(page, `${base}/cockpit${target.url}?space=${SPACE.slug}`)
+      } catch (error) {
+        note('§12', where, `mountet nicht: ${String(error?.message ?? error).split('\n')[0]}`)
+        continue
+      }
+      const surface = await page.evaluate(ROUTE_PROBE)
+      if (surface.notFound) {
+        note(
+          '§12',
+          where,
+          'landet auf dem „nicht gefunden"-Schirm — die Route existiert nicht mehr oder ihre Fixture trifft sie nicht',
+        )
+        continue
+      }
+      swept.push({ path: target.path, url: target.url, title: surface.title })
+      collectSurface(note, where, surface)
+    }
+
     // ---- Overview again, with nothing open -------------------------------
     await page.unroute('**/v1/**')
     await page.route('**/v1/**', (route) => clearWorld(route))
@@ -815,7 +1229,7 @@ async function main() {
     if (server) await stopCockpit(server)
   }
 
-  report(base, violations, unmocked)
+  report(base, violations, unmocked, swept, unchecked)
 }
 
 /** The two DOM-wide prohibitions, applied to whatever page was just measured. */
@@ -891,10 +1305,21 @@ async function stopCockpit(child) {
   })
 }
 
-function report(base, violations, unmocked) {
+function report(base, violations, unmocked, swept, unchecked) {
   console.log(`› checked the cockpit at ${base} against COCKPIT-KONVENTION.md v1.4 (fixtures, no database)`)
+  console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
+  // Said out loud, on BOTH paths through this function, and before the verdict.
+  // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
+  // route that passed — and a run that mentions it only when something else is
+  // already red would announce the hole exactly when nobody is reading.
+  if (unchecked.length) {
+    console.log('\x1b[33m! nicht geprüft\x1b[0m — diese Routen hat der Sweep NICHT geöffnet:')
+    for (const route of unchecked) console.log(`  · ${route.path} — ${route.why}`)
+  }
   if (unmocked.size) {
-    console.log(`› reads answered with an empty list because no fixture models them: ${[...unmocked].join(', ')}`)
+    console.log(
+      `› reads answered from the contract (empty instance of the declared schema) because no fixture models them by hand: ${[...unmocked].join(', ')}`,
+    )
   }
   if (!violations.length) {
     console.log('\x1b[32m✓ no convention violations\x1b[0m')
@@ -904,7 +1329,8 @@ function report(base, violations, unmocked) {
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
-    console.log('   Wortmarken-Icon, Favicon das wirklich lädt und sich als Bild decodiert)')
+    console.log('   Wortmarken-Icon, Favicon das wirklich lädt und sich als Bild decodiert,')
+    console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
     return
   }
   for (const violation of violations) {
