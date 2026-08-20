@@ -74,16 +74,21 @@ export function HomePage() {
             <h2 id="home-tasks-heading" className="text-base font-semibold">
               {t('home.compact.tasks')}
             </h2>
-            {attention.data ? (
+            {open ? (
+              /*
+                The same number the badge, the banner and the queue print, from
+                the same call — `data-total` carries it as a number so a checker
+                does not have to parse a sentence to find out whether the four
+                surfaces agree.
+              */
               <p className="text-sm text-muted-foreground" data-testid="home-task-summary">
-                {attention.data.counts.open === 0
-                  ? t('home.compact.taskSummaryEmpty')
-                  : attention.data.counts.oldest_days === null
-                    ? t('home.compact.taskSummaryUndated', { count: attention.data.counts.open })
-                    : t('home.compact.taskSummary', {
-                        count: attention.data.counts.open,
-                        days: attention.data.counts.oldest_days,
-                      })}
+                <span data-testid="zone-a-decisions-count" data-total={open.total}>
+                  {t('home.compact.taskCount', { count: open.total })}
+                </span>
+                {' · '}
+                {open.oldestAgeDays === null
+                  ? t('home.compact.taskUndated')
+                  : t('home.compact.taskOldest', { days: open.oldestAgeDays })}
               </p>
             ) : null}
           </div>

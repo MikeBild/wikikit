@@ -34,10 +34,19 @@ const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const VITE_CONFIG = 'apps/cockpit/vite.config.ts'
 
-// The wiki the fixtures describe. A slug rather than an id everywhere it is
+// The wikis the fixtures describe. Slugs rather than ids everywhere they are
 // visible, because §5 forbids raw identifiers on screen and a fixture that
-// smuggles one in would be testing itself rather than the console.
-const SPACE = { id: '11111111-1111-4111-8111-000000000001', slug: 'handbuch', name: 'Handbuch' }
+// smuggled one in would be testing itself rather than the console.
+//
+// TWO of them, and that is load-bearing: the open queue is installation-wide
+// (§8.1) and its wiki chips filter rows without touching the counters, and
+// neither claim can be checked against a fixture with one wiki in it — the chip
+// would have nothing to filter away.
+const SPACES = [
+  { id: '11111111-1111-4111-8111-000000000001', slug: 'handbuch', name: 'Handbuch' },
+  { id: '11111111-1111-4111-8111-000000000002', slug: 'onboarding', name: 'Onboarding' },
+]
+const SPACE = SPACES[0]
 
 // Stamped against the run, not frozen. The decisions page sorts the "waiting
 // longer" rubric by comparing each item against `generated_at`, so a fixed
@@ -46,33 +55,46 @@ const SPACE = { id: '11111111-1111-4111-8111-000000000001', slug: 'handbuch', na
 const NOW = Date.now()
 const daysAgo = (days) => new Date(NOW - days * 86_400_000).toISOString()
 
-/** Five open proposals: two older than three days (§8.2's rubric), three fresh. */
+/**
+ * Five open proposals: two older than three days (§8.2's rubric), three fresh,
+ * and one of them in a second wiki.
+ *
+ * Two aged out of five is a REAL subset on purpose. A fixture where every open
+ * position is also an aged one would let a banner that simply prints the total
+ * pass the "N von M" sentence, and the sentence is the whole point: it says how
+ * much of the queue has gone stale, not how big the queue is.
+ */
 const OPEN_ITEMS = [
   {
+    space: 'handbuch',
     key: 'proposal:11111111-1111-4111-8111-000000000011',
     title: 'Rückgaberecht: Fristen aus dem Support-Handbuch übernehmen',
     summary: 'Zwei Absätze zur 14-Tage-Frist, belegt durch das Support-Handbuch.',
     ageDays: 9,
   },
   {
+    space: 'handbuch',
     key: 'proposal:11111111-1111-4111-8111-000000000012',
     title: 'Eskalationsweg für Zahlungsausfälle beschreiben',
     summary: 'Neue Seite mit dem Weg von der ersten Mahnung bis zur Sperrung.',
     ageDays: 5,
   },
   {
+    space: 'handbuch',
     key: 'proposal:11111111-1111-4111-8111-000000000013',
     title: 'Begriff „Freigabe" gegen die Leitlinien schärfen',
     summary: 'Ersetzt eine mehrdeutige Formulierung auf der Freigabe-Seite.',
     ageDays: 2,
   },
   {
+    space: 'handbuch',
     key: 'proposal:11111111-1111-4111-8111-000000000014',
     title: 'Kontaktwege im Onboarding aktualisieren',
     summary: 'Die alte Telefonnummer steht noch auf zwei Seiten.',
     ageDays: 1,
   },
   {
+    space: 'onboarding',
     key: 'proposal:11111111-1111-4111-8111-000000000015',
     title: 'Urlaubsantrag: Vertretungsregel ergänzen',
     summary: 'Ein Absatz zur Vertretung, belegt durch die Betriebsvereinbarung.',
@@ -80,8 +102,13 @@ const OPEN_ITEMS = [
   },
 ]
 
+/** How many of them §8.2 calls old, and how old the oldest is. */
+const AGED_ITEMS = OPEN_ITEMS.filter((item) => item.ageDays >= 3).length
+const OLDEST_DAYS = Math.max(...OPEN_ITEMS.map((item) => item.ageDays))
+
 function attentionItem(item) {
   return {
+    space: item.space,
     key: item.key,
     kind: 'proposal',
     state: 'open',
@@ -111,7 +138,7 @@ const WORLDS = {
     counts: {
       open: OPEN_ITEMS.length,
       overdue: 1,
-      oldest_days: 9,
+      oldest_days: OLDEST_DAYS,
       by_kind: { proposal: OPEN_ITEMS.length, triage: 0 },
     },
   },
@@ -119,6 +146,29 @@ const WORLDS = {
     items: [],
     counts: { open: 0, overdue: 0, oldest_days: null, by_kind: { proposal: 0, triage: 0 } },
   },
+}
+
+/**
+ * The global feed, WITH one position delivered twice.
+ *
+ * A retry, a cursor overlap, two synthesis runs on one source — a feed repeats
+ * itself in production, and a console that counts rows would report six open
+ * decisions where five exist. `counts.open` stays 5, so the duplicate is only
+ * survivable if the console deduplicates by wiki AND key before it counts and
+ * before it decides whether its list is short of the count.
+ */
+function globalItems(items) {
+  const rows = items.map((item) => ({
+    space: item.space,
+    space_name: SPACES.find((space) => space.slug === item.space)?.name ?? item.space,
+    key: item.key,
+    kind: item.kind,
+    title: item.title,
+    summary: item.summary,
+    created_at: item.created_at,
+    available_actions: item.available_actions,
+  }))
+  return rows.length ? [...rows, rows[0]] : rows
 }
 
 /**
@@ -148,36 +198,41 @@ function mockApi(world, unmocked) {
     }
     if (path === '/v1/spaces') {
       return json({
-        items: [
-          {
-            ...SPACE,
-            settings: {},
-            epoch: 1,
-            created_at: daysAgo(300),
-            updated_at: daysAgo(1),
-          },
-        ],
+        items: SPACES.map((space) => ({
+          ...space,
+          settings: {},
+          epoch: 1,
+          created_at: daysAgo(300),
+          updated_at: daysAgo(1),
+        })),
       })
     }
     if (path === '/v1/attention') {
       return json({
         generated_at: new Date(NOW).toISOString(),
         counts: { open: state.counts.open, oldest_days: state.counts.oldest_days, by_kind: state.counts.by_kind },
-        items: state.items.map((item) => ({
-          space: SPACE.slug,
-          space_name: SPACE.name,
-          key: item.key,
-          kind: item.kind,
-          title: item.title,
-          summary: item.summary,
-          created_at: item.created_at,
-          available_actions: item.available_actions,
-        })),
+        items: globalItems(state.items),
         next_cursor: null,
       })
     }
-    if (path === `/v1/spaces/${SPACE.slug}/attention`) {
-      return json({ generated_at: new Date(NOW).toISOString(), counts: state.counts, items: state.items })
+    const perSpace = SPACES.find((space) => path === `/v1/spaces/${space.slug}/attention`)
+    if (perSpace) {
+      // The shelves and the expanded row read THIS, and it holds one wiki's
+      // share — which is exactly the number the queue must NOT show any more.
+      const items = state.items.filter((item) => item.space === perSpace.slug)
+      const oldest = items.length
+        ? Math.max(...items.map((item) => Math.floor((NOW - Date.parse(item.created_at)) / 86_400_000)))
+        : null
+      return json({
+        generated_at: new Date(NOW).toISOString(),
+        counts: {
+          open: items.length,
+          overdue: items.length ? state.counts.overdue : 0,
+          oldest_days: oldest,
+          by_kind: { proposal: items.length, triage: 0 },
+        },
+        items,
+      })
     }
 
     unmocked.add(path)
@@ -265,14 +320,47 @@ const BANNER_PROBE = `(() => {
 
 const QUEUE_PROBE = `(() => {
   const list = document.querySelector('[data-testid="attention-list"]')
-  if (!list) return { list: false, cards: 0, headings: [] }
+  if (!list) return { list: false, cards: 0, headings: [], keys: [], chips: [] }
   const cards = [...list.querySelectorAll('[data-testid^="decision-item-"], [data-testid^="decision-waiting-"]')]
     .map((card) => card.getAttribute('data-testid'))
     .filter((id) => /^decision-(item|waiting)-\\d+$/.test(id))
   const headings = [...list.querySelectorAll('h1, h2, h3, h4')]
     .map((heading) => (heading.innerText || heading.textContent || '').replace(/\\s+/g, ' ').trim())
     .filter(Boolean)
-  return { list: true, cards: cards.length, headings: headings }
+  const number = (value) => (value === null || value === '' ? null : Number(value))
+  return {
+    list: true,
+    cards: cards.length,
+    headings: headings,
+    total: number(list.getAttribute('data-total')),
+    capped: list.getAttribute('data-capped'),
+    keys: [...list.querySelectorAll('[data-decision-key]')].map(
+      (card) => card.getAttribute('data-space') + ':' + card.getAttribute('data-decision-key'),
+    ),
+    chips: [...document.querySelectorAll('[data-testid^="decisions-space-"]')].map((chip) =>
+      chip.getAttribute('data-testid'),
+    ),
+  }
+})()`
+
+// The four places the console prints the number of open decisions. Read from
+// ONE probe so the comparison is of one instant rather than of four.
+const NUMBERS_PROBE = `(() => {
+  const number = (element, attribute) => {
+    if (!element) return null
+    const raw = attribute ? element.getAttribute(attribute) : element.innerText || element.textContent || ''
+    const value = Number(String(raw).trim())
+    return Number.isFinite(value) ? value : null
+  }
+  const banner = document.querySelector('[data-testid="incident-decisions-count"]')
+  return {
+    nav: number(document.querySelector('[data-testid="nav-decisions-count"]')),
+    zoneA: number(document.querySelector('[data-testid="zone-a-decisions-count"]'), 'data-total'),
+    bannerTotal: number(banner, 'data-subset-total'),
+    bannerCount: number(banner, 'data-subset-count'),
+    bannerSubset: banner ? banner.getAttribute('data-subset') : null,
+    bannerText: banner ? (banner.innerText || banner.textContent || '').replace(/\\s+/g, ' ').trim() : null,
+  }
 })()`
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-/i
@@ -317,6 +405,7 @@ async function main() {
     const shell = await page.evaluate(SHELL_PROBE)
     const overview = await page.evaluate(SURFACE_PROBE)
     const banner = await page.evaluate(BANNER_PROBE)
+    const numbers = await page.evaluate(NUMBERS_PROBE)
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
     if (shell.role !== 'Administrator') {
@@ -374,6 +463,42 @@ async function main() {
     }
     collectSurface(note, 'Übersicht', overview)
 
+    // §8.1/§8.7/§1 — the banner says how much of the queue has gone stale, and
+    // it says it in a sentence rather than in a number an operator has to
+    // interpret. The regex is the sentence's shape: "N von M", "Alle M" or
+    // "mindestens N von M", always followed by the words §8.2 uses for the
+    // same three days.
+    const SENTENCE = /(?:mindestens \d+ von \d+|Alle \d+|\d+ von \d+) warten länger als drei Tage/
+    if (numbers.bannerSubset === null) {
+      note('§8.7', 'Übersicht › Incident-Banner', 'keine Zahl [data-testid="incident-decisions-count"]')
+    } else {
+      if (numbers.bannerSubset !== 'aging') {
+        note(
+          '§8.7',
+          'Übersicht › Incident-Banner (Fixture: 2 von 5 älter als drei Tage)',
+          `Teilmenge „${numbers.bannerSubset}" statt „aging"`,
+        )
+      } else if (!SENTENCE.test(numbers.bannerText ?? '')) {
+        note('§8.7', 'Übersicht › Incident-Banner › Satz', `„${(numbers.bannerText ?? '').slice(0, 90)}"`)
+      }
+      // A subset is a SUBSET: at least one, and never more than the whole
+      // queue. "0 von 5" is a banner about nothing and "7 von 5" is a banner
+      // about a number nobody counted.
+      if (!(numbers.bannerCount > 0 && numbers.bannerCount < numbers.bannerTotal)) {
+        note(
+          '§8.7',
+          'Übersicht › Incident-Banner › Teilmenge',
+          `${numbers.bannerCount} von ${numbers.bannerTotal} — keine echte Teilmenge`,
+        )
+      } else if (numbers.bannerCount !== AGED_ITEMS) {
+        note(
+          '§8.7',
+          'Übersicht › Incident-Banner › Teilmenge',
+          `${numbers.bannerCount} statt ${AGED_ITEMS} Positionen älter als drei Tage`,
+        )
+      }
+    }
+
     // ---- Decisions queue, same world -------------------------------------
     await open(page, `${base}/cockpit/decisions?space=${SPACE.slug}`)
     const queueShell = await page.evaluate(SHELL_PROBE)
@@ -391,15 +516,75 @@ async function main() {
     }
     collectSurface(note, 'Entscheidungen', decisionsSurface)
 
-    // Number coherence: the sidebar counter and the queue count the same thing,
-    // and a console that disagrees with itself teaches an operator to trust
-    // neither number. §1: "Kein Zähler ohne Link" has a silent partner — no
-    // counter without a matching list.
+    /*
+      Four surfaces, ONE number (§8.1/§1).
+
+      The console prints how many decisions are open in four places: the sidebar
+      badge, the Zone-A card, the incident banner and the queue. Before this
+      check they printed three different numbers — 1, 1 and 3 — each of them
+      correct about a different question, which is worse than one wrong number
+      because nothing looks broken. So they are compared against each other
+      rather than against a constant: a fixture number would only prove the
+      fixture, and the failure this guards against is disagreement.
+    */
     const badgeCount = Number.parseInt(queueShell.badge ?? '', 10)
-    if (!Number.isFinite(badgeCount)) {
-      note('§8.1/§1', 'Sidebar-Badge vs. Queue', `Badge liest „${queueShell.badge ?? '(fehlt)'}"`)
-    } else if (badgeCount !== queue.cards) {
-      note('§8.1/§1', 'Sidebar-Badge vs. Queue', `Badge ${badgeCount}, Queue ${queue.cards} Positionen`)
+    const four = [
+      ['Nav-Badge', badgeCount],
+      ['Zone-A-Karte', numbers.zoneA],
+      ['Incident-Banner', numbers.bannerTotal],
+      ['Queue', queue.total],
+    ]
+    const missing = four.filter(([, value]) => !Number.isFinite(value)).map(([name]) => name)
+    if (missing.length) {
+      note('§8.1/§1', 'Vier Zahlen', `ohne lesbare Zahl: ${missing.join(', ')}`)
+    } else if (new Set(four.map(([, value]) => value)).size !== 1) {
+      note('§8.1/§1', 'Vier Zahlen', four.map(([name, value]) => `${name} ${value}`).join(', '))
+    }
+    // The list is complete in this fixture, so it must not hedge — and the six
+    // delivered rows must render as the five positions they are.
+    if (queue.capped !== 'false') {
+      note('§8.1', 'Entscheidungs-Queue', `data-capped="${queue.capped}" bei vollständiger Liste`)
+    }
+    if (new Set(queue.keys).size !== queue.keys.length) {
+      note(
+        '§8.2',
+        'Entscheidungs-Queue › Dubletten',
+        `${queue.keys.length} Zeilen, ${new Set(queue.keys).size} Positionen`,
+      )
+    }
+    if (queue.keys.length !== queue.cards) {
+      note('§8.2', 'Entscheidungs-Queue', `${queue.cards} Karten, aber ${queue.keys.length} mit data-decision-key`)
+    }
+
+    /*
+      §10 — the wiki chips filter ROWS and nothing else.
+
+      The fixture holds two wikis on purpose: with one, a chip has nothing to
+      filter away and this assertion would pass without measuring anything. So
+      the second wiki's chip is pressed, and the two numbers on this page must
+      not move. A filter that also moves the counter answers "how many are
+      open" with the answer to "how many are open in what I am looking at",
+      under the same label.
+    */
+    const chip = `decisions-space-${SPACES[1].slug}`
+    if (!queue.chips.includes(chip)) {
+      note('§10', 'Entscheidungs-Queue › Wiki-Chips', `Chips: ${queue.chips.join(', ') || '(keine)'}`)
+    } else {
+      await page.locator(`[data-testid="${chip}"]`).click()
+      await page.waitForTimeout(250)
+      const filtered = await page.evaluate(QUEUE_PROBE)
+      const filteredShell = await page.evaluate(SHELL_PROBE)
+      if (filtered.total !== queue.total) {
+        note('§10', 'Wiki-Chip vs. Gesamtzahl', `Queue ${queue.total} → ${filtered.total} nach Chip-Klick`)
+      }
+      if (filteredShell.badge !== queueShell.badge) {
+        note('§10', 'Wiki-Chip vs. Nav-Badge', `Badge „${queueShell.badge}" → „${filteredShell.badge}"`)
+      }
+      if (filtered.cards >= queue.cards) {
+        note('§10', 'Wiki-Chip', `filtert keine Zeilen weg: ${queue.cards} → ${filtered.cards}`)
+      }
+      await page.locator('[data-testid="decisions-space-all"]').click()
+      await page.waitForTimeout(250)
     }
 
     // ---- Overview again, with nothing open -------------------------------
@@ -407,8 +592,18 @@ async function main() {
     await page.route('**/v1/**', (route) => clearWorld(route))
     await open(page, `${base}/cockpit/`)
     const quiet = await page.evaluate(BANNER_PROBE)
+    const quietNumbers = await page.evaluate(NUMBERS_PROBE)
     if (quiet.banner) {
       note('§8.7', 'Übersicht (Fixture „gate-clear", 0 offene Gates)', `Banner trotzdem sichtbar: „${quiet.text}"`)
+    }
+    // The other direction of the same rule: nothing open means no banner AND a
+    // badge that says zero rather than one that has quietly disappeared —
+    // §4's measured null is a number, not an absence.
+    if (quietNumbers.nav !== 0) {
+      note('§8.1', 'Sidebar-Badge (Fixture „gate-clear")', `Badge liest ${quietNumbers.nav ?? '(fehlt)'} statt 0`)
+    }
+    if (quietNumbers.zoneA !== 0) {
+      note('§1', 'Zone-A-Karte (Fixture „gate-clear")', `Zähler liest ${quietNumbers.zoneA ?? '(fehlt)'} statt 0`)
     }
 
     await context.close()
@@ -497,7 +692,8 @@ function report(base, violations, unmocked) {
     // Said out loud rather than left implied: green means these nine rules
     // held against these fixtures, not that the console is conformant.
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
-    console.log('   Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Zahl-Kohärenz)')
+    console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
+    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung)')
     return
   }
   for (const violation of violations) {
