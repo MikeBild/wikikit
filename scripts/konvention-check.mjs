@@ -749,7 +749,26 @@ const SHELL_PROBE = `(() => {
             ? authored.replace(/(^|\\s)(\\p{L})/gu, (whole, lead, letter) => lead + letter.toUpperCase())
             : authored
   const iconLink = document.querySelector('link[rel~="icon"]')
+  /*
+    Ist das ZIEL ein Vite-Dev-Server? Am gelieferten Dokument gemessen und nicht
+    daran, wer den Prozess gestartet hat.
+
+    Der Dev-Server schiebt sein eigenes Client-Skript in jede Seite; die gebaute
+    Fassung trägt stattdessen ein Bundle aus assets/. Gemessen: dev liefert
+    <script type="module" src="/cockpit/@vite/client">, die gebaute Fassung nur
+    <script type="module" crossorigin src="/cockpit/assets/index-….js">.
+
+    Warum das die richtige Frage ist: die Einschränkung, die weiter unten
+    gemeldet wird, hängt an einer Eigenschaft des Ziels — der Dev-Server löst
+    relative Verweise beim Ausliefern auf, die gebaute Fassung nicht. Wer den
+    Hinweis an „habe ich den Server selbst gestartet" hängt, verliert ihn genau
+    dann, wenn jemand einen Dev-Server von Hand startet und per
+    COCKPIT_BASE_URL daraufzeigt — die Blindheit gilt dann voll, und die
+    Ausgabe läse sich wie ein scharfer Lauf.
+  */
+  const viteClient = document.querySelector('script[src*="/@vite/client"]')
   return {
+    devServer: Boolean(viteClient),
     title: document.title,
     icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
     wordmark: wordmark
@@ -1002,20 +1021,42 @@ async function main() {
   // Wie viele Adressen die Favicon-Messung wirklich angefasst hat. Gezählt und
   // nicht geschätzt, weil die grüne Zeile am Ende ihren eigenen Umfang nennt.
   let faviconChecked = 0
+  // Ist das ZIEL ein Dev-Server? Aus der Shell-Probe, also am gelieferten
+  // Dokument gemessen. Der Startwert wird nie berichtet: report() steht hinter
+  // dem try/finally ohne catch, und wenn die Übersicht nicht geöffnet werden
+  // kann, propagiert die Ausnahme daran vorbei. Nachgemessen mit einem Ziel
+  // ohne Server (Port 4999): der Lauf endet im Stacktrace von open(), es
+  // erscheint kein Bericht. Ein „unbestimmt"-Zweig hier wäre toter Code mit
+  // einem Kommentar, der Verhalten behauptet — genau die Bauart, gegen die
+  // dieser Check geschrieben ist.
+  let devServerTarget = false
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
   /*
     §7 — die Konventions-Kopie im Repo und dieser Check nennen dieselbe Fassung.
 
     Die einzige Regel hier, die weder Browser noch Server braucht, und die
-    einzige über den Check selbst. Sie steht deshalb VOR dem Browserstart: wer
-    gegen den falschen Maßstab misst, soll das lesen, bevor eine halbe Minute
-    Messung vergeht, und nicht erst darunter.
+    einzige über den Check selbst. §7 macht die Kopie in jedem Repo zum
+    Mechanismus gegen Drift. Eine Kopie, die weitergezogen ist, während der
+    Check noch die alte Nummer meint — oder umgekehrt eine alte Kopie unter
+    einem Check, der weiter ist — macht aus dem Mechanismus Dekoration.
 
-    §7 macht die Kopie in jedem Repo zum Mechanismus gegen Drift. Eine Kopie,
-    die weitergezogen ist, während der Check noch die alte Nummer meint — oder
-    umgekehrt eine alte Kopie unter einem Check, der weiter ist — macht aus dem
-    Mechanismus Dekoration.
+    SIE SAMMELT WIE JEDE ANDERE REGEL und hält den Lauf nicht an. Das ist die
+    Hausregel ganz oben („Every violation is collected, never thrown at"), und
+    sie ist hier richtig: ein falscher Maßstab misst weiter, er misst nur gegen
+    das falsche Dokument — und dann will man den vollständigen Bericht sehen,
+    um zu beurteilen, was das bedeutet. Die beiden exit-2-Pfade am Etikett
+    dürfen anhalten, weil ohne lesbare Kopfzeile gar nicht gemessen werden
+    KANN; hier kann es das.
+
+    Was daraus folgt und hier stand, als wäre es anders: die Meldung erscheint
+    UNTEN, nach dem Sweep, weil report() die Ausgabereihenfolge bestimmt. Die
+    Position dieses Blocks im Quelltext kauft daran nichts. Selbst nachgemessen,
+    Zeitstempel je Ausgabezeile an der Pipe: der §7-Verstoß wird bei 26,95 s
+    gedruckt, gemeinsam mit der Kopfzeile des Berichts und der Schlusszeile —
+    alle drei tragen denselben Stempel, weil sie alle aus report() kommen. Er
+    steht hier oben, weil er thematisch vor die Messung gehört, nicht weil er
+    früher zu lesen wäre.
   */
   if (CONVENTION_VERSION !== `v${KONVENTION_VERSION}`) {
     note(
@@ -1049,6 +1090,7 @@ async function main() {
     // ---- Overview, with a gate open --------------------------------------
     await open(page, `${base}/cockpit/`)
     const shell = await page.evaluate(SHELL_PROBE)
+    devServerTarget = shell.devServer
     const overview = await page.evaluate(SURFACE_PROBE)
     const banner = await page.evaluate(BANNER_PROBE)
     const numbers = await page.evaluate(NUMBERS_PROBE)
@@ -1498,7 +1540,7 @@ async function main() {
     if (server) await stopCockpit(server)
   }
 
-  report(base, violations, unmocked, swept, unchecked, faviconChecked, server !== null)
+  report(base, violations, unmocked, swept, unchecked, faviconChecked, devServerTarget)
 }
 
 /**
@@ -1661,7 +1703,7 @@ async function stopCockpit(child) {
   })
 }
 
-function report(base, violations, unmocked, swept, unchecked, faviconChecked, ownDevServer) {
+function report(base, violations, unmocked, swept, unchecked, faviconChecked, devServerTarget) {
   console.log(
     `› checked the cockpit at ${base} against ${CONVENTION_FILE} ${CONVENTION_VERSION} (fixtures, no database)`,
   )
@@ -1704,8 +1746,16 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ow
     // die Übersicht — die Zahl oben ist dann ein Umfang ohne Zusatzaussage.
     // Eine grüne Zeile, die ihren Umfang nennt und ihre Blindheit verschweigt,
     // ist genau die halbe Auskunft, gegen die §12 geschrieben ist.
-    if (ownDevServer) {
-      console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — dieser Lauf ging gegen den Vite-Dev-Server, und der löst')
+    //
+    // Die Bedingung fragt nach dem ZIEL und nicht danach, wer den Server
+    // gestartet hat. „Habe ich ihn selbst gestartet" stand hier zuerst und war
+    // die falsche Frage: ein von Hand gestarteter Dev-Server, auf den
+    // COCKPIT_BASE_URL zeigt, hätte den Hinweis verschwinden lassen, während
+    // die Blindheit voll gilt — die Ausgabe läse sich dann wie ein scharfer
+    // Lauf. Gemessen wird deshalb am gelieferten Dokument (siehe SHELL_PROBE).
+    if (devServerTarget) {
+      console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — das ZIEL ist ein Vite-Dev-Server (erkannt am Skript')
+      console.log('  /@vite/client im gelieferten Dokument, nicht daran, wer den Prozess gestartet hat), und der löst')
       console.log(
         `  relative Verweise beim Ausliefern selbst auf. Für das Favicon heißt das: die ${Math.max(faviconChecked - 1, 0)} Sweep-Adressen`,
       )
