@@ -831,7 +831,17 @@ const ZONE_A_PROBE = `(() => {
 const ROUTE_PROBE = `(() => {
   const surface = ${SURFACE_PROBE}
   const title = document.querySelector('[data-testid="page-title"]')
+  /*
+    Der Favicon-Verweis, aufgelöst GEGEN DIESE ROUTE.
+
+    \`link.href\` ist die DOM-Eigenschaft, nicht das Attribut: sie liefert die
+    absolute Adresse, gegen die Basis dieses Dokuments aufgelöst. Genau darin
+    liegt der Unterschied zur Messung auf der Übersicht — ein dokumentrelativer
+    href zeigt hier woandershin als dort, und das ist die ganze Frage.
+  */
+  const iconLink = document.querySelector('link[rel~="icon"]')
   return {
+    icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
     texts: surface.texts,
     buttons: surface.buttons,
     title: title ? (title.innerText || title.textContent || '').replace(/\\s+/g, ' ').trim() : null,
@@ -904,6 +914,9 @@ async function main() {
   // throws: what was measured, and what was not, are both findings (§12).
   const swept = []
   let unchecked = []
+  // Wie viele Adressen die Favicon-Messung wirklich angefasst hat. Gezählt und
+  // nicht geschätzt, weil die grüne Zeile am Ende ihren eigenen Umfang nennt.
+  let faviconChecked = 0
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
   const browser = await chromium.launch()
@@ -993,60 +1006,12 @@ async function main() {
       note('§6', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
     }
 
-    // §6 — the tab icon is declared AND the file behind it answers with an
-    // IMAGE. The second half is the one that matters: a `<link rel="icon">`
-    // pointing at nothing looks like compliance in the source and leaves the
-    // tab blank, which is worse than an honest omission because nobody goes
-    // looking again.
-    //
-    // And the status code alone would be a false green HERE in particular.
-    // src/cockpit.ts answers anything that is not a real asset with the SPA
-    // shell — 200, text/html — because deep cockpit addresses are client
-    // routes. So a favicon href with a typo in it gets a cheerful 200 and a
-    // page of HTML, and an assert that stopped at the number would sign it off.
-    // Hence the content type: the file has to BE an image.
-    //
-    // The fetch runs IN the page so the href resolves against the real base
-    // path — the cockpit lives under /cockpit/, and that is exactly where a
-    // root-relative or document-relative guess goes wrong.
-    if (!shell.icon) {
-      note('§6', 'Browser-Tab', 'kein <link rel="icon"> im Dokument')
-    } else {
-      const answer = await page.evaluate(
-        (href) =>
-          fetch(href, { cache: 'no-store' }).then(
-            (response) => ({ status: response.status, type: response.headers.get('content-type') ?? '' }),
-            (error) => ({ status: String(error), type: '' }),
-          ),
-        shell.icon.href,
-      )
-      if (answer.status !== 200) {
-        note('§6', 'Browser-Tab › Favicon', `${shell.icon.href} antwortet mit ${answer.status}, nicht mit 200`)
-      } else if (!/^image\//.test(answer.type)) {
-        note(
-          '§6',
-          'Browser-Tab › Favicon',
-          `${shell.icon.href} antwortet mit „${answer.type || '(kein Content-Type)'}" statt mit einem Bild — die SPA-Rückfalllinie hat geantwortet, nicht die Datei`,
-        )
-      } else {
-        // Und zuletzt: die Datei muss sich als BILD decodieren lassen. Auch das
-        // ist keine Zierde. Ein SVG mit einem doppelten Bindestrich im
-        // XML-Kommentar ist unwohlgeformt und scheitert auf die teuflischste
-        // Art, die es gibt: als Dokument geöffnet zeigt Chromium es an, per
-        // fetch geholt kommt es mit 200 und image/svg+xml zurück — und im
-        // <img> bleibt es leer. Ein Browser lädt ein Favicon als Bild. Genau
-        // dieser Fehler stand hier im Baum und hat alle Prüfungen davor
-        // passiert.
-        const painted = await page.evaluate(PAINTS_PROBE(shell.icon.href))
-        if (!painted.ok) {
-          note(
-            '§6',
-            'Browser-Tab › Favicon',
-            `${shell.icon.href} wird ausgeliefert, lässt sich aber nicht als Bild decodieren (naturalWidth ${painted.w}) — im Reiter bliebe es leer`,
-          )
-        }
-      }
-    }
+    // §6 — der Reiter-Verweis, auf der Übersicht. Die Messung selbst steht in
+    // checkFavicon(), weil sie im Routen-Sweep noch einmal gebraucht wird —
+    // dort gegen eine tiefe Adresse, wo ein dokumentrelativer href woandershin
+    // zeigt als hier.
+    await checkFavicon(page, note, 'Browser-Tab', shell.icon)
+    faviconChecked += 1
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
     if (shell.role !== 'Administrator') {
@@ -1342,6 +1307,19 @@ async function main() {
           `„${surface.documentTitle || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`,
         )
       }
+      // §6 — und dieselbe Messung für den Reiter-Verweis, hier gegen eine TIEFE
+      // Adresse. Der Verweis ist dokumentweit, seine Auflösung ist es nicht:
+      // `./favicon.svg` ergibt auf /cockpit/ die richtige Datei und auf
+      // /cockpit/pages/<slug> die Adresse /cockpit/pages/favicon.svg, die der
+      // SPA-Rückfall mit 200 und text/html beantwortet. Die Messung auf der
+      // Übersicht kann das nicht sehen — nicht weil sie zu schwach ist, sondern
+      // weil die Übersicht die einzige Route ist, auf der es zufällig aufgeht.
+      //
+      // Über den GANZEN Sweep und nicht über eine ausgewählte Detailroute: die
+      // beiden Anfragen je Route kosten gegen den lokalen Dev-Server so wenig,
+      // dass eine Auswahl nur eine Begründung wäre, die später niemand nachhält.
+      await checkFavicon(page, note, where, surface.icon)
+      faviconChecked += 1
       collectSurface(note, where, surface)
     }
 
@@ -1412,7 +1390,94 @@ async function main() {
     if (server) await stopCockpit(server)
   }
 
-  report(base, violations, unmocked, swept, unchecked)
+  report(base, violations, unmocked, swept, unchecked, faviconChecked)
+}
+
+/**
+ * §6 — der Reiter trägt ein Icon, und die Datei dahinter ist wirklich eines.
+ *
+ * Gemessen wird DREIMAL hintereinander, und keine der drei Stufen ist Zierde:
+ *
+ *  - Ein `<link rel="icon">` steht überhaupt da. Ein fehlender Verweis ist der
+ *    ehrliche Fall.
+ *  - Er antwortet mit 200 UND mit einem Bild-Content-Type. Der Statuscode
+ *    allein wäre HIER besonders falsch-grün: src/cockpit.ts beantwortet alles,
+ *    was keine Datei ist, mit der SPA-Hülle — 200, text/html —, weil tiefe
+ *    Cockpit-Adressen Client-Routen sind. Ein href mit einem Tippfehler bekommt
+ *    also ein fröhliches 200 und eine Seite HTML, und ein Assert, der bei der
+ *    Zahl stehen bliebe, nickt das ab.
+ *  - Die Datei lässt sich als BILD decodieren. Ein SVG mit doppeltem
+ *    Bindestrich im XML-Kommentar ist unwohlgeformt und scheitert auf die
+ *    teuflischste Art: als Dokument geöffnet zeigt Chromium es an, per fetch
+ *    geholt kommt es mit 200 und image/svg+xml zurück — und im <img> bleibt es
+ *    leer. Ein Browser lädt ein Favicon als Bild. Genau dieser Fehler stand
+ *    hier im Baum und hat alle Prüfungen davor passiert.
+ *
+ * WARUM DIE FUNKTION UND NICHT EINE STELLE IM ABLAUF: der Verweis ist
+ * dokumentweit, seine AUFLÖSUNG ist es nicht. Ein dokumentrelativer href
+ * (`./favicon.svg`) ergibt auf /cockpit/ die richtige Adresse und auf
+ * /cockpit/pages/<slug> die Adresse /cockpit/pages/favicon.svg — tot, und vom
+ * SPA-Rückfall mit 200 und text/html beantwortet. Auf der Übersicht allein
+ * gemessen wäre das grün: nicht weil der Assert zu schwach ist, sondern weil
+ * die Übersicht die einzige Route ist, auf der es zufällig aufgeht. Deshalb
+ * läuft dieselbe Messung im Routen-Sweep über jede Adresse, die er ohnehin
+ * öffnet. Der fetch läuft IN der Seite, damit der href gegen die echte Basis
+ * dieses Dokuments auflöst.
+ *
+ * GEMESSENE GRENZE, und sie betrifft genau den Standardlauf. Der Vite-DEV-
+ * SERVER, gegen den dieser Check normalerweise läuft, löst einen relativen href
+ * beim Ausliefern SELBST auf: aus `./favicon.svg` wird schon im HTML
+ * `/cockpit/favicon.svg`, auf jeder Route, und dasselbe gilt für `favicon.svg`
+ * und `./bilder/favicon.svg`. Der BUILD tut das NICHT — in
+ * assets/cockpit/index.html bleibt `./favicon.svg` wörtlich stehen. Der Fehler
+ * ist gegen den Dev-Server also unsichtbar und in der Auslieferung echt.
+ * Nachgemessen gegen den echten Handler (COCKPIT_BASE_URL=…:4060, gebaute
+ * Fassung mit `./favicon.svg`): sieben Verstöße, auf genau den sieben Routen
+ * mit Tiefe >= 2, und die Übersicht blieb dabei grün. Wer diesen Check scharf
+ * stellen will, lässt ihn gegen einen laufenden Server mit der gebauten Fassung
+ * laufen; dafür ist COCKPIT_BASE_URL da.
+ *
+ * Abgegrenzt gegen test/unit/cockpit-favicon.test.ts: der Satz dort liest den
+ * href STATISCH aus Quelle und gebauter Fassung und rechnet ihn gegen `base`
+ * aus vite.config.ts — ohne Browser, ohne Server, in `bun test`, und damit auch
+ * dann, wenn der Dev-Server die Sache zudeckt. Er ist die Absicherung, die im
+ * Standardlauf greift; diese hier ist die, die zeigt, was ein Browser auf einer
+ * tiefen Adresse tatsächlich bekommt. Zwei verschiedene Aussagen über dieselbe
+ * Zeile; keine ersetzt die andere.
+ */
+async function checkFavicon(page, note, where, icon) {
+  if (!icon) {
+    note('§6', where, 'kein <link rel="icon"> im Dokument')
+    return
+  }
+  const answer = await page.evaluate(
+    (href) =>
+      fetch(href, { cache: 'no-store' }).then(
+        (response) => ({ status: response.status, type: response.headers.get('content-type') ?? '' }),
+        (error) => ({ status: String(error), type: '' }),
+      ),
+    icon.href,
+  )
+  if (answer.status !== 200) {
+    note('§6', `${where} › Favicon`, `${icon.href} antwortet mit ${answer.status}, nicht mit 200`)
+    return
+  }
+  if (!/^image\//.test(answer.type)) {
+    note(
+      '§6',
+      `${where} › Favicon`,
+      `${icon.href} antwortet mit „${answer.type || '(kein Content-Type)'}" statt mit einem Bild — die SPA-Rückfalllinie hat geantwortet, nicht die Datei`,
+    )
+    return
+  }
+  const painted = await page.evaluate(PAINTS_PROBE(icon.href))
+  if (!painted.ok) {
+    note(
+      '§6',
+      `${where} › Favicon`,
+      `${icon.href} wird ausgeliefert, lässt sich aber nicht als Bild decodieren (naturalWidth ${painted.w}) — im Reiter bliebe es leer`,
+    )
+  }
 }
 
 /** The two DOM-wide prohibitions, applied to whatever page was just measured. */
@@ -1488,7 +1553,7 @@ async function stopCockpit(child) {
   })
 }
 
-function report(base, violations, unmocked, swept, unchecked) {
+function report(base, violations, unmocked, swept, unchecked, faviconChecked) {
   console.log(`› checked the cockpit at ${base} against COCKPIT-KONVENTION.md v1.5 (fixtures, no database)`)
   console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
   // Said out loud, on BOTH paths through this function, and before the verdict.
@@ -1514,7 +1579,9 @@ function report(base, violations, unmocked, swept, unchecked) {
     console.log('   Zone-A-Zeilen dublettenfrei und deckungsgleich mit dem Kopf,')
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel auf jeder Route,')
     console.log('   Wortmarken-Icon (Schreibweise aus der berechneten text-transform, nicht aus innerText),')
-    console.log('   Favicon das wirklich lädt und sich als Bild decodiert,')
+    console.log(
+      `   Favicon das wirklich lädt und sich als Bild decodiert (auf ${faviconChecked} Adressen gemessen, Übersicht und Sweep-Routen),`,
+    )
     console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
     console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
     return
