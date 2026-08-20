@@ -10,6 +10,7 @@ import { DataState } from '@/components/data-state'
 import { Confirm } from '@/components/confirm'
 import { DisabledReason } from '@/components/disabled-reason'
 import { EmptyState } from '@/components/empty-state'
+import { I18nText } from '@/components/i18n-text'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/ui/relative-time'
@@ -237,31 +238,49 @@ type Claim = {
   citations: readonly { source_id: string; quote: string; locator: string }[]
 }
 
+/*
+  Wrapped in `<I18nText>`, and each of the three panels below wraps its OWN
+  return for the same reason (Konvention §5).
+
+  `Page` already wraps its children, and `DataState` wraps the node its render
+  prop returns — but neither can reach INSIDE a child component: `translateNode`
+  walks the element tree it is handed, and `<ClaimsPanel/>` is one element with
+  no children in that tree. So the panel's words stayed English on a German
+  surface while the literal JSX two lines above them was translated, which is
+  exactly the state the route sweep found here: „Claims", „1 claim, every one
+  quoting a source.", „Read the 1 quote".
+
+  Data is safe to pass through: `text()` falls back to the source string for
+  anything it has no reviewed translation for, so a quote or a title comes out
+  of it unchanged.
+*/
 function ClaimsPanel({ claims }: { claims: readonly Claim[] }) {
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="page-claims-heading">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 id="page-claims-heading" className="text-sm font-semibold tracking-tight">
-          Claims
-        </h2>
-        <p data-testid="page-claims-summary" className="text-muted-foreground text-xs">
-          {evidenceSummary(claims)}
-        </p>
-      </div>
-      {claims.length === 0 ? (
-        <EmptyState
-          title="No claims yet"
-          description="Ingest a source to add quoted, reviewable claims to this page."
-          data-testid="page-claims-empty"
-        />
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {claims.map((claim, index) => (
-            <ClaimRow key={claim.id} claim={claim} index={index} />
-          ))}
-        </ul>
-      )}
-    </section>
+    <I18nText>
+      <section className="flex flex-col gap-3" aria-labelledby="page-claims-heading">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="page-claims-heading" className="text-sm font-semibold tracking-tight">
+            Claims
+          </h2>
+          <p data-testid="page-claims-summary" className="text-muted-foreground text-xs">
+            {evidenceSummary(claims)}
+          </p>
+        </div>
+        {claims.length === 0 ? (
+          <EmptyState
+            title="No claims yet"
+            description="Ingest a source to add quoted, reviewable claims to this page."
+            data-testid="page-claims-empty"
+          />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {claims.map((claim, index) => (
+              <ClaimRow key={claim.id} claim={claim} index={index} />
+            ))}
+          </ul>
+        )}
+      </section>
+    </I18nText>
   )
 }
 
@@ -269,66 +288,71 @@ function ClaimRow({ claim, index: claimIndex }: { claim: Claim; index: number })
   const evidence = evidenceOf(claim.citations.length)
   const status = statusBadge(claim.status)
   return (
-    <li
-      data-testid={`page-claim-${claimIndex + 1}`}
-      data-cited={evidence.cited ? 'yes' : 'no'}
-      // The frame is the difference a reader sees before they read anything, and
-      // it is never the only signal: the badge beside it says "No quote" in
-      // words, because colour alone conveys nothing to a reader who cannot see
-      // it (CUI-A11Y-5).
-      className={cn(
-        'flex flex-col gap-2 rounded-lg border p-3',
-        evidence.cited ? 'border-border' : 'border-destructive/40 bg-destructive/5',
-      )}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="min-w-0 text-sm">{claimSentence(claim)}</p>
-        <div className="flex shrink-0 flex-wrap items-center gap-1">
-          <Badge tone={status.tone}>{status.label}</Badge>
-          <Badge tone={evidence.tone} data-testid={`page-claim-${claimIndex + 1}-evidence`}>
-            {evidence.label}
-          </Badge>
+    <I18nText>
+      <li
+        data-testid={`page-claim-${claimIndex + 1}`}
+        data-cited={evidence.cited ? 'yes' : 'no'}
+        // The frame is the difference a reader sees before they read anything, and
+        // it is never the only signal: the badge beside it says "No quote" in
+        // words, because colour alone conveys nothing to a reader who cannot see
+        // it (CUI-A11Y-5).
+        className={cn(
+          'flex flex-col gap-2 rounded-lg border p-3',
+          evidence.cited ? 'border-border' : 'border-destructive/40 bg-destructive/5',
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <p className="min-w-0 text-sm">{claimSentence(claim)}</p>
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
+            <Badge tone={status.tone}>{status.label}</Badge>
+            <Badge tone={evidence.tone} data-testid={`page-claim-${claimIndex + 1}-evidence`}>
+              {evidence.label}
+            </Badge>
+          </div>
         </div>
-      </div>
 
-      {evidence.cited ? (
-        <details data-testid={`page-claim-${claimIndex + 1}-quotes`}>
-          <summary className="focus-visible:ring-ring cursor-pointer rounded text-xs text-muted-foreground focus-visible:ring-2 focus-visible:outline-none">
-            Read the {evidence.label.toLowerCase()}
-          </summary>
-          <ul className="mt-2 flex flex-col gap-3">
-            {claim.citations.map((citation, index) => (
-              <li key={`${citation.source_id}-${index}`} className="border-border flex flex-col gap-1 border-l-2 pl-3">
-                {/* The quote is archived text, printed exactly as it was
+        {evidence.cited ? (
+          <details data-testid={`page-claim-${claimIndex + 1}-quotes`}>
+            <summary className="focus-visible:ring-ring cursor-pointer rounded text-xs text-muted-foreground focus-visible:ring-2 focus-visible:outline-none">
+              Read the {evidence.label.toLowerCase()}
+            </summary>
+            <ul className="mt-2 flex flex-col gap-3">
+              {claim.citations.map((citation, index) => (
+                <li
+                  key={`${citation.source_id}-${index}`}
+                  className="border-border flex flex-col gap-1 border-l-2 pl-3"
+                >
+                  {/* The quote is archived text, printed exactly as it was
                     archived. It wraps and it is never truncated: a quote cut
                     off in the middle is no longer evidence of anything. */}
-                <blockquote className="text-sm break-words whitespace-pre-wrap italic">{citation.quote}</blockquote>
-                <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-                  <Link
-                    to="/sources/$id"
-                    params={{ id: citation.source_id }}
-                    search={KEEP_SEARCH}
-                    data-testid={`page-claim-${claimIndex + 1}-source-${index + 1}`}
-                    className="underline underline-offset-2"
-                  >
-                    The source this is quoted from
-                  </Link>
-                  {citation.locator ? <span className="font-mono">{citation.locator}</span> : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : (
-        <p className="text-destructive text-xs">
-          Nothing in the archive is quoted for this claim, so nobody can check it.
-        </p>
-      )}
+                  <blockquote className="text-sm break-words whitespace-pre-wrap italic">{citation.quote}</blockquote>
+                  <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+                    <Link
+                      to="/sources/$id"
+                      params={{ id: citation.source_id }}
+                      search={KEEP_SEARCH}
+                      data-testid={`page-claim-${claimIndex + 1}-source-${index + 1}`}
+                      className="underline underline-offset-2"
+                    >
+                      The source this is quoted from
+                    </Link>
+                    {citation.locator ? <span className="font-mono">{citation.locator}</span> : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : (
+          <p className="text-destructive text-xs">
+            Nothing in the archive is quoted for this claim, so nobody can check it.
+          </p>
+        )}
 
-      {Number.isFinite(claim.confidence) ? (
-        <p className="text-muted-foreground text-xs">Stated with confidence {claim.confidence.toFixed(2)}.</p>
-      ) : null}
-    </li>
+        {Number.isFinite(claim.confidence) ? (
+          <p className="text-muted-foreground text-xs">Stated with confidence {claim.confidence.toFixed(2)}.</p>
+        ) : null}
+      </li>
+    </I18nText>
   )
 }
 
@@ -352,72 +376,74 @@ function NeighborsPanel({ space, slug }: { space: string; slug: string }) {
     enabled: slug !== '',
   })
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="page-neighbors-heading">
-      <h2 id="page-neighbors-heading" className="text-sm font-semibold tracking-tight">
-        Related pages
-      </h2>
-      <DataState
-        testId="page-neighbors"
-        query={neighbors}
-        skeleton={<NeighborsSkeleton />}
-        isEmpty={neighborhoodEmpty}
-        empty={
-          <EmptyState
-            title="No neighbors yet"
-            description="No reviewed relation touches this page, and no other page quotes the sources it quotes."
-            data-testid="page-neighbors-empty"
-          />
-        }
-      >
-        {(data) => {
-          const groups = neighborGroups(data.relations)
-          return (
-            <div className="flex flex-col gap-4">
-              {groups.outgoing.length > 0 ? (
-                <NeighborGroup group="out" label="Outgoing">
-                  {groups.outgoing.map((relation) => (
-                    <NeighborChip
-                      key={`${relation.space ?? ''}:${relation.slug}:${relation.kind}`}
-                      group="out"
-                      relation={relation}
-                    />
-                  ))}
-                </NeighborGroup>
-              ) : null}
-              {groups.incoming.length > 0 ? (
-                <NeighborGroup group="in" label="Incoming">
-                  {groups.incoming.map((relation) => (
-                    <NeighborChip key={`${relation.slug}:${relation.kind}`} group="in" relation={relation} />
-                  ))}
-                </NeighborGroup>
-              ) : null}
-              {data.same_source.length > 0 ? (
-                <NeighborGroup group="sources" label="Same sources">
-                  {data.same_source.map((sibling) => (
-                    <li
-                      key={sibling.slug}
-                      className="border-border flex items-center gap-2 rounded-lg border px-2 py-1 text-xs"
-                    >
-                      <Link
-                        to="/pages/$slug"
-                        params={{ slug: sibling.slug }}
-                        search={KEEP_SEARCH}
-                        data-testid={`page-neighbor-sources-${sibling.slug}`}
-                        className="underline underline-offset-2"
+    <I18nText>
+      <section className="flex flex-col gap-3" aria-labelledby="page-neighbors-heading">
+        <h2 id="page-neighbors-heading" className="text-sm font-semibold tracking-tight">
+          Related pages
+        </h2>
+        <DataState
+          testId="page-neighbors"
+          query={neighbors}
+          skeleton={<NeighborsSkeleton />}
+          isEmpty={neighborhoodEmpty}
+          empty={
+            <EmptyState
+              title="No neighbors yet"
+              description="No reviewed relation touches this page, and no other page quotes the sources it quotes."
+              data-testid="page-neighbors-empty"
+            />
+          }
+        >
+          {(data) => {
+            const groups = neighborGroups(data.relations)
+            return (
+              <div className="flex flex-col gap-4">
+                {groups.outgoing.length > 0 ? (
+                  <NeighborGroup group="out" label="Outgoing">
+                    {groups.outgoing.map((relation) => (
+                      <NeighborChip
+                        key={`${relation.space ?? ''}:${relation.slug}:${relation.kind}`}
+                        group="out"
+                        relation={relation}
+                      />
+                    ))}
+                  </NeighborGroup>
+                ) : null}
+                {groups.incoming.length > 0 ? (
+                  <NeighborGroup group="in" label="Incoming">
+                    {groups.incoming.map((relation) => (
+                      <NeighborChip key={`${relation.slug}:${relation.kind}`} group="in" relation={relation} />
+                    ))}
+                  </NeighborGroup>
+                ) : null}
+                {data.same_source.length > 0 ? (
+                  <NeighborGroup group="sources" label="Same sources">
+                    {data.same_source.map((sibling) => (
+                      <li
+                        key={sibling.slug}
+                        className="border-border flex items-center gap-2 rounded-lg border px-2 py-1 text-xs"
                       >
-                        {sibling.title}
-                      </Link>
-                      {/* The ranking, said out loud: why THIS page is suggested. */}
-                      <span className="text-muted-foreground">{sharedSourcesLabel(sibling.shared_sources)}</span>
-                    </li>
-                  ))}
-                </NeighborGroup>
-              ) : null}
-            </div>
-          )
-        }}
-      </DataState>
-    </section>
+                        <Link
+                          to="/pages/$slug"
+                          params={{ slug: sibling.slug }}
+                          search={KEEP_SEARCH}
+                          data-testid={`page-neighbor-sources-${sibling.slug}`}
+                          className="underline underline-offset-2"
+                        >
+                          {sibling.title}
+                        </Link>
+                        {/* The ranking, said out loud: why THIS page is suggested. */}
+                        <span className="text-muted-foreground">{sharedSourcesLabel(sibling.shared_sources)}</span>
+                      </li>
+                    ))}
+                  </NeighborGroup>
+                ) : null}
+              </div>
+            )
+          }}
+        </DataState>
+      </section>
+    </I18nText>
   )
 }
 

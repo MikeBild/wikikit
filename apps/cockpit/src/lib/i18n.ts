@@ -1108,6 +1108,8 @@ export const DE_PHRASES = {
   Incoming: 'Eingehend',
   'Same sources': 'Gleiche Quellen',
   'No neighbors yet': 'Noch keine Nachbarn',
+  'No quote': 'Kein Zitat',
+  'No claims on this page yet.': 'Auf dieser Seite steht noch keine Aussage.',
   'No reviewed relation touches this page, and no other page quotes the sources it quotes.':
     'Keine geprüfte Verknüpfung berührt diese Seite, und keine andere Seite zitiert dieselben Quellen.',
   'Parent change': 'Übergeordnete Änderung',
@@ -1995,6 +1997,25 @@ export function translateText(
       return `${leading}${withheld[1]} nicht gezählte ${Number(withheld[1]) === 1 ? 'Aussage' : 'Aussagen'}${trailing}`
     const quotes = phrase.match(/^(\d+) quotes cited$/)
     if (quotes) return `${leading}${quotes[1]} verwendete Zitate${trailing}`
+    // The evidence badge on a claim row, and the two sentences above the claims
+    // panel. Patterns rather than entries in DE_PHRASES because the number is
+    // part of the phrase: „1 quote" and „7 quotes" are one sentence with a
+    // count in it, not two reviewed phrases.
+    const quoteCount = phrase.match(/^(\d+) quotes?$/)
+    if (quoteCount) {
+      const amount = Number(quoteCount[1])
+      return `${leading}${amount} ${amount === 1 ? 'Zitat' : 'Zitate'}${trailing}`
+    }
+    const allCited = phrase.match(/^(\d+) claims?, every one quoting a source\.$/)
+    if (allCited) {
+      const amount = Number(allCited[1])
+      return `${leading}${amount} ${amount === 1 ? 'Aussage' : 'Aussagen'}, jede mit einem Zitat aus einer Quelle.${trailing}`
+    }
+    const someUncited = phrase.match(/^(\d+) claims?, (\d+) of them with no quote behind it\.$/)
+    if (someUncited) {
+      const amount = Number(someUncited[1])
+      return `${leading}${amount} ${amount === 1 ? 'Aussage' : 'Aussagen'}, davon ${someUncited[2]} ohne Zitat.${trailing}`
+    }
     const decisions = phrase.match(/^(\d+) decided$/)
     if (decisions) return `${leading}${decisions[1]} entschieden${trailing}`
     const submitted = phrase.match(/^(\d+) submitted · (\d+) rejected$/)
