@@ -5,11 +5,18 @@
     shelf. Drawn here by hand rather than imported, because a favicon is a file
     the browser fetches on its own and cannot reach into the bundle for.
 
-    The colours are the console's own `--primary` / `--primary-foreground`
-    tokens, written out as literals because a standalone SVG has no access to
-    the stylesheet, and swapped under `prefers-color-scheme: dark` exactly the
-    way contract/cockpit-ui.css swaps them. A single dark square would vanish
-    into a dark tab strip, which is the one place this file is ever seen.
+    The colours are the console's own `primary` / `primary-foreground` tokens,
+    written out as literals because a standalone SVG has no access to the
+    stylesheet, and swapped under `prefers-color-scheme: dark` exactly the way
+    contract/cockpit-ui.css swaps them. A single dark square would vanish into a
+    dark tab strip, which is the one place this file is ever seen.
+
+    NO double hyphen anywhere in this comment, which is why those two token
+    names appear here without their leading dashes: XML forbids the sequence
+    inside a comment, and it fails in the nastiest way available. Opened as a
+    document Chromium still renders the file, so it looks fine in a tab of its
+    own; loaded as an <img> it renders nothing at all. A browser loads a favicon
+    as an image, so "looks fine when I open the file" proves nothing here.
 
     Four strokes and nothing else: at 16 px in a tab strip, a glyph with more in
     it is a smudge.

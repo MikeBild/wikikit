@@ -307,6 +307,17 @@ const SHELL_PROBE = `(() => {
   }
 })()`
 
+// In einem String und nicht als Pfeilfunktion, aus demselben Grund wie die
+// Proben darüber: die ESLint-Konfiguration gibt .mjs-Dateien absichtlich nur
+// Node-Globals, damit ein Skript, das neben einer `evaluate` nach `Image` oder
+// `document` greift, auffliegt statt durchzurutschen.
+const PAINTS_PROBE = (href) => `(() => new Promise((done) => {
+  const probe = new Image()
+  probe.onload = () => done({ ok: probe.naturalWidth > 0 && probe.naturalHeight > 0, w: probe.naturalWidth })
+  probe.onerror = () => done({ ok: false, w: 0 })
+  probe.src = ${JSON.stringify(href)}
+}))()`
+
 const SURFACE_PROBE = `(() => {
   const shown = (element) => {
     if (!element) return false
@@ -551,6 +562,23 @@ async function main() {
           'Browser-Tab › Favicon',
           `${shell.icon.href} antwortet mit „${answer.type || '(kein Content-Type)'}" statt mit einem Bild — die SPA-Rückfalllinie hat geantwortet, nicht die Datei`,
         )
+      } else {
+        // Und zuletzt: die Datei muss sich als BILD decodieren lassen. Auch das
+        // ist keine Zierde. Ein SVG mit einem doppelten Bindestrich im
+        // XML-Kommentar ist unwohlgeformt und scheitert auf die teuflischste
+        // Art, die es gibt: als Dokument geöffnet zeigt Chromium es an, per
+        // fetch geholt kommt es mit 200 und image/svg+xml zurück — und im
+        // <img> bleibt es leer. Ein Browser lädt ein Favicon als Bild. Genau
+        // dieser Fehler stand hier im Baum und hat alle Prüfungen davor
+        // passiert.
+        const painted = await page.evaluate(PAINTS_PROBE(shell.icon.href))
+        if (!painted.ok) {
+          note(
+            '§6',
+            'Browser-Tab › Favicon',
+            `${shell.icon.href} wird ausgeliefert, lässt sich aber nicht als Bild decodieren (naturalWidth ${painted.w}) — im Reiter bliebe es leer`,
+          )
+        }
       }
     }
 
@@ -876,7 +904,7 @@ function report(base, violations, unmocked) {
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
     console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
-    console.log('   Wortmarken-Icon, Favicon das wirklich lädt)')
+    console.log('   Wortmarken-Icon, Favicon das wirklich lädt und sich als Bild decodiert)')
     return
   }
   for (const violation of violations) {
