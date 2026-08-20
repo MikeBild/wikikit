@@ -1,7 +1,7 @@
-# CI for every push to main and every PR: lint → typecheck → unit + contract →
-# integration → e2e → build-binary. Fast checks run as parallel jobs; the binary
-# build gates on all of them so a red check can never produce a green
-# "buildable" signal.
+# CI for every push to main and every PR: lint → typecheck → cockpit-drift →
+# Konventions-Check → unit + contract → integration → e2e → build-binary. Fast
+# checks run as parallel jobs; the binary build gates on all of them so a red
+# check can never produce a green "buildable" signal.
 #
 # These are the same stages as scripts/gate.ts (`bun run gate`), which runs
 # locally as a pre-push hook — CI is the backstop, not the first place you
@@ -58,6 +58,31 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run check:cockpit-drift
+
+  # Die Familien-Konvention gegen das eigene Cockpit (COCKPIT-KONVENTION.md):
+  # Wortmarke, Browser-Titel, Favicon, Entscheidungs-Grammatik, Routen-Sweep.
+  # Dieselbe Stufe wie `konvention` in scripts/gate.ts, und sie steht hier aus
+  # demselben Grund wie jede andere: bis 2026-08-20 lief dieser Check in keinem
+  # der sechs Produkte automatisch, und eine Zusicherung, die niemand fragt, ist
+  # ein Kommentar (BEFUND-CHECK-LAEUFT-NIRGENDS.md).
+  #
+  # KONVENTION_CHECK_STAND=preview misst die GEBAUTE Fassung statt des
+  # Dev-Servers — der löst Verweise beim Ausliefern selbst auf und ist damit
+  # blind für einen Favicon-Verweis, der auf tiefen Routen ins Leere zeigt.
+  # Deshalb baut der Job davor; im lokalen Gate erledigt das die Stufe `cockpit`.
+  konvention:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # Der einzige Job mit einem Browser. --with-deps, weil ein nacktes
+      # ubuntu-latest die Systembibliotheken von Chromium nicht mitbringt.
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run build:cockpit
+      - run: bun run konvention:check
+        env:
+          KONVENTION_CHECK_STAND: preview
 
   # Unit + contract suites are pure (FakeProvider, no network, no Postgres).
   # Contract snapshots (OpenAPI, MCP manifest, webhook payloads, OKF) are the

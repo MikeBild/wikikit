@@ -9,33 +9,43 @@
 // exactly what §7 warns about.
 //
 // It runs with NO database and NO backend. Every /v1 read is fulfilled from the
-// fixtures below through Playwright's page.route, and the pages are served by
-// this repository's own Vite dev server, which the script starts and stops for
-// itself. That is deliberate: a conformance check that needs a live stack is a
-// check people run once and then stop running, and its verdict would depend on
-// whatever happened to be in somebody's database that morning.
+// fixtures below through Playwright's page.route, and the pages are served by a
+// Vite process this script starts and stops for itself. That is deliberate: a
+// conformance check that needs a live stack is a check people run once and then
+// stop running, and its verdict would depend on whatever happened to be in
+// somebody's database that morning.
 //
 // UND DAS HAT EINEN PREIS, der hier oben stehen muss und nicht nur 1500 Zeilen
 // tiefer: der Dev-Server ist an einer Stelle GNÄDIGER als die Auslieferung. Er
-// löst relative Verweise im HTML beim Ausliefern selbst auf — aus
-// „./favicon.svg" wird schon im gelieferten Dokument „/cockpit/favicon.svg", auf
-// jeder Route. Der Build tut das NICHT; in assets/cockpit/index.html bleibt der
-// relative Verweis wörtlich stehen und zeigt auf jeder Route mit Tiefe >= 2 ins
-// Leere. Gemessen, nicht vermutet: gegen die gebaute Fassung meldet derselbe
-// Lauf sieben Verstöße, gegen den Dev-Server keinen. Siehe checkFavicon() für
-// die Messung und den Beleg.
+// löst Verweise im HTML beim Ausliefern selbst auf — aus „./favicon.svg" wird
+// schon im gelieferten Dokument „/cockpit/favicon.svg", auf jeder Route. Der
+// Build tut das NICHT; ein dokumentrelativer Verweis bleibt in
+// assets/cockpit/index.html wörtlich stehen und zeigt auf jeder Route mit Tiefe
+// >= 2 ins Leere. Gemessen, nicht vermutet — aber gemessen an einem STAND, den
+// es so nicht mehr gibt: als apps/cockpit/index.html noch „./favicon.svg" trug,
+// meldete derselbe Lauf gegen die gebaute Fassung sieben Verstöße und gegen den
+// Dev-Server keinen. Seit LOCAL-WI-FAVICON-BASEPFAD steht dort „/favicon.svg",
+// und beide Läufe sind grün. Der Unterschied ist damit nicht verschwunden,
+// sondern unbelegt geworden: er zeigt sich erst wieder, wenn jemand den Verweis
+// zurückdreht. Siehe checkFavicon() für die Messung.
 //
-// Wer diesen Check scharf stellen will, gibt ihm deshalb einen laufenden Server
-// mit der GEBAUTEN Fassung. Beides ist vorgesehen, und die grüne Ausgabe sagt
-// selbst, welchen der beiden Läufe man gerade gesehen hat:
+// DREI PRÜFSTÄNDE, und der Bericht sagt selbst, welchen man gerade gesehen hat:
 //
-//   bun scripts/konvention-check.mjs                  # Dev-Server, bequem
-//   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs
+//   bun scripts/konvention-check.mjs                            # Dev-Server (Vorgabe)
+//   bun run build:cockpit && KONVENTION_CHECK_STAND=preview \
+//     bun scripts/konvention-check.mjs                          # gebaute Fassung, so misst das Gate
+//   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs   # echte Auslieferung
 //
-// Deliberately NOT wired into `bun run gate`, `bun test` or CI. The convention
-// is a target the console is being moved towards, not a promise it already
-// keeps — see §7: "Die Konvention wird nicht technisch erzwungen." A red run
-// here is a worklist, not a broken build.
+// WIRED INTO `bun run gate` — und das war einmal anders. Hier stand: „Deliberately
+// NOT wired into gate, bun test or CI", begründet mit §7 („Die Konvention wird
+// nicht technisch erzwungen") und damit, dass ein roter Check als Pflichtstufe
+// jede Arbeit blockiert. Die Begründung galt, solange der Check rot war. Er ist
+// grün, und eine Zusicherung, die niemand fragt, ist ein Kommentar
+// (BEFUND-CHECK-LAEUFT-NIRGENDS.md). Die Stufe misst mit
+// KONVENTION_CHECK_STAND=preview, weil `check:cockpit-drift` unmittelbar davor
+// den Build frisch zieht. In CI steht dieselbe Stufe als Job `konvention` — dort
+// baut der Job selbst, und test/unit/ci-workflows.test.ts hält die beiden Listen
+// aufeinander.
 //
 // Every violation is collected, never thrown at: one run must produce the whole
 // list, because fixing them one rebuild at a time is how a checklist of nine
@@ -122,8 +132,96 @@ const CONVENTION_VERSION = (() => {
 */
 const KONVENTION_VERSION = '1.5'
 
+/*
+  DIE BEIDEN DOKUMENTE AUF DER PLATTE, gegen die das GELIEFERTE gehalten wird.
+
+  Warum es sie hier gibt: der Bericht sagt weiter unten, ob dieser Lauf scharf
+  gemessen hat oder nur die Auflösung seines Ziels bestätigt. Diese Auskunft hing
+  vorher an einem STELLVERTRETER — am Vorhandensein des Skripts `/@vite/client`
+  im gelieferten Dokument. Das ist eine Schreibweise aus Vites Innerem: benennt
+  Vite den Pfad um (heute an ^8.2.0 gebunden), fällt die Erkennung aus, und sie
+  fällt STILL aus — die Einschränkung verschwindet, und die Ausgabe liest sich
+  wie ein scharfer Lauf.
+
+  Gefragt wird deshalb nach der Eigenschaft selbst: WELCHES Dokument liefert das
+  Ziel — die Quelle, bei jedem Aufruf übersetzt, oder die gebaute Fassung,
+  wörtlich? Genau daran hängt die Blindheit: der Dev-Server löst Verweise beim
+  Übersetzen auf, die gebaute Fassung trägt sie so, wie sie ausgeliefert werden.
+  Beide Vergleichszeichenketten kommen aus DIESEM Repo und werden zur Laufzeit
+  gelesen; keine Konstante aus einem fremden Werkzeug steht mehr im Weg.
+
+  UND WAS DER VERGLEICH DES FAVICON-HREFS ALLEIN NICHT KANN, gemessen und nicht
+  vermutet: die Quelle schreibt `/favicon.svg`, der Dev-Server liefert
+  `/cockpit/favicon.svg`, die gebaute Fassung trägt `/cockpit/favicon.svg` —
+  BEIDE Ziele liefern denselben href, und er weicht in BEIDEN Fällen von der
+  Quelle ab. Der href allein unterscheidet die beiden Prüfstände heute also
+  nicht. Er ist der Beleg IM Text (er zeigt, dass beim Ausliefern aufgelöst
+  wurde), nicht das Unterscheidungsmerkmal. Das ist der Modul-Verweis, weil nur
+  er in den beiden Dokumenten verschieden ist.
+*/
+const COCKPIT_SOURCE_HTML = 'apps/cockpit/index.html'
+const COCKPIT_BUILT_HTML = 'assets/cockpit/index.html'
+
+/** Die zwei Verweise eines Cockpit-Dokuments, roh aus dem Attribut. */
+function documentMarks(relative) {
+  let html
+  try {
+    html = readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8')
+  } catch {
+    return null
+  }
+  // Kommentare zuerst weg: apps/cockpit/index.html erklärt den Favicon-Verweis
+  // in einem Kommentar und schreibt dabei `href="/cockpit/favicon.svg"` hin.
+  // Ein Muster, das darauf trifft, läse die Erklärung statt der Zeile.
+  html = html.replace(/<!--[\s\S]*?-->/g, '')
+  const iconTag = html.match(/<link\b[^>]*\brel=["'][^"']*\bicon\b[^"']*["'][^>]*>/i)
+  const attribute = (tag, name) => {
+    const match = tag ? tag.match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i')) : null
+    return match ? match[1] : null
+  }
+  const modules = [...html.matchAll(/<script\b[^>]*\btype=["']module["'][^>]*>/gi)]
+    .map((tag) => attribute(tag[0], 'src'))
+    .filter(Boolean)
+  return { iconHref: attribute(iconTag ? iconTag[0] : null, 'href'), modules }
+}
+
+const SOURCE_MARKS = documentMarks(COCKPIT_SOURCE_HTML)
+const BUILT_MARKS = documentMarks(COCKPIT_BUILT_HTML)
+
 const BASE = (process.env.COCKPIT_BASE_URL ?? '').replace(/\/$/, '')
 const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
+
+/*
+  WELCHEN PRÜFSTAND startet dieser Lauf, wenn er sich selbst einen startet?
+
+  `dev` (Vorgabe) startet den Vite-Dev-Server: er übersetzt apps/cockpit aus
+  der Quelle, misst also genau den Stand, an dem gerade jemand arbeitet, und
+  braucht keinen Build. Der Preis steht unten im Bericht — er löst Verweise
+  beim Ausliefern auf.
+
+  `preview` startet `vite preview` über assets/cockpit, also über die GEBAUTE
+  Fassung, und zwar mit derselben SPA-Rückfalllinie: nachgemessen antwortet
+  /cockpit/pages/foo mit 200 und text/html, /cockpit/pages/favicon.svg ebenso,
+  /cockpit/favicon.svg dagegen mit image/svg+xml. Das ist genau die Falle, auf
+  die checkFavicon() ausgelegt ist, und sie ist unter `dev` zugedeckt.
+
+  WARUM DAS NICHT DIE VORGABE IST, obwohl es der schärfere Stand ist: `preview`
+  misst, was auf der Platte liegt, nicht, was in der Quelle steht. Wer gerade
+  an apps/cockpit arbeitet und den Check ruft, bekäme ein grünes Zeugnis für
+  einen Build von gestern — ein falsches Grün, und zwar das leiseste. Im Gate
+  gibt es diese Gefahr nicht: dort läuft `check:cockpit-drift` als Stufe davor
+  und baut neu, bevor diese Stufe drankommt. Deshalb wählt das Gate `preview`
+  und die nackte Kommandozeile `dev`.
+
+  Kein Ersatz für COCKPIT_BASE_URL: das zeigt auf einen Server, den jemand
+  anders betreibt — auf die echte Auslieferung durch src/cockpit.ts etwa. Ist
+  es gesetzt, startet dieser Lauf gar nichts und dieser Schalter tut nichts.
+*/
+const STAND = process.env.KONVENTION_CHECK_STAND ?? 'dev'
+if (!['dev', 'preview'].includes(STAND)) {
+  console.error(`✗ KONVENTION_CHECK_STAND=„${STAND}" kennt dieser Check nicht — erlaubt sind „dev" und „preview"`)
+  process.exit(2)
+}
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const VITE_CONFIG = 'apps/cockpit/vite.config.ts'
 
@@ -750,25 +848,24 @@ const SHELL_PROBE = `(() => {
             : authored
   const iconLink = document.querySelector('link[rel~="icon"]')
   /*
-    Ist das ZIEL ein Vite-Dev-Server? Am gelieferten Dokument gemessen und nicht
-    daran, wer den Prozess gestartet hat.
+    Die zwei Verweise des GELIEFERTEN Dokuments, roh aus dem Attribut.
 
-    Der Dev-Server schiebt sein eigenes Client-Skript in jede Seite; die gebaute
-    Fassung trägt stattdessen ein Bundle aus assets/. Gemessen: dev liefert
-    <script type="module" src="/cockpit/@vite/client">, die gebaute Fassung nur
-    <script type="module" crossorigin src="/cockpit/assets/index-….js">.
+    Roh und nicht aufgelöst: iconLink.href gibt die vom Browser gegen die
+    Dokumentbasis aufgelöste Adresse zurück und hat damit gerade die Information
+    weggerechnet, um die es hier geht — wie der Verweis DASTAND, als das Ziel
+    ihn herausgab. getAttribute gibt die Zeichenkette, die über die Leitung
+    kam.
 
-    Warum das die richtige Frage ist: die Einschränkung, die weiter unten
-    gemeldet wird, hängt an einer Eigenschaft des Ziels — der Dev-Server löst
-    relative Verweise beim Ausliefern auf, die gebaute Fassung nicht. Wer den
-    Hinweis an „habe ich den Server selbst gestartet" hängt, verliert ihn genau
-    dann, wenn jemand einen Dev-Server von Hand startet und per
-    COCKPIT_BASE_URL daraufzeigt — die Blindheit gilt dann voll, und die
-    Ausgabe läse sich wie ein scharfer Lauf.
+    ALLE Modul-Verweise, nicht der erste: der Dev-Server stellt sein eigenes
+    Client-Skript vor das Modul der Anwendung, und querySelector() fände dann
+    immer nur dieses. Verglichen wird in classifyPruefstand() gegen die beiden
+    Dokumente auf der Platte, nicht gegen eine Schreibweise aus Vites Innerem.
   */
-  const viteClient = document.querySelector('script[src*="/@vite/client"]')
+  const modules = [...document.querySelectorAll('script[type="module"][src]')].map((script) =>
+    script.getAttribute('src'),
+  )
   return {
-    devServer: Boolean(viteClient),
+    delivered: { iconHref: iconLink ? iconLink.getAttribute('href') : null, modules: modules },
     title: document.title,
     icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
     wordmark: wordmark
@@ -1018,18 +1115,41 @@ async function main() {
   // throws: what was measured, and what was not, are both findings (§12).
   const swept = []
   let unchecked = []
+  /*
+    Was NICHT gemessen werden konnte, weil die Voraussetzung fehlte.
+
+    Getrennt von `violations`, weil es eine andere Aussage ist: ein Verstoß
+    sagt „hier stimmt etwas nicht", ein Eintrag hier sagt „hier weiss ich es
+    nicht". Beide sind rot — „nicht geprüft" als grün zu melden wäre die
+    Zusicherung, die dieser Check nie geben wollte —, aber sie dürfen im
+    Bericht nicht dieselbe Zeile bekommen.
+
+    Muster von WatchKits konvention-check.mjs übernommen, kopiert und nicht
+    importiert (§7: kein Shared Code zwischen den Produkten).
+  */
+  const notChecked = new Set()
   // Wie viele Adressen die Favicon-Messung wirklich angefasst hat. Gezählt und
   // nicht geschätzt, weil die grüne Zeile am Ende ihren eigenen Umfang nennt.
   let faviconChecked = 0
-  // Ist das ZIEL ein Dev-Server? Aus der Shell-Probe, also am gelieferten
-  // Dokument gemessen. Der Startwert wird nie berichtet: report() steht hinter
-  // dem try/finally ohne catch, und wenn die Übersicht nicht geöffnet werden
-  // kann, propagiert die Ausnahme daran vorbei. Nachgemessen mit einem Ziel
-  // ohne Server (Port 4999): der Lauf endet im Stacktrace von open(), es
-  // erscheint kein Bericht. Ein „unbestimmt"-Zweig hier wäre toter Code mit
-  // einem Kommentar, der Verhalten behauptet — genau die Bauart, gegen die
-  // dieser Check geschrieben ist.
-  let devServerTarget = false
+  /*
+    Welches Dokument liefert das Ziel? Aus der Shell-Probe, also am gelieferten
+    Dokument gemessen.
+
+    Der Startwert ist „unbestimmbar" und er WIRD berichtet — das ist der
+    Unterschied zu vorher. Hier stand `false` mit einem Kommentar, der erklärte,
+    warum ein „unbestimmt"-Zweig toter Code wäre: report() lag hinter einem
+    try/finally ohne catch, eine Ausnahme aus open() propagierte daran vorbei,
+    und der ganze Bericht verschwand. Nachgemessen gegen ein Ziel ohne Server
+    (Port 4999, 0,4 s): keine Kopfzeile, keine Schlusszeile, nur der Stacktrace
+    aus open() — und der §7-Fund, der vor dem Browserstart gesammelt worden war,
+    verschwand mit. Der Lauf endete trotzdem mit 1, also mit demselben Code wie
+    ein sauber berichteter Verstoß.
+
+    Seit dem catch weiter unten läuft report() auf JEDEM Weg. Damit ist der
+    Startwert kein toter Code mehr, sondern die ehrliche Auskunft für den Fall,
+    dass die Messung nie stattgefunden hat.
+  */
+  let pruefstand = { kind: 'unbestimmbar', why: 'die Übersicht wurde nie gelesen — der Lauf kam nicht so weit' }
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
   /*
@@ -1068,8 +1188,24 @@ async function main() {
     )
   }
 
-  const browser = await chromium.launch()
+  /*
+    Alles, was messen kann, steht in diesem try — und das catch darunter ist
+    der Grund, warum es hier steht.
+
+    Vorher lief report() hinter einem try/FINALLY ohne catch. Jede Ausnahme aus
+    dem Rumpf — ein Ziel, das nicht antwortet, ein Selektor, der zwei Treffer
+    hat, ein Timeout — propagierte am Bericht vorbei und nahm alles mit, was
+    der Lauf bis dahin gesammelt hatte. Als Gate-Stufe ist das die schlimmste
+    Bauart überhaupt: ein Lauf, der nichts geprüft hat, endet mit demselben
+    Code wie einer, der etwas gefunden hat, und sagt nicht, welcher von beiden
+    er war.
+
+    Die Ausnahme wird deshalb zu einem `notChecked`-Eintrag. Der Lauf bleibt
+    rot — `notChecked` ist tödlich —, aber er ist rot MIT Bericht.
+  */
+  let browser = null
   try {
+    browser = await chromium.launch()
     // German, because the convention IS a German-language contract: §5 names
     // "Administrator", §6 names "Installation", §8.2 names "Liegt schon
     // länger". Checking the English surface would check a different product.
@@ -1090,7 +1226,7 @@ async function main() {
     // ---- Overview, with a gate open --------------------------------------
     await open(page, `${base}/cockpit/`)
     const shell = await page.evaluate(SHELL_PROBE)
-    devServerTarget = shell.devServer
+    pruefstand = classifyPruefstand(shell.delivered)
     const overview = await page.evaluate(SURFACE_PROBE)
     const banner = await page.evaluate(BANNER_PROBE)
     const numbers = await page.evaluate(NUMBERS_PROBE)
@@ -1535,12 +1671,27 @@ async function main() {
     }
 
     await context.close()
+  } catch (error) {
+    // Erste Zeile, nicht der ganze Stacktrace: die Meldung gehört in den
+    // Bericht, die Ablaufverfolgung nicht. Was danach gekommen wäre, ist
+    // ungeprüft — und genau das sagt der Eintrag.
+    notChecked.add(
+      `Der Lauf brach ab, bevor er zu Ende messen konnte: ${String(error).split('\n')[0].trim()} — ` +
+        'alles, was nach dieser Stelle gemessen worden wäre, ist unbekannt',
+    )
   } finally {
-    await browser.close()
+    if (browser) await browser.close()
     if (server) await stopCockpit(server)
   }
 
-  report(base, violations, unmocked, swept, unchecked, faviconChecked, devServerTarget)
+  // Hier und nicht in classifyPruefstand(): der Fall „der Lauf kam nie bis zur
+  // Übersicht" hat dieselbe Folge wie „ich kann das Ziel nicht einordnen", und
+  // beide sollen dieselbe rote Zeile bekommen. Die Fehlerrichtung zeigt nach
+  // rot, nicht nach still — ein fehlender Hinweis läse sich wie ein scharfer
+  // Lauf.
+  if (pruefstand.kind === 'unbestimmbar') notChecked.add(`Prüfstand nicht bestimmbar — ${pruefstand.why}`)
+
+  report(base, violations, unmocked, swept, unchecked, faviconChecked, pruefstand, notChecked)
 }
 
 /**
@@ -1669,7 +1820,17 @@ async function open(page, url) {
 async function startCockpit() {
   const child = spawn(
     'bunx',
-    ['vite', '--config', VITE_CONFIG, '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
+    [
+      'vite',
+      ...(STAND === 'preview' ? ['preview'] : []),
+      '--config',
+      VITE_CONFIG,
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(PORT),
+      '--strictPort',
+    ],
     { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
   )
   const log = []
@@ -1679,7 +1840,7 @@ async function startCockpit() {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      console.error(`✗ the cockpit dev server exited with ${child.exitCode}\n${log.join('')}`)
+      console.error(`✗ the cockpit ${STAND} server exited with ${child.exitCode}\n${log.join('')}`)
       process.exit(2)
     }
     try {
@@ -1691,7 +1852,7 @@ async function startCockpit() {
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
   child.kill('SIGTERM')
-  console.error(`✗ the cockpit dev server did not answer on ${PORT} within 60s\n${log.join('')}`)
+  console.error(`✗ the cockpit ${STAND} server did not answer on ${PORT} within 60s\n${log.join('')}`)
   process.exit(2)
 }
 
@@ -1703,12 +1864,145 @@ async function stopCockpit(child) {
   })
 }
 
-function report(base, violations, unmocked, swept, unchecked, faviconChecked, devServerTarget) {
+/**
+ * Welches Dokument liefert das Ziel — die Quelle, bei jedem Aufruf übersetzt,
+ * oder die gebaute Fassung, wörtlich?
+ *
+ * DAS IST DIE FRAGE, AN DER DIE SCHÄRFE DIESES LAUFS HÄNGT, und sie hat hier
+ * schon einmal eine falsche Form gehabt. Gefragt wurde: „steht `/@vite/client`
+ * im gelieferten Dokument?". Das misst nicht die Eigenschaft, sondern eine
+ * Spur davon — eine Zeichenkette aus Vites Innerem, die Vite umbenennen darf,
+ * ohne irgendjemanden zu fragen. Und die Fehlerrichtung war nach unsicher:
+ * fällt die Spur weg, verschwindet die Einschränkung STILL, und die Ausgabe
+ * liest sich wie ein scharfer Lauf.
+ *
+ * Gemessen wird jetzt der Modul-Verweis des gelieferten Dokuments gegen die
+ * beiden Dokumente auf der Platte. Beide Vergleichszeichenketten stammen aus
+ * diesem Repo und werden zur Laufzeit gelesen:
+ *
+ *   - trägt das Gelieferte den Verweis aus assets/cockpit/index.html, ist es
+ *     die gebaute Fassung — sie wird wörtlich ausgeliefert, und was hier
+ *     gemessen wird, ist das, was ausgeliefert wird;
+ *   - endet einer der gelieferten Verweise auf den Verweis aus
+ *     apps/cockpit/index.html (`/cockpit/src/main.tsx` auf `/src/main.tsx`),
+ *     ist das Dokument bei diesem Aufruf aus der Quelle erzeugt worden — und
+ *     dabei werden Verweise aufgelöst;
+ *   - passt keines von beidem, ist das Ziel UNBESTIMMBAR, und das wird gesagt.
+ *
+ * WARUM NICHT DER FAVICON-HREF ALLEIN, obwohl er die Eigenschaft direkter
+ * benennt: er unterscheidet die beiden Prüfstände heute nicht. Gemessen —
+ * Quelle schreibt „/favicon.svg", der Vite-Dev-Server liefert
+ * „/cockpit/favicon.svg", die gebaute Fassung trägt „/cockpit/favicon.svg" und
+ * wird so ausgeliefert. Beide Ziele liefern denselben href, und beide weichen
+ * von der Quelle ab. Der href ist deshalb der BELEG im Text — er zeigt
+ * schwarz auf weiss, dass beim Ausliefern aufgelöst wurde —, aber nicht das
+ * Unterscheidungsmerkmal. Das ist der Modul-Verweis, weil er als einziger in
+ * den beiden Dokumenten verschieden ist.
+ */
+function classifyPruefstand(delivered) {
+  const unbestimmbar = (why) => ({ kind: 'unbestimmbar', why })
+  if (!delivered) return unbestimmbar('die Übersicht lieferte keine Verweise zurück')
+  if (!SOURCE_MARKS) return unbestimmbar(`${COCKPIT_SOURCE_HTML} ist nicht lesbar — es gibt nichts zu vergleichen`)
+  if (!BUILT_MARKS) {
+    return unbestimmbar(`${COCKPIT_BUILT_HTML} ist nicht lesbar — die gebaute Fassung fehlt (bun run build:cockpit)`)
+  }
+  const source = SOURCE_MARKS.modules[0] ?? null
+  const built = BUILT_MARKS.modules[0] ?? null
+  if (!source || !built) {
+    return unbestimmbar(
+      `kein <script type="module" src=…> in ${source ? COCKPIT_BUILT_HTML : COCKPIT_SOURCE_HTML} — ` +
+        'das Merkmal, an dem die beiden Dokumente auseinandergehen, fehlt',
+    )
+  }
+  const evidence = {
+    source,
+    built,
+    authoredIcon: SOURCE_MARKS.iconHref,
+    builtIcon: BUILT_MARKS.iconHref,
+    deliveredIcon: delivered.iconHref,
+  }
+  if (delivered.modules.includes(built)) return { kind: 'gebaut', ...evidence }
+  const fromSource = delivered.modules.find((src) => src === source || src.endsWith(source))
+  if (fromSource) return { kind: 'quelle', fromSource, ...evidence }
+  return unbestimmbar(
+    `das gelieferte Dokument trägt weder den Modul-Verweis der gebauten Fassung („${built}") noch einen, ` +
+      `der auf den Quell-Verweis („${source}") endet — geliefert wurde: ` +
+      (delivered.modules.length ? delivered.modules.map((src) => `„${src}"`).join(', ') : '(kein Modul-Verweis)'),
+  )
+}
+
+/**
+ * Der Prüfstand, auf JEDEM Weg durch den Bericht genannt.
+ *
+ * Vor der Schlusszeile und nicht darunter, und das ist gegen die frühere
+ * Fassung entschieden: die Einschränkung stand im grünen Zweig, direkt unter
+ * „✓ no convention violations". Sie qualifiziert aber den ganzen Lauf, nicht
+ * nur ein grünes Ergebnis — ein Favicon-Verstoß aus einem eingeschränkten Lauf
+ * ist genauso eingeschränkt. Und sie stand damit an der einen Stelle, die im
+ * Gate nie zu sehen ist: eine bestandene Stufe druckt dort nichts.
+ */
+function printPruefstand(pruefstand, faviconChecked) {
+  const sweepAddresses = Math.max(faviconChecked - 1, 0)
+  if (pruefstand.kind === 'unbestimmbar') {
+    console.error(`\x1b[31m✗ Prüfstand unbestimmbar\x1b[0m — ${pruefstand.why}.`)
+    console.error('  Ob dieser Lauf scharf gemessen hat oder nur die Auflösung seines Ziels bestätigt, ist damit')
+    console.error('  unbekannt. Es steht hier, weil ein FEHLENDER Hinweis sich wie ein scharfer Lauf läse.')
+    return
+  }
+  if (pruefstand.kind === 'gebaut') {
+    console.log(`› Prüfstand: die GEBAUTE Fassung. Das gelieferte Dokument trägt den Modul-Verweis aus`)
+    console.log(`  ${COCKPIT_BUILT_HTML} („${pruefstand.built}") — es ist nicht bei diesem Aufruf aus`)
+    console.log(`  ${COCKPIT_SOURCE_HTML} erzeugt worden.`)
+    if (pruefstand.deliveredIcon === pruefstand.builtIcon) {
+      console.log(
+        `  Der Favicon-Verweis kam als „${pruefstand.deliveredIcon}" zurück, und genau so steht er in der gebauten`,
+      )
+      console.log(
+        `  Fassung: die ${faviconChecked} gemessenen Adressen sehen die Auflösung, die auch ausgeliefert wird.`,
+      )
+    } else {
+      console.log(
+        `  Der Favicon-Verweis kam als „${pruefstand.deliveredIcon ?? '(keiner)'}" zurück, in der gebauten Fassung`,
+      )
+      console.log(
+        `  steht „${pruefstand.builtIcon ?? '(keiner)'}" — das Ziel liefert das Dokument also nicht wörtlich.`,
+      )
+    }
+    return
+  }
+  console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — das Ziel erzeugt sein Dokument bei jedem Aufruf aus')
+  console.log(`  ${COCKPIT_SOURCE_HTML}: der gelieferte Modul-Verweis „${pruefstand.fromSource}" endet auf den`)
+  console.log(`  Quell-Verweis „${pruefstand.source}", während die gebaute Fassung „${pruefstand.built}" trägt.`)
+  if (pruefstand.authoredIcon && pruefstand.deliveredIcon && pruefstand.authoredIcon !== pruefstand.deliveredIcon) {
+    console.log(`  Am Favicon nachgemessen: die Quelle schreibt „${pruefstand.authoredIcon}", geliefert wurde`)
+    console.log(`  „${pruefstand.deliveredIcon}" — das Ziel löst den Quell-href beim Ausliefern also auf.`)
+  } else if (pruefstand.authoredIcon && pruefstand.authoredIcon === pruefstand.deliveredIcon) {
+    console.log(`  Am Favicon nachgemessen: die Quelle schreibt „${pruefstand.authoredIcon}", und genau so kam er`)
+    console.log('  zurück — dieser eine Verweis wurde beim Ausliefern nicht angefasst.')
+  } else {
+    console.log(
+      `  Der Favicon-Verweis liess sich nicht gegenhalten (Quelle: ${pruefstand.authoredIcon ?? '(keiner)'}, ` +
+        `geliefert: ${pruefstand.deliveredIcon ?? '(keiner)'}).`,
+    )
+  }
+  console.log(`  Für das Favicon heißt das: die ${sweepAddresses} Sweep-Adressen können hier kein anderes Urteil`)
+  console.log('  liefern als die Übersicht — ein dokumentrelativer href („./favicon.svg") wird beim Ausliefern')
+  console.log('  mit aufgelöst, bleibt in der GEBAUTEN Fassung aber wörtlich stehen und zeigt dort auf jeder')
+  console.log('  Route mit Tiefe ≥ 2 ins Leere. Scharf wird die Messung gegen die GEBAUTE Fassung — so, wie')
+  console.log('  die Gate-Stufe sie misst:')
+  console.log('    bun run build:cockpit && KONVENTION_CHECK_STAND=preview bun run konvention:check')
+  console.log('  oder gegen die echte Auslieferung durch src/cockpit.ts:')
+  console.log('    bun run build:cockpit && bun bin/wikikit.ts')
+  console.log('    COCKPIT_BASE_URL=http://127.0.0.1:4060 bun run konvention:check')
+  console.log('  Im Standardlauf hält test/unit/cockpit-favicon.test.ts diese Stelle (ohne Server).')
+}
+
+function report(base, violations, unmocked, swept, unchecked, faviconChecked, pruefstand, notChecked) {
   console.log(
     `› checked the cockpit at ${base} against ${CONVENTION_FILE} ${CONVENTION_VERSION} (fixtures, no database)`,
   )
   console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
-  // Said out loud, on BOTH paths through this function, and before the verdict.
+  // Said out loud, on EVERY path through this function, and before the verdict.
   // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
   // route that passed — and a run that mentions it only when something else is
   // already red would announce the hole exactly when nobody is reading.
@@ -1721,10 +2015,25 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, de
       `› reads answered from the contract (empty instance of the declared schema) because no fixture models them by hand: ${[...unmocked].join(', ')}`,
     )
   }
-  if (!violations.length) {
+
+  printPruefstand(pruefstand, faviconChecked)
+
+  // „Ich weiss es nicht" vor „hier stimmt etwas nicht": eine Voraussetzung, die
+  // gefehlt hat, erklärt oft die Verstöße darunter — und sie erklärt vor allem,
+  // welche Aussagen dieser Lauf GAR NICHT gemacht hat.
+  if (notChecked.size) {
+    console.error('\x1b[31mnicht geprüft — die Voraussetzung fehlte, das Ergebnis ist unbekannt:\x1b[0m')
+    for (const entry of [...notChecked].sort()) console.error(`  · ${entry}`)
+    console.error('  Nichts davon ist als sauber gemeldet worden. Eine Lücke erscheint als Lücke (§12).')
+  }
+  for (const violation of violations) {
+    console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
+  }
+
+  if (!violations.length && !notChecked.size) {
     console.log('\x1b[32m✓ no convention violations\x1b[0m')
-    // Said out loud rather than left implied: green means these nine rules
-    // held against these fixtures, not that the console is conformant.
+    // Said out loud rather than left implied: green means these rules held
+    // against these fixtures, not that the console is conformant.
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
@@ -1739,40 +2048,14 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, de
     console.log(
       `   Fassung des Maßstabs: Kopfzeile der Kopie und die Konstante in diesem Skript nennen beide ${CONVENTION_VERSION})`,
     )
-    // Die Einschränkung steht bei der grünen Zeile und nicht nur im Quelltext,
-    // weil die grüne Zeile die meistgelesene Stelle dieser Ausgabe ist. Der
-    // Vite-Dev-Server löst relative Verweise beim Ausliefern selbst auf; unter
-    // ihm können die Sweep-Adressen deshalb GAR KEIN anderes Urteil liefern als
-    // die Übersicht — die Zahl oben ist dann ein Umfang ohne Zusatzaussage.
-    // Eine grüne Zeile, die ihren Umfang nennt und ihre Blindheit verschweigt,
-    // ist genau die halbe Auskunft, gegen die §12 geschrieben ist.
-    //
-    // Die Bedingung fragt nach dem ZIEL und nicht danach, wer den Server
-    // gestartet hat. „Habe ich ihn selbst gestartet" stand hier zuerst und war
-    // die falsche Frage: ein von Hand gestarteter Dev-Server, auf den
-    // COCKPIT_BASE_URL zeigt, hätte den Hinweis verschwinden lassen, während
-    // die Blindheit voll gilt — die Ausgabe läse sich dann wie ein scharfer
-    // Lauf. Gemessen wird deshalb am gelieferten Dokument (siehe SHELL_PROBE).
-    if (devServerTarget) {
-      console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — das ZIEL ist ein Vite-Dev-Server (erkannt am Skript')
-      console.log('  /@vite/client im gelieferten Dokument, nicht daran, wer den Prozess gestartet hat), und der löst')
-      console.log(
-        `  relative Verweise beim Ausliefern selbst auf. Für das Favicon heißt das: die ${Math.max(faviconChecked - 1, 0)} Sweep-Adressen`,
-      )
-      console.log('  können hier kein anderes Urteil liefern als die Übersicht — ein dokumentrelativer')
-      console.log('  href bleibt unsichtbar, obwohl er in der GEBAUTEN Fassung wörtlich stehen bleibt und')
-      console.log('  auf jeder Route mit Tiefe ≥ 2 ins Leere zeigt. Scharf wird die Messung erst gegen einen')
-      console.log('  laufenden Server mit der gebauten Fassung:')
-      console.log('    bun run build:cockpit && bun bin/wikikit.ts')
-      console.log('    COCKPIT_BASE_URL=http://127.0.0.1:4060 bun run konvention:check')
-      console.log('  Im Standardlauf hält test/unit/cockpit-favicon.test.ts diese Stelle (ohne Server).')
-    }
     return
   }
-  for (const violation of violations) {
-    console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
-  }
-  console.error(`\n${violations.length} Verstöße gegen ${CONVENTION_FILE} ${CONVENTION_VERSION}`)
+  // BEIDE Zahlen, immer. „0 nicht geprüfte Stellen" ist eine Aussage, kein
+  // Rauschen: sie sagt, dass der Lauf zu Ende gekommen ist und der Befund
+  // darüber eine Messung ist und kein Abbruch.
+  console.error(
+    `\n${violations.length} Verstöße, ${notChecked.size} nicht geprüfte Stellen — gemessen gegen ${CONVENTION_FILE} ${CONVENTION_VERSION}`,
+  )
   process.exit(1)
 }
 

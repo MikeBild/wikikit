@@ -36,7 +36,10 @@ that CI will reject:
 bun run hooks:install     # sets core.hooksPath=.githooks
 ```
 
-The gate needs Docker (for the integration and e2e tiers) and takes ~60s. If
+The gate needs Docker (for the integration and e2e tiers). Measured on an M-series
+laptop with a warm Docker: ~99s in total (~65s with `SKIP=konvention`); the
+convention check costs ~28s and the integration tier swings between ~40s and ~78s
+run to run. If
 Docker is off it **fails loudly** rather than quietly checking less than you
 think. Deliberate bypasses are honoured and printed in the summary:
 
@@ -53,6 +56,7 @@ bun run typecheck         # tsc --noEmit (strict)
 bun test                  # unit + contract — no external services
 bun run test:integration  # real PostgreSQL via Docker    (RUN_INTEGRATION=1)
 bun run test:e2e          # real AI SDK → stub endpoint    (RUN_INTEGRATION=1)
+bun run konvention:check  # COCKPIT-KONVENTION.md gegen das eigene Cockpit (Playwright)
 bun run bench             # deterministic benchmarks — reports, never gates
 bun run build:binary      # compile + self-verify dist/wikikit
 ```

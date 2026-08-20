@@ -26,6 +26,18 @@ interface Stage {
   /** Needs the Docker Postgres. */
   database?: boolean
   env?: Record<string, string>
+  /**
+   * Print this stage's output even when it PASSES.
+   *
+   * Normally a green stage prints one line and swallows the rest — that is the
+   * whole point of a gate summary. One stage must not be swallowed: the
+   * convention check's green line is a QUALIFIED one. It names how many
+   * addresses it measured and, when it measured against a target that resolves
+   * references while delivering them, it says so. Hidden behind a tick, a
+   * qualified green reads as an unqualified one, and this gate's own design
+   * rule is that it must never grant confidence it did not earn.
+   */
+  echo?: boolean
 }
 
 const STAGES: Stage[] = [
@@ -46,6 +58,42 @@ const STAGES: Stage[] = [
     id: 'unit',
     title: 'unit + contract (incl. docs/OpenAPI drift)',
     command: ['bun', 'test', 'test/unit', 'test/contract'],
+  },
+  /*
+    Die Familien-Konvention gegen das eigene Cockpit — Wortmarke, Browser-Titel,
+    Favicon, Entscheidungs-Grammatik, Routen-Sweep (COCKPIT-KONVENTION.md).
+
+    WARUM ÜBERHAUPT HIER: bis 2026-08-20 lief dieser Check in keinem der sechs
+    Produkte automatisch (BEFUND-CHECK-LAEUFT-NIRGENDS.md). Er war als
+    Rückstandsliste gemeint und deshalb absichtlich außerhalb des Gates; seit er
+    grün ist, ist diese Begründung entfallen, ohne dass es jemandem auffiel.
+
+    WARUM AN DIESER STELLE: nach allen Stufen, die ohne Browser auskommen — ein
+    Tippfehler soll nicht erst nach einem Browserstart auffallen —, und vor den
+    beiden, die Docker brauchen, damit er nicht hinter einer Voraussetzung
+    verschwindet, die jemand mit SKIP umgeht. Er hängt außerdem an `cockpit`:
+    die Stufe darüber baut assets/cockpit neu, und genau das misst diese hier.
+
+    WARUM `preview` UND NICHT DER DEV-SERVER: der Dev-Server löst Verweise beim
+    Ausliefern selbst auf und ist an dieser Stelle blind für einen
+    dokumentrelativen Favicon-Verweis, der in der gebauten Fassung auf jeder
+    tiefen Route ins Leere zeigt. `vite preview` liefert assets/cockpit wörtlich
+    aus, mit derselben SPA-Rückfalllinie (nachgemessen: /cockpit/pages/foo → 200
+    text/html, /cockpit/pages/favicon.svg → 200 text/html, /cockpit/favicon.svg →
+    image/svg+xml).
+    NICHT gewählt, weil er billiger wäre: dreimal je Stand gemessen, preview
+    28,7 / 29,8 / 38,6 s gegen dev 32,6 / 32,3 / 32,4 s — das ist dieselbe
+    Größenordnung, und die 23 s, die anderswo für den scharfen Lauf notiert sind,
+    galten einem Server, der schon lief. Gewählt allein wegen der Schärfe.
+    Der bekannte Preis eines preview-Laufs — er misst die Platte, nicht die
+    Quelle — existiert hier nicht, weil `cockpit` unmittelbar davor neu baut.
+  */
+  {
+    id: 'konvention',
+    title: 'Konventions-Check (Cockpit, gebaute Fassung)',
+    command: ['bun', 'run', 'konvention:check'],
+    env: { KONVENTION_CHECK_STAND: 'preview' },
+    echo: true,
   },
   {
     id: 'integration',
@@ -127,6 +175,10 @@ for (const stage of plan) {
     process.exit(1)
   }
   console.log(`  ${green('✓')} ${stage.title} ${dim(`(${seconds}s)`)}`)
+  if (stage.echo) {
+    const output = (result.stdout ?? '').replace(/\n$/, '')
+    if (output) console.log(output.replace(/^/gm, '    '))
+  }
 }
 
 const total = ((Bun.nanoseconds() - started) / 1e9).toFixed(1)
