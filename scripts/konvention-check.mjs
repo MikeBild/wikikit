@@ -42,6 +42,10 @@ const VITE_CONFIG = 'apps/cockpit/vite.config.ts'
 // (§8.1) and its wiki chips filter rows without touching the counters, and
 // neither claim can be checked against a fixture with one wiki in it — the chip
 // would have nothing to filter away.
+// The canonical spelling, in ONE place in this script, because the asserts
+// below compare against it character by character and two literals drift.
+const PRODUCT_NAME = 'WikiKit'
+
 const SPACES = [
   { id: '11111111-1111-4111-8111-000000000001', slug: 'handbuch', name: 'Handbuch' },
   { id: '11111111-1111-4111-8111-000000000002', slug: 'onboarding', name: 'Onboarding' },
@@ -271,7 +275,9 @@ const SHELL_PROBE = `(() => {
     : null
   const badge = document.querySelector('[data-testid="nav-decisions-count"]')
   const decisions = document.querySelector('[data-testid="nav-decisions"]')
+  const wordmark = document.querySelector('[data-testid="cockpit-wordmark"]')
   return {
+    wordmark: wordmark ? { name: text(wordmark) } : null,
     order: links.map((link) => link.getAttribute('data-testid')),
     homeGroup: groupOf(document.querySelector('[data-testid="nav-home"]')),
     decisionsGroup: groupOf(decisions),
@@ -455,6 +461,26 @@ async function main() {
     const banner = await page.evaluate(BANNER_PROBE)
     const numbers = await page.evaluate(NUMBERS_PROBE)
     const zoneA = await page.evaluate(ZONE_A_PROBE)
+
+    // §5/§6 — the wordmark carries the canonical product name, and it comes
+    // from the catalogue. Compared CHARACTER BY CHARACTER on purpose: a
+    // case-insensitive test lets „WIKIKIT" pass as a hit, which is precisely
+    // the state this assert was written to end.
+    if (!shell.wordmark) {
+      note('§5/§6', 'Sidebar › Wortmarke', 'kein [data-testid="cockpit-wordmark"] im DOM')
+    } else {
+      if (shell.wordmark.name !== PRODUCT_NAME) {
+        note('§5/§6', 'Sidebar › Wortmarke', `„${shell.wordmark.name ?? '(leer)'}" statt „${PRODUCT_NAME}"`)
+      }
+      // A SECOND assert, and not a redundant one: the first catches today's
+      // „WIKIKIT", this one catches a name that drifts to all-caps or
+      // all-lowercase by some other route — a CSS `text-transform`, say, which
+      // the first assert cannot see because it reads the DOM text.
+      const name = shell.wordmark.name ?? ''
+      if (name && (name === name.toUpperCase() || name === name.toLowerCase())) {
+        note('§5/§6', 'Sidebar › Wortmarke', `„${name}" ist durchgehend groß- oder kleingeschrieben`)
+      }
+    }
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
     if (shell.role !== 'Administrator') {
@@ -777,7 +803,7 @@ function report(base, violations, unmocked) {
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
-    console.log('   deutsche Oberfläche ohne Backend-Passthrough)')
+    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke)')
     return
   }
   for (const violation of violations) {

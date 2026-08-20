@@ -115,8 +115,27 @@ export function Shell() {
       <SidebarProvider data-cockpit-ui="cockpit-ui" className="h-full min-h-0">
         <Sidebar collapsible="icon" data-testid="sidebar">
           <SidebarHeader>
-            <div className="flex h-8 items-center px-2 text-sm font-semibold tracking-[0.16em] group-data-[collapsible=icon]:hidden">
-              WIKIKIT
+            {/*
+              The wordmark, and the product name comes from the catalogue rather
+              than from this file (Konvention §5/§6).
+
+              „WikiKit" is a proper name with an internal capital, so it is
+              written ONCE — as `app.name`, identical in EN and DE, because a
+              name is not translated. The former literal here said „WIKIKIT" in
+              a letterspaced all-caps run, which is two mistakes at once: a
+              second source for the name that cannot notice when the catalogue
+              changes, and a transformation that destroys the internal capital
+              the family agreed on. Hence no `.toUpperCase()`, no
+              `uppercase`, and no `tracking` wide enough to break the word apart.
+
+              `data-testid="cockpit-wordmark"` is the shared anchor the
+              convention check and the family parity harness both grip — one
+              selector across six products instead of six dialects.
+            */}
+            <div data-testid="cockpit-wordmark" className="flex h-8 items-center gap-2 px-2">
+              <span className="truncate text-sm font-semibold group-data-[collapsible=icon]:hidden">
+                {t('app.name')}
+              </span>
             </div>
           </SidebarHeader>
 
