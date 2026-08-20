@@ -8,12 +8,15 @@ test/fixtures/
 docs/okf-v0.1.md
 
 # Product-family convention — copied byte-for-byte from the reviewed v1.4
-# handoff so the repository cannot silently reinterpret the shared rules. The
-# root copy is the shared document itself, identical in all six repositories;
+# handoff so the repository cannot silently reinterpret the shared rules. This
+# is the shared document itself, identical in all six repositories;
 # reformatting it here would make this repository's copy differ from the other
 # five and turn "the same file everywhere" into five diffs nobody chose.
+#
+# There is no second copy under apps/ any more (§13: the standard has one
+# source and no copies), and the pointer that replaced it is ordinary prose
+# this repository formats like any other document.
 COCKPIT-KONVENTION.md
-apps/cockpit/COCKPIT-CONVENTION.md
 
 # Generated cockpit artifacts. Both are committed and drift-checked by
 # rebuilding them, so a formatter that touched either would make every build
