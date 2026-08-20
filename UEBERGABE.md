@@ -7,9 +7,17 @@ ist WikiKits Referenz für UI/UX und Nutzerführung. Er beschreibt den
 Lebensweg einer Notiz in sechs Schritten (Einfangen · Einsortieren ·
 Nachschlagen · Pflegen · Prüfen · Erinnern) — exakt WikiKits Domäne. Die
 Cockpit-Aufgabe: **diese sechs Schritte werden die Erzählstruktur der
-Oberfläche.** Familienregeln: Cockpit-Konvention v1.5; kein Shared Code.
+Oberfläche.** Familienregeln: Cockpit-Konvention v1.4; kein Shared Code.
 Repo-Stand: `home/inbox/pages/changes/answers/care/decisions/search` u. a.
 existieren; **kein `apps/cockpit/UI-UX.md`** — anlegen ist Schritt 0.
+
+> **Fortschreibung 20.08.2026.** Der Absatz darüber ist der Stand bei der
+> Übergabe und bleibt im Wortlaut stehen — er protokolliert, wogegen der Auftrag
+> erteilt wurde, und das ist passiert. Seither: `apps/cockpit/UI-UX.md` ist
+> angelegt, und die Konventions-Kopie im Repo-Root ist über v1.4 hinaus
+> fortgeschrieben. Welche Fassung sie trägt, steht in ihrer Kopfzeile und wird
+> von `scripts/konvention-check.mjs` von dort gelesen; diese Datei nennt die
+> Nummer bewusst nicht noch einmal.
 
 ## Warum dieser Leitfaden die Referenz ist
 
@@ -166,6 +174,15 @@ Claim + Warnungstexte deutsch.
 Prüfweg: E2E + Visual.
 
 **AK-WI-G.1 · Gates**
-Dann: `UI-UX.md` angelegt; Konventions-Kopie v1.5 im Repo; Rollen-Label
-„Administrator"; alle Repo-Gates grün.
+Dann: `UI-UX.md` angelegt; eine Konventions-Kopie liegt im Repo-Root und ist
+die unveränderte Familienfassung — **welche** es ist, sagt ihre eigene
+Kopfzeile, und `scripts/konvention-check.mjs` liest die Fassung von dort und
+nennt sie in seinem Bericht; Rollen-Label „Administrator"; alle Repo-Gates grün.
 Prüfweg: CI-Gate.
+
+> Das Kriterium trug bis 20.08.2026 eine Versionsnummer im Text („Kopie v1.4",
+> dann „v1.5"). Eine Nummer im Kriterium ist von einer veralteten Kopie erfüllbar
+> und muss jeder Runde hinterherlaufen; gefordert ist Identität mit der
+> Familienquelle, nicht eine Zahl. Die Zahl steht jetzt an genau einer Stelle im
+> Repo — in der Kopfzeile der Kopie —, und der Check behauptet sie nicht mehr,
+> sondern liest sie.

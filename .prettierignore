@@ -7,8 +7,13 @@ test/fixtures/
 # Vendored upstream specification — verbatim by contract, never reformatted.
 docs/okf-v0.1.md
 
-# Product-family convention — copied byte-for-byte from the reviewed v1.4
-# handoff so the repository cannot silently reinterpret the shared rules. This
+# Product-family convention — copied byte-for-byte from the reviewed family
+# handoff so the repository cannot silently reinterpret the shared rules. WHICH
+# handoff that is stands in the file's own header line, and nowhere else: this
+# comment named „v1.4" until the copy had been on v1.5 for a while, and the one
+# place that guards the file's byte-identity was the last place anybody thought
+# to update. A version number repeated here is a second source that only ever
+# drifts. This
 # is the shared document itself, identical in all six repositories;
 # reformatting it here would make this repository's copy differ from the other
 # five and turn "the same file everywhere" into five diffs nobody chose.

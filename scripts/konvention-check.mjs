@@ -15,8 +15,22 @@
 // check people run once and then stop running, and its verdict would depend on
 // whatever happened to be in somebody's database that morning.
 //
-//   bun scripts/konvention-check.mjs
-//   COCKPIT_BASE_URL=http://127.0.0.1:4061 bun scripts/konvention-check.mjs
+// UND DAS HAT EINEN PREIS, der hier oben stehen muss und nicht nur 1500 Zeilen
+// tiefer: der Dev-Server ist an einer Stelle GNÄDIGER als die Auslieferung. Er
+// löst relative Verweise im HTML beim Ausliefern selbst auf — aus
+// „./favicon.svg" wird schon im gelieferten Dokument „/cockpit/favicon.svg", auf
+// jeder Route. Der Build tut das NICHT; in assets/cockpit/index.html bleibt der
+// relative Verweis wörtlich stehen und zeigt auf jeder Route mit Tiefe >= 2 ins
+// Leere. Gemessen, nicht vermutet: gegen die gebaute Fassung meldet derselbe
+// Lauf sieben Verstöße, gegen den Dev-Server keinen. Siehe checkFavicon() für
+// die Messung und den Beleg.
+//
+// Wer diesen Check scharf stellen will, gibt ihm deshalb einen laufenden Server
+// mit der GEBAUTEN Fassung. Beides ist vorgesehen, und die grüne Ausgabe sagt
+// selbst, welchen der beiden Läufe man gerade gesehen hat:
+//
+//   bun scripts/konvention-check.mjs                  # Dev-Server, bequem
+//   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs
 //
 // Deliberately NOT wired into `bun run gate`, `bun test` or CI. The convention
 // is a target the console is being moved towards, not a promise it already
@@ -36,6 +50,46 @@ import { fileURLToPath } from 'node:url'
 // notice when a page is added — which is how the sweep came to miss every
 // detail route in the first place.
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
+
+/*
+  Die Fassung des Maßstabs, GELESEN statt behauptet.
+
+  Hier stand die Nummer zweimal als Literal in den Berichtszeilen. Das ist genau
+  die Bauart, die schon einmal falsch war: die Kopie im Repo stand auf v1.5,
+  der Bericht sagte v1.4, und niemand sah es, weil beide Stellen für sich
+  plausibel aussahen. Eine Prüfung, die die Version ihres eigenen Maßstabs
+  behauptet, kann sie nicht mehr belegen — sie wiederholt nur, was jemand
+  zuletzt getippt hat.
+
+  Also aus der Kopfzeile der Datei, gegen die geprüft wird. Damit steht die
+  Nummer an genau einer Stelle im Repo, und ein Versionssprung ist ein `cp`
+  ohne Nacharbeit an diesem Skript.
+
+  Fehlt die Kopfzeile oder passt sie nicht, bricht der Lauf LAUT ab statt auf
+  ein Literal zurückzufallen. Ein stiller Rückfall wäre wieder eine Zahl, die
+  niemand belegt hat — und ein Bericht, der seinen Maßstab nicht benennen kann,
+  ist kein Bericht (§12).
+*/
+const CONVENTION_FILE = 'COCKPIT-KONVENTION.md'
+const CONVENTION_VERSION = (() => {
+  const url = new URL(`../${CONVENTION_FILE}`, import.meta.url)
+  let head
+  try {
+    head = readFileSync(url, 'utf8').slice(0, 2000)
+  } catch {
+    console.error(`✗ ${CONVENTION_FILE} fehlt im Repo-Root — der Maßstab dieses Laufs ist nicht auffindbar`)
+    process.exit(2)
+  }
+  const match = head.match(/^Version\s+(\d+\.\d+)\s*·/m)
+  if (!match) {
+    console.error(
+      `✗ ${CONVENTION_FILE} nennt in seiner Kopfzeile keine Fassung im Format „Version X.Y · …" — ` +
+        'der Bericht könnte seinen Maßstab nur behaupten, nicht belegen',
+    )
+    process.exit(2)
+  }
+  return `v${match[1]}`
+})()
 
 const BASE = (process.env.COCKPIT_BASE_URL ?? '').replace(/\/$/, '')
 const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
@@ -1390,7 +1444,7 @@ async function main() {
     if (server) await stopCockpit(server)
   }
 
-  report(base, violations, unmocked, swept, unchecked, faviconChecked)
+  report(base, violations, unmocked, swept, unchecked, faviconChecked, server !== null)
 }
 
 /**
@@ -1553,8 +1607,10 @@ async function stopCockpit(child) {
   })
 }
 
-function report(base, violations, unmocked, swept, unchecked, faviconChecked) {
-  console.log(`› checked the cockpit at ${base} against COCKPIT-KONVENTION.md v1.5 (fixtures, no database)`)
+function report(base, violations, unmocked, swept, unchecked, faviconChecked, ownDevServer) {
+  console.log(
+    `› checked the cockpit at ${base} against ${CONVENTION_FILE} ${CONVENTION_VERSION} (fixtures, no database)`,
+  )
   console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
   // Said out loud, on BOTH paths through this function, and before the verdict.
   // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
@@ -1584,12 +1640,32 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked) {
     )
     console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
     console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
+    // Die Einschränkung steht bei der grünen Zeile und nicht nur im Quelltext,
+    // weil die grüne Zeile die meistgelesene Stelle dieser Ausgabe ist. Der
+    // Vite-Dev-Server löst relative Verweise beim Ausliefern selbst auf; unter
+    // ihm können die Sweep-Adressen deshalb GAR KEIN anderes Urteil liefern als
+    // die Übersicht — die Zahl oben ist dann ein Umfang ohne Zusatzaussage.
+    // Eine grüne Zeile, die ihren Umfang nennt und ihre Blindheit verschweigt,
+    // ist genau die halbe Auskunft, gegen die §12 geschrieben ist.
+    if (ownDevServer) {
+      console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — dieser Lauf ging gegen den Vite-Dev-Server, und der löst')
+      console.log(
+        `  relative Verweise beim Ausliefern selbst auf. Für das Favicon heißt das: die ${Math.max(faviconChecked - 1, 0)} Sweep-Adressen`,
+      )
+      console.log('  können hier kein anderes Urteil liefern als die Übersicht — ein dokumentrelativer')
+      console.log('  href bleibt unsichtbar, obwohl er in der GEBAUTEN Fassung wörtlich stehen bleibt und')
+      console.log('  auf jeder Route mit Tiefe ≥ 2 ins Leere zeigt. Scharf wird die Messung erst gegen einen')
+      console.log('  laufenden Server mit der gebauten Fassung:')
+      console.log('    bun run build:cockpit && bun bin/wikikit.ts')
+      console.log('    COCKPIT_BASE_URL=http://127.0.0.1:4060 bun run konvention:check')
+      console.log('  Im Standardlauf hält test/unit/cockpit-favicon.test.ts diese Stelle (ohne Server).')
+    }
     return
   }
   for (const violation of violations) {
     console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
   }
-  console.error(`\n${violations.length} Verstöße gegen COCKPIT-KONVENTION.md v1.5`)
+  console.error(`\n${violations.length} Verstöße gegen ${CONVENTION_FILE} ${CONVENTION_VERSION}`)
   process.exit(1)
 }
 
