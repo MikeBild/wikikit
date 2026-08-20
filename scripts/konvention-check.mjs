@@ -276,9 +276,25 @@ const SHELL_PROBE = `(() => {
   const badge = document.querySelector('[data-testid="nav-decisions-count"]')
   const decisions = document.querySelector('[data-testid="nav-decisions"]')
   const wordmark = document.querySelector('[data-testid="cockpit-wordmark"]')
+  const shown = (element) => {
+    if (!element) return false
+    const style = getComputedStyle(element)
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false
+    const box = element.getBoundingClientRect()
+    return box.width > 0 && box.height > 0
+  }
+  const wordmarkIcon = wordmark ? wordmark.querySelector('svg, img, [data-testid="cockpit-wordmark-icon"]') : null
+  const iconLink = document.querySelector('link[rel~="icon"]')
   return {
     title: document.title,
-    wordmark: wordmark ? { name: text(wordmark) } : null,
+    icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
+    wordmark: wordmark
+      ? {
+          name: text(wordmark),
+          icon: Boolean(wordmarkIcon),
+          iconShown: shown(wordmarkIcon),
+        }
+      : null,
     order: links.map((link) => link.getAttribute('data-testid')),
     homeGroup: groupOf(document.querySelector('[data-testid="nav-home"]')),
     decisionsGroup: groupOf(decisions),
@@ -481,6 +497,15 @@ async function main() {
       if (name && (name === name.toUpperCase() || name === name.toLowerCase())) {
         note('§5/§6', 'Sidebar › Wortmarke', `„${name}" ist durchgehend groß- oder kleingeschrieben`)
       }
+      // §6 — an icon stands NEXT TO the name, and it is actually painted.
+      // Presence in the DOM is not the claim: a glyph in a collapsed container
+      // or at zero size is markup that reads as an icon and shows nothing, so
+      // this measures the box.
+      if (!shell.wordmark.icon) {
+        note('§6', 'Sidebar › Wortmarke', 'kein Icon-Element neben dem Namen')
+      } else if (!shell.wordmark.iconShown) {
+        note('§6', 'Sidebar › Wortmarke', 'Icon-Element ist im DOM, wird aber nicht dargestellt')
+      }
     }
 
     // §5 — the browser tab says „<Produktname> Cockpit", exactly. The tab is
@@ -489,6 +514,44 @@ async function main() {
     // likely to be noticed by whoever wrote it.
     if (shell.title !== `${PRODUCT_NAME} Cockpit`) {
       note('§5', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
+    }
+
+    // §6 — the tab icon is declared AND the file behind it answers with an
+    // IMAGE. The second half is the one that matters: a `<link rel="icon">`
+    // pointing at nothing looks like compliance in the source and leaves the
+    // tab blank, which is worse than an honest omission because nobody goes
+    // looking again.
+    //
+    // And the status code alone would be a false green HERE in particular.
+    // src/cockpit.ts answers anything that is not a real asset with the SPA
+    // shell — 200, text/html — because deep cockpit addresses are client
+    // routes. So a favicon href with a typo in it gets a cheerful 200 and a
+    // page of HTML, and an assert that stopped at the number would sign it off.
+    // Hence the content type: the file has to BE an image.
+    //
+    // The fetch runs IN the page so the href resolves against the real base
+    // path — the cockpit lives under /cockpit/, and that is exactly where a
+    // root-relative or document-relative guess goes wrong.
+    if (!shell.icon) {
+      note('§6', 'Browser-Tab', 'kein <link rel="icon"> im Dokument')
+    } else {
+      const answer = await page.evaluate(
+        (href) =>
+          fetch(href, { cache: 'no-store' }).then(
+            (response) => ({ status: response.status, type: response.headers.get('content-type') ?? '' }),
+            (error) => ({ status: String(error), type: '' }),
+          ),
+        shell.icon.href,
+      )
+      if (answer.status !== 200) {
+        note('§6', 'Browser-Tab › Favicon', `${shell.icon.href} antwortet mit ${answer.status}, nicht mit 200`)
+      } else if (!/^image\//.test(answer.type)) {
+        note(
+          '§6',
+          'Browser-Tab › Favicon',
+          `${shell.icon.href} antwortet mit „${answer.type || '(kein Content-Type)'}" statt mit einem Bild — die SPA-Rückfalllinie hat geantwortet, nicht die Datei`,
+        )
+      }
     }
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
@@ -812,7 +875,8 @@ function report(base, violations, unmocked) {
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
-    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel)')
+    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel,')
+    console.log('   Wortmarken-Icon, Favicon das wirklich lädt)')
     return
   }
   for (const violation of violations) {

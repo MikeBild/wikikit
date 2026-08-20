@@ -6,6 +6,26 @@
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="color-scheme" content="light dark" />
     <title>WikiKit Cockpit</title>
+    <!--
+      „/favicon.svg", NICHT „/cockpit/favicon.svg" und nicht „./favicon.svg" —
+      und das ist die eine Stelle, an der dieser Verweis dreimal falsch sein
+      kann (§6).
+
+      Das Cockpit wird unter /cockpit/ ausgeliefert. Den Basispfad setzt Vite
+      selbst davor: aus dieser Zeile wird in der gebauten Fassung
+      href="/cockpit/favicon.svg". Wer ihn hier schon hinschreibt, bekommt ihn
+      zweimal — /cockpit/cockpit/favicon.svg. Und „./favicon.svg" löst auf
+      Unterrouten wie /cockpit/pages/… gegen ein Verzeichnis auf, das es nicht
+      gibt.
+
+      Ein Favicon-Verweis ins Leere ist schlimmer als keiner: er sieht im
+      Quelltext wie Erfüllung aus und liefert dem Reiter trotzdem nichts. Hier
+      besonders leise, weil src/cockpit.ts alles, was keine Datei ist, mit der
+      SPA-Hülle beantwortet — also mit 200 und text/html statt mit einem 404.
+      Der Konventions-Check prüft deshalb den Content-Type mit, nicht nur den
+      Statuscode.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
       // BLOCKING, and in the document rather than in the bundle. The class has
       // to be on <html> before the first paint; applied from an effect instead,

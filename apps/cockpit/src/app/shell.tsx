@@ -1,6 +1,17 @@
 import { Link, Outlet, useMatches } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronsUpDown, Languages, LogOut, Monitor, Moon, Palette, Sun, UserRound } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronsUpDown,
+  Languages,
+  Library,
+  LogOut,
+  Monitor,
+  Moon,
+  Palette,
+  Sun,
+  UserRound,
+} from 'lucide-react'
 import { Fragment, useState, type ComponentType, type ReactNode } from 'react'
 import { entryFor, GROUPS, NAV, type NavEntry, type NavGroup } from '@/app/nav'
 import { endSession } from '@/api/client'
@@ -132,7 +143,27 @@ export function Shell() {
               convention check and the family parity harness both grip — one
               selector across six products instead of six dialects.
             */}
-            <div data-testid="cockpit-wordmark" className="flex h-8 items-center gap-2 px-2">
+            <div data-testid="cockpit-wordmark" className="flex h-8 items-center gap-2 px-0.5">
+              {/*
+                `Library` — four strokes on a shelf. The suggested motif for
+                WikiKit, and kept rather than replaced: it is the only shelf in
+                lucide's vocabulary that says „many pages, kept in order", and
+                it is still FREE in this console's own navigation, where
+                `BookOpen` already means the overview and a page, `FolderKanban`
+                means a wiki and `Archive` means the sources. A wordmark icon
+                that repeats a nav icon teaches the operator that the two mean
+                the same thing.
+
+                The square stays visible when the sidebar collapses to icons —
+                that is the whole point of an icon beside a name: the name is
+                what goes away.
+              */}
+              <span
+                data-testid="cockpit-wordmark-icon"
+                className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground"
+              >
+                <Library aria-hidden="true" className="size-[18px]" />
+              </span>
               <span className="truncate text-sm font-semibold group-data-[collapsible=icon]:hidden">
                 {t('app.name')}
               </span>

@@ -6,6 +6,26 @@
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="color-scheme" content="light dark" />
     <title>WikiKit Cockpit</title>
+    <!--
+      „/favicon.svg", NICHT „/cockpit/favicon.svg" und nicht „./favicon.svg" —
+      und das ist die eine Stelle, an der dieser Verweis dreimal falsch sein
+      kann (§6).
+
+      Das Cockpit wird unter /cockpit/ ausgeliefert. Den Basispfad setzt Vite
+      selbst davor: aus dieser Zeile wird in der gebauten Fassung
+      href="/cockpit/favicon.svg". Wer ihn hier schon hinschreibt, bekommt ihn
+      zweimal — /cockpit/cockpit/favicon.svg. Und „./favicon.svg" löst auf
+      Unterrouten wie /cockpit/pages/… gegen ein Verzeichnis auf, das es nicht
+      gibt.
+
+      Ein Favicon-Verweis ins Leere ist schlimmer als keiner: er sieht im
+      Quelltext wie Erfüllung aus und liefert dem Reiter trotzdem nichts. Hier
+      besonders leise, weil src/cockpit.ts alles, was keine Datei ist, mit der
+      SPA-Hülle beantwortet — also mit 200 und text/html statt mit einem 404.
+      Der Konventions-Check prüft deshalb den Content-Type mit, nicht nur den
+      Statuscode.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/cockpit/favicon.svg" />
     <script>
       // BLOCKING, and in the document rather than in the bundle. The class has
       // to be on <html> before the first paint; applied from an effect instead,
@@ -25,12 +45,12 @@
         document.documentElement.classList.toggle('dark', dark)
       } catch {}
     </script>
-    <script type="module" crossorigin src="/cockpit/assets/index-CYxzKlHh.js"></script>
+    <script type="module" crossorigin src="/cockpit/assets/index-ZKhdW6js.js"></script>
     <link rel="modulepreload" crossorigin href="/cockpit/assets/rolldown-runtime-hePW80VL.js">
     <link rel="modulepreload" crossorigin href="/cockpit/assets/markdown-BwP_2TDL.js">
     <link rel="modulepreload" crossorigin href="/cockpit/assets/react-C2fe6riJ.js">
     <link rel="modulepreload" crossorigin href="/cockpit/assets/tanstack-Dl4Go0zr.js">
-    <link rel="stylesheet" crossorigin href="/cockpit/assets/index-CutxRqyM.css">
+    <link rel="stylesheet" crossorigin href="/cockpit/assets/index-C-9GGEI7.css">
     <meta name="cockpit-ui-contract" content="cockpit-ui" />
     <meta name="cockpit-ui-digest" content="sha256-4ca18a25cbcf" />
   </head>

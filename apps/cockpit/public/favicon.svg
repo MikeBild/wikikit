@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="WikiKit">
+  <!--
+    The tab icon, and the SAME motif as the wordmark's icon square in the
+    sidebar (Konvention §6): lucide's `Library` — four strokes standing on a
+    shelf. Drawn here by hand rather than imported, because a favicon is a file
+    the browser fetches on its own and cannot reach into the bundle for.
+
+    The colours are the console's own `--primary` / `--primary-foreground`
+    tokens, written out as literals because a standalone SVG has no access to
+    the stylesheet, and swapped under `prefers-color-scheme: dark` exactly the
+    way contract/cockpit-ui.css swaps them. A single dark square would vanish
+    into a dark tab strip, which is the one place this file is ever seen.
+
+    Four strokes and nothing else: at 16 px in a tab strip, a glyph with more in
+    it is a smudge.
+  -->
+  <style>
+    .plate { fill: #0f172a; }
+    .glyph { stroke: #f8fafc; }
+    @media (prefers-color-scheme: dark) {
+      .plate { fill: #f8fafc; }
+      .glyph { stroke: #0f172a; }
+    }
+  </style>
+  <rect class="plate" width="32" height="32" rx="8" />
+  <g
+    class="glyph"
+    fill="none"
+    stroke-width="2.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    transform="translate(6 6) scale(0.8333)"
+  >
+    <path d="m16 6 4 14" />
+    <path d="M12 6v14" />
+    <path d="M8 8v12" />
+    <path d="M4 4v16" />
+  </g>
+</svg>
