@@ -91,6 +91,37 @@ const CONVENTION_VERSION = (() => {
   return `v${match[1]}`
 })()
 
+/*
+  Die Fassung, gegen die dieser Check GESCHRIEBEN wurde — von Hand gesetzt, und
+  das ist der Punkt.
+
+  ETIKETT UND ASSERT SIND ZWEI VERSCHIEDENE DINGE, und diese Datei hat den
+  Unterschied einmal teuer gelernt. CONVENTION_VERSION darüber ist das Etikett:
+  es soll sagen, wogegen gemessen wurde, und muss deshalb aus der Datei kommen —
+  sonst vergisst es jemand, und der Bericht nennt einen Maßstab, der nicht mehr
+  gilt. Genau das war hier der Fall.
+
+  Diese Konstante ist der Assert, und ein Assert braucht eine ZWEITE,
+  UNABHÄNGIGE Aussage. Käme sie ebenfalls aus der Kopfzeile, stimmten beide per
+  Konstruktion überein und der Satz prüfte nichts: eine hereinkopierte v1.3
+  meldete „gegen v1.3, keine Verstöße" und läse sich wie ein sauberes Zeugnis
+  für eine Vereinbarung, die es so nicht mehr gibt. Der Check könnte seine
+  eigene Überholtheit nicht mehr bemerken.
+
+  Diese Zeile war schon einmal weg — herausgenommen mit der Begründung, eine
+  Nummer im Skript sei eine zweite Quelle, die nur veralten kann. Für ein
+  Etikett stimmt das. Für einen Assert ist es die Beschreibung seiner Aufgabe:
+  er soll auffallen, wenn die Datei nicht mehr die der Familie ist. „Ein
+  Versionssprung ist dann nur noch ein `cp`" war kein Gewinn, sondern die
+  Beschreibung des Lochs — ein `cp` der FALSCHEN Datei ist es auch.
+
+  Der Preis: ein Versionssprung kostet eine Zeile hier zusätzlich zum `cp`. Der
+  Preis ist bewusst gewählt. Muster übernommen von CodeKits
+  checkKonventionVersion(), kopiert und nicht importiert (§7: kein Shared Code);
+  WatchKit und ContentKit tragen denselben Satz.
+*/
+const KONVENTION_VERSION = '1.5'
+
 const BASE = (process.env.COCKPIT_BASE_URL ?? '').replace(/\/$/, '')
 const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -973,6 +1004,29 @@ async function main() {
   let faviconChecked = 0
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
+  /*
+    §7 — die Konventions-Kopie im Repo und dieser Check nennen dieselbe Fassung.
+
+    Die einzige Regel hier, die weder Browser noch Server braucht, und die
+    einzige über den Check selbst. Sie steht deshalb VOR dem Browserstart: wer
+    gegen den falschen Maßstab misst, soll das lesen, bevor eine halbe Minute
+    Messung vergeht, und nicht erst darunter.
+
+    §7 macht die Kopie in jedem Repo zum Mechanismus gegen Drift. Eine Kopie,
+    die weitergezogen ist, während der Check noch die alte Nummer meint — oder
+    umgekehrt eine alte Kopie unter einem Check, der weiter ist — macht aus dem
+    Mechanismus Dekoration.
+  */
+  if (CONVENTION_VERSION !== `v${KONVENTION_VERSION}`) {
+    note(
+      '§7',
+      `${CONVENTION_FILE} › Kopfzeile`,
+      `die Kopie im Repo sagt „${CONVENTION_VERSION}", dieser Check ist gegen „v${KONVENTION_VERSION}" geschrieben — ` +
+        'entweder ist die Kopie ausgetauscht worden, ohne dass jemand den Check nachgezogen hat, oder es ist die ' +
+        'falsche Datei hereinkopiert worden',
+    )
+  }
+
   const browser = await chromium.launch()
   try {
     // German, because the convention IS a German-language contract: §5 names
@@ -1639,7 +1693,10 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ow
       `   Favicon das wirklich lädt und sich als Bild decodiert (auf ${faviconChecked} Adressen gemessen, Übersicht und Sweep-Routen),`,
     )
     console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
-    console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung)')
+    console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung,')
+    console.log(
+      `   Fassung des Maßstabs: Kopfzeile der Kopie und die Konstante in diesem Skript nennen beide ${CONVENTION_VERSION})`,
+    )
     // Die Einschränkung steht bei der grünen Zeile und nicht nur im Quelltext,
     // weil die grüne Zeile die meistgelesene Stelle dieser Ausgabe ist. Der
     // Vite-Dev-Server löst relative Verweise beim Ausliefern selbst auf; unter
