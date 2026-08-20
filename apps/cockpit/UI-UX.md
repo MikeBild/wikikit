@@ -64,7 +64,7 @@ visible series; they are never drawn as zero cost.
 
 ## Entscheidungs-Grammatik
 
-Wortgleiche Kopie von §8 der Cockpit-Konvention v1.4 (`COCKPIT-KONVENTION.md` im Repo-Root). Sie steht hier, weil die Entscheidungs-Seite dieses Produkts an ihr gemessen wird; der Maßstab hat eine Quelle und keine abweichenden Kopien (§13). Eine einzige Abweichung, und sie ist sichtbar statt still: der Name des Schwester-Produkts, das die Referenz-Implementierung stellt, steht unter `apps/` nirgends — `test/unit/no-prod-references.test.ts` hält diese Fläche frei von Namen der übrigen Produkte. Der Wortlaut mit Namen steht im Repo-Root.
+Wortgleiche Kopie von §8 der Cockpit-Konvention v1.5 (`COCKPIT-KONVENTION.md` im Repo-Root). Sie steht hier, weil die Entscheidungs-Seite dieses Produkts an ihr gemessen wird; der Maßstab hat eine Quelle und keine abweichenden Kopien (§13). Eine einzige Abweichung, und sie ist sichtbar statt still: der Name des Schwester-Produkts, das die Referenz-Implementierung stellt, steht unter `apps/` nirgends — `test/unit/no-prod-references.test.ts` hält diese Fläche frei von Namen der übrigen Produkte. Der Wortlaut mit Namen steht im Repo-Root.
 
 ### 8. Entscheidungs-Grammatik
 

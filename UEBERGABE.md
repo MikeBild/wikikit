@@ -7,7 +7,7 @@ ist WikiKits Referenz für UI/UX und Nutzerführung. Er beschreibt den
 Lebensweg einer Notiz in sechs Schritten (Einfangen · Einsortieren ·
 Nachschlagen · Pflegen · Prüfen · Erinnern) — exakt WikiKits Domäne. Die
 Cockpit-Aufgabe: **diese sechs Schritte werden die Erzählstruktur der
-Oberfläche.** Familienregeln: Cockpit-Konvention v1.4; kein Shared Code.
+Oberfläche.** Familienregeln: Cockpit-Konvention v1.5; kein Shared Code.
 Repo-Stand: `home/inbox/pages/changes/answers/care/decisions/search` u. a.
 existieren; **kein `apps/cockpit/UI-UX.md`** — anlegen ist Schritt 0.
 
@@ -166,6 +166,6 @@ Claim + Warnungstexte deutsch.
 Prüfweg: E2E + Visual.
 
 **AK-WI-G.1 · Gates**
-Dann: `UI-UX.md` angelegt; Konventions-Kopie v1.4 im Repo; Rollen-Label
+Dann: `UI-UX.md` angelegt; Konventions-Kopie v1.5 im Repo; Rollen-Label
 „Administrator"; alle Repo-Gates grün.
 Prüfweg: CI-Gate.

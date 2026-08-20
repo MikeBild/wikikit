@@ -1,6 +1,6 @@
 # Cockpit-Konvention
 
-Version 1.4 · 17.08.2026 · Gilt für: ContentKit, SubKit, WorkKit, WikiKit, CodeKit, WatchKit
+Version 1.5 · 20.08.2026 · Gilt für: ContentKit, SubKit, WorkKit, WikiKit, CodeKit, WatchKit
 
 **Modell: Konvention statt Bibliothek.** Jedes Produkt bleibt eigenständig — eigenes Repo, eigene shadcn-Komponenten (vendored, wie shadcn gedacht ist), eigene Releases, kein shared Package. Geteilt wird nur dieses Dokument. Eine Kopie liegt in jedem Repo; Abweichungen sind erlaubt, wo das Produkt es begründet — die Konvention ist der Default, nicht das Gesetz.
 
@@ -10,6 +10,7 @@ Referenz-Implementierung: der Zielbild-Prototyp (Artefakt „kit-cockpit-zielbil
 Änderungen v1.2: neue §9 Diff-Freigabe, §10 Sammlungs-Listen, §11 Verbindungs-Status (heben die Muster aus der SubKit-Übergabe auf Familienebene); §4 um „Leere führt zur Handlung" ergänzt.
 Änderungen v1.3: §6 um kanonische Gruppennamen ergänzt; Umsetzungs-Vehikel für §§2–6 ist die Übergabe „shell-paket" (ein gleichförmiger Konformitäts-PR je Repo).
 Änderungen v1.4: Endnutzer-Patterns aus den Produktivitäts-Leitfäden gehoben (Übergabe „endnutzer-pattern-adaption"): §5 Zusammenfassungszeile, §8.3 drei Arten von Nein, §8.5 Geschichte vs. Zustand, §11 Fähigkeits-Inventur, neu §12 Berichts-Grammatik, §13 Prüfen vor Reparieren, §14 Modus & Schranken.
+Änderungen v1.5: §6 um Wortmarke, kanonische Schreibweise des Produktnamens, Browser-Titel und App-Icon ergänzt — die Familie war an ihrer sichtbarsten Stelle uneinheitlich, ohne dass eine Regel es benannte.
 
 ---
 
@@ -61,6 +62,18 @@ Deutsch auf oberster Ebene; Fachbegriffe (SRE, API-Namen) erst in der Detailtief
 Sidebar links: Wortmarke, gruppierte Navigation, Account unten (Avatar · E-Mail · Rolle · Menü: Profil/Sprache/Darstellung/Abmelden). Installation-Sektion enthält mindestens: System · Einstellungen · Zugangsdaten · Benachrichtigungen · Audit. Deep-Links funktionieren; unbekannte Routen zeigen eine gestaltete Seite mit Rückweg. Mandanten-Switcher trennt Prod/Test, Test ausblendbar.
 
 **Kanonische Gruppennamen.** Geteilte Konzepte heißen in allen sechs Produkten gleich: die Admin-Gruppe heißt **„Installation"** (nie „Administration"), der Entscheidungs-Eintrag ist **ungruppiert** unter der Übersicht (§8.1), die Rolle heißt **„Administrator"** (eine Schreibweise, keine Versalien-Varianten). Produktspezifische Gruppen (Wiki, Überwachung, …) bleiben frei benannt — aber deutsch und in Normalschreibung.
+
+**Wortmarke und App-Icon.** Die Seitenleiste trägt oben die Wortmarke: **Produkt-Icon plus
+Produktname in kanonischer Schreibweise** — WorkKit · SubKit · WikiKit · ContentKit · CodeKit ·
+WatchKit. Die Schreibweise ist unveränderlich: keine Versalien-Transformation (weder
+`toUpperCase()` im Code noch `text-transform` im Stylesheet), keine Kleinschreibung, kein
+hartkodierter Text — Quelle ist der Übersetzungskatalog (`app.name`), damit der Name genau
+einmal im Produkt steht. Jedes Produkt hat ein **App-Icon**, und es erscheint an zwei Stellen:
+als Favicon im Browser-Tab und neben der Wortmarke. Die Anatomie ist familienweit gleich — ein
+Glyph auf der Produktfarbe, quadratisch mit weichen Ecken —, das Motiv ist produktspezifisch.
+Der **Browser-Titel** lautet einheitlich „<Produktname> Cockpit". Ein Cockpit, das seinen
+Produktnamen nicht nennt oder ihn anders schreibt als seine Geschwister, ist an der Stelle
+uneinheitlich, an der es zuerst gelesen wird.
 
 ## 7. Drift-Kontrolle ohne Shared Code
 
