@@ -277,6 +277,7 @@ const SHELL_PROBE = `(() => {
   const decisions = document.querySelector('[data-testid="nav-decisions"]')
   const wordmark = document.querySelector('[data-testid="cockpit-wordmark"]')
   return {
+    title: document.title,
     wordmark: wordmark ? { name: text(wordmark) } : null,
     order: links.map((link) => link.getAttribute('data-testid')),
     homeGroup: groupOf(document.querySelector('[data-testid="nav-home"]')),
@@ -480,6 +481,14 @@ async function main() {
       if (name && (name === name.toUpperCase() || name === name.toLowerCase())) {
         note('§5/§6', 'Sidebar › Wortmarke', `„${name}" ist durchgehend groß- oder kleingeschrieben`)
       }
+    }
+
+    // §5 — the browser tab says „<Produktname> Cockpit", exactly. The tab is
+    // the one part of the console an operator reads with six other tabs open,
+    // so it is the place a lowercase product name is most visible and least
+    // likely to be noticed by whoever wrote it.
+    if (shell.title !== `${PRODUCT_NAME} Cockpit`) {
+      note('§5', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
     }
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
@@ -803,7 +812,7 @@ function report(base, violations, unmocked) {
     console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
     console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
     console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
-    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke)')
+    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel)')
     return
   }
   for (const violation of violations) {
