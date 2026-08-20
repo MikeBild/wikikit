@@ -439,6 +439,7 @@ export function createApp(config: Config = loadConfig(), deps: Partial<AppDeps> 
       state.draining = true
       oauth.stop()
       mcp.stop() // stop the session sweeper + close live MCP sessions
+      metrics.stop() // release the event-loop sampler
       usage.stop()
       retention.stop()
       sourceIndex.stop()

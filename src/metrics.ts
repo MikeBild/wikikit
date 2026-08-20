@@ -1,6 +1,6 @@
 // Prometheus text-format metrics, covering WikiKit's surfaces: HTTP
 // counters/histograms, ingest job outcomes, LLM token usage, webhook
-// deliveries.
+// deliveries, and the process itself.
 //
 // WHY hand-rolled instead of prom-client: the exposition format is trivial
 // (text lines), the metric set is small and fixed, and a dependency-free
@@ -33,6 +33,8 @@ export interface Metrics {
   webhookDelivery(status: 'delivered' | 'failed' | 'dead'): void
   /** Full Prometheus text exposition (text/plain; version=0.0.4). */
   render(): string
+  /** Release the event-loop sampler. Idempotent; safe to call on a stopped instance. */
+  stop(): void
 }
 
 // Route/method/status are server-controlled (the ROUTES registry template,
@@ -111,6 +113,41 @@ function renderCounter(name: string, counter: Counter, lines: string[]): void {
   }
 }
 
+// --- gauge --------------------------------------------------------------------
+
+// The third metric type this module needed and did not have. A counter cannot
+// express "heap is 41 MB right now" — it only goes up — and a histogram of a
+// level is a category error. Unlabelled by design: every gauge here describes
+// the whole process, and a label with one value is noise in every query.
+function renderGauge(name: string, help: string, value: number, lines: string[]): void {
+  lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, `${name} ${value}`)
+}
+
+// --- event loop lag ------------------------------------------------------------
+
+/**
+ * Sampled event-loop delay. A setInterval(…, interval) that fires late by N ms
+ * means the loop was blocked for N ms — crude next to a perf_hooks histogram,
+ * but dependency-free, allocation-free, and enough to separate "the process is
+ * busy" from "the process is stuck", which is the decision it informs.
+ *
+ * That distinction is not academic here: ingest runs an LLM classify plus one
+ * synthesize per concept, so a wikikit that stops answering during a large
+ * ingest looks identical from outside to one that has wedged.
+ */
+function trackEventLoopLag(intervalMs = 1000): { value: () => number; stop: () => void } {
+  let lag = 0
+  let last = Date.now()
+  const timer = setInterval(() => {
+    const now = Date.now()
+    lag = Math.max(0, now - last - intervalMs)
+    last = now
+  }, intervalMs)
+  // unref: a metrics sampler must never be the reason a process stays alive.
+  timer.unref?.()
+  return { value: () => lag, stop: () => clearInterval(timer) }
+}
+
 // --- factory ------------------------------------------------------------------
 
 export function createMetrics(): Metrics {
@@ -140,6 +177,7 @@ export function createMetrics(): Metrics {
     series: new Map(),
   }
   const webhookDeliveries: Counter = { help: 'Webhook delivery attempts by outcome', series: new Map() }
+  const loopLag = trackEventLoopLag()
 
   return {
     httpRequest(method, route, status, durationMs) {
@@ -168,8 +206,28 @@ export function createMetrics(): Metrics {
       inc(webhookDeliveries, { status })
     },
 
+    stop() {
+      loopLag.stop()
+    },
+
     render() {
       const lines: string[] = []
+      // Sampled at render time rather than on a timer: the scrape IS the
+      // sample, so there is nothing to keep warm between scrapes. Only the loop
+      // lag needs its own interval, because "how late did a timer fire" cannot
+      // be answered by asking at an arbitrary moment.
+      const memory = process.memoryUsage()
+      renderGauge('wikikit_process_memory_rss_bytes', 'Resident set size in bytes', memory.rss, lines)
+      renderGauge('wikikit_process_memory_heap_used_bytes', 'Heap in use in bytes', memory.heapUsed, lines)
+      renderGauge('wikikit_process_memory_heap_total_bytes', 'Heap allocated in bytes', memory.heapTotal, lines)
+      renderGauge('wikikit_process_uptime_seconds', 'Seconds since process start', Math.round(process.uptime()), lines)
+      renderGauge(
+        'wikikit_event_loop_lag_seconds',
+        'Sampled event loop delay in seconds',
+        loopLag.value() / 1000,
+        lines,
+      )
+
       renderCounter('wikikit_http_requests_total', httpRequests, lines)
       renderHistogram('wikikit_http_request_duration_seconds', httpDuration, lines)
       renderCounter('wikikit_ingest_jobs_total', ingestJobs, lines)

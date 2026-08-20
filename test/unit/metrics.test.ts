@@ -1,5 +1,5 @@
 // Prometheus exposition tests: counter aggregation, cumulative histogram
-// buckets, label escaping, and the token accounting split.
+// buckets, label escaping, the token accounting split, and the process gauges.
 import { describe, expect, test } from 'bun:test'
 import { createMetrics } from '../../src/metrics.ts'
 
@@ -14,6 +14,11 @@ describe('createMetrics', () => {
     expect(text).toContain('# TYPE wikikit_llm_call_duration_seconds histogram')
     expect(text).toContain('# TYPE wikikit_llm_tokens_total counter')
     expect(text).toContain('# TYPE wikikit_webhook_deliveries_total counter')
+    expect(text).toContain('# TYPE wikikit_process_memory_rss_bytes gauge')
+    expect(text).toContain('# TYPE wikikit_process_memory_heap_used_bytes gauge')
+    expect(text).toContain('# TYPE wikikit_process_memory_heap_total_bytes gauge')
+    expect(text).toContain('# TYPE wikikit_process_uptime_seconds gauge')
+    expect(text).toContain('# TYPE wikikit_event_loop_lag_seconds gauge')
     expect(text.endsWith('\n')).toBe(true)
     // Every family has exactly one HELP line (no duplicates on repeat render).
     expect(text.match(/# HELP wikikit_http_requests_total /g)).toHaveLength(1)
@@ -112,5 +117,67 @@ describe('createMetrics', () => {
     expect(text).toContain('route="route\\"with\\\\weird\\nchars"')
     // Exposition stays line-based: no raw newline leaked into a label.
     for (const line of text.split('\n')) expect(line).not.toMatch(/^chars/)
+  })
+})
+
+// --- process gauges -------------------------------------------------------------
+//
+// Until 2026-08-20 wikikit was the one product of six whose exposition could not
+// answer "is this process healthy". Eight families, none of them about the
+// process: a slow memory leak would have been invisible here until the host ran
+// out, and "busy" and "wedged" looked the same from outside.
+
+describe('process gauges', () => {
+  test('report live values, not zeroes', () => {
+    const metrics = createMetrics()
+    const text = metrics.render()
+    metrics.stop()
+
+    const value = (name: string): number =>
+      Number(
+        text
+          .split('\n')
+          .find((line) => line.startsWith(`${name} `))
+          ?.split(' ')[1],
+      )
+
+    // A gauge that renders but always reads 0 is worse than an absent one: it
+    // answers the question wrongly instead of admitting it cannot.
+    expect(value('wikikit_process_memory_rss_bytes')).toBeGreaterThan(0)
+    expect(value('wikikit_process_memory_heap_used_bytes')).toBeGreaterThan(0)
+    expect(value('wikikit_process_memory_heap_total_bytes')).toBeGreaterThan(0)
+    expect(value('wikikit_process_uptime_seconds')).toBeGreaterThanOrEqual(0)
+    // Lag may legitimately be 0 on an idle loop, so only its shape is asserted.
+    expect(Number.isFinite(value('wikikit_event_loop_lag_seconds'))).toBe(true)
+  })
+
+  test('are unlabelled — one process, so a label would carry one value forever', () => {
+    const metrics = createMetrics()
+    const text = metrics.render()
+    metrics.stop()
+    for (const name of [
+      'wikikit_process_memory_rss_bytes',
+      'wikikit_process_uptime_seconds',
+      'wikikit_event_loop_lag_seconds',
+    ]) {
+      expect(text).toMatch(new RegExp(`^${name} [0-9.]+$`, 'm'))
+    }
+  })
+
+  test('are re-sampled per render, and never duplicate their HELP line', () => {
+    // The scrape IS the sample. A gauge computed once at construction would
+    // report the heap as it was at boot for the life of the process.
+    const metrics = createMetrics()
+    metrics.render()
+    const text = metrics.render()
+    metrics.stop()
+    expect(text.match(/# HELP wikikit_process_memory_rss_bytes /g)).toHaveLength(1)
+    expect(text.match(/^wikikit_process_uptime_seconds /gm)).toHaveLength(1)
+  })
+
+  test('stop() is idempotent, so a double close cannot throw', () => {
+    const metrics = createMetrics()
+    metrics.stop()
+    expect(() => metrics.stop()).not.toThrow()
   })
 })

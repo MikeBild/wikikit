@@ -24,6 +24,7 @@ import { LLM_PROVIDER_KEY_ENV, loadConfig } from '../../src/config.ts'
 import { buildOpenApi } from '../../src/http/openapi.ts'
 import { HANDLERS, ROUTES } from '../../src/http/routes.ts'
 import { PROMPT_VERSIONS } from '../../src/llm/prompts/index.ts'
+import { createMetrics } from '../../src/metrics.ts'
 import { TOOLS } from '../../src/mcp/tools.ts'
 import { VERSION } from '../../src/version.ts'
 
@@ -247,12 +248,45 @@ describe('drift', () => {
 
   // The human-facing docs list the palette too, and drifted for a release
   // because nothing checked them.
+  //
+  // `wikikit_*` in backticks is NOT enough to identify a tool any more. Metric
+  // families share the prefix, and the moment 0.48.0 documented
+  // `wikikit_process_memory_rss_bytes` in the CHANGELOG this check read it as a
+  // tool nobody had implemented. Subtracting them by name would need a list to
+  // keep in step with the exposition; taking them from the exposition itself
+  // cannot fall out of step, because it IS the thing being excluded.
+  const metricFamilies = (): Set<string> => {
+    const metrics = createMetrics()
+    const text = metrics.render()
+    metrics.stop()
+    return new Set([...text.matchAll(/^# TYPE (\S+) /gm)].map((match) => match[1]!))
+  }
+
   test('MCP tool list matches README and CHANGELOG', () => {
+    const families = metricFamilies()
     for (const rel of ['README.md', 'CHANGELOG.md']) {
       const documented = new Set<string>()
-      for (const match of read(rel).matchAll(/`(wikikit_[a-z0-9_]+)`/g)) documented.add(match[1]!)
+      for (const match of read(rel).matchAll(/`(wikikit_[a-z0-9_]+)`/g)) {
+        const name = match[1]!
+        // Histogram families also publish _bucket/_sum/_count; a document may
+        // legitimately name one of those.
+        const base = name.replace(/_(bucket|sum|count)$/, '')
+        if (families.has(name) || families.has(base)) continue
+        documented.add(name)
+      }
       eqSets(documented, new Set(TOOLS.map((tool) => tool.name)), `tool list in ${rel} vs TOOLS palette`)
     }
+  })
+
+  // The exclusion above must not become a hole: a name that is neither a tool
+  // nor a declared family still has to fail, which is the case that catches a
+  // typo in a tool name.
+  test('an undeclared wikikit_* name in the CHANGELOG is still drift', () => {
+    const families = metricFamilies()
+    const tools = new Set(TOOLS.map((tool) => tool.name))
+    expect(families.has('wikikit_process_memory_rss_bytes')).toBe(true)
+    expect(families.has('wikikit_serch')).toBe(false)
+    expect(tools.has('wikikit_serch')).toBe(false)
   })
 
   // ARCHITECTURE.md carries a table of every SQL function declared by more than

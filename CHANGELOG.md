@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.48.0 - 2026-08-20
+
+### Added
+
+- Process gauges: `wikikit_process_memory_rss_bytes`,
+  `wikikit_process_memory_heap_used_bytes`,
+  `wikikit_process_memory_heap_total_bytes`, `wikikit_process_uptime_seconds`
+  and `wikikit_event_loop_lag_seconds`.
+- Why: measured across the estate on 2026-08-20, wikikit was the one product of
+  six whose exposition could not answer "is this process healthy". Eight
+  families, none of them about the process. A slow memory leak would have been
+  invisible here until the host ran out of memory, and from outside a wikikit
+  busy inside a large ingest looked exactly like one that had wedged.
+- That distinction is not academic for this product: ingest runs an LLM classify
+  plus one synthesize per concept, so long unresponsive stretches are normal and
+  a lag figure is what separates them from a stuck loop.
+- The four memory and uptime gauges are sampled at render time — the scrape IS
+  the sample, so there is nothing to keep warm between scrapes. Only the loop
+  lag needs its own interval, because "how late did a timer fire" cannot be
+  answered by asking at an arbitrary moment. That interval is `unref`ed, so a
+  metrics sampler can never be the reason a process stays alive, and
+  `Metrics.stop()` releases it from `app.close()` beside the other workers.
+- The module gained a gauge type to carry them. It had counters and histograms
+  only, and neither can express a level: a counter is monotonic, and a histogram
+  of "heap right now" is a category error. The gauges are unlabelled by design —
+  each describes the whole process, and a label with exactly one value is noise
+  in every query that touches it.
+
 ## 0.47.1 - 2026-08-18
 
 ### Fixed
