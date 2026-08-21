@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex,nofollow,noarchive" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      WELCHES PRODUKT DIESE KONSOLE IST — die EINZIGE Stelle, an der das steht.
+
+      Die Konvention macht die DOM-Verankerungen der Familienkonsolen
+      absichtlich gleich (`cockpit-wordmark`, `operator-role`, `sidebar`,
+      `page-title`), damit ein Prüflauf eine gemeinsame Verankerung hat. Der
+      Preis: eine fremde Konsole erfüllt jede Vorbedingung, an der ein Lauf
+      sonst scheitern würde, und die Prüfstände liegen dicht beieinander. Ein
+      Lauf gegen das falsche Gegenüber findet dann jeden Selektor, den er sucht,
+      und schreibt fremde Verstöße diesem Produkt zu — kein Timeout, kein
+      Absturz, ein vollständiger und falscher Bericht. Der Vorfall und die
+      Portlage stehen in scripts/konvention-check.mjs.
+
+      Dieses Skript LIEST die Zeile hier (readFileSync) und hält sie gegen das
+      Dokument, das der Prüfstand ausliefert — vor dem Browserstart. Der
+      Sollwert wird also abgeleitet und nirgends abgetippt: wer den Wert hier
+      ändert, ändert beide Seiten in einem Zug.
+
+      Ausdrücklich NICHT der <title> und nicht die Wortmarke: beides sind Regeln
+      (§6), die derselbe Lauf gebrochen finden können muss. Eine Kennung, die
+      zugleich Prüfgegenstand ist, macht aus jedem echten Verstoß ein „fremdes
+      Dokument" und misst danach nichts mehr.
+
+      Ein <meta> und kein Kommentar, weil Vite Kommentare aus der gebauten
+      Fassung entfernen darf, `<meta name>`/`content` aber unangetastet lässt —
+      test/unit/cockpit-embedded-drift.test.ts hält genau das fest.
+    -->
+    <meta name="cockpit-product" content="WikiKit" />
     <title>WikiKit Cockpit</title>
     <!--
       „/favicon.svg", NICHT „/cockpit/favicon.svg" und nicht „./favicon.svg" —

@@ -36,6 +36,18 @@
 //     bun scripts/konvention-check.mjs                          # gebaute Fassung, so misst das Gate
 //   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs   # echte Auslieferung
 //
+// WESSEN KONSOLE ANTWORTET — die Vorbedingung vor allem anderen. Alle drei
+// Prüfstände beantworteten bis LOCAL-WI-KENNUNG-NICHT-GEPRUEFT nur die Frage
+// „antwortet dort etwas?". Seither steht vor dem Browserstart ein Abruf, der
+// den Marker `<meta name="cockpit-product">` des GELIEFERTEN Dokuments gegen
+// apps/cockpit/index.html hält — die einzige Definitionsstelle, gelesen und
+// nicht abgetippt. Passt er nicht, wird geworfen und nichts gemessen (Ausgang
+// 2). Warum das kein Konventionsverstoß ist und warum weder Titel noch
+// Wortmarke dafür taugen, steht bei assertPruefstandsKennung(). Nachgemessen:
+// ein echtes WatchKit-Cockpit auf Port 4173 beendete den Lauf nach 0,44 s und
+// benannte den Antwortenden; ohne den Assert maß derselbe Lauf 20,7 s lang eine
+// fremde Oberfläche und endete mit „gemessen und rot".
+//
 // WIRED INTO `bun run gate` — und das war einmal anders. Hier stand: „Deliberately
 // NOT wired into gate, bun test or CI", begründet mit §7 („Die Konvention wird
 // nicht technisch erzwungen") und damit, dass ein roter Check als Pflichtstufe
@@ -162,14 +174,23 @@ const KONVENTION_VERSION = '1.5'
 const COCKPIT_SOURCE_HTML = 'apps/cockpit/index.html'
 const COCKPIT_BUILT_HTML = 'assets/cockpit/index.html'
 
-/** Die zwei Verweise eines Cockpit-Dokuments, roh aus dem Attribut. */
-function documentMarks(relative) {
-  let html
-  try {
-    html = readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8')
-  } catch {
-    return null
-  }
+/**
+ * Die zwei Verweise eines Cockpit-Dokuments, roh aus dem Attribut.
+ *
+ * Nimmt HTML und keinen Pfad, weil dieselbe Messung an DREI Dokumenten
+ * gebraucht wird: an den beiden auf der Platte (Quelle und gebaute Fassung) und
+ * an dem, das der Prüfstand wirklich ausliefert. Vorher las diese Funktion nur
+ * von der Platte, und das gelieferte Dokument wurde stattdessen im BROWSER
+ * ausgemessen — was einen zweiten Abruf desselben Dokuments bedeutete und die
+ * Prüfstands-Erkennung hinter den Browserstart verschob. Seit die Kennung vor
+ * dem Browserstart geprüft wird, liegt das gelieferte Dokument ohnehin schon
+ * als Text vor; ein zweiter Abruf wäre eine zweite Stelle, die eine Frist
+ * braucht.
+ *
+ * Roh aus dem Attribut und nicht aufgelöst: es geht darum, wie der Verweis
+ * DASTAND, als das Ziel ihn herausgab.
+ */
+function marksIn(html) {
   // Kommentare zuerst weg: apps/cockpit/index.html erklärt den Favicon-Verweis
   // in einem Kommentar und schreibt dabei `href="/cockpit/favicon.svg"` hin.
   // Ein Muster, das darauf trifft, läse die Erklärung statt der Zeile.
@@ -183,6 +204,15 @@ function documentMarks(relative) {
     .map((tag) => attribute(tag[0], 'src'))
     .filter(Boolean)
   return { iconHref: attribute(iconTag ? iconTag[0] : null, 'href'), modules }
+}
+
+/** Dasselbe für ein Dokument auf der Platte, oder `null`, wenn es keines gibt. */
+function documentMarks(relative) {
+  try {
+    return marksIn(readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8'))
+  } catch {
+    return null
+  }
 }
 
 const SOURCE_MARKS = documentMarks(COCKPIT_SOURCE_HTML)
@@ -846,26 +876,19 @@ const SHELL_PROBE = `(() => {
           : transform === 'capitalize'
             ? authored.replace(/(^|\\s)(\\p{L})/gu, (whole, lead, letter) => lead + letter.toUpperCase())
             : authored
-  const iconLink = document.querySelector('link[rel~="icon"]')
   /*
-    Die zwei Verweise des GELIEFERTEN Dokuments, roh aus dem Attribut.
+    Der Favicon-Verweis, wie ihn der BROWSER aufgelöst hat — für checkFavicon(),
+    das die Adresse wirklich abruft.
 
-    Roh und nicht aufgelöst: iconLink.href gibt die vom Browser gegen die
-    Dokumentbasis aufgelöste Adresse zurück und hat damit gerade die Information
-    weggerechnet, um die es hier geht — wie der Verweis DASTAND, als das Ziel
-    ihn herausgab. getAttribute gibt die Zeichenkette, die über die Leitung
-    kam.
-
-    ALLE Modul-Verweise, nicht der erste: der Dev-Server stellt sein eigenes
-    Client-Skript vor das Modul der Anwendung, und querySelector() fände dann
-    immer nur dieses. Verglichen wird in classifyPruefstand() gegen die beiden
-    Dokumente auf der Platte, nicht gegen eine Schreibweise aus Vites Innerem.
+    Hier stand bis LOCAL-WI-KENNUNG-NICHT-GEPRUEFT auch die ROHE Fassung beider
+    Verweise, aus der classifyPruefstand() den Prüfstand ableitete. Die ist
+    weggefallen, nicht verloren gegangen: seit die Kennung vor dem Browserstart
+    geprüft wird, liegt das gelieferte Dokument dort schon als Text vor, und
+    marksIn() liest dieselben zwei Verweise daraus. Ein zweiter Weg zur selben
+    Zahl ist ein zweiter Weg, der auseinanderlaufen kann.
   */
-  const modules = [...document.querySelectorAll('script[type="module"][src]')].map((script) =>
-    script.getAttribute('src'),
-  )
+  const iconLink = document.querySelector('link[rel~="icon"]')
   return {
-    delivered: { iconHref: iconLink ? iconLink.getAttribute('href') : null, modules: modules },
     title: document.title,
     icon: iconLink ? { href: iconLink.href, rel: iconLink.getAttribute('rel') } : null,
     wordmark: wordmark
@@ -1132,22 +1155,26 @@ async function main() {
   // nicht geschätzt, weil die grüne Zeile am Ende ihren eigenen Umfang nennt.
   let faviconChecked = 0
   /*
-    Welches Dokument liefert das Ziel? Aus der Shell-Probe, also am gelieferten
-    Dokument gemessen.
+    Welches Dokument liefert das Ziel? Am GELIEFERTEN Dokument gemessen, aus
+    demselben Abruf, der auch die Kennung trägt (siehe unten, vor dem
+    Browserstart).
 
-    Der Startwert ist „unbestimmbar" und er WIRD berichtet — das ist der
-    Unterschied zu vorher. Hier stand `false` mit einem Kommentar, der erklärte,
-    warum ein „unbestimmt"-Zweig toter Code wäre: report() lag hinter einem
-    try/finally ohne catch, eine Ausnahme aus open() propagierte daran vorbei,
-    und der ganze Bericht verschwand. Nachgemessen gegen ein Ziel ohne Server
-    (Port 4999, 0,4 s): keine Kopfzeile, keine Schlusszeile, nur der Stacktrace
-    aus open() — und der §7-Fund, der vor dem Browserstart gesammelt worden war,
-    verschwand mit. Der Lauf endete trotzdem mit 1, also mit demselben Code wie
-    ein sauber berichteter Verstoß.
+    Der Startwert bleibt „unbestimmbar", und über ihn ist hier schon zweimal
+    etwas Falsches behauptet worden — deshalb der genaue Stand: er ist heute
+    NICHT erreichbar. Antwortet das Ziel, wird er eine Zeile später überschrieben;
+    antwortet es nicht, wirft getWithin, und der Lauf endet über main().catch mit
+    „nicht gemessen" (2), ohne diesen Bericht zu drucken. Er steht trotzdem hier,
+    weil ein Feld, dessen Startwert eine Lüge wäre, schlechter ist als eines mit
+    einem unerreichbaren wahren Wert — und weil die Erreichbarkeit an einer
+    Reihenfolge hängt, die jemand wieder ändern kann.
 
-    Seit dem catch weiter unten läuft report() auf JEDEM Weg. Damit ist der
-    Startwert kein toter Code mehr, sondern die ehrliche Auskunft für den Fall,
-    dass die Messung nie stattgefunden hat.
+    Was hier vorher stand und was daran belegt ist: report() lag einmal hinter
+    einem try/FINALLY ohne catch, eine Ausnahme aus open() propagierte daran
+    vorbei, und der ganze Bericht verschwand — nachgemessen gegen ein Ziel ohne
+    Server (Port 4999, 0,4 s): keine Kopfzeile, keine Schlusszeile, nur ein
+    Stacktrace, Ausgang 1 wie bei einem sauber berichteten Verstoß. Dieser Fall
+    ist doppelt zu: das catch weiter unten fängt ihn, und die Kennungsprüfung
+    kommt heute vor ihm zum Zug.
   */
   let pruefstand = { kind: 'unbestimmbar', why: 'die Übersicht wurde nie gelesen — der Lauf kam nicht so weit' }
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
@@ -1203,6 +1230,41 @@ async function main() {
     Die Ausnahme wird deshalb zu einem `notChecked`-Eintrag. Der Lauf bleibt
     rot — `notChecked` ist tödlich —, aber er ist rot MIT Bericht.
   */
+  /*
+    WESSEN KONSOLE ANTWORTET — vor dem Browserstart, und mit genau einem Abruf.
+
+    Die Reihenfolge ist die ganze Zusicherung: ein Browser, der schon läuft, hat
+    bereits Kosten verursacht und, schlimmer, eine fremde Oberfläche vor sich,
+    auf der jeder Selektor dieses Skripts etwas findet. Deshalb steht das hier
+    und nicht im try mit den Messungen — dort würde daraus ein `notChecked`-
+    Eintrag mit Ausgang 1, und 1 heißt in dieser Datei „gemessen und rot".
+
+    DERSELBE Abruf trägt beides: die Kennung und die Verweise, an denen
+    classifyPruefstand() erkennt, welches Dokument das Ziel ausliefert. Vorher
+    kam der zweite Teil aus einem `page.evaluate` NACH dem Browserstart. Ein
+    zweiter Abruf wäre eine zweite Stelle mit eigener Frist gewesen, ohne etwas
+    zu gewinnen: nachgemessen liefert marksIn() über diesen Text in beiden
+    Ständen dieselbe Einordnung, die die DOM-Messung lieferte.
+  */
+  const wo = BASE ? base : `Port ${PORT}`
+  try {
+    const shellHtml = (await getWithin(`${base}/cockpit/`, 15_000)).body
+    assertPruefstandsKennung(shellHtml, wo)
+    pruefstand = classifyPruefstand(marksIn(shellHtml))
+  } catch (error) {
+    // Der Server gehört diesem Lauf; ein Wurf darf ihn nicht auf dem Port
+    // zurücklassen, sonst ist der nächste Lauf der, der eine fremde Konsole
+    // vorfindet — genau der Zustand, gegen den diese Zeilen geschrieben sind.
+    if (server) await stopCockpit(server)
+    // Der §7-Fund ist zu diesem Zeitpunkt vielleicht schon gesammelt und ginge
+    // mit dem Wurf verloren. Er ist ein Befund über Dateien auf der Platte und
+    // von der Frage, wer geantwortet hat, unberührt — also wird er gedruckt.
+    for (const violation of violations) {
+      console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
+    }
+    throw error
+  }
+
   let browser = null
   try {
     browser = await chromium.launch()
@@ -1226,7 +1288,6 @@ async function main() {
     // ---- Overview, with a gate open --------------------------------------
     await open(page, `${base}/cockpit/`)
     const shell = await page.evaluate(SHELL_PROBE)
-    pruefstand = classifyPruefstand(shell.delivered)
     const overview = await page.evaluate(SURFACE_PROBE)
     const banner = await page.evaluate(BANNER_PROBE)
     const numbers = await page.evaluate(NUMBERS_PROBE)
@@ -1844,8 +1905,13 @@ async function startCockpit() {
       process.exit(2)
     }
     try {
-      const response = await fetch(`http://127.0.0.1:${PORT}/cockpit/`)
-      if (response.ok) return child
+      // Über getWithin und nicht über ein nacktes `fetch`: ein Prozess, der den
+      // Port hält, die Verbindung annimmt und nie antwortet, lässt ein `fetch`
+      // ohne Signal hängen — die Zeile `Date.now() < deadline` wird dann nie
+      // wieder erreicht, und die 60-Sekunden-Frist ist Dekoration. Der Körper
+      // wird mitgelesen und weggeworfen, weil „die Kopfzeilen kamen" nicht
+      // dasselbe ist wie „der Server antwortet".
+      if ((await getWithin(`http://127.0.0.1:${PORT}/cockpit/`, 2_000)).ok) return child
     } catch {
       // Not listening yet. The deadline, not this catch, decides when to give up.
     }
@@ -1862,6 +1928,148 @@ async function stopCockpit(child) {
     child.once('exit', resolve)
     setTimeout(resolve, 5_000)
   })
+}
+
+/**
+ * Der EINZIGE `fetch`-Aufrufplatz dieser Datei — mit einer Frist über den
+ * ganzen Austausch.
+ *
+ * Warum genau einer: eine Frist ist eine Eigenschaft der Aufrufstelle, und
+ * jede weitere Stelle ist eine, die man vergessen kann. WatchKit hat dieselbe
+ * Zusammenlegung gemacht, nachdem dort zweimal hintereinander eine Frist
+ * nachgetragen wurde und der Hänger danach nicht weg, sondern eine Zeile weiter
+ * gewandert war. test/unit/konvention-check-kennung.test.ts hält die Zahl.
+ *
+ * Das Signal gilt weiter, WÄHREND der Körper gelesen wird: „die Kopfzeilen
+ * kamen" ist nicht dasselbe wie „ich habe eine Antwort", und ein Server, der
+ * den Kopf schickt und den Körper offen lässt, ist genau der Zustand, den ein
+ * `fetch` ohne Signal an dieser Stelle überlebt.
+ */
+async function getWithin(url, timeoutMs) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+    return { ok: response.ok, body: await response.text() }
+  } catch (error) {
+    // Die nackte Meldung eines abgelaufenen Signals lautet „The operation was
+    // aborted due to timeout" — wahr und ortlos. Wer das im Gate liest, muss
+    // die Adresse und die Frist sehen, sonst sucht er den Hänger im Browser
+    // statt im Server.
+    throw new Error(
+      `${url} hat innerhalb von ${(timeoutMs / 1000).toFixed(0)} s nicht geantwortet: ` +
+        (error instanceof Error ? error.message : String(error)),
+    )
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WESSEN KONSOLE ANTWORTET
+//
+// startCockpit() beantwortet „antwortet dort etwas?" und nicht „antwortet dort
+// WIKIKIT?". Das ist keine theoretische Lücke: bei CodeKit ist der Fall real
+// eingetreten — WorkKit hielt CodeKits Prüfstands-Port, und der Lauf erzeugte
+// in 156 s acht Verstöße mit CodeKits Namen über eine Oberfläche, die nie
+// CodeKit war. Kein Timeout, kein Absturz: ein vollständiger, überzeugender,
+// falscher Bericht. Ein Timeout wird untersucht; acht Verstöße werden repariert.
+//
+// Die Familie ist dafür besonders anfällig, und zwar durch zwei Entscheidungen,
+// die einzeln richtig sind. Die Konvention macht die DOM-Verankerungen in allen
+// sechs Konsolen ABSICHTLICH gleich — `cockpit-wordmark`, `operator-role`,
+// `sidebar`, `page-title` —, also findet jede Zeile dieses Skripts in jeder
+// Schwesterkonsole etwas vor. Und die Prüfstände liegen dicht beieinander:
+// CodeKit 4081 · WikiKit 4173 · SubKit 4176 · WatchKit 4183 · WorkKit 4192,
+// dazu ein Fremdserver auf 4080 seit dem 7. August. Ein Tippfehler in
+// COCKPIT_CHECK_PORT reicht.
+//
+// WARUM DER SOLLWERT ABGELEITET UND NICHT ABGETIPPT IST
+//
+// CodeKit hat es zuerst gelöst und die Schwäche der eigenen Lösung selbst
+// benannt: dort steht der Marker als LITERAL im Prüfskript, während ein
+// Contract-Test denselben Wert importiert. Benennt jemand ihn um, sagt der
+// Check „fremdes Dokument" über die EIGENE Konsole — die Meldung, die am
+// teuersten falsch ist, weil sie in die falsche Richtung zeigt.
+//
+// Hier gibt es deshalb genau EINE Definitionsstelle, apps/cockpit/index.html,
+// und dieser Assert LIEST sie. Wer den Wert ändert, ändert beide Seiten in
+// einem Zug. Wer das ATTRIBUT umbenennt, bekommt nicht „fremdes Dokument",
+// sondern den Satz, der wahr ist: der Sollwert ist aus dieser Datei nicht mehr
+// ableitbar — ein Befund über DIESES Repository und keine Aussage über das
+// Gegenüber.
+//
+// Und ausdrücklich NICHT über Titel oder Wortmarke: beides sind Regeln, die
+// dieser Lauf gebrochen finden können muss (§6 Browser-Titel, §6 Wortmarke).
+// Eine Kennung, die zugleich Prüfgegenstand ist, macht aus jedem echten Verstoß
+// ein „das ist gar nicht WikiKit" und misst danach nichts mehr. Aus demselben
+// Grund benutzt dieser Assert PRODUCT_NAME nicht.
+//
+// WIKIKITS BESONDERHEIT: ZWEI PRÜFSTÄNDE, EIN ABRUF
+//
+// Dieser Check misst als einziger der Familie gegen zwei Stände — den
+// Dev-Server und (die Gate-Stufe) `vite preview` über die gebaute Fassung. Die
+// Kennung muss deshalb auch den Build überleben; test/unit/cockpit-embedded-
+// drift.test.ts hält sie im gebauten Bundle gegen den Namen aus package.json.
+// Und der Blindheits-Hinweis erkennt den Prüfstand am GELIEFERTEN Dokument —
+// also an demselben Dokument, das die Kennung trägt. Beide lesen jetzt EINEN
+// Abruf: nachgemessen liefert marksIn() über den Text dieses Abrufs in beiden
+// Ständen dieselbe Einordnung wie die frühere Messung im DOM.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Das Attribut, das die Konsole ihrem Dokument mitgibt. */
+const IDENTITY_META = 'cockpit-product'
+
+/** Der Marker eines Dokuments, oder `null`, wenn es keinen trägt. */
+function markerIn(html) {
+  return new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+)"`).exec(html)?.[1] ?? null
+}
+
+/**
+ * Prüft, WESSEN Konsole geantwortet hat — bevor eine einzige Regel gemessen
+ * wird und bevor überhaupt ein Browser startet.
+ *
+ * Wirft, statt zu berichten, und zwar mit Absicht: ein fremdes Gegenüber ist
+ * kein Konventionsverstoß, sondern ein Lauf, der nicht stattgefunden hat. Der
+ * Wurf landet unten in `main().catch`, das „nicht gemessen" druckt und mit 2
+ * endet — genau die Unterscheidung, die diese Datei zwischen „gemessen und
+ * rot" (1) und „nicht gemessen" (2) sonst schon trifft.
+ *
+ * Drei Zweige, drei verschiedene Sätze, weil es drei verschiedene Lagen sind
+ * und der Unterschied für den, der die Meldung liest, die ganze Arbeit ist.
+ */
+function assertPruefstandsKennung(html, wo) {
+  const quelle = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)
+  const erwartet = markerIn(readFileSync(quelle, 'utf8'))
+  if (erwartet === null) {
+    throw new Error(
+      `${COCKPIT_SOURCE_HTML} trägt kein <meta name="${IDENTITY_META}" content="…"> mehr. ` +
+        'Der Kennungs-Assert leitet seinen Sollwert aus dieser Datei ab und hat jetzt keinen — das ist ein ' +
+        `Befund über DIESES Repository und keine Aussage über das Gegenüber auf ${wo}.`,
+    )
+  }
+  const geliefert = markerIn(html)
+  if (geliefert === null) {
+    const titel = /<title>([^<]*)<\/title>/.exec(html)?.[1]?.trim() ?? '(kein <title>)'
+    /*
+      Zwei Lesarten, und der Titel entscheidet zwischen ihnen — deshalb steht er
+      in der Meldung. Entweder hört dort eine Schwesterkonsole, die den Marker
+      noch nicht führt (fünf der sechs Produkte tun das gerade nicht), oder es
+      ist die eigene Hülle, die ihn auf dem Weg verloren hat. Der zweite Fall ist
+      nicht theoretisch: nachgemessen, indem die Zeile nur aus
+      assets/cockpit/index.html entfernt wurde — der preview-Lauf endete nach
+      1,4 s hier, mit dem Titel „WikiKit Cockpit" in der Meldung.
+    */
+    throw new Error(
+      `das ist nicht ${erwartet}: das Dokument auf ${wo} trägt kein <meta name="${IDENTITY_META}">. ` +
+        `Sein Titel lautet „${titel}" — hört dort eine Schwesterkonsole, oder ist es die eigene Hülle, ` +
+        `die den Marker im Build verloren hat? Die DOM-Verankerungen sind familienweit gleich, also hätte ` +
+        `dieser Lauf sie so oder so gemessen und jeden Verstoß ${erwartet} zugeschrieben.`,
+    )
+  }
+  if (geliefert !== erwartet) {
+    throw new Error(
+      `das ist nicht ${erwartet}, sondern ${geliefert}: das Dokument auf ${wo} nennt sich „${geliefert}", ` +
+        `${COCKPIT_SOURCE_HTML} nennt „${erwartet}". Gemessen wurde nichts.`,
+    )
+  }
+  return erwartet
 }
 
 /**
@@ -2059,4 +2267,17 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, pr
   process.exit(1)
 }
 
-await main()
+/*
+  Die drei Ausgänge dieses Laufs, und warum es drei sind.
+
+  0 ist „gemessen und grün", 1 ist „gemessen und rot" (report() setzt ihn), und
+  2 ist „NICHT gemessen". Ein Gate behandelt 1 und 2 gleich; ein Mensch nicht,
+  und deswegen stehen sie getrennt. Ohne dieses catch wäre der Wurf aus dem
+  Kennungs-Assert eine unbehandelte Rejection: ein Stacktrace statt einer
+  Aussage, und ein Ausgangscode, den niemand versprochen hat.
+*/
+await main().catch((error) => {
+  console.error(`\n\x1b[31mnicht gemessen\x1b[0m — der Lauf kam nicht bis zu einer Aussage:`)
+  console.error(`  ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(2)
+})
