@@ -337,6 +337,16 @@ export const keys = {
   schedules: (space: string) => ['spaces', space, 'schedules'] as const,
   charter: (space: string) => ['spaces', space, 'charter'] as const,
   charterVersions: (space: string) => ['spaces', space, 'charter', 'versions'] as const,
+  /**
+   * The audit trail's one cache entry.
+   *
+   * The trail is composed from four reads this console already makes elsewhere,
+   * and it deliberately does NOT reuse their keys: the page asks for a ceiling
+   * of rows on each of them, which is a different question from the windows the
+   * inbox, the pages index and the review queue ask, and sharing a key would let
+   * one of them answer the other's question.
+   */
+  audit: (space: string) => ['spaces', space, 'audit'] as const,
   lint: (space: string) => ['spaces', space, 'lint'] as const,
   webhooks: (space: string) => ['spaces', space, 'webhooks'] as const,
   webhookDeliveries: (space: string, id: string) => ['spaces', space, 'webhooks', id, 'deliveries'] as const,

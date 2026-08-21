@@ -82,6 +82,7 @@ const PAGE_ROUTES: Record<string, string> = {
   'webhooks.tsx': '/webhooks',
   'model-usage.tsx': '/model-usage',
   'system.tsx': '/system',
+  'audit.tsx': '/audit',
 }
 
 function pageModules(): string[] {

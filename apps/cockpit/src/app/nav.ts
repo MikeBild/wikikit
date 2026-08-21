@@ -1,6 +1,7 @@
 import {
   Archive,
   BookOpen,
+  History,
   CircleCheckBig,
   Inbox,
   KeyRound,
@@ -281,6 +282,26 @@ export const NAV: readonly NavEntry[] = [
       '/v1/spaces/{space}/stats/webhooks',
       '/v1/stats/mcp',
       '/v1/installation/knowledge-config',
+    ],
+  },
+  {
+    to: '/audit',
+    // §6 puts "Audit" in the Installation block, and this product had none at
+    // all — it was the only one of the six without the page. It is `knowledge:read`
+    // rather than `admin` for the same reason the decisions queue is: reading
+    // what happened is not the right to change anything.
+    label: 'Audit',
+    icon: History,
+    scope: 'knowledge:read',
+    group: 'installation',
+    // Four reads, no new engine surface. There is no /v1/audit in WikiKit and
+    // this page did not ask for one: the records already exist, one per kind of
+    // event, and the page is what puts them on one axis.
+    api: [
+      '/v1/spaces/{space}/proposals',
+      '/v1/spaces/{space}/ingests',
+      '/v1/spaces/{space}/concepts',
+      '/v1/spaces/{space}/charter/versions',
     ],
   },
 ]

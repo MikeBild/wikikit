@@ -473,6 +473,7 @@ const NAV_KEYS: Record<string, TranslationKey> = {
   '/webhooks': 'nav.webhooks',
   '/model-usage': 'nav.modelUsage',
   '/system': 'nav.system',
+  '/audit': 'nav.audit',
 }
 
 function navKey(entry: NavEntry): TranslationKey {
@@ -500,6 +501,7 @@ const PAGE_KEYS: Record<string, { title: TranslationKey; description: Translatio
   Webhooks: { title: 'nav.webhooks', description: 'page.webhooks.description' },
   'Model usage': { title: 'nav.modelUsage', description: 'page.modelUsage.description' },
   System: { title: 'nav.system', description: 'page.system.description' },
+  Audit: { title: 'nav.audit', description: 'page.audit.description' },
 }
 
 /**

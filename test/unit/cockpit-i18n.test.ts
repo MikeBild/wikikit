@@ -36,6 +36,10 @@ const PRESENTATION_PROPS = new Set([
 
 const TECHNICAL_PHRASES = new Set([
   'API',
+  // The family's word for the trail, identical in both catalogs (Konvention §6
+  // names the Installation entry "Audit"). Here for the same reason 'System' is:
+  // a phrase whose German IS the English is not an untranslated one.
+  'Audit',
   'Export',
   'In',
   'Markdown',

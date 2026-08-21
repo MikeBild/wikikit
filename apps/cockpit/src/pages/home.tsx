@@ -137,7 +137,30 @@ export function HomePage() {
               ) : null}
             </div>
           </CardHeader>
-          <CardContent className="min-w-0">
+          <CardContent className="flex min-w-0 flex-col gap-4">
+            {/*
+              §1/§10 — counter tiles, and every one of them is about something
+              still OPEN.
+
+              Broken down by kind rather than shown as one number, because
+              "six waiting" and "five proposals plus one unsorted capture" ask
+              two different things of a reader's morning. Each tile is a LINK to
+              the queue already narrowed to what it counted — a tile whose
+              number an operator then has to find by hand is a tile that cost
+              them a step.
+
+              There is deliberately NO tile for anything finished. A count of
+              what was decided is a fact about the past, the past is in the
+              audit trail, and a second, rounder copy of it on the front page is
+              a number nobody can trace back to a row.
+            */}
+            {open ? (
+              <div className="grid gap-3 sm:grid-cols-2" data-testid="zone-a-tiles">
+                {KIND_TILES.map((tile) => (
+                  <KindTile key={tile.kind} tile={tile} count={open.byKind[tile.kind]} />
+                ))}
+              </div>
+            ) : null}
             {attention.isPending ? <p className="text-sm text-muted-foreground">{t('common.loading')}…</p> : null}
             {attention.isError ? <Alert tone="danger" title={t('home.compact.tasksError')} /> : null}
             {attention.data && tasks.length === 0 ? (
@@ -167,8 +190,56 @@ export function HomePage() {
             ) : null}
           </CardContent>
         </Card>
+
+        {/*
+          Zone C (§1) — one line, and it is a signpost rather than a feed.
+
+          It used to be a rule about an event stream: the last runs and changes,
+          each row clickable. WikiKit keeps the complete record in the audit
+          trail, append-only, and a shortened second copy on the front page can
+          only ever disagree with it — a reader who has seen five recent lines
+          believes they have seen the recent past. So the front page says where
+          the past lives and stops there.
+        */}
+        <p className="text-sm text-muted-foreground" data-testid="zone-c">
+          {t('home.zoneC.label')}{' '}
+          <Link to="/audit" className="underline underline-offset-4" data-testid="zone-c-audit-link">
+            {t('home.zoneC.link')}
+          </Link>
+        </p>
       </div>
     </Page>
+  )
+}
+
+/**
+ * The kinds the queue is broken down by, in the order a reader meets them.
+ *
+ * `byKind` always carries both (decisions.logic.ts), so a kind with nothing
+ * waiting renders `0` rather than disappearing — §4's measured zero, which is a
+ * different sentence from a tile that was never there.
+ */
+const KIND_TILES: readonly { kind: 'proposal' | 'triage'; label: TranslationKey }[] = [
+  { kind: 'proposal', label: 'home.compact.typeProposal' },
+  { kind: 'triage', label: 'home.compact.typeTriage' },
+]
+
+function KindTile({ tile, count }: { tile: (typeof KIND_TILES)[number]; count: number }) {
+  const { t } = useI18n()
+  return (
+    <Link
+      to="/decisions"
+      search={{ kind: tile.kind }}
+      className="flex min-w-0 flex-col gap-1 rounded-lg border p-3 hover:bg-muted/40"
+      data-testid={`zone-a-tile-${tile.kind}`}
+      data-total={count}
+    >
+      <span className="text-xs text-muted-foreground">{t(tile.label)}</span>
+      <span className="flex items-baseline gap-2">
+        <span className="text-2xl font-semibold tabular-nums">{count}</span>
+        <Badge tone={count ? 'warning' : 'success'}>{t('home.zoneA.openTile')}</Badge>
+      </span>
+    </Link>
   )
 }
 

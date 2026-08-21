@@ -123,9 +123,27 @@ const pageEditRoute = createRoute({
   path: '/pages/$slug/edit',
   component: lazyRouteComponent(() => import('@/pages/page-edit'), 'PageEditPage'),
 })
+/**
+ * The queue's kind chip is part of its ADDRESS.
+ *
+ * The overview counts the open positions by kind and every tile links to the
+ * list it counted, which a filter held in `useState` cannot express: a tile
+ * would land the reader on the whole queue and leave them to press the chip
+ * themselves. Declared here rather than on the root, because it belongs to this
+ * one route and the root's schema is about `?space=`, which every route
+ * inherits.
+ *
+ * An unrecognised value is DROPPED rather than refused, the same reading the
+ * root gives `?space=`: a link that outlived a release shows the unfiltered
+ * queue instead of an error screen.
+ */
 const decisionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/decisions',
+  validateSearch: (search: Record<string, unknown>): { kind?: 'proposal' | 'triage' } => {
+    const kind = search.kind
+    return kind === 'proposal' || kind === 'triage' ? { kind } : {}
+  },
   component: lazyRouteComponent(() => import('@/pages/decisions'), 'DecisionsPage'),
 })
 const proposalReviewRoute = createRoute({
@@ -193,6 +211,18 @@ const modelUsageRoute = createRoute({
   path: '/model-usage',
   component: lazyRouteComponent(() => import('@/pages/model-usage'), 'ModelUsagePage'),
 })
+/**
+ * The audit trail — the one surface in this console that is about the PAST.
+ *
+ * It is the counterpart of everything the decisions queue and the overview no
+ * longer show: the queue holds the present, and what left it is here, read from
+ * the records the installation already keeps.
+ */
+const auditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/audit',
+  component: lazyRouteComponent(() => import('@/pages/audit'), 'AuditPage'),
+})
 
 const routeTree = rootRoute.addChildren([
   homeRoute,
@@ -220,6 +250,7 @@ const routeTree = rootRoute.addChildren([
   webhooksRoute,
   modelUsageRoute,
   systemRoute,
+  auditRoute,
 ])
 
 export const router = createRouter({ routeTree, basepath: '/cockpit' })

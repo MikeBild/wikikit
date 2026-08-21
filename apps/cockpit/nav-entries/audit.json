@@ -1,0 +1,13 @@
+{
+  "to": "/audit",
+  "label": "Audit",
+  "icon": "History",
+  "scope": "knowledge:read",
+  "group": "installation",
+  "api": [
+    "/v1/spaces/{space}/proposals",
+    "/v1/spaces/{space}/ingests",
+    "/v1/spaces/{space}/concepts",
+    "/v1/spaces/{space}/charter/versions"
+  ]
+}
