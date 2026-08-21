@@ -13,7 +13,7 @@
 // Parsing the YAML here turns "the deploy broke three weeks later" into a red
 // unit test on the PR that caused it.
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { LOCAL_CONTAINER, LOCAL_DATABASE_URL } from '../../scripts/start-local.ts'
@@ -148,6 +148,51 @@ describe('ci.yml', () => {
     // ensureLocalPostgres() inspects this exact container name; without it the
     // helper would `docker run` a second Postgres onto the occupied port.
     expect(service.options ?? '').toContain(`--name ${LOCAL_CONTAINER}`)
+  })
+
+  /*
+    A BROWSER IS NOT SOMETHING `bun install` BRINGS ALONG. playwright ships no
+    install script (`bun pm untrusted` reports 0 packages with scripts), so the
+    download step is the only thing that puts Chromium on a runner — while a dev
+    machine has one in ~/Library/Caches/ms-playwright and passes either way.
+    test/integration/kennung-am-browser.test.ts sat in that gap: green locally,
+    red on the first push, and nobody would have learned it from the gate
+    (BEFUND-GATE-IST-NICHT-CI — a check that exists and that nobody runs).
+
+    Derived and not listed, so the requirement travels with the suite: each job's
+    commands are resolved through package.json, the test directories they name
+    are read for a playwright import, and any job that runs one must carry the
+    install step. Copying the identity suite into a sibling product then cannot
+    silently skip the wiring step.
+  */
+  test('every job whose suites drive a browser installs one', () => {
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
+    const resolve = (command: string) =>
+      command.replace(/\bbun run ([a-z][a-z0-9:-]*)/g, (whole, script: string) => pkg.scripts[script] ?? whole)
+
+    let scanned = 0
+    for (const [name, entry] of Object.entries(ci.jobs)) {
+      const commands = runs(entry).map(resolve)
+      const directories = new Set(commands.flatMap((c) => [...c.matchAll(/\btest\/[a-z0-9-]+/g)].map((m) => m[0])))
+      const users = [...directories].flatMap((directory) =>
+        readdirSync(join(root, directory), { recursive: true })
+          .map(String)
+          .filter((file) => file.endsWith('.ts'))
+          .filter((file) => /from '(?:node:)?playwright'/.test(readFileSync(join(root, directory, file), 'utf8')))
+          .map((file) => `${directory}/${file}`),
+      )
+      if (users.length === 0) continue
+      scanned += 1
+      const install = commands.find((command) => /\bplaywright install\b.*\bchromium\b/.test(command))
+      expect(install, `job '${name}' runs ${users.join(', ')} but installs no browser`).toBeDefined()
+      // A bare ubuntu-latest does not ship Chromium's system libraries.
+      expect(install ?? '', `job '${name}' installs a browser without its system libraries`).toContain('--with-deps')
+    }
+
+    // The `konvention` job launches its browser from scripts/, not from a suite,
+    // so it is invisible to this scan by design. If NOTHING is found the scan
+    // proved nothing — a suite renamed out of reach must not read as a pass.
+    expect(scanned, 'no job was found to drive a browser: this scan is measuring nothing').toBeGreaterThan(0)
   })
 
   test('integration tests are explicitly opted in via RUN_INTEGRATION=1', () => {

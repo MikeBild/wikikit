@@ -76,8 +76,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      # The only job with a browser. --with-deps, because a bare ubuntu-latest
-      # does not ship Chromium's system libraries.
+      # --with-deps, because a bare ubuntu-latest does not ship Chromium's
+      # system libraries. The `integration` job installs one too — see there.
       - run: bunx playwright install --with-deps chromium
       - run: bun run build:cockpit
       - run: bun run konvention:check
@@ -127,6 +127,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # test/integration/kennung-am-browser.test.ts drives a real Chromium over
+      # real HTTP. `bun install` does not bring one along: playwright ships no
+      # install script (`bun pm untrusted`: 0 packages with scripts), so this
+      # step is the only thing that puts a browser on the runner. Without it the
+      # suite fails at chromium.launch() — and it passes on a dev machine
+      # regardless, because ~/Library/Caches/ms-playwright is already there.
+      # That gap is BEFUND-GATE-IST-NICHT-CI in its purest form: a check that
+      # exists and that nobody runs. test/unit/ci-workflows.test.ts derives this
+      # requirement from the suites rather than trusting this comment.
+      - run: bunx playwright install --with-deps chromium
       # RUN_INTEGRATION=1 is the explicit opt-in gate the suites check —
       # without it every integration test self-skips (local default).
       - run: bun run test:integration
