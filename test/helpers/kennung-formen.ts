@@ -55,7 +55,20 @@ const foreign = {
   entityValue: `<meta name="${IDENTITY_META}" content="Other&#80;roduct" />`,
   twiceContent: `<meta name="${IDENTITY_META}" content="OtherProduct" content="${PRODUCT}" />`,
   commented: `<!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`,
+  slashEaten: `<meta name=${IDENTITY_META} content=OtherProduct/>`,
 }
+
+/*
+  The tag's `/` glued onto an UNQUOTED value — written with THIS product's own
+  name, which is what makes it the sharp case: the document says `WikiKit/`, and
+  `WikiKit/` is not `WikiKit`.
+
+  The parser ends an unquoted value at whitespace or at `>`, at nothing else. A
+  reader that treats the slash as the tag's self-closing mark answers this
+  product's name for a document that carries a foreign one, the assert passes,
+  and the run measures on (LOCAL-WI-KENNUNG-SCHRAEGSTRICH-IM-WERT).
+*/
+const OWN_SLASH_EATEN = `<meta name=${IDENTITY_META} content=${PRODUCT}/>`
 
 /*
   `<!-->` is an EMPTY comment, closed abruptly — not the start of one. The
@@ -184,6 +197,28 @@ export const forms: Form[] = [
     reads: null,
     browser: [PRODUCT, 'OtherProduct'],
   },
+  {
+    name: 'an unquoted value that eats the tag slash, beside the real marker',
+    html: beside(foreign.slashEaten),
+    landed: foreign.slashEaten,
+    reads: null,
+    browser: [PRODUCT, 'OtherProduct/'],
+  },
+
+  /*
+    THE SHARPEST ONE, and the reason `/?>` is gone from the META pattern: the
+    marker carries THIS product's name and the parser still reads a foreign
+    document, because the tag's slash belongs to the value. The reader must
+    answer `WikiKit/` — a name that will not match this repository's own, so the
+    assert stops the run (exit 2) instead of measuring under it.
+  */
+  {
+    name: "this product's own name with the tag slash glued on, alone",
+    html: alone(OWN_SLASH_EATEN),
+    landed: OWN_SLASH_EATEN,
+    reads: `${PRODUCT}/`,
+    browser: [`${PRODUCT}/`],
+  },
 
   /*
     The same spellings ALONE. Here the reader may name the foreign product — it
@@ -239,5 +274,12 @@ export const forms: Form[] = [
     landed: foreign.twiceContent,
     reads: null,
     browser: ['OtherProduct'],
+  },
+  {
+    name: 'an unquoted value that eats the tag slash, no real marker',
+    html: alone(foreign.slashEaten),
+    landed: foreign.slashEaten,
+    reads: 'OtherProduct/',
+    browser: ['OtherProduct/'],
   },
 ]

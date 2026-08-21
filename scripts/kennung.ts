@@ -12,8 +12,26 @@
 /** The attribute a cockpit document stamps its product on. */
 export const IDENTITY_META = 'cockpit-product'
 
-/** Every `<meta …>` element, with the inside of its tag. */
-const META = /<meta(\s[^>]*?)\/?>/gi
+/*
+  Every `<meta …>` element, with the inside of its tag — INCLUDING a trailing
+  `/`, because that slash is not always the tag's.
+
+  In an UNQUOTED attribute value the parser reads `/` as an ordinary character;
+  only whitespace and `>` end such a value. Measured at a live Chromium over
+  real HTTP, `<meta name=cockpit-product content=WikiKit/>`:
+
+    parser                    -> ["WikiKit/"]   a product that is not this one
+    reader with `\/?>` here   -> "WikiKit"      the assert passes, the run goes on
+
+  That was a REGRESSION against the reader this file replaced: d21686e's
+  pattern resolved no attributes at all and answered `null` here, which the
+  caller turns into exit 2 (LOCAL-WI-KENNUNG-SCHRAEGSTRICH-IM-WERT).
+
+  So the slash stays in the tag body and ATTRIBUTE below decides whose it is:
+  an unquoted value takes it, an attribute NAME never does, and after a quoted
+  value it belongs to the tag and matches nothing.
+*/
+const META = /<meta(\s[^>]*?)>/gi
 
 /** One attribute: its name, and its value in double, single or no quotes. */
 const ATTRIBUTE = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]*)))?/g
