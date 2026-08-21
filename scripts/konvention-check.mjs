@@ -43,10 +43,11 @@
 // apps/cockpit/index.html hält — die einzige Definitionsstelle, gelesen und
 // nicht abgetippt. Passt er nicht, wird geworfen und nichts gemessen (Ausgang
 // 2). Warum das kein Konventionsverstoß ist und warum weder Titel noch
-// Wortmarke dafür taugen, steht bei assertPruefstandsKennung(). Nachgemessen:
-// ein echtes WatchKit-Cockpit auf Port 4173 beendete den Lauf nach 0,44 s und
-// benannte den Antwortenden; ohne den Assert maß derselbe Lauf 20,7 s lang eine
-// fremde Oberfläche und endete mit „gemessen und rot".
+// Wortmarke dafür taugen, steht bei assertPruefstandsKennung(). Nachgemessen
+// mit einem echten WatchKit-Cockpit auf Port 4173: der Lauf endete nach 0,44 s
+// und benannte den Antwortenden. Ohne den Assert lief derselbe Fall 20,7 s
+// gegen die fremde Konsole und endete mit Ausgang 1 — „gemessen und rot" —,
+// ohne ein einziges Mal zu sagen, dass ein anderes Produkt geantwortet hatte.
 //
 // WIRED INTO `bun run gate` — und das war einmal anders. Hier stand: „Deliberately
 // NOT wired into gate, bun test or CI", begründet mit §7 („Die Konvention wird
@@ -1877,6 +1878,22 @@ async function open(page, url) {
  * Vite serves the console straight from source, so the check needs no build
  * artefact and cannot go stale against one. The port is not 4061 on purpose:
  * running this must never fight with a dev server somebody has open.
+ *
+ * UND `--strictPort` SCHÜTZT HIER NICHT, was aussieht, als täte es das.
+ *
+ * Der Gedanke wäre: hält jemand anders den Port, beendet sich vite, und der
+ * Lauf kann gar nicht gegen ein fremdes Gegenüber messen. Nachgemessen ist es
+ * andersherum. Mit einem echten Schwester-Cockpit auf 4173 gestartet, kehrte
+ * diese Funktion nach 0,44 s mit einem TOTEN Kindprozess zurück: die Schleife
+ * fragt `child.exitCode` VOR dem Abruf, beim ersten Durchlauf hat vite seinen
+ * Portkonflikt noch nicht gemeldet, und der Abruf wird sofort vom fremden
+ * Server beantwortet. `return child` — und niemand hat je bemerkt, dass der
+ * eigene Server nie lief.
+ *
+ * Die Reihenfolge zu drehen würde das Fenster verkleinern und nicht schließen;
+ * gefangen wird der Fall eine Ebene höher, von der Kennungsprüfung, und die
+ * gibt auch die bessere Meldung: nicht „vite hat sich beendet", sondern wer
+ * stattdessen geantwortet hat.
  */
 async function startCockpit() {
   const child = spawn(

@@ -28,9 +28,12 @@
       zugleich Prüfgegenstand ist, macht aus jedem echten Verstoß ein „fremdes
       Dokument" und misst danach nichts mehr.
 
-      Ein <meta> und kein Kommentar, weil Vite Kommentare aus der gebauten
-      Fassung entfernen darf, `<meta name>`/`content` aber unangetastet lässt —
-      test/unit/cockpit-embedded-drift.test.ts hält genau das fest.
+      Ein <meta> und kein Kommentar. Nachgemessen trägt die gebaute Fassung
+      heute BEIDES — auch diesen Kommentar hier —, aber das ist eine Zusage, die
+      niemand gegeben hat: ein Minifier darf Kommentare fallen lassen, `<meta
+      name>`/`content` nicht. Die Kennung darf an so etwas nicht hängen; sie
+      muss den Build überleben, weil die Gate-Stufe gegen die GEBAUTE Fassung
+      misst. test/unit/cockpit-embedded-drift.test.ts hält genau das fest.
     -->
     <meta name="cockpit-product" content="WikiKit" />
     <title>WikiKit Cockpit</title>
