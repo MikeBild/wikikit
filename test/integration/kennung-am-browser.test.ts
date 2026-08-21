@@ -41,9 +41,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { chromium, type Browser } from 'playwright'
 
 import { IDENTITY_META, markerIn } from '../../scripts/kennung.ts'
-import { forms, fuzzForms } from '../helpers/kennung-formen.ts'
+import { PRODUCT, forms, fuzzForms } from '../helpers/kennung-formen.ts'
 
 const generated = fuzzForms()
+
 const documents = new Map([...forms, ...generated].map((form) => [form.name, form.html]))
 
 const server = Bun.serve({
@@ -145,29 +146,120 @@ describe('the identity reader agrees with the browser', () => {
   in half a minute — so the corpus is now generated rather than only written,
   and the reader is certified to the parser's width instead of the author's.
 
-  MEASURED, on this corpus of 174 forms: against the reader of 73d671e it
-  reports 16 disagreements, among them both blockers of this round — the tag
-  slash eaten by an unquoted value (the two `fuzz/tokens/bare/slash` forms) and
-  the numeric reference without its semicolon in the attribute NAME, which
-  leaves a second live marker uncounted (`fuzz/name/cockpit&#45product` beside
-  the real one, in all three quotings). Against the
-  reader in this tree it reports the two below and nothing else. 1.3 s.
+  MEASURED, on this corpus of 216 forms: the reader of 73d671e replayed against
+  it disagrees 33 times — 16 over the first five axes, among them both blockers
+  of that round (the tag slash eaten by an unquoted value, the two
+  `fuzz/tokens/bare/slash` forms; and the numeric reference without its
+  semicolon in the attribute NAME, which leaves a second live marker uncounted,
+  `fuzz/name/cockpit&#45product` and `&#x2dproduct` beside the real one in all
+  three quotings), and 17 over the sixth. The reader in this tree fixed the
+  first sixteen and none of the seventeen, which is exactly the list below.
+
+  HOW LONG IT TAKES, AND THE RULE THAT PRODUCES IT: one page load on a fresh tab
+  per form, so the wall clock tracks the FORM COUNT and nothing else — about
+  45 ms a form here. Measured on this machine (Darwin, 8 cores): 7.6 s at 174
+  forms, 9.8 s and 11.2 s at 216. That rule is why the "1.3 s" that stood here
+  was wrong at any corpus size, not just at this one. A disagreeing reader costs
+  the same time, not more. The 120 s timeout is sized off the rule — it holds
+  until the corpus is roughly twelve times this one — and not off a stopwatch.
 
   WHAT IS FOUND IS REPORTED, NOT PINNED. There is no recorded `browser` and no
   recorded `reads` here; the generated forms are held against the property
   alone. A disagreement must be named in KNOWN_HOLES with the finding it belongs
-  to, and the assert is an EQUALITY, so a listed form that starts agreeing turns
-  the suite red as well. A hole cannot be widened quietly and a marker cannot
-  outlive its finding.
+  to AND with the direction it points, and the assert is an EQUALITY over both,
+  so a listed form that starts agreeing turns the suite red as well. A hole
+  cannot be widened quietly and a marker cannot outlive its finding.
 */
-const KNOWN_HOLES: Record<string, string> = {
+
+/**
+ * Which way a disagreement points, computed rather than described — the
+ * sentence "both are in the safe direction" is exactly the kind of prose that
+ * was wrong five times in one day (BEFUND-PROSA-NEBEN-CODE).
+ *
+ * `dangerous` is one single condition: the reader answered THIS product's own
+ * name. Then the caller's assert compares it against this repository's marker,
+ * finds them equal, and the run measures on under a name the document does not
+ * carry. Anything else — `null`, or a foreign name — ends the run at exit 2,
+ * which is loud and repairable.
+ */
+const directionOf = (reads: string | null): 'safe' | 'dangerous' => (reads === PRODUCT ? 'dangerous' : 'safe')
+
+const KNOWN_HOLES: Record<string, { finding: string; direction: 'safe' | 'dangerous' }> = {
   // The reader decodes six named references and only with their `;`. The
   // parser's table is far larger and accepts a legacy subset without one. Both
-  // are in the SAFE direction — the reader answers a value the DOM does not
-  // carry, the assert sees a mismatch and the run ends at exit 2 — and both are
-  // stated as the limit in scripts/kennung.ts.
-  'fuzz/value/Other&copy;Product/alone': 'LOCAL-WI-KENNUNG-NAMENSREFERENZ',
-  'fuzz/value/Other&amp Product/alone': 'LOCAL-WI-KENNUNG-NAMENSREFERENZ',
+  // are stated as the limit in scripts/kennung.ts, and the dangerous half of
+  // that limit is MEASURED EMPTY there.
+  'fuzz/value/Other&copy;Product/alone': { finding: 'LOCAL-WI-KENNUNG-NAMENSREFERENZ', direction: 'safe' },
+  'fuzz/value/Other&amp Product/alone': { finding: 'LOCAL-WI-KENNUNG-NAMENSREFERENZ', direction: 'safe' },
+
+  /*
+    THE SIXTH AXIS, comment syntax inside the tag — LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT.
+
+    SIX OF THESE ARE MARKED `dangerous` AND ARE KNOWINGLY GREEN. That is the
+    uncomfortable half and it is stated rather than smoothed: the reader answers
+    `WikiKit` for a document whose only marker says `Wiki<!--Other-->Kit`, the
+    caller's assert compares the two names, finds them equal, and the run is
+    believed. What this round did was make the shape VISIBLE and held — the hole
+    itself belongs to the root that withoutComments() has, deciding what a
+    comment is from the raw bytes without knowing where the parser would see
+    one, and that root stays open on instruction together with
+    LOCAL-WI-KENNUNG-ROHTEXT and LOCAL-WI-KENNUNG-SKRIPTVORLAGE. Closing it
+    means parsing the document, not widening a pattern.
+
+    Note what is NOT here: every `beside` form of this axis AGREES, because
+    beside the real marker the reader counts two and answers `null`. Posed
+    beside only, the axis would have looked closed — which is the mirror image
+    of LOCAL-WI-KENNUNG-ZWEITER-MARKER-UNSICHTBAR, where posing alone hid it.
+    Both halves, always, is not a slogan here; it is why this list is not empty.
+  */
+  'fuzz/in-tag/own-name-split/double/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'dangerous' },
+  'fuzz/in-tag/own-name-split/single/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'dangerous' },
+  'fuzz/in-tag/own-name-split/bare/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'dangerous' },
+  'fuzz/in-tag/own-name-split-bang/double/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'dangerous',
+  },
+  'fuzz/in-tag/own-name-split-bang/single/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'dangerous',
+  },
+  'fuzz/in-tag/own-name-split-bang/bare/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'dangerous',
+  },
+
+  /*
+    The same root, pointing the safe way: the reader answers a foreign name or a
+    torn one, the assert sees a mismatch and the run ends at exit 2. They are
+    listed because they are the same hole seen from the other side — if the root
+    is fixed these have to stop disagreeing too, and the equality below says so.
+  */
+  'fuzz/in-tag/unclosed-in-value/double/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  'fuzz/in-tag/unclosed-in-value/bare/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  'fuzz/in-tag/whole-comment-in-value/double/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'safe',
+  },
+  'fuzz/in-tag/whole-comment-in-value/single/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'safe',
+  },
+  'fuzz/in-tag/whole-comment-in-value/bare/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  'fuzz/in-tag/empty-comment-in-value/double/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'safe',
+  },
+  'fuzz/in-tag/empty-comment-in-value/single/alone': {
+    finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT',
+    direction: 'safe',
+  },
+  'fuzz/in-tag/empty-comment-in-value/bare/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  // Stripping INVENTS the identity name here: the parser reads
+  // `cockpit-<!--x-->product`, which is not the marker at all, and the reader
+  // reads one that was never in the document.
+  'fuzz/in-tag/comment-in-name/double/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  'fuzz/in-tag/comment-in-name/single/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
+  'fuzz/in-tag/comment-in-name/bare/alone': { finding: 'LOCAL-WI-KENNUNG-KOMMENTAR-IM-WERT', direction: 'safe' },
 }
 
 describe('the generated corpus agrees with the browser', () => {
@@ -177,24 +269,33 @@ describe('the generated corpus agrees with the browser', () => {
     is a question that stops being asked while everything stays green
     (BEFUND-SONDE-SIEHT-IHRE-VERENGUNG-NICHT).
   */
-  test('the generator still produces every form it did: 174, all distinct', () => {
-    expect(generated.length, 'an axis was added or dropped — change this number deliberately').toBe(174)
-    expect(new Set(generated.map((form) => form.name)).size, 'two generated forms share a name').toBe(174)
+  test('the generator still produces every form it did: 216, all distinct', () => {
+    expect(generated.length, 'an axis was added or dropped — change this number deliberately').toBe(216)
+    expect(new Set(generated.map((form) => form.name)).size, 'two generated forms share a name').toBe(216)
   })
 
-  test('no disagreement the register does not already name', async () => {
-    const disagreed: string[] = []
+  test('no disagreement the register does not already name, pointing the way it says', async () => {
+    const found: string[] = []
+    const detail: string[] = []
     for (const form of generated) {
       const parser = await parserReads(form.name)
       const reads = markerIn(form.html)
       if (agreesWith(parser, reads)) continue
-      disagreed.push(`${form.name}\n    browser ${JSON.stringify(parser)}, reader ${JSON.stringify(reads)}`)
+      // The direction travels WITH the name, so a hole that turns from
+      // fail-safe into "answers our own name" cannot stay green under an entry
+      // that describes it as harmless.
+      found.push(`${form.name} [${directionOf(reads)}]`)
+      detail.push(
+        `${form.name} [${directionOf(reads)}]\n    browser ${JSON.stringify(parser)}, reader ${JSON.stringify(reads)}`,
+      )
     }
 
     // Equality in both directions: an unnamed disagreement is a new finding,
     // and a named one that has closed is a marker to take off.
-    expect(disagreed.map((line) => line.split('\n')[0]!).sort(), `\n${disagreed.join('\n  ') || '(none)'}\n`).toEqual(
-      Object.keys(KNOWN_HOLES).sort(),
+    expect(found.sort(), `\n${detail.join('\n  ') || '(none)'}\n`).toEqual(
+      Object.entries(KNOWN_HOLES)
+        .map(([name, hole]) => `${name} [${hole.direction}]`)
+        .sort(),
     )
   }, 120_000)
 })

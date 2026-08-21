@@ -341,12 +341,25 @@ export const forms: Form[] = [
 /*
   THE GENERATOR.
 
-  The table above poses what its author thought of. This poses the cross product
-  of the axes the PARSER actually has, and the difference is not academic: 15
-  shapes nobody had written down found a live regression in half a minute
-  (LOCAL-WI-KENNUNG-SCHRAEGSTRICH-IM-WERT — the tag's `/` eaten by an unquoted
-  value). Without it the suite certifies the reader to the width of whoever
-  wrote it, and in six products that happens six times.
+  The table above poses what its author thought of. This poses more, and the
+  difference is not academic: 15 shapes nobody had written down found a live
+  regression in half a minute (LOCAL-WI-KENNUNG-SCHRAEGSTRICH-IM-WERT — the
+  tag's `/` eaten by an unquoted value). Without it the suite certifies the
+  reader to the width of whoever wrote it, and in six products that happens six
+  times.
+
+  WHAT IS CLAIMED, EXACTLY: the SIX axes named below are posed, each one crossed
+  with both halves (beside the real marker and alone), and every disagreement
+  they produce is named in KNOWN_HOLES with the finding it belongs to.
+
+  WHAT IS NOT CLAIMED: that these are the axes the parser has. That sentence
+  stood here and was wrong — the sixth axis below is one WatchKit had and this
+  generator did not, and the shape it poses passes the gate under this product's
+  own name (LOCAL-WI-KENNUNG-GENERATOR-OHNE-KOMMENTARACHSE). It was the fourth
+  completeness claim in this file to break in one day. A count of blind spots is
+  a claim about what nobody has looked for yet; that is not measurable, so it is
+  not asserted here (BEFUND-PROSA-NEBEN-CODE, rule 3). An axis is added by
+  measuring a shape the corpus does not pose — not by widening a sentence.
 
   NOTHING HERE IS TRANSCRIBED. A generated form carries no recorded `browser`
   and no recorded `reads`; the browser suite holds only the PROPERTY against a
@@ -420,6 +433,47 @@ const WRAPPINGS = [
   { id: 'empty-comment-three', around: (tag: string) => `<!--->${tag}` },
   { id: 'unclosed-comment', around: (tag: string) => `<!-- unclosed\n    ${tag}` },
   { id: 'nested-open', around: (tag: string) => `<!-- an <!-- inside -->${tag}` },
+]
+
+/*
+  THE SIXTH AXIS: comment syntax INSIDE the tag — in the attribute VALUE and in
+  the attribute NAME. WRAPPINGS above only ever puts a comment AROUND the whole
+  element, which is the harmless half of this class.
+
+  A comment cannot begin inside a tag: to the parser `<!--` in an attribute
+  value is four ordinary characters. A reader that strips comment syntax out of
+  the RAW BYTES does not know that, and the two halves of the mistake point in
+  opposite directions:
+
+    content="Wiki<!--Other-->Kit"  parser ["Wiki<!--Other-->Kit"]  reader "WikiKit"
+
+  is the DANGEROUS one — the reader answers THIS product's name for a document
+  that does not carry it, the caller's assert passes and the run measures on.
+  This is the axis WatchKit had and this file did not
+  (LOCAL-WI-KENNUNG-GENERATOR-OHNE-KOMMENTARACHSE); the root is the same one
+  LOCAL-WI-KENNUNG-ROHTEXT names — withoutComments() decides what a comment is
+  without knowing where the parser would see one.
+
+  The value is built from PRODUCT itself, split in half, so the sharp form
+  spells this repository's own name once the bytes are stripped.
+*/
+const OWN_HEAD = PRODUCT.slice(0, Math.ceil(PRODUCT.length / 2))
+const OWN_TAIL = PRODUCT.slice(OWN_HEAD.length)
+
+const IN_TAG: { id: string; name?: string; value: string }[] = [
+  /* Stripped, the foreign value IS this product's name. */
+  { id: 'own-name-split', value: `${OWN_HEAD}<!--Other-->${OWN_TAIL}` },
+  /* The same with the `--!>` ending the parser also accepts for a comment. */
+  { id: 'own-name-split-bang', value: `${OWN_HEAD}<!--Other--!>${OWN_TAIL}` },
+  /* An unclosed opener: a byte-level stripper cuts the document from here, so
+     everything BEHIND it disappears — and a plant sits behind the real marker. */
+  { id: 'unclosed-in-value', value: 'OtherProduct<!--x' },
+  { id: 'whole-comment-in-value', value: 'Other<!--x-->Product' },
+  { id: 'closer-in-value', value: 'Other-->Product' },
+  { id: 'empty-comment-in-value', value: 'Other<!-->Product' },
+  /* And the same syntax in the attribute NAME, where stripping INVENTS the
+     identity name out of one the parser never read. */
+  { id: 'comment-in-name', name: 'cockpit-<!--x-->product', value: 'OtherProduct' },
 ]
 
 /*
@@ -507,6 +561,18 @@ export function fuzzForms(): Generated[] {
   // LOOKS like one.
   for (const wrapping of WRAPPINGS)
     for (const placing of PLACINGS) add(`comment/${wrapping.id}`, wrapping.around(element({ ...BASE })), placing)
+
+  // The in-tag cross: comment syntax where no comment can begin. Quoting is
+  // crossed because it decides where the value ends — unquoted, a `>` inside
+  // `-->` closes the tag instead.
+  for (const shape of IN_TAG)
+    for (const quoting of QUOTINGS)
+      for (const placing of PLACINGS)
+        add(
+          `in-tag/${shape.id}/${quoting.id}`,
+          element({ ...BASE, name: shape.name ?? BASE.name, value: shape.value, quoting }),
+          placing,
+        )
 
   return out
 }
