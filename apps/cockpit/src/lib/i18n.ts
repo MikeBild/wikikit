@@ -724,6 +724,24 @@ export const DE_PHRASES = {
   After: 'Danach',
   'An identical proposal was rejected before': 'Ein identischer Vorschlag wurde bereits abgelehnt',
   'Attention could not be loaded': 'Die Aufgaben konnten nicht geladen werden',
+  // The error surface's whole vocabulary (lib/failure.ts, components/confirm.logic.ts).
+  // These titles are composed outside JSX, so the .tsx phrase probe never saw
+  // them and every refusal banner read English on a German console.
+  'This request was not understood': 'Diese Anfrage wurde nicht verstanden',
+  'Not signed in': 'Nicht angemeldet',
+  'Not permitted': 'Nicht erlaubt',
+  'There is nothing here': 'Hier ist nichts',
+  'Not available here': 'Hier nicht verfügbar',
+  'This has already moved on': 'Das ist inzwischen weitergelaufen',
+  'This is gone': 'Das gibt es nicht mehr',
+  'Nothing is bound for this yet': 'Dafür ist noch nichts eingerichtet',
+  'This cannot be loaded': 'Das lässt sich nicht laden',
+  'Could not load this': 'Konnte nicht geladen werden',
+  'Could not load this — trying again': 'Konnte nicht geladen werden — neuer Versuch läuft',
+  'The request failed and no message came back.': 'Die Anfrage ist fehlgeschlagen, und es kam keine Meldung zurück.',
+  'The server refused': 'Der Server hat abgelehnt',
+  'The request failed and the server gave no reason.':
+    'Die Anfrage ist fehlgeschlagen, und der Server hat keinen Grund genannt.',
   Before: 'Davor',
   'Check this wiki': 'Dieses Wiki prüfen',
   'Check:': 'Prüfung:',

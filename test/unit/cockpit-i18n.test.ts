@@ -19,6 +19,8 @@ import {
   resolveLocale,
   type LocaleEnvironment,
 } from '../../apps/cockpit/src/lib/locale-store'
+import { describeFailure } from '../../apps/cockpit/src/lib/failure'
+import { describeFailure as describeRefusal } from '../../apps/cockpit/src/components/confirm.logic'
 
 const PRESENTATION_PROPS = new Set([
   'aria-label',
@@ -164,6 +166,41 @@ describe('the typed English and German Cockpit catalogs', () => {
         }),
     )
     expect([...missing].sort()).toEqual([])
+  })
+
+  /*
+    The error surface composes its words outside JSX, so the phrase probe above
+    never saw them: every refusal banner read English on a German console.
+
+    EVERY status from 400 to 599 rather than a list of the ones lib/failure.ts
+    happens to name. A hand-kept copy of that module's private map is a second
+    source: the first version of this test listed nine statuses, and the fallback
+    title for a 4xx the map does NOT name — 402, 418, 423, 451 — was therefore
+    never produced, so it sat in the catalog untested. A whole sweep costs
+    nothing and cannot drift when a status is added.
+  */
+  test('translates every phrase the error surface can produce', () => {
+    const phrases = new Set<string>()
+    for (let status = 400; status < 600; status++) {
+      for (const retrying of [false, true]) {
+        phrases.add(describeFailure({ status, message: 'x', actions: [], retrying }).title)
+      }
+    }
+    // A request that never got an answer at all, and one with no message: the
+    // two fallbacks, which no status can reach.
+    phrases.add(describeFailure({ status: null, message: '', actions: [] }).title)
+    phrases.add(describeFailure({ status: null, message: '', actions: [] }).message)
+    for (const error of [new Error(''), Object.assign(new Error('x'), { status: 403 })]) {
+      const refusal = describeRefusal(error)
+      phrases.add(refusal.title)
+      phrases.add(refusal.message)
+    }
+    phrases.delete('x')
+    // The count is asserted so that a phrase quietly disappearing from the
+    // surface fails here rather than shrinking the sweep in silence.
+    expect(phrases.size).toBe(14)
+    const untranslated = [...phrases].filter((phrase) => translateText('de', phrase) === phrase)
+    expect(untranslated.sort()).toEqual([])
   })
 
   test('keeps German copy neutral and prevents page-local locale branches', () => {
