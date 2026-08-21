@@ -64,55 +64,8 @@ visible series; they are never drawn as zero cost.
 
 ## Decision grammar
 
-Verbatim copy of §8 of the cockpit convention (`COCKPIT-KONVENTION.md` in the repo root; its header line says which version). It stands here because this product's decisions page is measured against it; the yardstick has one source and no diverging copies (§13). One single deviation, and it is visible rather than silent: no sibling product is named under `apps/` — `test/unit/no-prod-references.test.ts` keeps this surface free of the other products' names. It touches two places: the sentence naming the reference implementation in §8, and the measurements in §8.5b, where the family text attributes a queue size to each of three products. Both keep the rule and drop the names. The wording with names is in the repo root.
+The decisions page is measured against **§8 of [`COCKPIT-KONVENTION.md`](../../COCKPIT-KONVENTION.md) in the repo root**. That is the wording, and there is no second one; the yardstick has one source and no copies (§13). Which version it is stands in that file's header line, and `scripts/konvention-check.mjs` reads it from there.
 
-The quoted paragraphs below stay in German: they are the family text verbatim, and the cockpit's surface is German by §5.
+Until 2026-08-21 those paragraphs stood here a second time, paraphrased. They had to be: `test/unit/no-prod-references.test.ts` keeps sibling product names out of `apps/`, so the copy blanked them — and §8 opens by naming the reference implementation the pattern is copied from, while §8.5b rests on three queue sizes attributed to three named products. Anonymised to "one / a second / a third", those numbers can no longer be re-measured. That is exactly how the wrong one was found: somebody went to the named product and measured, which is why a correction block sits under §8.5b at all. The copy kept the lesson — a number nobody re-measures does not get truer by being distributed — and removed what makes re-measuring possible.
 
-### 8. Entscheidungs-Grammatik
-
-Jedes Produkt, das menschliche Entscheidungen sammelt (Freigaben, Reviews, Budget-Gates, Proposals), hat **eine** Entscheidungs-Seite. Sie beantwortet die drei Fragen in dieser Reihenfolge: Was passiert? Braucht es mich? Was tue ich dann? Die Referenz-Implementierung stellt ein Schwester-Produkt der Familie; jedes Produkt kopiert das Muster in eigene Komponenten (kein Import).
-
-**8.1 Navigation.** Der Eintrag steht ungruppiert direkt unter der Übersicht und trägt einen Live-Zähler (offene Positionen, dedupliziert). Der Zähler kippt auf rot, sobald eine Position abgelaufen ist oder ein Health-Problem enthalten ist. Produktname des Eintrags einheitlich: „Entscheidungen".
-
-**8.2 Queue.** Eine Spalte, max-w ~780 px. Default-Sortierung: ablaufend zuerst, dann älteste zuerst. Positionen älter als 3 Tage stehen in einer eigenen Rubrik „Liegt schon länger". Filter-Chips nach Art, Gruppieren-Umschalter (Keine / Art / Verursacher), Persistenz lokal.
-
-**8.3 Zeile.** Meta-Zeile (Status-Glyph + Art-Badge · Quell-Referenz als Link · Frist „Entscheiden bis …" wo vorhanden, mit Herkunft) → Titel (line-clamp-2, nie UUID) → Wirkung in einer Zeile → Quellzeile. Aktionen rechts unten: Buttons benennen die Handlung („Freigeben", „Ablehnen", „Änderung anfordern" — nie „OK"). Ablehnung klappt ein Notizfeld in der Zeile auf. Entscheidung verlässt die Seite nie; Optimistic-Hide + Toast, Fehler bringt die Zeile zurück. ⋯-Menü: Später erinnern (Presets + eigener Zeitpunkt) · Dauerhaft verwerfen (mit Bestätigung; wenn endgültig, sagt die UI das) · Quelle öffnen.
-
-**Drei Arten von Nein.** Wo das Produkt sie kennt, unterscheidet die Zeile: Ablehnung **mit** Begründung (schickt zurück ans Nacharbeiten) · Ablehnung **ohne** Begründung (beendet) · **Verwerfen** (folgenlos — als „folgenlos" beschriftet). Eine unbeantwortete Frist verfällt sichtbar als „verfallen (nicht entschieden)", nie stillschweigend. Ein wiederholter identischer Vorschlag zeigt die frühere Ablehnung samt Begründung — die Oberfläche bohrt nicht nach, bis der Mensch ja sagt. Wo Auftraggeber und Freigeber getrennte Rollen sind, zeigt die Zeile, wer entscheiden darf; die eigene Beauftragung ist markiert.
-
-**8.4 Aufklappen.** Zeilen mit mehr Kontext tragen unten links einen benannten Toggle („Mehr anzeigen"), nie einen nackten Chevron. Aufgeklappt: volle Begründung, Rohdaten der Quelle, ggf. Formular für strukturierte Rückfragen. Die Entscheidungs-Buttons wandern ins Panel (kollabiert Kompakt-Form, expandiert Voll-Form).
-
-**8.5 Zustand und Geschichte sind getrennte Flächen.** Die Entscheidungs-Seite zeigt ausschließlich, was auf den Menschen wartet. Zurückgestellt, Verworfen und Entschieden sind Vergangenheit: Erledigtes verlässt die Queue — es wird nicht gedimmt, nicht durchgestrichen, nicht in eigene Sektionen unter der Queue gestellt und nicht über Zustands-Chips wieder hereingeholt. Ein Umschalter, der die Queue auf einen vergangenen Zustand stellt, ist ein Konventionsbruch; Filter auf der Queue filtern die **Art**, nie den Zustand. Die vollständige Geschichte wohnt im Audit-/Aktivitätsprotokoll (append, nie gekürzt) und ist von der Entscheidungs-Seite über **genau einen** Verweis erreichbar — ein Satz mit Link, keine Zähler-Kacheln. Wo die Vergangenheit dort nur als Maschinenwert ankommt, gehören Benennung und Filter ins Protokoll, nicht die Sektionen zurück in die Queue.
-
-**8.5a Zähler-Kacheln.** Für **Offenes** erwünscht — wenn sie Entscheidungen nach **Kategorie**
-aufschlüsseln und dadurch Übersicht schaffen, statt eine Summe zu wiederholen. Jede Kachel führt
-auf die gefilterte Liste. Für **Erledigtes** gibt es keine. _(Mike, 21.08.2026.)_
-
-**8.5b Die Zahl selbst ist eine Design-Frage.** Eine Entscheidungs-Seite, die einem Menschen
-Hunderte Positionen vorlegt, hat ihre Aufgabe verfehlt, egal wie gut sie gegliedert ist.
-Gemessen am 21.08.2026 an den Schwester-Produkten: eines legt **359 Positionen** vor, weil Doku-
-und Drift-Befunde als Entscheidungen zählen; ein zweites zeigt **15 gleichartige Budget-Sperren
-einzeln**; ein drittes lässt **jede Korrektur-Karte einer Gruppe einzeln** entscheiden, und bei
-ihm trugen die wartenden Unterhaltungen **weder Freigeben noch Ablehnen** — folgenlose
-Positionen in einer Entscheidungs-Queue.
-
-Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
-**was gleichartig ist, wird zu einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
-
-> **Korrektur, 21.08. 18:40.** Oben stand, bei jenem dritten Produkt seien **32 von 35**
-> Positionen wartende Unterhaltungen. Die 32 stammen aus dem **Prüfstand-Mock**, der den
-> Statusfilter ignorierte; auf PROD liefert derselbe Aufruf `total=1`. Gefunden vom Verifier
-> jenes Produkts, nachdem der Satz bereits byte-gleich in sechs Repos stand. **Eine Zahl, die
-> niemand nachmisst, wird durch Verteilung nicht wahrer.**
->
-> **Zweite Korrektur, 21.08. 19:20.** Der erste Korrekturblock stand _vor_ dem Regelsatz, und
-> Markdowns lazy continuation zog ihn mit hinein — die Regel las sich in allen sechs Repos als
-> Teil einer historischen Fußnote. Gefunden vom Verifier der Konventionsrunde, der die Datei
-> durch einen Markdown-Renderer geschickt hat statt sie zu lesen. **Auch eine Korrektur kann
-> beschädigen, was sie korrigiert.**
-
-**8.6 Leere.** Nie etwas offen: grüner Check, „Alles erledigt" + „Gerade wartet keine Entscheidung auf dich." Nur weggefiltert: eigene, kompaktere Meldung mit Hinweis auf die Filter. Beide getrennt testbar (§4 gilt).
-
-**8.7 Incident-Banner.** Die Übersicht zeigt oberhalb aller Kacheln einen nicht schließbaren roten Banner, sobald ein Budget-/Health-Gate offen oder eine Frist gerissen ist — mit konkreten Zahlen und Link auf die Entscheidungs-Seite. Ein Dashboard, das bei offenen Gates Ruhe meldet, ist ein Konventionsbruch.
-
-**8.8 Produkt-Spezifisch bleibt:** die Arten (Kinds) und ihre Badges, die Resolver-Formulare, die Quell-Referenzen. Familienweit sind Struktur, Sprache, Sortierung, die Trennung von Zustand und Geschichte, Leere-Zustände und der Banner-Vertrag.
+The root file is outside that test's scope and names the products; nothing here needs to be held in sync with it any more.

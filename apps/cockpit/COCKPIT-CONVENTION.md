@@ -6,7 +6,7 @@ Until 2026-08-20 a second copy of the same fourteen paragraphs, rewritten for Wi
 
 The WikiKit-specific readings the copy carried additionally now live where they belong:
 
-- **[`UI-UX.md`](UI-UX.md)** — how this cockpit implements the convention, including the wording of §8 the decisions page is measured against.
+- **[`UI-UX.md`](UI-UX.md)** — how this cockpit implements the convention. It carries no convention text of its own: it quoted §8 in full until 2026-08-21 and now points at the root file for it, so there is no second copy under `apps/` in any form.
 - **[`../../UEBERGABE.md`](../../UEBERGABE.md)** — the acceptance criteria this implementation is signed off against.
 - **`scripts/konvention-check.mjs`** — the paragraphs checked against the rendered surface, with fixtures and without a database.
 
