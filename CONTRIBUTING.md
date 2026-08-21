@@ -56,7 +56,7 @@ bun run typecheck         # tsc --noEmit (strict)
 bun test                  # unit + contract — no external services
 bun run test:integration  # real PostgreSQL via Docker    (RUN_INTEGRATION=1)
 bun run test:e2e          # real AI SDK → stub endpoint    (RUN_INTEGRATION=1)
-bun run konvention:check  # COCKPIT-KONVENTION.md gegen das eigene Cockpit (Playwright)
+bun run konvention:check  # COCKPIT-KONVENTION.md against this cockpit (Playwright)
 bun run bench             # deterministic benchmarks — reports, never gates
 bun run build:binary      # compile + self-verify dist/wikikit
 ```

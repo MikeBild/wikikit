@@ -1,13 +1,13 @@
-# Cockpit-Konvention
+# Cockpit convention
 
-Der Maßstab für dieses Cockpit ist **[`COCKPIT-KONVENTION.md`](../../COCKPIT-KONVENTION.md) im Repo-Root**. Welche Fassung das ist, steht in ihrer Kopfzeile und sonst nirgends im Repo — `scripts/konvention-check.mjs` liest sie von dort und nennt sie in jedem Bericht. Eine Nummer an dieser Stelle wäre eine zweite Quelle, die nur veralten kann.
+The yardstick for this cockpit is **[`COCKPIT-KONVENTION.md`](../../COCKPIT-KONVENTION.md) in the repo root**. Which version that is stands in its header line and nowhere else in the repo — `scripts/konvention-check.mjs` reads it from there and names it in every report. A number in this file would be a second source that can only go stale.
 
-Hier lag bis 20.08.2026 eine zweite, für WikiKit umgeschriebene Fassung derselben vierzehn Paragrafen. Sie ist ersatzlos entfallen: §13 sagt, der Maßstab hat eine Quelle und keine Kopien — und zwei Fassungen im selben Repo sind genau die Lage, in der eine Prüfung sagen kann, gegen welche sie lief, ohne dass jemand weiß, welche gemeint war. Eine geänderte Regel hätte an zwei Stellen nachgezogen werden müssen; die zweite wäre die gewesen, die es nicht wird.
+Until 2026-08-20 a second copy of the same fourteen paragraphs, rewritten for WikiKit, lived here. It is gone without replacement: §13 says the yardstick has one source and no copies, and two versions in one repo are exactly the situation in which a check can say which one it ran against without anybody knowing which one was meant.
 
-Was die Kopie zusätzlich enthielt, waren WikiKit-Auslegungen einzelner Absätze. Die stehen jetzt dort, wo sie hingehören:
+The WikiKit-specific readings the copy carried additionally now live where they belong:
 
-- **[`UI-UX.md`](UI-UX.md)** — wie dieses Cockpit die Konvention umsetzt, inklusive des Wortlauts von §8, an dem die Entscheidungs-Seite gemessen wird.
-- **[`../../UEBERGABE.md`](../../UEBERGABE.md)** — die Akzeptanzkriterien, gegen die diese Umsetzung abgenommen wird.
-- **`scripts/konvention-check.mjs`** — die Paragrafen, die gegen die gerenderte Oberfläche geprüft werden, mit Fixtures und ohne Datenbank.
+- **[`UI-UX.md`](UI-UX.md)** — how this cockpit implements the convention, including the wording of §8 the decisions page is measured against.
+- **[`../../UEBERGABE.md`](../../UEBERGABE.md)** — the acceptance criteria this implementation is signed off against.
+- **`scripts/konvention-check.mjs`** — the paragraphs checked against the rendered surface, with fixtures and without a database.
 
-Die Root-Kopie ist in allen sechs Produkten dieselbe Datei und wird deshalb nicht umformatiert (siehe `.prettierignore`); eine Änderung an ihr ist ein Vorgang in sechs Repos — bewusst teuer, damit sie selten ist.
+The root copy is the same file in all six products and is therefore not reformatted (see `.prettierignore`); changing it is an operation in six repos — deliberately expensive, so that it stays rare.

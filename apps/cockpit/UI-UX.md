@@ -62,9 +62,11 @@ series. It renders locally with the cockpit's own token palette and no external
 assets, inline scripts or remote styles. Unknown prices remain a separate
 visible series; they are never drawn as zero cost.
 
-## Entscheidungs-Grammatik
+## Decision grammar
 
-Wortgleiche Kopie von §8 der Cockpit-Konvention (`COCKPIT-KONVENTION.md` im Repo-Root; welche Fassung, sagt deren Kopfzeile). Sie steht hier, weil die Entscheidungs-Seite dieses Produkts an ihr gemessen wird; der Maßstab hat eine Quelle und keine abweichenden Kopien (§13). Eine einzige Abweichung, und sie ist sichtbar statt still: der Name des Schwester-Produkts, das die Referenz-Implementierung stellt, steht unter `apps/` nirgends — `test/unit/no-prod-references.test.ts` hält diese Fläche frei von Namen der übrigen Produkte. Der Wortlaut mit Namen steht im Repo-Root.
+Verbatim copy of §8 of the cockpit convention (`COCKPIT-KONVENTION.md` in the repo root; its header line says which version). It stands here because this product's decisions page is measured against it; the yardstick has one source and no diverging copies (§13). One single deviation, and it is visible rather than silent: the name of the sibling product providing the reference implementation appears nowhere under `apps/` — `test/unit/no-prod-references.test.ts` keeps this surface free of the other products' names. The wording with names is in the repo root.
+
+The quoted paragraphs below stay in German: they are the family text verbatim, and the cockpit's surface is German by §5.
 
 ### 8. Entscheidungs-Grammatik
 
