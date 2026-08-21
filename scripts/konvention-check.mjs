@@ -72,6 +72,69 @@ import { NAV } from '../apps/cockpit/src/app/nav.ts'
 // function rather than two that look alike.
 import { IDENTITY_META, markerIn } from './kennung.ts'
 
+// The console's own word list, so §8.5 measures the product's vocabulary and
+// not the vocabulary of whoever wrote the check. See SETTLED below.
+import { CATALOGS, DE_PHRASES } from '../apps/cockpit/src/lib/i18n.ts'
+
+/*
+  THE WORDS FOR WORK THAT IS OVER — derived, never typed out here.
+
+  §8.5 says the decisions page shows the PRESENT: one sentence with a link to
+  the audit trail, no counter tiles (§8.5a allows tiles only for OPEN work, by
+  category). To hold a page to that, the check has to know which words name
+  something finished — and the moment that list is hand-written it becomes the
+  very defect this rule was written for. Measured across the family on
+  21.08.2026: CodeKit's rule was blind because it knew one SELECTOR, WorkKit's
+  because it knew one ALPHABET — it read the rendered text of the whole page and
+  still let "Entschieden 128 · Verworfen 12 · …" through, since it only carried
+  the four phrases of its own fixture.
+
+  So both halves are read from the product:
+
+    - the STATES from src/domain/attention.ts, the single place the union is
+      declared. Everything that is not "open" is over. Rename a state there and
+      this list follows; add one and the check says so rather than staying
+      quiet.
+    - the WORDS from apps/cockpit/src/lib/i18n.ts, the catalog the console
+      actually prints from — the whole `audit.outcome.*` axis (the catalog's own
+      declaration of "how it ended"), plus the German rendering of each settled
+      state's own name.
+
+  A state the catalog has no German label for cannot be looked for. That is
+  reported as a GAP rather than passed over in silence (§12) — today "deferred"
+  is such a state: the shelves that used to say "Zurückgestellt" went with §8.5
+  itself, and no label took their place.
+*/
+const SETTLED = (() => {
+  const source = readFileSync(new URL('../src/domain/attention.ts', import.meta.url), 'utf8')
+  const union = /export type AttentionState =([^\n]+)/.exec(source)
+  if (!union) throw new Error('AttentionState is no longer declared as one union in src/domain/attention.ts')
+  const states = [...union[1].matchAll(/'([a-z_]+)'/g)].map((match) => match[1]).filter((state) => state !== 'open')
+
+  const catalog = CATALOGS.de
+  // The audit trail's whole outcome axis. Values carrying a placeholder are
+  // templates ("Fassung {rev}"), not labels.
+  const outcomes = Object.entries(catalog)
+    .filter(([key, value]) => key.startsWith('audit.outcome.') && !value.includes('{'))
+    .map(([key, value]) => ({ word: value, from: key }))
+
+  // Each settled state's own name, as the console renders it.
+  const named = states.map((state) => {
+    const entry = Object.entries(DE_PHRASES).find(([english]) => english.toLowerCase() === state)
+    return { state, word: entry ? entry[1] : null, from: entry ? `DE_PHRASES.${entry[0]}` : null }
+  })
+
+  const words = new Map()
+  for (const { word, from } of outcomes) if (!words.has(word)) words.set(word, from)
+  for (const { word, from } of named) if (word && !words.has(word)) words.set(word, from)
+
+  return {
+    states,
+    words,
+    speechless: named.filter((entry) => !entry.word).map((entry) => entry.state),
+  }
+})()
+
 /*
   The version of the yardstick, READ rather than asserted.
 
@@ -1120,6 +1183,26 @@ const QUEUE_PROBE = `(() => {
   }
 })()`
 
+/*
+  The whole page as a reader sees it — one string, no selector.
+
+  Every other probe in this file starts by naming an element, and that name is
+  the hole: the three §8.5 shapes below each bite, each on its own, and both
+  counter-checks of 21.08.2026 still walked through, because a fourth shape is
+  always one line of TSX away. This probe knows nothing about the shape. If the
+  finished work is legible on the page, it is in here.
+
+  `innerText` and not `textContent`: it is the rendered text, so it skips what
+  the reader cannot see — `display:none`, `hidden`, a collapsed subtree. That is
+  the right measure and the reason `expandDisclosures` has to run FIRST; on its
+  own this probe would be as blind to a shut Collapsible as the three shapes
+  were.
+*/
+const PAGE_TEXT_PROBE = `(() => {
+  const body = document.body
+  return (body ? body.innerText || body.textContent || '' : '').replace(/\\s+/g, ' ').trim()
+})()`
+
 // The four places the console prints the number of open decisions. Read from
 // ONE probe so the comparison is of one instant rather than of four.
 const NUMBERS_PROBE = `(() => {
@@ -1648,8 +1731,8 @@ async function main() {
       design question). §0 and the rewritten §1 Zone C are likewise unmeasured —
       the console already follows both, but nothing here holds it to them.
 
-      THREE MEASUREMENTS, because the defect has three shapes and each of them
-      is reachable on its own:
+      FOUR MEASUREMENTS. Three of them name a shape, because each shape is
+      reachable on its own:
 
         - a chip or tab that offers a finished state at all;
         - a rendered position that IS in a finished state;
@@ -1658,25 +1741,57 @@ async function main() {
       Counter-checked by rendering a decided position on the page (one line in
       decisions.tsx): the run goes red on the second of the three, which is the
       one no counter and no chip would have caught.
+
+      THE THREE WERE NOT ENOUGH, and the reason is worth keeping. On 21.08.2026
+      two counter-checks were built and BOTH walked through:
+
+        1 · a shut Collapsible under the queue, heading and card inside its
+            `CollapsibleContent`;
+        2 · a plain visible line — "Entschieden 128 · Verworfen 12 · Für später
+            erinnert 4 · Abgelaufen 3" — no badge, no heading, no `data-state`.
+
+      Case 1 got through because nothing here opened anything: React does not
+      render a shut `CollapsibleContent`, so all three shapes were reading a DOM
+      the defect had left. Move the same heading into the TRIGGER and the run
+      goes red — same rule, same word, one element moved. `expandDisclosures`
+      now runs before the read, and the page is re-probed afterwards.
+
+      Case 2 needs no trick at all: it just stands there. It carries none of the
+      three shapes, and a fifth and sixth shape would be one line of TSX away.
+      So the FOURTH measurement names no shape — it holds the finished words
+      against the rendered text of the whole page. That is what §8.5 actually
+      forbids ("ein Satz mit Link, keine Zähler-Kacheln"; §8.5a allows tiles
+      only for OPEN work by category), and it is the one handle that keeps
+      biting when somebody invents a shape nobody here thought of.
+
+      Same hole, three products, three different causes — CodeKit read only
+      `[data-slot="badge"]`, WatchKit matched the fixture position's TITLE, and
+      a shut `<details>` serves neither. See
+      cockpit-parity/BEFUND-WAECHTER-KENNT-NUR-EINE-GESTALT.md.
     */
     const FINISHED_HEADINGS = ['Zurückgestellt', 'Verworfen', 'Entschieden']
-    if (queue.list) {
-      if (queue.stateChips.length) {
+
+    const disclosures = await expandDisclosures(page)
+    const queueOpen = await page.evaluate(QUEUE_PROBE)
+    const decisionsText = await page.evaluate(PAGE_TEXT_PROBE)
+
+    if (queueOpen.list) {
+      if (queueOpen.stateChips.length) {
         note(
           '§8.5',
           'Decisions page › state selector',
-          `offers ${queue.stateChips.join(', ')} — the queue is what waits, not a place to browse what is finished`,
+          `offers ${queueOpen.stateChips.join(', ')} — the queue is what waits, not a place to browse what is finished`,
         )
       }
-      const finished = (queue.states ?? []).filter((state) => state !== 'open')
+      const finished = (queueOpen.states ?? []).filter((state) => state !== 'open')
       if (finished.length) {
         note(
           '§8.5',
           'Decisions queue › finished positions',
-          `${finished.length} of ${queue.states.length} cards carry data-state ${[...new Set(finished)].map((state) => `"${state ?? '(none)'}"`).join(', ')} instead of "open"`,
+          `${finished.length} of ${queueOpen.states.length} cards carry data-state ${[...new Set(finished)].map((state) => `"${state ?? '(none)'}"`).join(', ')} instead of "open"`,
         )
       }
-      const shelfHeading = (queue.headings ?? []).find((heading) =>
+      const shelfHeading = (queueOpen.headings ?? []).find((heading) =>
         FINISHED_HEADINGS.some((word) => heading === word || heading.startsWith(`${word} `)),
       )
       if (shelfHeading) {
@@ -1684,11 +1799,48 @@ async function main() {
       }
       // The guard against a vacuous pass: with nothing rendered, all three
       // assertions above are true and say nothing (§12).
-      if (queue.states.length === 0) {
+      if (queueOpen.states.length === 0) {
         notChecked.add(
           'the decisions queue rendered no position, so "nothing finished stands here" was not put to the question',
         )
       }
+    }
+
+    /*
+      ---- and the one that knows no shape --------------------------------
+
+      Case-sensitive, and that is the whole difference between a LABEL and
+      PROSE. "Verworfen 12" is a tile; a sentence that happens to contain the
+      same word in the middle of it is not. WatchKit's first draft matched
+      case-insensitively and went red on the title of its own finding.
+    */
+    const spoken = [...SETTLED.words.keys()].filter((word) => decisionsText.includes(word))
+    if (spoken.length) {
+      const at = decisionsText.indexOf(spoken[0])
+      note(
+        '§8.5',
+        'Decisions page › rendered text',
+        `says ${spoken.map((word) => `"${word}" (${SETTLED.words.get(word)})`).join(', ')} — ` +
+          `"…${decisionsText.slice(Math.max(0, at - 40), at + 80)}…" ` +
+          `(${disclosures.opened} folded element(s) opened first in ${disclosures.rounds} round(s), ${disclosures.stillShut} left shut)`,
+      )
+    }
+    // A page that rendered nothing would pass the line above without being
+    // asked anything at all (§12).
+    if (decisionsText.length < 200) {
+      notChecked.add(
+        `the decisions page rendered ${decisionsText.length} characters of text, too little for "no finished work is legible here" to mean anything`,
+      )
+    }
+    // A state the catalog has no German label for cannot be looked for at all.
+    // That is the REACH of this rule, not a missing precondition of this run, so
+    // it is printed by report() on every path — green or red — rather than
+    // failing a run that measured everything it can measure. Carried as an open
+    // finding, not as a silence.
+    if (disclosures.stillShut) {
+      notChecked.add(
+        `${disclosures.stillShut} element(s) on the decisions page stayed folded after ${disclosures.rounds} round(s) of opening, so their content was not read`,
+      )
     }
 
     /*
@@ -2035,6 +2187,93 @@ async function open(page, url) {
 }
 
 /**
+ * Open everything on the page that is shut, then wait for it to mount.
+ *
+ * WHY THIS EXISTS. On 21.08.2026 the same counter-check was run against three
+ * cockpits and walked through all three: a Radix `Collapsible`, shut, with the
+ * heading AND the card inside its `CollapsibleContent`. WikiKit's §8.5 rule
+ * measured three separate shapes at that point and every one of them bites —
+ * but the sharpest measurement of the day was this pair:
+ *
+ *     heading in the TRIGGER  (mounted)   → red
+ *     heading in the CONTENT  (collapsed) → green
+ *
+ * Same rule, same word, one element moved. React never renders a shut
+ * `CollapsibleContent`, so there is no attribute to read, no heading to find
+ * and no text to match — the check was not lenient, it was looking at a DOM the
+ * defect had left. `grep -c aria-expanded` in this file was 0.
+ *
+ * More shapes do not help while none of them sees the hidden subtree. This does
+ * the one thing that does: it makes the subtree exist before anything reads.
+ *
+ * WHAT IT LEAVES ALONE. `[aria-haspopup]` — menus, dialogs, comboboxes,
+ * popovers. Those mount into a portal ON TOP of the page rather than inline
+ * within it, so they are not a place finished work can quietly SIT; clicking
+ * them would instead lay an overlay over everything the next click needs. The
+ * ⋯ menu on every queue card is exactly that.
+ *
+ * `<details>` carries no `aria-expanded` at all — WatchKit's counter-check used
+ * one — so it is opened by attribute rather than by click.
+ */
+async function expandDisclosures(page) {
+  /*
+    SENT INTO THE DOCUMENT, not driven from outside, and in ROUNDS.
+
+    The first version of this walked the shut set with Playwright locators, one
+    click per round trip, and it was wrong twice over. Wrong in FACT: a locator
+    is a QUERY, not a node — it re-runs its selector on every call, so marking
+    through one and then clicking through it touched two DIFFERENT elements. The
+    shut set went 9 → 7 → 5 → 3 → 1, two per pass, half of them marked and never
+    clicked, and the last trigger on the page — the one the counter-check hung
+    on — was never reached. Wrong in COST: WatchKit measured the same shape at
+    150 s of a 180 s budget, one route left unmeasured; sent into the document it
+    took 27,8 s.
+
+    Rounds, because opening one disclosure can reveal another inside it.
+  */
+  const ROUND = `(() => {
+    // Bounded to the page container: the sidebar's nav groups are chrome, and
+    // toggling them measures nothing about §8.5.
+    const root = document.querySelector('[data-testid="page"]') || document.body
+    // <details> carries no aria-expanded at all — WatchKit's counter-check used
+    // one — so it opens by attribute rather than by click.
+    const shutDetails = [...root.querySelectorAll('details:not([open])')]
+    shutDetails.forEach((element) => element.setAttribute('open', ''))
+    /*
+      [aria-haspopup] is left alone on purpose: menus, dialogs, comboboxes and
+      popovers mount into a portal ON TOP of the page rather than inline within
+      it, so they are not a place finished work can quietly sit — and clicking
+      them lays an overlay over everything the next read needs. The ⋯ menu on
+      every queue card is exactly that.
+    */
+    const triggers = [...root.querySelectorAll('[aria-expanded="false"]:not([aria-haspopup])')]
+    triggers.forEach((element) => element.click())
+    return { details: shutDetails.length, clicked: triggers.length }
+  })()`
+
+  let details = 0
+  let clicked = 0
+  let rounds = 0
+  for (; rounds < 6; rounds += 1) {
+    const round = await page.evaluate(ROUND)
+    details += round.details
+    clicked += round.clicked
+    if (round.details === 0 && round.clicked === 0) break
+    await page.waitForTimeout(200)
+  }
+
+  // The content opened last still has to render, and anything it fetches still
+  // has to arrive.
+  await page.waitForTimeout(600)
+  const stillShut = await page.evaluate(`(() => {
+    const root = document.querySelector('[data-testid="page"]') || document.body
+    return root.querySelectorAll('details:not([open]), [aria-expanded="false"]:not([aria-haspopup])').length
+  })()`)
+
+  return { clicked, details, rounds, stillShut, opened: clicked + details }
+}
+
+/**
  * The dev server, started for this run and killed with it.
  *
  * Vite serves the console straight from source, so the check needs no build
@@ -2361,6 +2600,26 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ta
     `› checked the cockpit at ${base} against ${CONVENTION_FILE} ${CONVENTION_VERSION} (fixtures, no database)`,
   )
   console.log(`› route sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(none)'}`)
+  /*
+    The reach of §8.5's fourth measurement, said out loud on EVERY run.
+
+    The words are derived (see SETTLED), so this line changes when the product's
+    vocabulary changes — and a settled state the catalog has no German label for
+    is a hole in exactly the shape this rule was rewritten to close. It is
+    printed rather than made fatal because it is a property of the catalog, not
+    a precondition this run failed to meet.
+  */
+  console.log(
+    `› §8.5 vocabulary for finished work, derived from AttentionState and the German catalog (${SETTLED.words.size}): ` +
+      [...SETTLED.words.keys()].map((word) => `"${word}"`).join(', '),
+  )
+  if (SETTLED.speechless.length) {
+    console.log(
+      `\x1b[33m! reach\x1b[0m — the catalog holds no German label for the settled state(s) ` +
+        `${SETTLED.speechless.map((state) => `"${state}"`).join(', ')}: a counter tile using such a word ` +
+        'would not be read as finished work (LOCAL-WI-WAECHTER-EINE-GESTALT)',
+    )
+  }
   // Said out loud, on EVERY path through this function, and before the verdict.
   // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
   // route that passed — and a run that mentions it only when something else is
@@ -2398,7 +2657,10 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ta
     console.log('   freedom from duplicates, wiki chips without counter effect, Zone-A anatomy,')
     console.log('   Zone-A rows duplicate-free and matching their head,')
     console.log('   queue positions rendered held against the number, not against each other,')
-    console.log('   the decisions page free of finished positions (state selector, card state, section heading),')
+    console.log('   the decisions page free of finished positions (state selector, card state, section heading,')
+    console.log('     and the DERIVED finished words held against the rendered text of the whole page,')
+    console.log('     case-sensitively, every folded element opened first — a folded subtree is not rendered,')
+    console.log('     so no selector can reach it; the words come from the product, see the reach line above),')
     console.log('   German surface without backend passthrough, wordmark, browser title on every route,')
     console.log('   wordmark icon (spelling from the computed text-transform, not from innerText),')
     console.log(
