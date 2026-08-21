@@ -13,8 +13,8 @@
 // Parsing the YAML here turns "the deploy broke three weeks later" into a red
 // unit test on the PR that caused it.
 import { describe, expect, test } from 'bun:test'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { parse } from 'yaml'
 import { LOCAL_CONTAINER, LOCAL_DATABASE_URL } from '../../scripts/start-local.ts'
 
@@ -160,11 +160,86 @@ describe('ci.yml', () => {
     (BEFUND-GATE-IST-NICHT-CI — a check that exists and that nobody runs).
 
     Derived and not listed, so the requirement travels with the suite: each job's
-    commands are resolved through package.json, the test directories they name
-    are read for a playwright import, and any job that runs one must carry the
-    install step. Copying the identity suite into a sibling product then cannot
-    silently skip the wiring step.
+    commands are resolved through package.json, the paths they name are read, and
+    every file REACHABLE FROM THEM by relative import is searched for a browser
+    dependency. Any job that reaches one must carry the install step.
+
+    WHY THE IMPORT CHAIN AND NOT ONE DIRECTORY. The first version of this test
+    read only the named directories, only `.ts`, only `from 'playwright'` in
+    single quotes. Measured, one planted Playwright suite each in test/e2e (a job
+    with no install step), 14 pass / 0 fail instead of red every time: an import
+    through test/helpers/, `await import('playwright')`, and `playwright-core`
+    (LOCAL-WI-CI-BROWSERABLEITUNG-BLIND). The first of those is not hypothetical
+    — it is the shape of WatchKit's `openHarness()`, the family pattern proposed
+    for adoption this round, which bundles the browser entry into a helper file.
+    A check and a build style that contradict each other is the check's problem:
+    this one moved.
   */
+
+  /**
+   * A module specifier in any spelling TypeScript allows — static `from`,
+   * side-effect `import`, dynamic `import()`, `require()`. Anything else is a
+   * mention, not a dependency.
+   */
+  const SPECIFIER = /(?:\bfrom|\bimport|\brequire)\s*\(?\s*['"]([^'"]+)['"]/g
+
+  /**
+   * Comments come off first, because a mention is not a dependency. Measured:
+   * without this the scan puts THIS file on the list — it discusses
+   * `import('playwright')` in the prose above — and demands a browser for the
+   * `test` job, 13 pass / 1 fail. The strip is crude (it would also cut at a
+   * `//` inside a string), which is safe here for one measured reason: with it
+   * in place the scan still finds both real users, and the last assert of the
+   * test is what says so.
+   */
+  const withoutComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+
+  /** The packages that put a browser on the machine. `-core` ships the API without one. */
+  const BROWSER_PACKAGES = new Set(['playwright', 'playwright-core', 'puppeteer', 'puppeteer-core'])
+
+  /** Relative specifiers are written with their extension here, but resolve both ways. */
+  function resolveRelative(fromFile: string, specifier: string): string | undefined {
+    const base = join(fromFile, '..', specifier)
+    for (const candidate of [base, `${base}.ts`, `${base}.mjs`, join(base, 'index.ts')]) {
+      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+    }
+    return undefined
+  }
+
+  /**
+   * The first browser dependency reachable from `entry`, as "file -> package",
+   * or undefined. Depth-first over relative imports, so a helper two files away
+   * is found — that is the whole point.
+   */
+  function browserDependency(entry: string, seen = new Set<string>()): string | undefined {
+    if (seen.has(entry)) return undefined
+    seen.add(entry)
+    const source = withoutComments(readFileSync(entry, 'utf8'))
+    const specifiers = [...source.matchAll(SPECIFIER)].map((match) => match[1]!)
+    const direct = specifiers.find((specifier) => BROWSER_PACKAGES.has(specifier))
+    if (direct) return `${relative(root, entry)} -> ${direct}`
+    for (const specifier of specifiers) {
+      if (!specifier.startsWith('.')) continue
+      const next = resolveRelative(entry, specifier)
+      if (!next) continue
+      const found = browserDependency(next, seen)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  /** Every file a `bun test test/x scripts/y.ts` style command puts in play. */
+  function entryFiles(command: string): string[] {
+    const named = [...command.matchAll(/\b(?:test|scripts)\/[A-Za-z0-9._/-]+/g)].map((match) => join(root, match[0]))
+    return named.flatMap((path) => {
+      if (!existsSync(path)) return []
+      if (statSync(path).isFile()) return [path]
+      return readdirSync(path, { recursive: true })
+        .map((file) => join(path, String(file)))
+        .filter((file) => statSync(file).isFile() && /\.(ts|mjs|js)$/.test(file))
+    })
+  }
+
   test('every job whose suites drive a browser installs one', () => {
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
     const resolve = (command: string) =>
@@ -173,26 +248,23 @@ describe('ci.yml', () => {
     let scanned = 0
     for (const [name, entry] of Object.entries(ci.jobs)) {
       const commands = runs(entry).map(resolve)
-      const directories = new Set(commands.flatMap((c) => [...c.matchAll(/\btest\/[a-z0-9-]+/g)].map((m) => m[0])))
-      const users = [...directories].flatMap((directory) =>
-        readdirSync(join(root, directory), { recursive: true })
-          .map(String)
-          .filter((file) => file.endsWith('.ts'))
-          .filter((file) => /from '(?:node:)?playwright'/.test(readFileSync(join(root, directory, file), 'utf8')))
-          .map((file) => `${directory}/${file}`),
-      )
+      const users = [...new Set(commands.flatMap(entryFiles))]
+        .map((file) => browserDependency(file))
+        .filter((found): found is string => found !== undefined)
       if (users.length === 0) continue
       scanned += 1
       const install = commands.find((command) => /\bplaywright install\b.*\bchromium\b/.test(command))
-      expect(install, `job '${name}' runs ${users.join(', ')} but installs no browser`).toBeDefined()
+      expect(install, `job '${name}' reaches ${[...new Set(users)].join(', ')} but installs no browser`).toBeDefined()
       // A bare ubuntu-latest does not ship Chromium's system libraries.
       expect(install ?? '', `job '${name}' installs a browser without its system libraries`).toContain('--with-deps')
     }
 
-    // The `konvention` job launches its browser from scripts/, not from a suite,
-    // so it is invisible to this scan by design. If NOTHING is found the scan
-    // proved nothing — a suite renamed out of reach must not read as a pass.
-    expect(scanned, 'no job was found to drive a browser: this scan is measuring nothing').toBeGreaterThan(0)
+    // Both browser-driving jobs must be SEEN, not merely not-failed: a suite
+    // renamed out of reach, or an import chain this walk cannot follow, would
+    // otherwise read as a pass. `integration` reaches it through a suite,
+    // `konvention` through scripts/konvention-check.mjs — a dynamic import in a
+    // .mjs file, which the previous version of this scan could not see at all.
+    expect(scanned, 'a job stopped being seen, or a new one appeared — change this number deliberately').toBe(2)
   })
 
   test('integration tests are explicitly opted in via RUN_INTEGRATION=1', () => {
