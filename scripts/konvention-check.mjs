@@ -537,6 +537,151 @@ const PROPOSAL_DETAIL = {
 
 const PROPOSAL_LINT = { findings: [], counts: { error: 0, warn: 0, info: 0 } }
 
+/*
+  ── The four records the audit trail is assembled from ───────────────────────
+
+  WikiKit has no audit endpoint, and the trail does not pretend otherwise: it
+  reads reviewed proposals, finished ingest runs, page revisions and the
+  guidelines' version history, and lays them on one axis. So there are four
+  fixtures rather than one, and they are the reason this route is measured as a
+  PAGE rather than as an empty state — the contract fallback would have answered
+  four empty lists, the trail would have rendered its "nothing recorded yet"
+  branch, and the sweep would have been measuring a placeholder.
+
+  They serve /inbox, /pages and /charter as well, which until now also read the
+  fallback's empty lists. That widening is deliberate: three more surfaces are
+  measured against §5, §2 and §8.3 with rows in them rather than without.
+
+  Every visible string is German and free of identifiers, because a fixture that
+  smuggled English or a UUID in here would be testing itself. The `id` fields
+  ARE real UUIDs — the trail must not print them, and a fixture keyed on
+  "vorschlag-1" would let a page that printed them pass.
+*/
+const AUDIT_PROPOSALS = {
+  items: [
+    {
+      id: '44444444-4444-4444-8444-000000000001',
+      status: 'approved',
+      title: 'Rückgaberecht: Frist auf 14 Tage festschreiben',
+      summary: 'Zwei Absätze aus dem Support-Handbuch.',
+      created_at: daysAgo(12),
+      reviewer: 'mike@mikebild.com',
+      review_channel: 'rest',
+      reviewed_at: daysAgo(11),
+      changes_requested: false,
+      parent_proposal_id: null,
+    },
+    {
+      id: '44444444-4444-4444-8444-000000000002',
+      status: 'rejected',
+      title: 'Telefonnummer des Supports ändern',
+      summary: 'Die Quelle war nicht mehr aktuell.',
+      created_at: daysAgo(9),
+      reviewer: 'mike@mikebild.com',
+      review_channel: 'mcp_elicitation',
+      reviewed_at: daysAgo(8),
+      changes_requested: false,
+      parent_proposal_id: null,
+    },
+    // Sent back for rework, and the server leaves it `pending` with a flag. The
+    // trail has to file it under "Änderung angefordert" rather than dropping it
+    // with the other pending rows — this row is what proves it does.
+    {
+      id: '44444444-4444-4444-8444-000000000003',
+      status: 'pending',
+      title: 'Eskalationsweg für Zahlungsausfälle beschreiben',
+      summary: 'Der Weg von der ersten Mahnung bis zur Sperrung.',
+      created_at: daysAgo(6),
+      reviewer: 'mike@mikebild.com',
+      review_channel: 'rest',
+      reviewed_at: daysAgo(5),
+      changes_requested: true,
+      parent_proposal_id: null,
+    },
+    // Still waiting on a person, and therefore NOT in the trail: it is the
+    // decisions queue's row. Without it the "only what is finished" rule would
+    // be asserted against a fixture that has nothing unfinished in it.
+    {
+      id: '44444444-4444-4444-8444-000000000004',
+      status: 'pending',
+      title: 'Urlaubsantrag: Vertretungsregel ergänzen',
+      summary: 'Ein Absatz zur Vertretung.',
+      created_at: daysAgo(1),
+      reviewer: null,
+      review_channel: null,
+      reviewed_at: null,
+      changes_requested: false,
+      parent_proposal_id: null,
+    },
+  ],
+}
+
+const AUDIT_INGESTS = {
+  items: [
+    {
+      ingest_id: '55555555-5555-4555-8555-000000000001',
+      status: 'done',
+      proposal_id: '44444444-4444-4444-8444-000000000001',
+      source_id: SOURCE_ID,
+      error: null,
+      title: 'Support-Handbuch 2026',
+      excerpt: null,
+      phase: null,
+      progress: null,
+      created_at: daysAgo(12),
+      started_at: daysAgo(12),
+      heartbeat_at: null,
+      finished_at: daysAgo(12),
+    },
+    {
+      ingest_id: '55555555-5555-4555-8555-000000000002',
+      status: 'failed',
+      proposal_id: null,
+      source_id: null,
+      error: { code: 'extract_failed', message: 'Das Dokument war nicht lesbar.' },
+      title: 'Betriebsvereinbarung (Entwurf)',
+      excerpt: null,
+      phase: null,
+      progress: null,
+      created_at: daysAgo(7),
+      started_at: daysAgo(7),
+      heartbeat_at: null,
+      finished_at: daysAgo(7),
+    },
+  ],
+  next_cursor: null,
+}
+
+const AUDIT_CONCEPTS = {
+  items: [
+    {
+      slug: CONCEPT_SLUG,
+      title: 'Rückgaberecht',
+      summary: 'Kundinnen und Kunden können die Ware 14 Tage lang zurückgeben.',
+      rev: 3,
+      updated_at: daysAgo(2),
+      evidence: { claims: 4, uncited_claims: 0, sources: 2 },
+    },
+    {
+      slug: 'versandkosten',
+      title: 'Versandkosten',
+      summary: 'Ab 50 Euro Warenwert entfällt der Versand.',
+      rev: 1,
+      updated_at: daysAgo(20),
+      evidence: { claims: 2, uncited_claims: 0, sources: 1 },
+    },
+  ],
+  next_after: null,
+  epoch: 1,
+}
+
+const AUDIT_CHARTER = {
+  items: [
+    { rev: 2, status: 'current', created_by: 'mike@mikebild.com', created_at: daysAgo(30) },
+    { rev: 1, status: 'superseded', created_by: null, created_at: daysAgo(120) },
+  ],
+}
+
 /** Every detail read this run models, keyed by the exact pathname. */
 function detailReads() {
   const reads = new Map([
@@ -552,6 +697,12 @@ function detailReads() {
     reads.set(`${prefix}/sources/${SOURCE_ID}`, SOURCE_DETAIL)
     reads.set(`${prefix}/sources/${SOURCE_ID}/references`, SOURCE_REFERENCES)
     reads.set(`${prefix}/decisions/${DECISION_SLUG}`, DECISION_DETAIL)
+    // The audit trail's four reads. Keyed by pathname, so the query string the
+    // page appends (`?limit=200`) does not have to be modelled.
+    reads.set(`${prefix}/proposals`, AUDIT_PROPOSALS)
+    reads.set(`${prefix}/ingests`, AUDIT_INGESTS)
+    reads.set(`${prefix}/concepts`, AUDIT_CONCEPTS)
+    reads.set(`${prefix}/charter/versions`, AUDIT_CHARTER)
   }
   return reads
 }
@@ -951,6 +1102,19 @@ const QUEUE_PROBE = `(() => {
       (card) => card.getAttribute('data-space') + ':' + card.getAttribute('data-decision-key'),
     ),
     chips: [...document.querySelectorAll('[data-testid^="decisions-space-"]')].map((chip) =>
+      chip.getAttribute('data-testid'),
+    ),
+    /*
+      What state every rendered position is in, and whether the page offers a
+      way to look at any other one.
+
+      Both are read from the DOM rather than assumed from the fixture: the rule
+      below is about what a reader can SEE on this page, and a queue that
+      rendered a decided position under an open counter would satisfy every
+      number-against-number assert in this file.
+    */
+    states: [...list.querySelectorAll('[data-decision-key]')].map((card) => card.getAttribute('data-state')),
+    stateChips: [...document.querySelectorAll('[data-testid^="decisions-state-"]')].map((chip) =>
       chip.getAttribute('data-testid'),
     ),
   }
@@ -1459,6 +1623,69 @@ async function main() {
       )
     }
     collectSurface(note, 'Decisions', decisionsSurface)
+
+    /*
+      ---- The decisions page shows the PRESENT ----------------------------
+
+      §8.5 as it now reads. The rule this replaces asked for the opposite: three
+      collapsible shelves under the queue — "Zurückgestellt", "Verworfen",
+      "Entschieden" — each with a restore action. WikiKit implemented them as
+      four tabs over a second, per-wiki endpoint, and that is what came out: the
+      cockpit shows the present, the audit trail holds the past, and because the
+      past is complete THERE it is not re-served anywhere else. A second,
+      shorter history beside a complete one is not redundancy — it is a place
+      where a reader can be told a different past, with nothing on screen saying
+      which of the two they are reading.
+
+      NOTE ON THE YARDSTICK: the copy of the convention in this repo is v1.5 and
+      still carries the shelves. The family text is being pulled to v1.6 in all
+      six repositories at once (the copy is deliberately expensive to change,
+      §7) — so for one round this check is AHEAD of the document beside it, and
+      says so here rather than reporting under a paragraph number that would
+      look like it was quoting. The decision is dated 21.08.2026.
+
+      THREE MEASUREMENTS, because the defect has three shapes and each of them
+      is reachable on its own:
+
+        - a chip or tab that offers a finished state at all;
+        - a rendered position that IS in a finished state;
+        - a section heading that names one.
+
+      Counter-checked by rendering a decided position on the page (one line in
+      decisions.tsx): the run goes red on the second of the three, which is the
+      one no counter and no chip would have caught.
+    */
+    const FINISHED_HEADINGS = ['Zurückgestellt', 'Verworfen', 'Entschieden']
+    if (queue.list) {
+      if (queue.stateChips.length) {
+        note(
+          '§8.5',
+          'Decisions page › state selector',
+          `offers ${queue.stateChips.join(', ')} — the queue is what waits, not a place to browse what is finished`,
+        )
+      }
+      const finished = (queue.states ?? []).filter((state) => state !== 'open')
+      if (finished.length) {
+        note(
+          '§8.5',
+          'Decisions queue › finished positions',
+          `${finished.length} of ${queue.states.length} cards carry data-state ${[...new Set(finished)].map((state) => `"${state ?? '(none)'}"`).join(', ')} instead of "open"`,
+        )
+      }
+      const shelfHeading = (queue.headings ?? []).find((heading) =>
+        FINISHED_HEADINGS.some((word) => heading === word || heading.startsWith(`${word} `)),
+      )
+      if (shelfHeading) {
+        note('§8.5', 'Decisions queue › section', `a section headed "${shelfHeading}" — that is the audit trail's job`)
+      }
+      // The guard against a vacuous pass: with nothing rendered, all three
+      // assertions above are true and say nothing (§12).
+      if (queue.states.length === 0) {
+        notChecked.add(
+          'the decisions queue rendered no position, so "nothing finished stands here" was not put to the question',
+        )
+      }
+    }
 
     /*
       Four surfaces, ONE number (§8.1/§1).
@@ -2167,6 +2394,7 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ta
     console.log('   freedom from duplicates, wiki chips without counter effect, Zone-A anatomy,')
     console.log('   Zone-A rows duplicate-free and matching their head,')
     console.log('   queue positions rendered held against the number, not against each other,')
+    console.log('   the decisions page free of finished positions (state selector, card state, section heading),')
     console.log('   German surface without backend passthrough, wordmark, browser title on every route,')
     console.log('   wordmark icon (spelling from the computed text-transform, not from innerText),')
     console.log(
