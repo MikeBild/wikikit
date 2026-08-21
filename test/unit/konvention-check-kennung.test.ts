@@ -119,43 +119,60 @@ describe('the identity reader, measured against documents', () => {
     this product's name — never in a foreign name. `null` is the fail-safe
     answer: the caller turns it into "not measured" (exit 2), not into a name.
   */
-  const forms: [string, string][] = [
+  const plant = {
+    upper: `<META NAME="${IDENTITY_META}" CONTENT="OtherProduct" />`,
+    quoted: `<meta name='${IDENTITY_META}' content='OtherProduct' />`,
+    swapped: `<meta content="OtherProduct" name="${IDENTITY_META}" />`,
+    bangClosed: `<!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`,
+  }
+
+  /** name · document · the construct that has to STAND in it. */
+  const forms: [string, string, string][] = [
     [
       'a "-->" string inside the comment',
       shell.replace('Die Konvention macht', 'Ein "-->" hier. Die Konvention macht'),
+      'Ein "-->" hier.',
     ],
-    ['an empty <!--> comment before a live foreign marker', withEmptyComment()],
-    ['a nested <!-- inside the comment', shell.replace('Die Konvention macht', 'Ein <!-- hier. Die Konvention macht')],
-    ['an example in UPPERCASE attributes', withExample(withoutMarker()).replace('name=', 'NAME=')],
+    ['an empty <!--> comment before a live foreign marker', withEmptyComment(), EMPTY_COMMENT_PLANT],
     [
-      'an example in single quotes',
-      withoutMarker().replace(
-        HEAD_ANCHOR,
-        `<meta name='${IDENTITY_META}' content='OtherProduct' />\n    ${HEAD_ANCHOR}`,
-      ),
+      'a nested <!-- inside the comment',
+      shell.replace('Die Konvention macht', 'Ein <!-- hier. Die Konvention macht'),
+      'Ein <!-- hier.',
+    ],
+    [
+      'a live foreign marker in UPPERCASE attributes',
+      withoutMarker().replace(HEAD_ANCHOR, `${plant.upper}\n    ${HEAD_ANCHOR}`),
+      plant.upper,
+    ],
+    [
+      'a live foreign marker in single quotes',
+      withoutMarker().replace(HEAD_ANCHOR, `${plant.quoted}\n    ${HEAD_ANCHOR}`),
+      plant.quoted,
     ],
     [
       'content before name',
-      withoutMarker().replace(
-        HEAD_ANCHOR,
-        `<meta content="OtherProduct" name="${IDENTITY_META}" />\n    ${HEAD_ANCHOR}`,
-      ),
+      withoutMarker().replace(HEAD_ANCHOR, `${plant.swapped}\n    ${HEAD_ANCHOR}`),
+      plant.swapped,
     ],
-    [
-      'a comment closed with --!>',
-      shell.replace('<head>', `<head>\n    <!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`),
-    ],
+    ['a comment closed with --!>', shell.replace('<head>', `<head>\n    ${plant.bangClosed}`), plant.bangClosed],
     [
       'an unclosed comment before the real marker',
       shell.replace('<meta name="cockpit-product"', '<!-- unclosed\n    <meta name="cockpit-product"'),
+      '<!-- unclosed',
     ],
   ]
 
-  for (const [name, html] of forms) {
+  for (const [name, html, landed] of forms) {
     test(`${name} never yields a foreign name`, () => {
-      // The fixture has to have LANDED. A `.replace()` whose anchor moved leaves
-      // the document untouched and the case passes without ever being posed.
-      expect(html, `${name}: the fixture differs from the real document`).not.toBe(shell)
+      /*
+        The fixture has to have landed WHERE IT CLAIMS — held against the
+        planted construct, not against "the document differs from the real one".
+        The weaker form hid a fixture that never posed its case: `.replace(
+        'name=', 'NAME=')` without `g` hit `<meta NAME="viewport">`, the marker
+        stayed lower case and inside the comment, and the document differed for
+        two unrelated reasons (LOCAL-WI-KENNUNG-FIXTURE-DANEBEN).
+      */
+      expect(html, `${name}: the construct stands in the document`).toContain(landed)
       const read = markerIn(html)
       expect([PRODUCT, null], `${name} read as "${read}"`).toContain(read)
     })
