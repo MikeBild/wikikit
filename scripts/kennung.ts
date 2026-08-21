@@ -113,9 +113,27 @@ export function markerIn(html: string): string | null {
   second identity element is now COUNTED under any of these spellings, and two
   are an ambiguity.
 
-  The known limit: a NAMED character reference outside the five below is not
-  decoded, so `name="cockpit&hyphen;product"` would still be missed. Numeric
-  references — the general escape hatch — are decoded.
+  NUMERIC references — the general escape hatch, and what a foreign document
+  would reach for — are closed: decimal and hex, WITH the `;` and without it,
+  including the three results that are not the number itself (see decoded()).
+
+  THE KNOWN LIMIT IS THE NAMED REFERENCE, and it is narrower than 73d671e
+  claimed. NAMED holds six names and they are decoded only WITH their `;`. The
+  parser's table is far larger and it also accepts a legacy subset without one.
+  Measured at a live Chromium, both in the SAFE direction — the reader answers a
+  value the DOM does not carry, the assert sees a mismatch and the run ends at
+  exit 2, never under this product's name:
+
+    content="A&copy;B"   parser -> "A©B"   reader -> "A&copy;B"
+    content="A&amp B"    parser -> "A& B"  reader -> "A&amp B"
+
+  In an attribute NAME the same gap would be in the DANGEROUS direction: an
+  undecoded name is not counted, and an uncounted second marker is the whole
+  point of this class. Whether any name in the parser's table decodes to a
+  character `cockpit-product` is made of is NOT measured here — the limit is
+  named, not bounded (LOCAL-WI-KENNUNG-NAMENSREFERENZ, open). Both shapes above
+  stand in the form table as known holes, so the gap cannot close unnoticed and
+  the marker cannot outlive it.
 */
 function identitiesIn(html: string): (string | null)[] {
   const found: (string | null)[] = []
@@ -140,11 +158,39 @@ function identitiesIn(html: string): (string | null)[] {
   return found
 }
 
-/** `&#45;` and `&amp;` the way the parser reads them — in names and in values. */
+/*
+  A NUMERIC reference needs no `;`. The parser reports a parse error and decodes
+  anyway — which is how `name="cockpit&#45product"` reaches the DOM as
+  `cockpit-product` while a reader that insists on the semicolon sees a
+  different name, does not count the element, and answers confidently with the
+  one marker it did count (LOCAL-WI-KENNUNG-ZIFFERNREFERENZ-OHNE-SEMIKOLON).
+
+  A NAMED reference does need its `;` here — see the limit above. The two
+  branches are therefore separate alternatives and not one with an optional
+  tail: `&ampB` really is literal text in the DOM as well, because inside an
+  attribute value the parser declines a `;`-less name followed by a letter.
+*/
+const REFERENCE = /&#x([0-9a-f]+);?|&#([0-9]+);?|&([a-z]+);/gi
+
+/*
+  The parser's replacement table for 0x80-0x9F. Those numbers do not name the
+  C1 controls they look like but the Windows-1252 characters at that position —
+  `&#128;` is "€" in the DOM, and an unmapped reader puts an invisible U+0080
+  there instead. Index 0 is 0x80.
+*/
+const WINDOWS_1252 =
+  '20AC 0081 201A 0192 201E 2026 2020 2021 02C6 2030 0160 2039 0152 008D 017D 008F 0090 2018 2019 201C 201D 2022 2013 2014 02DC 2122 0161 203A 0153 009D 017E 0178'
+    .split(' ')
+    .map((hex) => parseInt(hex, 16))
+
+/** `&#45;`, `&#45` and `&amp;` the way the parser reads them — in names and in values. */
 function decoded(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, body: string) => {
-    if (!body.startsWith('#')) return NAMED[body.toLowerCase() as keyof typeof NAMED] ?? whole
-    const code = body[1]?.toLowerCase() === 'x' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10)
-    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+  return text.replace(REFERENCE, (whole: string, hex?: string, decimal?: string, named?: string) => {
+    if (named !== undefined) return NAMED[named.toLowerCase() as keyof typeof NAMED] ?? whole
+    const code = hex === undefined ? parseInt(decimal!, 10) : parseInt(hex, 16)
+    // Zero, past the last code point, and the surrogate range are the three the
+    // parser answers with U+FFFD rather than with the number.
+    if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return '\ufffd'
+    return String.fromCodePoint(code >= 0x80 && code <= 0x9f ? WINDOWS_1252[code - 0x80]! : code)
   })
 }

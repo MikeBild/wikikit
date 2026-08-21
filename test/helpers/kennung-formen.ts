@@ -56,6 +56,10 @@ const foreign = {
   twiceContent: `<meta name="${IDENTITY_META}" content="OtherProduct" content="${PRODUCT}" />`,
   commented: `<!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`,
   slashEaten: `<meta name=${IDENTITY_META} content=OtherProduct/>`,
+  entityNameNoSemi: `<meta name="cockpit&#45product" content="OtherProduct" />`,
+  entityValueNoSemi: `<meta name="${IDENTITY_META}" content="Other&#80roduct" />`,
+  namedRefValue: `<meta name="${IDENTITY_META}" content="Other&copy;Product" />`,
+  namedRefNoSemi: `<meta name="${IDENTITY_META}" content="Other&amp Product" />`,
 }
 
 /*
@@ -198,6 +202,13 @@ export const forms: Form[] = [
     browser: [PRODUCT, 'OtherProduct'],
   },
   {
+    name: 'a numeric reference WITHOUT its semicolon in the NAME, beside the real marker',
+    html: beside(foreign.entityNameNoSemi),
+    landed: foreign.entityNameNoSemi,
+    reads: null,
+    browser: [PRODUCT, 'OtherProduct'],
+  },
+  {
     name: 'an unquoted value that eats the tag slash, beside the real marker',
     html: beside(foreign.slashEaten),
     landed: foreign.slashEaten,
@@ -281,5 +292,48 @@ export const forms: Form[] = [
     landed: foreign.slashEaten,
     reads: 'OtherProduct/',
     browser: ['OtherProduct/'],
+  },
+  {
+    name: 'a numeric reference WITHOUT its semicolon in the NAME, no real marker',
+    html: alone(foreign.entityNameNoSemi),
+    landed: foreign.entityNameNoSemi,
+    reads: 'OtherProduct',
+    browser: ['OtherProduct'],
+  },
+  {
+    name: 'a numeric reference WITHOUT its semicolon in the VALUE, no real marker',
+    html: alone(foreign.entityValueNoSemi),
+    landed: foreign.entityValueNoSemi,
+    reads: 'OtherProduct',
+    browser: ['OtherProduct'],
+  },
+
+  /*
+    THE NAMED REFERENCE, the one part of the class that is NOT closed — and the
+    reason 73d671e's "closes the class rather than four members of it" was too
+    strong. The reader decodes six names, all of them only WITH their `;`; the
+    parser's table is far larger and accepts a legacy subset without one.
+
+    Both shapes are in the SAFE direction — the reader answers a value the DOM
+    does not carry, the assert sees a mismatch and the run ends at exit 2 rather
+    than under this product's name — so they stand here as KNOWN holes. The
+    integration test requires them to keep disagreeing, so the marker cannot
+    outlive the finding (LOCAL-WI-KENNUNG-NAMENSREFERENZ).
+  */
+  {
+    name: 'a named reference outside the six, no real marker',
+    html: alone(foreign.namedRefValue),
+    landed: foreign.namedRefValue,
+    reads: 'Other&copy;Product',
+    browser: ['Other©Product'],
+    known: 'LOCAL-WI-KENNUNG-NAMENSREFERENZ',
+  },
+  {
+    name: 'a legacy named reference WITHOUT its semicolon, no real marker',
+    html: alone(foreign.namedRefNoSemi),
+    landed: foreign.namedRefNoSemi,
+    reads: 'Other&amp Product',
+    browser: ['Other& Product'],
+    known: 'LOCAL-WI-KENNUNG-NAMENSREFERENZ',
   },
 ]
