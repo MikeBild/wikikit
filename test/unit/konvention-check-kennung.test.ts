@@ -179,6 +179,22 @@ describe('the identity reader, measured against documents', () => {
     `[PRODUCT, null]` above cannot see it, because the wrong answer here IS this
     product's name.
   */
+  /*
+    The other half of the same promise, and the one that does damage. Measured
+    at a live Chromium over real HTTP, the document below reads "OtherProduct":
+    the parser keeps the FIRST `content` and drops the second. A pattern with a
+    greedy prefix backtracks onto the LAST and answered "WikiKit" — a foreign
+    console handing this reader THIS product's name.
+
+    `[PRODUCT, null]` cannot see that one either.
+  */
+  test('two content= on one element are an ambiguity, not an identity', () => {
+    const plant = `<meta name="${IDENTITY_META}" content="OtherProduct" content="${PRODUCT}" />`
+    const html = withoutMarker().replace(HEAD_ANCHOR, `${plant}\n    ${HEAD_ANCHOR}`)
+    expect(html, 'the plant landed').toContain(plant)
+    expect(markerIn(html)).toBeNull()
+  })
+
   test('an empty <!--> comment does not hide a second marker', () => {
     const html = withEmptyComment()
     expect(html, 'the plant landed').toContain(EMPTY_COMMENT_PLANT)

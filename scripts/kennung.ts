@@ -12,7 +12,11 @@
 /** The attribute a cockpit document stamps its product on. */
 export const IDENTITY_META = 'cockpit-product'
 
-const MARKER = new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+)"`, 'g')
+/** A `<meta>` element carrying the identity attribute, and the rest of the tag. */
+const MARKER = new RegExp(`<meta[^>]*?\\sname="${IDENTITY_META}"([^>]*)>`, 'g')
+
+/** Every `content=` on that element — one is a value, two are an ambiguity. */
+const CONTENT = /\scontent="([^"]*)"/g
 
 /*
   A marker inside an HTML comment is an EXAMPLE and never an identity.
@@ -57,6 +61,28 @@ function withoutComments(html: string): string {
  * foreign name gets believed.
  */
 export function markerIn(html: string): string | null {
-  const found = [...withoutComments(html).matchAll(MARKER)]
-  return found.length === 1 ? (found[0]![1] ?? null) : null
+  const found = [...withoutComments(html).matchAll(MARKER)].map((meta) => valueOf(meta[1]!))
+  return found.length === 1 ? found[0]! : null
+}
+
+/*
+  The value of ONE identity element, or null when it does not carry exactly one.
+
+  Two `content=` on the same element is the dangerous half of this class. The
+  parser keeps the FIRST attribute and drops the second; a single pattern with a
+  greedy `[^>]+` in front of `content` backtracks onto the LAST. Measured at a
+  live Chromium over real HTTP (LOCAL-WI-KENNUNG-ZWEIMAL-CONTENT):
+
+    <meta name="cockpit-product" content="OtherProduct" content="WikiKit" />
+      parser -> "OtherProduct"
+      before -> "WikiKit"
+
+  A foreign console could hand this reader THIS product's name and be another
+  one in the browser. Neither guess is worth a name, so the answer is null.
+*/
+function valueOf(rest: string): string | null {
+  const contents = [...rest.matchAll(CONTENT)]
+  // An EMPTY `content=""` is counted as an attribute here — a second one next
+  // to it is still an ambiguity — but it is no name either.
+  return contents.length === 1 ? contents[0]![1]! || null : null
 }
