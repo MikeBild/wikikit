@@ -12,11 +12,14 @@
 /** The attribute a cockpit document stamps its product on. */
 export const IDENTITY_META = 'cockpit-product'
 
-/** A `<meta>` element carrying the identity attribute, and the rest of the tag. */
-const MARKER = new RegExp(`<meta[^>]*?\\sname="${IDENTITY_META}"([^>]*)>`, 'g')
+/** Every `<meta …>` element, with the inside of its tag. */
+const META = /<meta(\s[^>]*?)\/?>/gi
 
-/** Every `content=` on that element — one is a value, two are an ambiguity. */
-const CONTENT = /\scontent="([^"]*)"/g
+/** One attribute: its name, and its value in double, single or no quotes. */
+const ATTRIBUTE = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]*)))?/g
+
+/** The character references a value or an attribute NAME may be written with. */
+const NAMED = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' } as const
 
 /*
   A marker inside an HTML comment is an EXAMPLE and never an identity.
@@ -61,28 +64,69 @@ function withoutComments(html: string): string {
  * foreign name gets believed.
  */
 export function markerIn(html: string): string | null {
-  const found = [...withoutComments(html).matchAll(MARKER)].map((meta) => valueOf(meta[1]!))
+  const found = identitiesIn(withoutComments(html))
   return found.length === 1 ? found[0]! : null
 }
 
 /*
-  The value of ONE identity element, or null when it does not carry exactly one.
+  Every `<meta>` element the PARSER counts as the identity, and the value it
+  carries — null for one it cannot resolve.
 
-  Two `content=` on the same element is the dangerous half of this class. The
-  parser keeps the FIRST attribute and drops the second; a single pattern with a
-  greedy `[^>]+` in front of `content` backtracks onto the LAST. Measured at a
-  live Chromium over real HTTP (LOCAL-WI-KENNUNG-ZWEIMAL-CONTENT):
+  WHY THIS IS AN ATTRIBUTE READER AND NOT A PATTERN
 
-    <meta name="cockpit-product" content="OtherProduct" content="WikiKit" />
-      parser -> "OtherProduct"
-      before -> "WikiKit"
+  A pattern recognises one spelling. The parser accepts many, and every spelling
+  the pattern misses is a SECOND marker the reader does not see — so the count
+  stays at one and the reader answers confidently with THIS product's name while
+  the document also names another. That is the same class as the empty comment
+  (LOCAL-WI-KENNUNG-LEERKOMMENTAR), and four spellings sat in it. All measured
+  at a live Chromium over real HTTP, each planted BESIDE the real marker, parser
+  reading ["WikiKit", "OtherProduct"] every time:
 
-  A foreign console could hand this reader THIS product's name and be another
-  one in the browser. Neither guess is worth a name, so the answer is null.
+    <META NAME=… CONTENT=…>              reader -> "WikiKit"   attribute names are case-insensitive
+    <meta name='…' content='…'>          reader -> "WikiKit"   single quotes are quotes
+    <meta name="cockpit&#45;product" …>  reader -> "WikiKit"   references are decoded in the NAME too
+    <meta name=… content=…>              reader -> "WikiKit"   quotes are optional
+
+  The fixtures posed all four with NO real marker beside them, where they are
+  fail-safe, and so never asked the question that matters
+  (LOCAL-WI-KENNUNG-ZWEITER-MARKER-UNSICHTBAR).
+
+  Reading attributes instead closes the class rather than four members of it: a
+  second identity element is now COUNTED under any of these spellings, and two
+  are an ambiguity.
+
+  The known limit: a NAMED character reference outside the five below is not
+  decoded, so `name="cockpit&hyphen;product"` would still be missed. Numeric
+  references — the general escape hatch — are decoded.
 */
-function valueOf(rest: string): string | null {
-  const contents = [...rest.matchAll(CONTENT)]
-  // An EMPTY `content=""` is counted as an attribute here — a second one next
-  // to it is still an ambiguity — but it is no name either.
-  return contents.length === 1 ? contents[0]![1]! || null : null
+function identitiesIn(html: string): (string | null)[] {
+  const found: (string | null)[] = []
+  for (const tag of html.matchAll(META)) {
+    const value = new Map<string, string>()
+    const twice = new Set<string>()
+    for (const attribute of tag[1]!.matchAll(ATTRIBUTE)) {
+      // Attribute NAMES are case-insensitive and decoded; values are neither
+      // lower-cased (an identity is compared verbatim) nor left encoded.
+      const name = decoded(attribute[1]!).toLowerCase()
+      if (value.has(name)) twice.add(name)
+      else value.set(name, decoded(attribute[2] ?? attribute[3] ?? attribute[4] ?? ''))
+    }
+    // The parser keeps the FIRST attribute of a name and drops the repeat, a
+    // pattern with a greedy prefix reads the LAST. Neither guess is worth a
+    // name, so a repeat of either deciding attribute is an ambiguity
+    // (LOCAL-WI-KENNUNG-ZWEIMAL-CONTENT).
+    if (value.get('name') !== IDENTITY_META) continue
+    const content = value.get('content')
+    found.push(twice.has('name') || twice.has('content') || !content ? null : content)
+  }
+  return found
+}
+
+/** `&#45;` and `&amp;` the way the parser reads them — in names and in values. */
+function decoded(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (whole, body: string) => {
+    if (!body.startsWith('#')) return NAMED[body.toLowerCase() as keyof typeof NAMED] ?? whole
+    const code = body[1]?.toLowerCase() === 'x' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10)
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+  })
 }

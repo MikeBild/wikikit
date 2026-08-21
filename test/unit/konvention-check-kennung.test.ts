@@ -41,55 +41,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { IDENTITY_META, markerIn } from '../../scripts/kennung.ts'
+import { forms, HEAD_ANCHOR, PRODUCT, shell, withExample, withoutMarker } from '../helpers/kennung-formen.ts'
 
 const root = process.cwd()
 const source = readFileSync(join(root, 'scripts', 'konvention-check.mjs'), 'utf8')
-const shell = readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8')
-/*
-  The product's own spelling, taken from the marker itself rather than from
-  package.json: the package is called "wikikit" and the marker says "WikiKit",
-  and an identity is compared verbatim. That the two agree apart from case is a
-  separate assertion further down.
-*/
-const PRODUCT = new RegExp(`<meta name="${IDENTITY_META}" content="([^"]+)"`).exec(shell)![1]!
-
-/*
-  The anchor for a marker planted OUTSIDE any comment. Not `<title>`: the real
-  document mentions `<title>` in its prose ("Ausdrücklich NICHT der <title>"),
-  30 lines up and inside the comment — measured, a fixture anchored there plants
-  its marker into the comment and proves the opposite of what it claims.
-*/
-const HEAD_ANCHOR = '<title>WikiKit Cockpit</title>'
-
-/*
-  `<!-->` is an EMPTY comment, closed abruptly — not the start of one. The
-  parser ends it at that `>`, so the marker behind it is LIVE. Measured at a
-  live Chromium over HTTP this document reads ["OtherProduct", "WikiKit"]: two
-  live markers, an ambiguity.
-
-  The foreign marker has to be BEHIND the `<!-->` and ALIVE. The earlier fixture
-  put `<!-->` in front of the already commented prose, where a reader that
-  mistakes it for an opening swallows nothing that counts — and so posed
-  nothing (LOCAL-WI-KENNUNG-LEERKOMMENTAR).
-*/
-const EMPTY_COMMENT_PLANT = `<!--><meta name="${IDENTITY_META}" content="OtherProduct" />`
-const withEmptyComment = () => shell.replace('<head>', `<head>\n    ${EMPTY_COMMENT_PLANT}`)
-
-/** The one line that carries the identity in the real document. */
-const REAL = new RegExp(`^.*<meta name="${IDENTITY_META}" content="[^"]+" />.*$\\n`, 'm')
-
-/** The real document with its marker line taken out — prose and all. */
-const withoutMarker = () => {
-  expect(REAL.test(shell), 'the real marker line is findable').toBe(true)
-  return shell.replace(REAL, '')
-}
-
-/** An example marker, planted inside the real prose comment ABOVE the real one. */
-const withExample = (html: string) =>
-  html.replace(
-    'Die Konvention macht die DOM-Verankerungen',
-    `Zum Beispiel: <meta name="${IDENTITY_META}" content="OtherProduct" />\n      Die Konvention macht die DOM-Verankerungen`,
-  )
 
 describe('the identity reader, measured against documents', () => {
   test('the real document names this product', () => {
@@ -114,56 +69,16 @@ describe('the identity reader, measured against documents', () => {
   })
 
   /*
-    The shapes an HTML parser reads differently than a regex does. Every one of
-    them is measured on the REAL document, and every one must end in `null` or in
-    this product's name — never in a foreign name. `null` is the fail-safe
-    answer: the caller turns it into "not measured" (exit 2), not into a name.
+    Every shape from test/helpers/kennung-formen.ts, held EXACTLY. Not "a name
+    or null": the wrong answer in the dangerous half IS this product's name, so
+    a set the answer may fall into cannot see it.
+
+    That every `reads` is what a browser really reads is not asserted here — it
+    is measured in test/integration/kennung-am-browser.test.ts, against a live
+    Chromium over real HTTP, on the same table.
   */
-  const plant = {
-    upper: `<META NAME="${IDENTITY_META}" CONTENT="OtherProduct" />`,
-    quoted: `<meta name='${IDENTITY_META}' content='OtherProduct' />`,
-    swapped: `<meta content="OtherProduct" name="${IDENTITY_META}" />`,
-    bangClosed: `<!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`,
-  }
-
-  /** name · document · the construct that has to STAND in it. */
-  const forms: [string, string, string][] = [
-    [
-      'a "-->" string inside the comment',
-      shell.replace('Die Konvention macht', 'Ein "-->" hier. Die Konvention macht'),
-      'Ein "-->" hier.',
-    ],
-    ['an empty <!--> comment before a live foreign marker', withEmptyComment(), EMPTY_COMMENT_PLANT],
-    [
-      'a nested <!-- inside the comment',
-      shell.replace('Die Konvention macht', 'Ein <!-- hier. Die Konvention macht'),
-      'Ein <!-- hier.',
-    ],
-    [
-      'a live foreign marker in UPPERCASE attributes',
-      withoutMarker().replace(HEAD_ANCHOR, `${plant.upper}\n    ${HEAD_ANCHOR}`),
-      plant.upper,
-    ],
-    [
-      'a live foreign marker in single quotes',
-      withoutMarker().replace(HEAD_ANCHOR, `${plant.quoted}\n    ${HEAD_ANCHOR}`),
-      plant.quoted,
-    ],
-    [
-      'content before name',
-      withoutMarker().replace(HEAD_ANCHOR, `${plant.swapped}\n    ${HEAD_ANCHOR}`),
-      plant.swapped,
-    ],
-    ['a comment closed with --!>', shell.replace('<head>', `<head>\n    ${plant.bangClosed}`), plant.bangClosed],
-    [
-      'an unclosed comment before the real marker',
-      shell.replace('<meta name="cockpit-product"', '<!-- unclosed\n    <meta name="cockpit-product"'),
-      '<!-- unclosed',
-    ],
-  ]
-
-  for (const [name, html, landed] of forms) {
-    test(`${name} never yields a foreign name`, () => {
+  for (const { name, html, landed, reads } of forms) {
+    test(`${name}: the reader answers ${JSON.stringify(reads)}`, () => {
       /*
         The fixture has to have landed WHERE IT CLAIMS — held against the
         planted construct, not against "the document differs from the real one".
@@ -173,8 +88,7 @@ describe('the identity reader, measured against documents', () => {
         two unrelated reasons (LOCAL-WI-KENNUNG-FIXTURE-DANEBEN).
       */
       expect(html, `${name}: the construct stands in the document`).toContain(landed)
-      const read = markerIn(html)
-      expect([PRODUCT, null], `${name} read as "${read}"`).toContain(read)
+      expect(markerIn(html)).toBe(reads)
     })
   }
 
@@ -184,37 +98,6 @@ describe('the identity reader, measured against documents', () => {
       `<meta name="${IDENTITY_META}" content="OtherProduct" />\n    ${HEAD_ANCHOR}`,
     )
     expect(html, 'the second marker was planted').not.toBe(shell)
-    expect(markerIn(html)).toBeNull()
-  })
-
-  /*
-    Same promise, and the form in which the reader broke it: an empty `<!-->`
-    hides the second marker from a stripper that mistakes it for an opening.
-    Then the run measures on under THIS product's name against a document whose
-    first marker names another — the shape that cost CodeKit 156 s.
-
-    `[PRODUCT, null]` above cannot see it, because the wrong answer here IS this
-    product's name.
-  */
-  /*
-    The other half of the same promise, and the one that does damage. Measured
-    at a live Chromium over real HTTP, the document below reads "OtherProduct":
-    the parser keeps the FIRST `content` and drops the second. A pattern with a
-    greedy prefix backtracks onto the LAST and answered "WikiKit" — a foreign
-    console handing this reader THIS product's name.
-
-    `[PRODUCT, null]` cannot see that one either.
-  */
-  test('two content= on one element are an ambiguity, not an identity', () => {
-    const plant = `<meta name="${IDENTITY_META}" content="OtherProduct" content="${PRODUCT}" />`
-    const html = withoutMarker().replace(HEAD_ANCHOR, `${plant}\n    ${HEAD_ANCHOR}`)
-    expect(html, 'the plant landed').toContain(plant)
-    expect(markerIn(html)).toBeNull()
-  })
-
-  test('an empty <!--> comment does not hide a second marker', () => {
-    const html = withEmptyComment()
-    expect(html, 'the plant landed').toContain(EMPTY_COMMENT_PLANT)
     expect(markerIn(html)).toBeNull()
   })
 })
