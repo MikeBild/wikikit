@@ -1,6 +1,6 @@
 # Cockpit-Konvention
 
-Version 1.5 · 20.08.2026 · Gilt für: ContentKit, SubKit, WorkKit, WikiKit, CodeKit, WatchKit
+Version 1.6 · 21.08.2026 · Gilt für: ContentKit, SubKit, WorkKit, WikiKit, CodeKit, WatchKit
 
 **Modell: Konvention statt Bibliothek.** Jedes Produkt bleibt eigenständig — eigenes Repo, eigene shadcn-Komponenten (vendored, wie shadcn gedacht ist), eigene Releases, kein shared Package. Geteilt wird nur dieses Dokument. Eine Kopie liegt in jedem Repo; Abweichungen sind erlaubt, wo das Produkt es begründet — die Konvention ist der Default, nicht das Gesetz.
 
@@ -11,8 +11,31 @@ Referenz-Implementierung: der Zielbild-Prototyp (Artefakt „kit-cockpit-zielbil
 Änderungen v1.3: §6 um kanonische Gruppennamen ergänzt; Umsetzungs-Vehikel für §§2–6 ist die Übergabe „shell-paket" (ein gleichförmiger Konformitäts-PR je Repo).
 Änderungen v1.4: Endnutzer-Patterns aus den Produktivitäts-Leitfäden gehoben (Übergabe „endnutzer-pattern-adaption"): §5 Zusammenfassungszeile, §8.3 drei Arten von Nein, §8.5 Geschichte vs. Zustand, §11 Fähigkeits-Inventur, neu §12 Berichts-Grammatik, §13 Prüfen vor Reparieren, §14 Modus & Schranken.
 Änderungen v1.5: §6 um Wortmarke, kanonische Schreibweise des Produktnamens, Browser-Titel und App-Icon ergänzt — die Familie war an ihrer sichtbarsten Stelle uneinheitlich, ohne dass eine Regel es benannte.
+Änderungen v1.6: neuer §0 „Wofür das Cockpit da ist" (gilt vor allen anderen Paragrafen); §1 Zone C wird ein Verweis statt eines Ereignisstroms; neue §8.5a Zähler-Kacheln und §8.5b zur Zahl der Entscheidungen.
+Änderungen v1.6 (Fortsetzung): §8.5 neu gefasst — die Regale unter der Queue entfallen ersatzlos. Die Entscheidungs-Seite zeigt nur noch, was wartet; Zurückgestellt, Verworfen und Entschieden sind Vergangenheit und wohnen allein im Audit-Protokoll, erreichbar über genau einen Verweis. §8.8 nennt entsprechend die Trennung von Zustand und Geschichte statt der Regale.
 
 ---
+
+## 0. Wofür das Cockpit da ist
+
+**Entscheidung Mike, 21.08.2026 — gilt vor allen anderen Paragrafen.**
+
+Das Cockpit zeigt die **Gegenwart**: Nutzer und Workflow, Übersicht, Reporte, aktuelle Daten,
+und **Entscheidungen, die zu treffen sind**.
+
+**Die Vergangenheit gehört in den Audit-Trail.** Jedes Produkt hat dafür einen eigenen
+Bereich im Cockpit. Von dort ist sie vollständig zu holen — also muss sie nirgendwo sonst
+zweitverwertet werden.
+
+**Die Unterscheidung, die im Zweifel gilt:**
+
+- Eine **Eigenschaft eines aktuellen Dings** bleibt, wo das Ding ist. „Zuletzt verwendet" in
+  einer Schlüsselzeile beschreibt den Schlüssel, nicht die Geschichte.
+- Ein **Strom vergangener Ereignisse** gehört in den Audit-Trail. Keine zweite Fläche, keine
+  Zähler-Kachel, kein gedimmter Abschnitt unter einer Liste.
+
+Wer eine Fläche baut, beantwortet zuerst: **muss ein Mensch hier etwas tun oder etwas
+Aktuelles sehen?** Wenn nein, gehört sie nicht ins Cockpit, sondern in den Audit-Trail.
 
 ## 1. Startscreen-Vertrag
 
@@ -22,7 +45,7 @@ Der erste Screen jedes Cockpits hat drei Zonen, in dieser Reihenfolge:
 
 **Zone B — Kernobjekt-Hero.** Pro Produkt verschieden und dessen Identität: Release-Kette (ContentKit), Fehlergruppen (SubKit), Freigabe-Triage + Budgetampel (WorkKit), Fragen-Karten (WikiKit), Aufgaben je Projekt (CodeKit), ehrliches Banner + Streifen (WatchKit).
 
-**Zone C — Zuletzt geschehen.** Letzte Läufe/Änderungen, jede Zeile klickbar.
+**Zone C — der Weg zur Vergangenheit, nicht die Vergangenheit selbst.** Eine Zeile am Ende: „Was zuletzt geschah → **Audit-Trail**". Kein Ereignisstrom auf der Startseite, keine Liste letzter Läufe. *(Entscheidung Mike, 21.08.2026.)*
 
 Regeln: Kein Zähler ohne Link. Kein Rot ohne Weg zur Ursache. Betriebsmetriken (HTTP, p95, Calls) wohnen unter Installation → System, nie auf dem Startscreen. Nur WatchKit darf „nichts zu tun" als Erfolg inszenieren.
 
@@ -93,13 +116,25 @@ Jedes Produkt, das menschliche Entscheidungen sammelt (Freigaben, Reviews, Budge
 
 **8.4 Aufklappen.** Zeilen mit mehr Kontext tragen unten links einen benannten Toggle („Mehr anzeigen"), nie einen nackten Chevron. Aufgeklappt: volle Begründung, Rohdaten der Quelle, ggf. Formular für strukturierte Rückfragen. Die Entscheidungs-Buttons wandern ins Panel (kollabiert Kompakt-Form, expandiert Voll-Form).
 
-**8.5 Regale.** Unter der aktiven Queue: einklappbare Sektionen „Zurückgestellt" (mit Wiedervorlage-Zeit), „Verworfen", „Entschieden" — gedimmt, mit Rückhol-Aktion wo die API es erlaubt. Grundsatz dahinter: **Zustand und Geschichte sind getrennte Flächen.** Die Queue zeigt nur den aktuellen Zustand (Erledigtes verschwindet, nichts wird durchgestrichen); die vollständige Geschichte wohnt im Audit/Aktivitätsprotokoll (append, nie gekürzt).
+**8.5 Zustand und Geschichte sind getrennte Flächen.** Die Entscheidungs-Seite zeigt ausschließlich, was auf den Menschen wartet. Zurückgestellt, Verworfen und Entschieden sind Vergangenheit: Erledigtes verlässt die Queue — es wird nicht gedimmt, nicht durchgestrichen, nicht in eigene Sektionen unter der Queue gestellt und nicht über Zustands-Chips wieder hereingeholt. Ein Umschalter, der die Queue auf einen vergangenen Zustand stellt, ist ein Konventionsbruch; Filter auf der Queue filtern die **Art**, nie den Zustand. Die vollständige Geschichte wohnt im Audit-/Aktivitätsprotokoll (append, nie gekürzt) und ist von der Entscheidungs-Seite über **genau einen** Verweis erreichbar — ein Satz mit Link, keine Zähler-Kacheln. Wo die Vergangenheit dort nur als Maschinenwert ankommt, gehören Benennung und Filter ins Protokoll, nicht die Sektionen zurück in die Queue.
+
+**8.5a Zähler-Kacheln.** Für **Offenes** erwünscht — wenn sie Entscheidungen nach **Kategorie**
+aufschlüsseln und dadurch Übersicht schaffen, statt eine Summe zu wiederholen. Jede Kachel führt
+auf die gefilterte Liste. Für **Erledigtes** gibt es keine. *(Mike, 21.08.2026.)*
+
+**8.5b Die Zahl selbst ist eine Design-Frage.** Eine Entscheidungs-Seite, die einem Menschen
+Hunderte Positionen vorlegt, hat ihre Aufgabe verfehlt, egal wie gut sie gegliedert ist.
+Gemessen am 21.08.2026: WatchKit legt **359 Positionen** vor, weil Doku- und Drift-Befunde als
+Entscheidungen zählen; WorkKit zeigt **15 gleichartige Budget-Sperren einzeln**; SubKit lässt
+**jede Korrektur-Karte einer Gruppe einzeln** entscheiden; bei SubKit sind **32 von 35**
+Positionen wartende Unterhaltungen. Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
+**was gleichartig ist, wird zu einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
 
 **8.6 Leere.** Nie etwas offen: grüner Check, „Alles erledigt" + „Gerade wartet keine Entscheidung auf dich." Nur weggefiltert: eigene, kompaktere Meldung mit Hinweis auf die Filter. Beide getrennt testbar (§4 gilt).
 
 **8.7 Incident-Banner.** Die Übersicht zeigt oberhalb aller Kacheln einen nicht schließbaren roten Banner, sobald ein Budget-/Health-Gate offen oder eine Frist gerissen ist — mit konkreten Zahlen und Link auf die Entscheidungs-Seite. Ein Dashboard, das bei offenen Gates Ruhe meldet, ist ein Konventionsbruch.
 
-**8.8 Produkt-Spezifisch bleibt:** die Arten (Kinds) und ihre Badges, die Resolver-Formulare, die Quell-Referenzen. Familienweit sind Struktur, Sprache, Sortierung, Regale, Leere-Zustände und der Banner-Vertrag.
+**8.8 Produkt-Spezifisch bleibt:** die Arten (Kinds) und ihre Badges, die Resolver-Formulare, die Quell-Referenzen. Familienweit sind Struktur, Sprache, Sortierung, die Trennung von Zustand und Geschichte, Leere-Zustände und der Banner-Vertrag.
 
 ## 9. Diff-Freigabe
 

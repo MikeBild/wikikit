@@ -125,7 +125,7 @@ const CONVENTION_VERSION = (() => {
   checkKonventionVersion(), copied and not imported (§7: no shared code);
   WatchKit and ContentKit carry the same assert.
 */
-const EXPECTED_CONVENTION_VERSION = '1.5'
+const EXPECTED_CONVENTION_VERSION = '1.6'
 
 /*
   THE TWO DOCUMENTS ON DISK the DELIVERED one is held against.
@@ -1637,12 +1637,16 @@ async function main() {
       where a reader can be told a different past, with nothing on screen saying
       which of the two they are reading.
 
-      NOTE ON THE YARDSTICK: the copy of the convention in this repo is v1.5 and
-      still carries the shelves. The family text is being pulled to v1.6 in all
-      six repositories at once (the copy is deliberately expensive to change,
-      §7) — so for one round this check is AHEAD of the document beside it, and
-      says so here rather than reporting under a paragraph number that would
-      look like it was quoting. The decision is dated 21.08.2026.
+      THE YARDSTICK HAS CAUGHT UP. This note used to say the check was one round
+      AHEAD of the document beside it: the repo copy was v1.5 and still asked for
+      the shelves, while the rule below already measured the console against the
+      decision of 21.08.2026. The copy is now v1.6 and carries that decision in
+      §8.5, so this check quotes its paragraph number rather than anticipating
+      it. Two paragraphs arrived with it and are NOT measured here yet: §8.5a
+      (counter tiles are wanted for OPEN work broken down by category, and there
+      are none for finished work) and §8.5b (the SIZE of the queue is itself a
+      design question). §0 and the rewritten §1 Zone C are likewise unmeasured —
+      the console already follows both, but nothing here holds it to them.
 
       THREE MEASUREMENTS, because the defect has three shapes and each of them
       is reachable on its own:

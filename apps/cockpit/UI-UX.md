@@ -64,7 +64,7 @@ visible series; they are never drawn as zero cost.
 
 ## Decision grammar
 
-Verbatim copy of §8 of the cockpit convention (`COCKPIT-KONVENTION.md` in the repo root; its header line says which version). It stands here because this product's decisions page is measured against it; the yardstick has one source and no diverging copies (§13). One single deviation, and it is visible rather than silent: the name of the sibling product providing the reference implementation appears nowhere under `apps/` — `test/unit/no-prod-references.test.ts` keeps this surface free of the other products' names. The wording with names is in the repo root.
+Verbatim copy of §8 of the cockpit convention (`COCKPIT-KONVENTION.md` in the repo root; its header line says which version). It stands here because this product's decisions page is measured against it; the yardstick has one source and no diverging copies (§13). One single deviation, and it is visible rather than silent: no sibling product is named under `apps/` — `test/unit/no-prod-references.test.ts` keeps this surface free of the other products' names. It touches two places: the sentence naming the reference implementation in §8, and the measurements in §8.5b, where the family text attributes a queue size to each of three products. Both keep the rule and drop the names. The wording with names is in the repo root.
 
 The quoted paragraphs below stay in German: they are the family text verbatim, and the cockpit's surface is German by §5.
 
@@ -82,10 +82,22 @@ Jedes Produkt, das menschliche Entscheidungen sammelt (Freigaben, Reviews, Budge
 
 **8.4 Aufklappen.** Zeilen mit mehr Kontext tragen unten links einen benannten Toggle („Mehr anzeigen"), nie einen nackten Chevron. Aufgeklappt: volle Begründung, Rohdaten der Quelle, ggf. Formular für strukturierte Rückfragen. Die Entscheidungs-Buttons wandern ins Panel (kollabiert Kompakt-Form, expandiert Voll-Form).
 
-**8.5 Regale.** Unter der aktiven Queue: einklappbare Sektionen „Zurückgestellt" (mit Wiedervorlage-Zeit), „Verworfen", „Entschieden" — gedimmt, mit Rückhol-Aktion wo die API es erlaubt. Grundsatz dahinter: **Zustand und Geschichte sind getrennte Flächen.** Die Queue zeigt nur den aktuellen Zustand (Erledigtes verschwindet, nichts wird durchgestrichen); die vollständige Geschichte wohnt im Audit/Aktivitätsprotokoll (append, nie gekürzt).
+**8.5 Zustand und Geschichte sind getrennte Flächen.** Die Entscheidungs-Seite zeigt ausschließlich, was auf den Menschen wartet. Zurückgestellt, Verworfen und Entschieden sind Vergangenheit: Erledigtes verlässt die Queue — es wird nicht gedimmt, nicht durchgestrichen, nicht in eigene Sektionen unter der Queue gestellt und nicht über Zustands-Chips wieder hereingeholt. Ein Umschalter, der die Queue auf einen vergangenen Zustand stellt, ist ein Konventionsbruch; Filter auf der Queue filtern die **Art**, nie den Zustand. Die vollständige Geschichte wohnt im Audit-/Aktivitätsprotokoll (append, nie gekürzt) und ist von der Entscheidungs-Seite über **genau einen** Verweis erreichbar — ein Satz mit Link, keine Zähler-Kacheln. Wo die Vergangenheit dort nur als Maschinenwert ankommt, gehören Benennung und Filter ins Protokoll, nicht die Sektionen zurück in die Queue.
+
+**8.5a Zähler-Kacheln.** Für **Offenes** erwünscht — wenn sie Entscheidungen nach **Kategorie**
+aufschlüsseln und dadurch Übersicht schaffen, statt eine Summe zu wiederholen. Jede Kachel führt
+auf die gefilterte Liste. Für **Erledigtes** gibt es keine. _(Mike, 21.08.2026.)_
+
+**8.5b Die Zahl selbst ist eine Design-Frage.** Eine Entscheidungs-Seite, die einem Menschen
+Hunderte Positionen vorlegt, hat ihre Aufgabe verfehlt, egal wie gut sie gegliedert ist.
+Gemessen am 21.08.2026 an den Schwester-Produkten: eines legt **359 Positionen** vor, weil Doku-
+und Drift-Befunde als Entscheidungen zählen; ein zweites zeigt **15 gleichartige Budget-Sperren
+einzeln**; ein drittes lässt **jede Korrektur-Karte einer Gruppe einzeln** entscheiden, und bei
+ihm sind **32 von 35** Positionen wartende Unterhaltungen. Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
+**was gleichartig ist, wird zu einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
 
 **8.6 Leere.** Nie etwas offen: grüner Check, „Alles erledigt" + „Gerade wartet keine Entscheidung auf dich." Nur weggefiltert: eigene, kompaktere Meldung mit Hinweis auf die Filter. Beide getrennt testbar (§4 gilt).
 
 **8.7 Incident-Banner.** Die Übersicht zeigt oberhalb aller Kacheln einen nicht schließbaren roten Banner, sobald ein Budget-/Health-Gate offen oder eine Frist gerissen ist — mit konkreten Zahlen und Link auf die Entscheidungs-Seite. Ein Dashboard, das bei offenen Gates Ruhe meldet, ist ein Konventionsbruch.
 
-**8.8 Produkt-Spezifisch bleibt:** die Arten (Kinds) und ihre Badges, die Resolver-Formulare, die Quell-Referenzen. Familienweit sind Struktur, Sprache, Sortierung, Regale, Leere-Zustände und der Banner-Vertrag.
+**8.8 Produkt-Spezifisch bleibt:** die Arten (Kinds) und ihre Badges, die Resolver-Formulare, die Quell-Referenzen. Familienweit sind Struktur, Sprache, Sortierung, die Trennung von Zustand und Geschichte, Leere-Zustände und der Banner-Vertrag.
