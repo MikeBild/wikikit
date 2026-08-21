@@ -24,7 +24,23 @@ const MARKER = new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+
   Both endings the HTML parser accepts, `-->` and `--!>`.
 */
 function withoutComments(html: string): string {
-  const stripped = html.replace(/<!--[\s\S]*?--!?>/g, '')
+  /*
+    EMPTY comments first. `<!-->` and `<!--->` are closed abruptly: the parser
+    ends the comment at that `>` and everything after it is LIVE. The general
+    pattern below reads their `<!--` as an OPENING and eats forward to the next
+    `-->` — swallowing whatever stands in between.
+
+    Measured at a live Chromium over HTTP, `<!-->` before a foreign marker and
+    above the real one (LOCAL-WI-KENNUNG-LEERKOMMENTAR):
+
+      parser -> ["OtherProduct", "WikiKit"]   two live markers
+      without this line -> "WikiKit"          the foreign one was swallowed
+
+    That is a name where the document is ambiguous, and it was a REGRESSION:
+    the reader before this file, which stripped nothing, read "OtherProduct"
+    and the assert threw.
+  */
+  const stripped = html.replace(/<!---?>/g, '').replace(/<!--[\s\S]*?--!?>/g, '')
   // An UNCLOSED `<!--` runs to the end of the document in a browser. What is
   // invisible there has to be invisible here.
   const unclosed = stripped.indexOf('<!--')

@@ -61,6 +61,20 @@ const PRODUCT = new RegExp(`<meta name="${IDENTITY_META}" content="([^"]+)"`).ex
 */
 const HEAD_ANCHOR = '<title>WikiKit Cockpit</title>'
 
+/*
+  `<!-->` is an EMPTY comment, closed abruptly — not the start of one. The
+  parser ends it at that `>`, so the marker behind it is LIVE. Measured at a
+  live Chromium over HTTP this document reads ["OtherProduct", "WikiKit"]: two
+  live markers, an ambiguity.
+
+  The foreign marker has to be BEHIND the `<!-->` and ALIVE. The earlier fixture
+  put `<!-->` in front of the already commented prose, where a reader that
+  mistakes it for an opening swallows nothing that counts — and so posed
+  nothing (LOCAL-WI-KENNUNG-LEERKOMMENTAR).
+*/
+const EMPTY_COMMENT_PLANT = `<!--><meta name="${IDENTITY_META}" content="OtherProduct" />`
+const withEmptyComment = () => shell.replace('<head>', `<head>\n    ${EMPTY_COMMENT_PLANT}`)
+
 /** The one line that carries the identity in the real document. */
 const REAL = new RegExp(`^.*<meta name="${IDENTITY_META}" content="[^"]+" />.*$\\n`, 'm')
 
@@ -110,7 +124,7 @@ describe('the identity reader, measured against documents', () => {
       'a "-->" string inside the comment',
       shell.replace('Die Konvention macht', 'Ein "-->" hier. Die Konvention macht'),
     ],
-    ['an empty <!--> comment before it', shell.replace('<head>', '<head>\n    <!-->')],
+    ['an empty <!--> comment before a live foreign marker', withEmptyComment()],
     ['a nested <!-- inside the comment', shell.replace('Die Konvention macht', 'Ein <!-- hier. Die Konvention macht')],
     ['an example in UPPERCASE attributes', withExample(withoutMarker()).replace('name=', 'NAME=')],
     [
@@ -153,6 +167,21 @@ describe('the identity reader, measured against documents', () => {
       `<meta name="${IDENTITY_META}" content="OtherProduct" />\n    ${HEAD_ANCHOR}`,
     )
     expect(html, 'the second marker was planted').not.toBe(shell)
+    expect(markerIn(html)).toBeNull()
+  })
+
+  /*
+    Same promise, and the form in which the reader broke it: an empty `<!-->`
+    hides the second marker from a stripper that mistakes it for an opening.
+    Then the run measures on under THIS product's name against a document whose
+    first marker names another — the shape that cost CodeKit 156 s.
+
+    `[PRODUCT, null]` above cannot see it, because the wrong answer here IS this
+    product's name.
+  */
+  test('an empty <!--> comment does not hide a second marker', () => {
+    const html = withEmptyComment()
+    expect(html, 'the plant landed').toContain(EMPTY_COMMENT_PLANT)
     expect(markerIn(html)).toBeNull()
   })
 })
