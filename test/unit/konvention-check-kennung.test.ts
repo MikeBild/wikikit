@@ -1,32 +1,31 @@
-// Der Kennungs-Assert des Konventions-Checks, gehalten an seiner eigenen Form.
+// The convention check's identity assert, held against its own shape.
 //
-// WARUM ES DIESE DATEI GIBT
+// WHY THIS FILE EXISTS
 //
-// scripts/konvention-check.mjs misst gegen einen Prüfstand, den es selbst
-// startet — und beantwortete bis LOCAL-WI-KENNUNG-NICHT-GEPRUEFT nur die Frage
-// „antwortet dort etwas?", nicht „antwortet dort WIKIKIT?". Bei CodeKit ist der
-// Unterschied real eingetreten: WorkKit hielt CodeKits Prüfstands-Port, und der
-// Lauf erzeugte in 156 s acht Verstöße unter CodeKits Namen über eine
-// Oberfläche, die nie CodeKit war. Kein Timeout, kein Absturz — ein
-// vollständiger, überzeugender, falscher Bericht. Ein Timeout wird untersucht;
-// acht Verstöße werden repariert.
+// scripts/konvention-check.mjs measures against a target it starts itself — and
+// until LOCAL-WI-KENNUNG-NICHT-GEPRUEFT it only answered "does something answer
+// there?", not "does WIKIKIT answer there?". At CodeKit the difference happened:
+// WorkKit held CodeKit's check port, and the run produced eight violations under
+// CodeKit's name in 156s over a surface that was never CodeKit. No timeout, no
+// crash — a complete, convincing, wrong report. A timeout gets investigated;
+// eight violations get repaired.
 //
-// Die Familie ist dafür gebaut, ohne es zu wollen: die Konvention macht die
-// DOM-Verankerungen aller sechs Konsolen absichtlich gleich, also findet jede
-// Zeile des Prüfskripts in jeder Schwesterkonsole etwas vor, und die Prüfstände
-// liegen dicht beieinander (CodeKit 4081 · WikiKit 4173 · SubKit 4176 ·
-// WatchKit 4183 · WorkKit 4192).
+// The family is built for this without wanting to be: the convention makes the
+// DOM anchors of all six consoles deliberately identical, so every line of the
+// check script finds something in every sibling console, and the check ports sit
+// close together (CodeKit 4081 · WikiKit 4173 · SubKit 4176 · WatchKit 4183 ·
+// WorkKit 4192).
 //
-// WAS HIER GEPRÜFT WIRD UND WAS NICHT
+// WHAT IS CHECKED HERE AND WHAT IS NOT
 //
-// Nicht, DASS der Assert existiert — das zeigt jeder Lauf. Sondern die drei
-// Eigenschaften, die ihn von der ersten Umsetzung der Familie unterscheiden und
-// die ein späterer Umbau lautlos wegnehmen könnte: der Sollwert wird ABGELEITET
-// statt abgetippt, die Prüfung steht VOR dem Browserstart, und es gibt genau
-// einen node-seitigen `fetch` — also genau eine Stelle, die eine Frist braucht.
+// Not THAT the assert exists — every run shows that. The three properties that
+// distinguish it from the family's first implementation and that a later rewrite
+// could remove silently: the expected value is DERIVED rather than typed out,
+// the check runs BEFORE the browser starts, and there is exactly one node-side
+// `fetch` — so exactly one place that needs a deadline.
 //
-// Muster von WatchKits gleichnamigem Satz übernommen, KOPIERT und nicht
-// importiert (§7: kein Shared Code zwischen den Produkten).
+// Pattern taken from WatchKit's test of the same name, COPIED and not imported
+// (§7: no shared code between the products).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -35,131 +34,129 @@ const root = process.cwd()
 const source = readFileSync(join(root, 'scripts', 'konvention-check.mjs'), 'utf8')
 
 /*
-  Zeilenkommentare und die Rümpfe der Blockkommentare raus, bevor gezählt wird.
+  Line comments and block comment bodies out before counting.
 
-  Nicht Kosmetik: diese Datei erklärt an mehreren Stellen die kaputte Vorform
-  („gefragt wurde mit einem `fetch` ohne Zeitgrenze"), und ein Zähler, der die
-  Erklärung mitzählt, misst den Text statt des Programms. Die zweite Zeile
-  fängt die Fortsetzungszeilen der Blockkommentare dieser Datei, die ohne
-  führenden `*` geschrieben sind.
+  Not cosmetics: that file explains its own broken predecessors in several places
+  ("it used to ask with a `fetch` without a deadline"), and a counter that counts
+  the explanation measures the prose instead of the program. The second replace
+  catches the continuation lines of that file's block comments, which are written
+  without a leading `*`.
 */
 const code = source.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 
-/** Der Rumpf einer Funktion auf oberster Ebene, von ihrem Kopf bis zur `}` in Spalte 0. */
+/** A top-level function's body, from its head to the `}` in column 0. */
 function bodyOf(head: string): string {
   const start = code.indexOf(head)
-  expect(start, `${head} ist auffindbar`).toBeGreaterThan(0)
+  expect(start, `${head} is findable`).toBeGreaterThan(0)
   const end = code.indexOf('\n}\n', start)
-  expect(end, `${head} hat ein Ende`).toBeGreaterThan(start)
+  expect(end, `${head} has an end`).toBeGreaterThan(start)
   return code.slice(start, end)
 }
 
-describe('der Kennungs-Assert leitet ab, statt abzutippen', () => {
-  test('apps/cockpit/index.html ist die einzige Definitionsstelle', () => {
+describe('the identity assert derives instead of typing out', () => {
+  test('apps/cockpit/index.html is the single place of definition', () => {
     const shell = readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8')
-    const treffer = [...shell.matchAll(/<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/g)]
-    expect(treffer.length, 'genau ein <meta name="cockpit-product"> in der Quelle').toBe(1)
+    const matches = [...shell.matchAll(/<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/g)]
+    expect(matches.length, 'exactly one <meta name="cockpit-product"> in the source').toBe(1)
 
-    // Und der Wert ist der Produktname, nicht irgendeiner: ein Marker, der vom
-    // eigenen Namen wegdriften kann, wäre schlechter als keiner.
+    // And the value is the product name, not just any: a marker that can drift
+    // away from its own name would be worse than none.
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string }
-    expect(treffer[0]![1]!.toLowerCase()).toBe(pkg.name.toLowerCase())
+    expect(matches[0]![1]!.toLowerCase()).toBe(pkg.name.toLowerCase())
   })
 
-  test('der Sollwert kommt aus der Datei und steht nirgends im Assert', () => {
-    const body = bodyOf('function assertPruefstandsKennung(html, wo)')
+  test('the expected value comes from the file and appears nowhere in the assert', () => {
+    const body = bodyOf('function assertTargetIdentity(html, location)')
 
-    // Abgeleitet: gelesen, nicht geschrieben — und zwar aus derselben Konstante,
-    // gegen die auch classifyPruefstand() vergleicht.
+    // Derived: read, not written — and from the same constant classifyTarget()
+    // compares against.
     expect(code).toContain("const COCKPIT_SOURCE_HTML = 'apps/cockpit/index.html'")
-    expect(body).toContain('const quelle = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)')
-    expect(body).toContain("const erwartet = markerIn(readFileSync(quelle, 'utf8'))")
+    expect(body).toContain('const sourceUrl = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)')
+    expect(body).toContain("const expected = markerIn(readFileSync(sourceUrl, 'utf8'))")
 
     /*
-      Und nirgends abgetippt. Geprüft wird der RUMPF und nicht die ganze Datei:
-      „WikiKit" steht dort legitim als PRODUCT_NAME, weil §6 die Schreibweise im
-      Fließtext prüft — und genau deshalb darf der Kennungs-Assert diese
-      Konstante auch nicht BENUTZEN. Eine Kennung, die zugleich Prüfgegenstand
-      ist, macht aus jedem echten §6-Verstoß ein „das ist gar nicht WikiKit" und
-      misst danach nichts mehr. Aus demselben Grund nicht der <title>.
+      And typed out nowhere. The BODY is checked rather than the whole file:
+      "WikiKit" legitimately stands there as PRODUCT_NAME because §6 checks the
+      spelling in prose — and that is exactly why the identity assert must not USE
+      that constant. An identity that is also under test turns every real §6
+      violation into "that is not WikiKit at all" and measures nothing afterwards.
+      For the same reason, not the <title> either.
     */
     const marker = /<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/.exec(
       readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8'),
     )?.[1]
-    expect(marker, 'die Quelle trägt den Marker').toBeTruthy()
-    expect(body.includes(`'${marker}'`) || body.includes(`"${marker}"`), 'kein Literal des Markers').toBe(false)
+    expect(marker, 'the source carries the marker').toBeTruthy()
+    expect(body.includes(`'${marker}'`) || body.includes(`"${marker}"`), 'no literal of the marker').toBe(false)
     expect(body).not.toContain('PRODUCT_NAME')
     expect(body).not.toContain('<title>WikiKit')
   })
 
-  test('die drei Zweige sagen drei verschiedene Sätze', () => {
-    const body = bodyOf('function assertPruefstandsKennung(html, wo)')
-    // Fremde Konsole — und sie wird BENANNT, nicht nur zurückgewiesen. Das ist
-    // der Fortschritt gegenüber der ersten Umsetzung: „irgendetwas Fremdes"
-    // schickt den Leser suchen, „sein Titel lautet …" nicht.
-    expect(body).toContain('Sein Titel lautet')
-    expect(body).toContain('das ist nicht ${erwartet}, sondern ${geliefert}')
-    // Umbenanntes ATTRIBUT ist ein Befund über DIESES Repository und keine
-    // Aussage über das Gegenüber — die Meldung, die andernfalls in die falsche
-    // Richtung zeigt.
-    expect(body).toContain('Befund über DIESES Repository und keine Aussage über das Gegenüber')
+  test('the three branches say three different sentences', () => {
+    const body = bodyOf('function assertTargetIdentity(html, location)')
+    // A foreign console is NAMED, not merely rejected. That is the progress over
+    // the first implementation: "something foreign" sends the reader searching,
+    // "its title reads …" does not.
+    expect(body).toContain('Its title reads')
+    expect(body).toContain('this is not ${expected} but ${delivered}')
+    // A renamed ATTRIBUTE is a finding about THIS repository and no statement
+    // about the target — the message that otherwise points the wrong way.
+    expect(body).toContain('finding about THIS repository and no statement about the target')
   })
 
-  test('geprüft wird vor dem Browserstart', () => {
-    // Ein Browser, der schon läuft, hat eine fremde Oberfläche vor sich, auf der
-    // jeder Selektor dieses Skripts etwas findet. Die Reihenfolge IST die
-    // Zusicherung.
-    const kennung = code.indexOf('assertPruefstandsKennung(shellHtml, wo)')
+  test('the check runs before the browser starts', () => {
+    // A browser already running has a foreign surface in front of it on which
+    // every selector of this script finds something. The ordering IS the
+    // assurance.
+    const identity = code.indexOf('assertTargetIdentity(shellHtml, location)')
     const browser = code.indexOf('await chromium.launch()')
-    expect(kennung, 'der Assert wird aufgerufen').toBeGreaterThan(0)
-    expect(browser, 'der Browser startet').toBeGreaterThan(0)
-    expect(kennung, 'die Kennung wird vor dem Browserstart geprüft').toBeLessThan(browser)
+    expect(identity, 'the assert is called').toBeGreaterThan(0)
+    expect(browser, 'the browser starts').toBeGreaterThan(0)
+    expect(identity, 'the identity is checked before the browser starts').toBeLessThan(browser)
 
-    // Derselbe Abruf trägt auch die Prüfstands-Erkennung. Ein zweiter Abruf wäre
-    // eine zweite Stelle mit eigener Frist, ohne etwas zu gewinnen: nachgemessen
-    // liefert marksIn() über diesen Text in beiden Ständen (dev und preview)
-    // dieselben zwei Verweise wie die frühere Messung im DOM.
-    expect(code).toContain('pruefstand = classifyPruefstand(marksIn(shellHtml))')
-    expect(code).not.toContain('classifyPruefstand(shell.delivered)')
+    // The same fetch carries the target classification. A second fetch would be a
+    // second place with its own deadline for nothing: measured, marksIn() over
+    // this text yields the same two references in both modes (dev and preview)
+    // that the earlier DOM measurement did.
+    expect(code).toContain('target = classifyTarget(marksIn(shellHtml))')
+    expect(code).not.toContain('classifyTarget(shell.delivered)')
   })
 
-  test('ein fremdes Gegenüber endet mit „nicht gemessen" und nicht mit einem Bericht', () => {
-    // 0 ist „gemessen und grün", 1 ist „gemessen und rot", 2 ist „nicht
-    // gemessen". Ein fremdes Cockpit ist kein Konventionsverstoß, sondern ein
-    // Lauf, der nicht stattgefunden hat — der Unterschied ist die ganze Lehre
-    // aus den acht Verstößen bei CodeKit.
-    const body = bodyOf('function assertPruefstandsKennung(html, wo)')
+  test('a foreign target ends with "not measured" rather than with a report', () => {
+    // 0 is "measured and green", 1 is "measured and red", 2 is "not measured". A
+    // foreign cockpit is not a convention violation but a run that did not
+    // happen — the difference is the whole lesson from CodeKit's eight
+    // violations.
+    const body = bodyOf('function assertTargetIdentity(html, location)')
     expect(body).toContain('throw new Error(')
     expect(code).toContain('await main().catch((error) => {')
-    expect(code).toContain('nicht gemessen')
+    expect(code).toContain('not measured')
     expect(code).toContain('process.exit(2)')
   })
 
-  test('es gibt genau einen node-seitigen fetch, und der trägt eine Frist', () => {
+  test('there is exactly one node-side fetch, and it carries a deadline', () => {
     /*
-      Eine Frist ist eine Eigenschaft der AUFRUFSTELLE. Jede weitere Stelle ist
-      eine, die man vergessen kann — und ein hängender Lauf ist als Gate-Stufe
-      der schlechteste der drei Ausgänge, weil ihn jemand abbricht und „flaky"
-      nennt. Der zweite `fetch` in der Datei läuft im BROWSER (im Rumpf von
-      checkFavicon(), serialisiert an page.evaluate) und hängt an playwrights
-      Lebensdauer des Frames, nicht an node.
+      A deadline is a property of the CALL SITE. Every further site is one that
+      can be forgotten — and as a gate stage a hanging run is the worst of the
+      three exits, because somebody aborts it and calls it flaky. The second
+      `fetch` in the file runs IN THE BROWSER (in checkFavicon()'s body,
+      serialised into page.evaluate) and hangs on playwright's frame lifetime,
+      not on node's.
     */
-    const browserSeitig = code.indexOf("fetch(href, { cache: 'no-store' })")
-    expect(browserSeitig, 'der Favicon-Abruf in der Seite ist auffindbar').toBeGreaterThan(0)
+    const browserSide = code.indexOf("fetch(href, { cache: 'no-store' })")
+    expect(browserSide, 'the in-page favicon fetch is findable').toBeGreaterThan(0)
 
-    const stellen = [...code.matchAll(/\bfetch\s*\(/g)].map((match) => match.index!)
-    const nodeSeitig = stellen.filter((at) => at !== browserSeitig)
-    expect(nodeSeitig.length, `node-seitige fetch-Aufrufe: ${nodeSeitig.length}, erwartet 1`).toBe(1)
+    const sites = [...code.matchAll(/\bfetch\s*\(/g)].map((match) => match.index!)
+    const nodeSide = sites.filter((at) => at !== browserSide)
+    expect(nodeSide.length, `node-side fetch calls: ${nodeSide.length}, expected 1`).toBe(1)
 
     const getWithin = bodyOf('async function getWithin(url, timeoutMs)')
     expect(getWithin).toContain('await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })')
-    // Der Körper wird UNTER demselben Signal gelesen: „die Kopfzeilen kamen" ist
-    // nicht dasselbe wie „der Server antwortet", und die Lücke zwischen beidem
-    // ist der zweite Hänger.
+    // The body is read UNDER the same signal: "the headers arrived" is not "the
+    // server answers", and the gap between the two is the second hang.
     expect(getWithin).toContain('return { ok: response.ok, body: await response.text() }')
 
     const start = code.indexOf('async function getWithin(url, timeoutMs)')
-    expect(nodeSeitig[0]).toBeGreaterThan(start)
-    expect(nodeSeitig[0]).toBeLessThan(start + getWithin.length)
+    expect(nodeSide[0]).toBeGreaterThan(start)
+    expect(nodeSide[0]).toBeLessThan(start + getWithin.length)
   })
 })

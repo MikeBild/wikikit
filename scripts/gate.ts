@@ -60,37 +60,35 @@ const STAGES: Stage[] = [
     command: ['bun', 'test', 'test/unit', 'test/contract'],
   },
   /*
-    Die Familien-Konvention gegen das eigene Cockpit — Wortmarke, Browser-Titel,
-    Favicon, Entscheidungs-Grammatik, Routen-Sweep (COCKPIT-KONVENTION.md).
+    The family convention against this repo's own cockpit — wordmark, browser
+    title, favicon, decision grammar, route sweep (COCKPIT-KONVENTION.md).
 
-    WARUM ÜBERHAUPT HIER: bis 2026-08-20 lief dieser Check in keinem der sechs
-    Produkte automatisch (BEFUND-CHECK-LAEUFT-NIRGENDS.md). Er war als
-    Rückstandsliste gemeint und deshalb absichtlich außerhalb des Gates; seit er
-    grün ist, ist diese Begründung entfallen, ohne dass es jemandem auffiel.
+    WHY IT IS HERE AT ALL: until 2026-08-20 this check ran automatically in none
+    of the six products (BEFUND-CHECK-LAEUFT-NIRGENDS.md). It was meant as a
+    backlog list and therefore deliberately outside the gate; once it went green
+    that rationale lapsed without anybody noticing.
 
-    WARUM AN DIESER STELLE: nach allen Stufen, die ohne Browser auskommen — ein
-    Tippfehler soll nicht erst nach einem Browserstart auffallen —, und vor den
-    beiden, die Docker brauchen, damit er nicht hinter einer Voraussetzung
-    verschwindet, die jemand mit SKIP umgeht. Er hängt außerdem an `cockpit`:
-    die Stufe darüber baut assets/cockpit neu, und genau das misst diese hier.
+    WHY AT THIS POSITION: after every stage that needs no browser — a typo should
+    not surface only after a browser start — and before the two that need Docker,
+    so it cannot hide behind a precondition somebody works around with SKIP. It
+    also depends on `cockpit`: the stage above rebuilds assets/cockpit, which is
+    exactly what this one measures.
 
-    WARUM `preview` UND NICHT DER DEV-SERVER: der Dev-Server löst Verweise beim
-    Ausliefern selbst auf und ist an dieser Stelle blind für einen
-    dokumentrelativen Favicon-Verweis, der in der gebauten Fassung auf jeder
-    tiefen Route ins Leere zeigt. `vite preview` liefert assets/cockpit wörtlich
-    aus, mit derselben SPA-Rückfalllinie (nachgemessen: /cockpit/pages/foo → 200
-    text/html, /cockpit/pages/favicon.svg → 200 text/html, /cockpit/favicon.svg →
-    image/svg+xml).
-    NICHT gewählt, weil er billiger wäre: dreimal je Stand gemessen, preview
-    28,7 / 29,8 / 38,6 s gegen dev 32,6 / 32,3 / 32,4 s — das ist dieselbe
-    Größenordnung, und die 23 s, die anderswo für den scharfen Lauf notiert sind,
-    galten einem Server, der schon lief. Gewählt allein wegen der Schärfe.
-    Der bekannte Preis eines preview-Laufs — er misst die Platte, nicht die
-    Quelle — existiert hier nicht, weil `cockpit` unmittelbar davor neu baut.
+    WHY `preview` AND NOT THE DEV SERVER: the dev server resolves references while
+    serving and is blind here to a document-relative favicon reference that points
+    nowhere on every deep route of the built version. `vite preview` serves
+    assets/cockpit verbatim, with the same SPA fallback (measured:
+    /cockpit/pages/foo → 200 text/html, /cockpit/pages/favicon.svg → 200
+    text/html, /cockpit/favicon.svg → image/svg+xml). Not chosen for being
+    cheaper: measured three times per mode, preview 28.7 / 29.8 / 38.6s against
+    dev 32.6 / 32.3 / 32.4s — the same order of magnitude, and the 23s noted
+    elsewhere for the sharp run applied to a server that was ALREADY RUNNING.
+    Chosen for sharpness alone. A preview run's known price — it measures the disk, not the source —
+    does not exist here because `cockpit` rebuilds immediately before it.
   */
   {
     id: 'konvention',
-    title: 'Konventions-Check (Cockpit, gebaute Fassung)',
+    title: 'convention check (cockpit, built version)',
     command: ['bun', 'run', 'konvention:check'],
     env: { KONVENTION_CHECK_STAND: 'preview' },
     echo: true,

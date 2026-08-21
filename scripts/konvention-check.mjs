@@ -15,50 +15,44 @@
 // stop running, and its verdict would depend on whatever happened to be in
 // somebody's database that morning.
 //
-// UND DAS HAT EINEN PREIS, der hier oben stehen muss und nicht nur 1500 Zeilen
-// tiefer: der Dev-Server ist an einer Stelle GNÄDIGER als die Auslieferung. Er
-// löst Verweise im HTML beim Ausliefern selbst auf — aus „./favicon.svg" wird
-// schon im gelieferten Dokument „/cockpit/favicon.svg", auf jeder Route. Der
-// Build tut das NICHT; ein dokumentrelativer Verweis bleibt in
-// assets/cockpit/index.html wörtlich stehen und zeigt auf jeder Route mit Tiefe
-// >= 2 ins Leere. Gemessen, nicht vermutet — aber gemessen an einem STAND, den
-// es so nicht mehr gibt: als apps/cockpit/index.html noch „./favicon.svg" trug,
-// meldete derselbe Lauf gegen die gebaute Fassung sieben Verstöße und gegen den
-// Dev-Server keinen. Seit LOCAL-WI-FAVICON-BASEPFAD steht dort „/favicon.svg",
-// und beide Läufe sind grün. Der Unterschied ist damit nicht verschwunden,
-// sondern unbelegt geworden: er zeigt sich erst wieder, wenn jemand den Verweis
-// zurückdreht. Siehe checkFavicon() für die Messung.
+// AND THAT HAS TWO COSTS, both measured rather than assumed.
 //
-// DREI PRÜFSTÄNDE, und der Bericht sagt selbst, welchen man gerade gesehen hat:
+// 1. The dev server is MORE FORGIVING than delivery in one place: it resolves
+//    document-relative hrefs while serving, so `./favicon.svg` leaves as
+//    `/cockpit/favicon.svg` on every route. The build does not — such an href
+//    survives verbatim into assets/cockpit/index.html and points nowhere on any
+//    route of depth >= 2. Measured back when apps/cockpit/index.html still
+//    carried `./favicon.svg`: seven violations against the built version, none
+//    against the dev server. Since LOCAL-WI-FAVICON-BASEPFAD it reads
+//    `/favicon.svg` and both runs are green, so the difference is dormant, not
+//    gone: it reappears the moment somebody turns the href back. See
+//    checkFavicon().
+// 2. Nothing asked WHOSE console answered — only whether something did. Since
+//    LOCAL-WI-KENNUNG-NICHT-GEPRUEFT one fetch before the browser starts holds
+//    the served `<meta name="cockpit-product">` against apps/cockpit/index.html,
+//    the single place it is defined, and throws on a mismatch (exit 2). Why that
+//    is not a convention violation, and why neither title nor wordmark can serve
+//    as the marker, is at assertTargetIdentity(). Measured against a real
+//    WatchKit cockpit on port 4173: the run ended after 0.44s naming the
+//    responder. Without the assert the same case ran 20.7s against the foreign
+//    console and exited 1 — "measured and red" — without once saying that
+//    another product had answered.
 //
-//   bun scripts/konvention-check.mjs                            # Dev-Server (Vorgabe)
+// THREE TARGETS, and the report says which one this run saw:
+//
+//   bun scripts/konvention-check.mjs                            # dev server (default)
 //   bun run build:cockpit && KONVENTION_CHECK_STAND=preview \
-//     bun scripts/konvention-check.mjs                          # gebaute Fassung, so misst das Gate
-//   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs   # echte Auslieferung
+//     bun scripts/konvention-check.mjs                          # built version, as the gate measures
+//   COCKPIT_BASE_URL=http://127.0.0.1:4060 bun scripts/konvention-check.mjs   # real delivery
 //
-// WESSEN KONSOLE ANTWORTET — die Vorbedingung vor allem anderen. Alle drei
-// Prüfstände beantworteten bis LOCAL-WI-KENNUNG-NICHT-GEPRUEFT nur die Frage
-// „antwortet dort etwas?". Seither steht vor dem Browserstart ein Abruf, der
-// den Marker `<meta name="cockpit-product">` des GELIEFERTEN Dokuments gegen
-// apps/cockpit/index.html hält — die einzige Definitionsstelle, gelesen und
-// nicht abgetippt. Passt er nicht, wird geworfen und nichts gemessen (Ausgang
-// 2). Warum das kein Konventionsverstoß ist und warum weder Titel noch
-// Wortmarke dafür taugen, steht bei assertPruefstandsKennung(). Nachgemessen
-// mit einem echten WatchKit-Cockpit auf Port 4173: der Lauf endete nach 0,44 s
-// und benannte den Antwortenden. Ohne den Assert lief derselbe Fall 20,7 s
-// gegen die fremde Konsole und endete mit Ausgang 1 — „gemessen und rot" —,
-// ohne ein einziges Mal zu sagen, dass ein anderes Produkt geantwortet hatte.
-//
-// WIRED INTO `bun run gate` — und das war einmal anders. Hier stand: „Deliberately
-// NOT wired into gate, bun test or CI", begründet mit §7 („Die Konvention wird
-// nicht technisch erzwungen") und damit, dass ein roter Check als Pflichtstufe
-// jede Arbeit blockiert. Die Begründung galt, solange der Check rot war. Er ist
-// grün, und eine Zusicherung, die niemand fragt, ist ein Kommentar
-// (BEFUND-CHECK-LAEUFT-NIRGENDS.md). Die Stufe misst mit
-// KONVENTION_CHECK_STAND=preview, weil `check:cockpit-drift` unmittelbar davor
-// den Build frisch zieht. In CI steht dieselbe Stufe als Job `konvention` — dort
-// baut der Job selbst, und test/unit/ci-workflows.test.ts hält die beiden Listen
-// aufeinander.
+// WIRED INTO `bun run gate`, and that was once the other way round: §7 says the
+// convention is not technically enforced, and a red mandatory stage blocks every
+// piece of work. That held while the check was red. It is green, and an
+// assurance nobody asks is a comment (BEFUND-CHECK-LAEUFT-NIRGENDS.md). The
+// stage measures with KONVENTION_CHECK_STAND=preview because `check:cockpit-drift`
+// rebuilds immediately before it. CI carries the same stage as job `konvention`,
+// where the job builds for itself; test/unit/ci-workflows.test.ts holds the two
+// lists against each other.
 //
 // Every violation is collected, never thrown at: one run must produce the whole
 // list, because fixing them one rebuild at a time is how a checklist of nine
@@ -75,23 +69,15 @@ import { fileURLToPath } from 'node:url'
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
 
 /*
-  Die Fassung des Maßstabs, GELESEN statt behauptet.
+  The version of the yardstick, READ rather than asserted.
 
-  Hier stand die Nummer zweimal als Literal in den Berichtszeilen. Das ist genau
-  die Bauart, die schon einmal falsch war: die Kopie im Repo stand auf v1.5,
-  der Bericht sagte v1.4, und niemand sah es, weil beide Stellen für sich
-  plausibel aussahen. Eine Prüfung, die die Version ihres eigenen Maßstabs
-  behauptet, kann sie nicht mehr belegen — sie wiederholt nur, was jemand
-  zuletzt getippt hat.
+  It used to be a literal in the report lines, and that shape has already been
+  wrong once: the copy in the repo said v1.5, the report said v1.4, and both
+  looked plausible on their own. A check that asserts its own yardstick's
+  version cannot evidence it.
 
-  Also aus der Kopfzeile der Datei, gegen die geprüft wird. Damit steht die
-  Nummer an genau einer Stelle im Repo, und ein Versionssprung ist ein `cp`
-  ohne Nacharbeit an diesem Skript.
-
-  Fehlt die Kopfzeile oder passt sie nicht, bricht der Lauf LAUT ab statt auf
-  ein Literal zurückzufallen. Ein stiller Rückfall wäre wieder eine Zahl, die
-  niemand belegt hat — und ein Bericht, der seinen Maßstab nicht benennen kann,
-  ist kein Bericht (§12).
+  Missing or malformed header aborts LOUDLY instead of falling back to a
+  literal: a report that cannot name its yardstick is not a report (§12).
 */
 const CONVENTION_FILE = 'COCKPIT-KONVENTION.md'
 const CONVENTION_VERSION = (() => {
@@ -100,14 +86,14 @@ const CONVENTION_VERSION = (() => {
   try {
     head = readFileSync(url, 'utf8').slice(0, 2000)
   } catch {
-    console.error(`✗ ${CONVENTION_FILE} fehlt im Repo-Root — der Maßstab dieses Laufs ist nicht auffindbar`)
+    console.error(`✗ ${CONVENTION_FILE} is missing from the repo root — this run's yardstick cannot be found`)
     process.exit(2)
   }
   const match = head.match(/^Version\s+(\d+\.\d+)\s*·/m)
   if (!match) {
     console.error(
-      `✗ ${CONVENTION_FILE} nennt in seiner Kopfzeile keine Fassung im Format „Version X.Y · …" — ` +
-        'der Bericht könnte seinen Maßstab nur behaupten, nicht belegen',
+      `✗ ${CONVENTION_FILE} names no version in its header line, in the form \`Version X.Y · …\` — ` +
+        'the report could only assert its yardstick, not evidence it',
     )
     process.exit(2)
   }
@@ -115,86 +101,63 @@ const CONVENTION_VERSION = (() => {
 })()
 
 /*
-  Die Fassung, gegen die dieser Check GESCHRIEBEN wurde — von Hand gesetzt, und
-  das ist der Punkt.
+  The version this check was WRITTEN against — set by hand, and that is the point.
 
-  ETIKETT UND ASSERT SIND ZWEI VERSCHIEDENE DINGE, und diese Datei hat den
-  Unterschied einmal teuer gelernt. CONVENTION_VERSION darüber ist das Etikett:
-  es soll sagen, wogegen gemessen wurde, und muss deshalb aus der Datei kommen —
-  sonst vergisst es jemand, und der Bericht nennt einen Maßstab, der nicht mehr
-  gilt. Genau das war hier der Fall.
+  LABEL AND ASSERT ARE TWO DIFFERENT THINGS. CONVENTION_VERSION above is the
+  label and must come from the file. This constant is the assert, and an assert
+  needs a SECOND, INDEPENDENT statement: read from the same header, both would
+  agree by construction, and a v1.3 copied in would report "against v1.3, no
+  violations" — a clean bill of health for an agreement that no longer holds.
 
-  Diese Konstante ist der Assert, und ein Assert braucht eine ZWEITE,
-  UNABHÄNGIGE Aussage. Käme sie ebenfalls aus der Kopfzeile, stimmten beide per
-  Konstruktion überein und der Satz prüfte nichts: eine hereinkopierte v1.3
-  meldete „gegen v1.3, keine Verstöße" und läse sich wie ein sauberes Zeugnis
-  für eine Vereinbarung, die es so nicht mehr gibt. Der Check könnte seine
-  eigene Überholtheit nicht mehr bemerken.
+  THIS LINE HAS ALREADY BEEN DELETED ONCE, with the reasoning that a number in
+  the script is a second source that can only go stale. For a label that is
+  true. For an assert it is the description of its job: it has to speak up when
+  the file is no longer the family's. "A version bump is then just a `cp`" was
+  not a gain but a description of the hole — a `cp` of the WRONG file is just a
+  `cp` too.
 
-  Diese Zeile war schon einmal weg — herausgenommen mit der Begründung, eine
-  Nummer im Skript sei eine zweite Quelle, die nur veralten kann. Für ein
-  Etikett stimmt das. Für einen Assert ist es die Beschreibung seiner Aufgabe:
-  er soll auffallen, wenn die Datei nicht mehr die der Familie ist. „Ein
-  Versionssprung ist dann nur noch ein `cp`" war kein Gewinn, sondern die
-  Beschreibung des Lochs — ein `cp` der FALSCHEN Datei ist es auch.
-
-  Der Preis: ein Versionssprung kostet eine Zeile hier zusätzlich zum `cp`. Der
-  Preis ist bewusst gewählt. Muster übernommen von CodeKits
-  checkKonventionVersion(), kopiert und nicht importiert (§7: kein Shared Code);
-  WatchKit und ContentKit tragen denselben Satz.
+  The price is one extra line per version bump, next to the `cp`. Deliberate: a
+  `cp` of the WRONG file has to be noticeable. Pattern taken from CodeKit's
+  checkKonventionVersion(), copied and not imported (§7: no shared code);
+  WatchKit and ContentKit carry the same assert.
 */
-const KONVENTION_VERSION = '1.5'
+const EXPECTED_CONVENTION_VERSION = '1.5'
 
 /*
-  DIE BEIDEN DOKUMENTE AUF DER PLATTE, gegen die das GELIEFERTE gehalten wird.
+  THE TWO DOCUMENTS ON DISK the DELIVERED one is held against.
 
-  Warum es sie hier gibt: der Bericht sagt weiter unten, ob dieser Lauf scharf
-  gemessen hat oder nur die Auflösung seines Ziels bestätigt. Diese Auskunft hing
-  vorher an einem STELLVERTRETER — am Vorhandensein des Skripts `/@vite/client`
-  im gelieferten Dokument. Das ist eine Schreibweise aus Vites Innerem: benennt
-  Vite den Pfad um (heute an ^8.2.0 gebunden), fällt die Erkennung aus, und sie
-  fällt STILL aus — die Einschränkung verschwindet, und die Ausgabe liest sich
-  wie ein scharfer Lauf.
+  The report says below whether this run measured sharply or only confirmed how
+  its target resolves. That used to hang on a PROXY — the presence of
+  `/@vite/client` in the delivered document, a string from Vite's internals that
+  Vite may rename. It would fail SILENTLY: the caveat disappears and the output
+  reads like a sharp run.
 
-  Gefragt wird deshalb nach der Eigenschaft selbst: WELCHES Dokument liefert das
-  Ziel — die Quelle, bei jedem Aufruf übersetzt, oder die gebaute Fassung,
-  wörtlich? Genau daran hängt die Blindheit: der Dev-Server löst Verweise beim
-  Übersetzen auf, die gebaute Fassung trägt sie so, wie sie ausgeliefert werden.
-  Beide Vergleichszeichenketten kommen aus DIESEM Repo und werden zur Laufzeit
-  gelesen; keine Konstante aus einem fremden Werkzeug steht mehr im Weg.
+  So the property itself is asked instead: WHICH document does the target serve —
+  the source, compiled per request, or the built version, verbatim? Both
+  comparison strings come from THIS repo and are read at runtime.
 
-  UND WAS DER VERGLEICH DES FAVICON-HREFS ALLEIN NICHT KANN, gemessen und nicht
-  vermutet: die Quelle schreibt `/favicon.svg`, der Dev-Server liefert
-  `/cockpit/favicon.svg`, die gebaute Fassung trägt `/cockpit/favicon.svg` —
-  BEIDE Ziele liefern denselben href, und er weicht in BEIDEN Fällen von der
-  Quelle ab. Der href allein unterscheidet die beiden Prüfstände heute also
-  nicht. Er ist der Beleg IM Text (er zeigt, dass beim Ausliefern aufgelöst
-  wurde), nicht das Unterscheidungsmerkmal. Das ist der Modul-Verweis, weil nur
-  er in den beiden Dokumenten verschieden ist.
+  Measured: the favicon href alone cannot answer it. The source writes
+  `/favicon.svg`, the dev server delivers `/cockpit/favicon.svg`, the built
+  version carries `/cockpit/favicon.svg` — both targets deliver the same href and
+  both differ from the source. The href is the EVIDENCE in the report text, not
+  the discriminator; the module reference is, because it is the only mark that
+  differs between the two documents.
 */
 const COCKPIT_SOURCE_HTML = 'apps/cockpit/index.html'
 const COCKPIT_BUILT_HTML = 'assets/cockpit/index.html'
 
 /**
- * Die zwei Verweise eines Cockpit-Dokuments, roh aus dem Attribut.
+ * The two references of a cockpit document, raw from the attribute.
  *
- * Nimmt HTML und keinen Pfad, weil dieselbe Messung an DREI Dokumenten
- * gebraucht wird: an den beiden auf der Platte (Quelle und gebaute Fassung) und
- * an dem, das der Prüfstand wirklich ausliefert. Vorher las diese Funktion nur
- * von der Platte, und das gelieferte Dokument wurde stattdessen im BROWSER
- * ausgemessen — was einen zweiten Abruf desselben Dokuments bedeutete und die
- * Prüfstands-Erkennung hinter den Browserstart verschob. Seit die Kennung vor
- * dem Browserstart geprüft wird, liegt das gelieferte Dokument ohnehin schon
- * als Text vor; ein zweiter Abruf wäre eine zweite Stelle, die eine Frist
- * braucht.
- *
- * Roh aus dem Attribut und nicht aufgelöst: es geht darum, wie der Verweis
- * DASTAND, als das Ziel ihn herausgab.
+ * Takes HTML rather than a path because the same measurement is needed on THREE
+ * documents: the two on disk and the one the target actually delivers. Raw and
+ * unresolved on purpose — the question is how the reference STOOD when the
+ * target handed it out.
  */
 function marksIn(html) {
-  // Kommentare zuerst weg: apps/cockpit/index.html erklärt den Favicon-Verweis
-  // in einem Kommentar und schreibt dabei `href="/cockpit/favicon.svg"` hin.
-  // Ein Muster, das darauf trifft, läse die Erklärung statt der Zeile.
+  // Comments first: apps/cockpit/index.html explains the favicon reference in a
+  // comment that writes `href="/cockpit/favicon.svg"` out in full, and a pattern
+  // matching that would read the explanation instead of the line.
   html = html.replace(/<!--[\s\S]*?-->/g, '')
   const iconTag = html.match(/<link\b[^>]*\brel=["'][^"']*\bicon\b[^"']*["'][^>]*>/i)
   const attribute = (tag, name) => {
@@ -207,7 +170,7 @@ function marksIn(html) {
   return { iconHref: attribute(iconTag ? iconTag[0] : null, 'href'), modules }
 }
 
-/** Dasselbe für ein Dokument auf der Platte, oder `null`, wenn es keines gibt. */
+/** The same for a document on disk, or `null` if there is none. */
 function documentMarks(relative) {
   try {
     return marksIn(readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8'))
@@ -223,34 +186,30 @@ const BASE = (process.env.COCKPIT_BASE_URL ?? '').replace(/\/$/, '')
 const PORT = Number(process.env.COCKPIT_CHECK_PORT ?? 4173)
 
 /*
-  WELCHEN PRÜFSTAND startet dieser Lauf, wenn er sich selbst einen startet?
+  WHICH TARGET this run starts for itself.
 
-  `dev` (Vorgabe) startet den Vite-Dev-Server: er übersetzt apps/cockpit aus
-  der Quelle, misst also genau den Stand, an dem gerade jemand arbeitet, und
-  braucht keinen Build. Der Preis steht unten im Bericht — er löst Verweise
-  beim Ausliefern auf.
+  `dev` (default) runs the Vite dev server against apps/cockpit sources: it
+  measures what somebody is working on right now and needs no build. The price is
+  in the report — it resolves references while serving.
 
-  `preview` startet `vite preview` über assets/cockpit, also über die GEBAUTE
-  Fassung, und zwar mit derselben SPA-Rückfalllinie: nachgemessen antwortet
-  /cockpit/pages/foo mit 200 und text/html, /cockpit/pages/favicon.svg ebenso,
-  /cockpit/favicon.svg dagegen mit image/svg+xml. Das ist genau die Falle, auf
-  die checkFavicon() ausgelegt ist, und sie ist unter `dev` zugedeckt.
+  `preview` runs `vite preview` over assets/cockpit, the BUILT version, with the
+  same SPA fallback. Measured: /cockpit/pages/foo answers 200 text/html,
+  /cockpit/pages/favicon.svg likewise, /cockpit/favicon.svg image/svg+xml — the
+  exact trap checkFavicon() is built for, and one `dev` covers up.
 
-  WARUM DAS NICHT DIE VORGABE IST, obwohl es der schärfere Stand ist: `preview`
-  misst, was auf der Platte liegt, nicht, was in der Quelle steht. Wer gerade
-  an apps/cockpit arbeitet und den Check ruft, bekäme ein grünes Zeugnis für
-  einen Build von gestern — ein falsches Grün, und zwar das leiseste. Im Gate
-  gibt es diese Gefahr nicht: dort läuft `check:cockpit-drift` als Stufe davor
-  und baut neu, bevor diese Stufe drankommt. Deshalb wählt das Gate `preview`
-  und die nackte Kommandozeile `dev`.
+  WHY THE SHARPER TARGET IS NOT THE DEFAULT: `preview` measures what is on disk,
+  not what is in the source. Working on apps/cockpit and calling the check would
+  give a green verdict for yesterday's build — a false green, and the quietest
+  kind. The gate has no such risk: `check:cockpit-drift` runs one stage earlier
+  and rebuilds. So the gate picks `preview` and the bare command line `dev`.
 
-  Kein Ersatz für COCKPIT_BASE_URL: das zeigt auf einen Server, den jemand
-  anders betreibt — auf die echte Auslieferung durch src/cockpit.ts etwa. Ist
-  es gesetzt, startet dieser Lauf gar nichts und dieser Schalter tut nichts.
+  No substitute for COCKPIT_BASE_URL, which points at a server somebody else runs
+  — the real delivery through src/cockpit.ts, say. When it is set this run starts
+  nothing and this switch does nothing.
 */
 const STAND = process.env.KONVENTION_CHECK_STAND ?? 'dev'
 if (!['dev', 'preview'].includes(STAND)) {
-  console.error(`✗ KONVENTION_CHECK_STAND=„${STAND}" kennt dieser Check nicht — erlaubt sind „dev" und „preview"`)
+  console.error(`✗ unknown KONVENTION_CHECK_STAND=${STAND} — allowed are 'dev' and 'preview'`)
   process.exit(2)
 }
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -394,14 +353,14 @@ const WORLDS = {
   nothing else. Every page a reader reaches by clicking a row — a wiki page, an
   archived source, an answer, a proposal under review, a logged decision — was
   outside the check's world, which means §5 (German on the top level, no raw
-  identifiers on screen), §2 („Unbekannt") and §8.3 (button labels) were never
+  identifiers on screen), §2 ("Unbekannt") and §8.3 (button labels) were never
   asserted there at all. That is not a theoretical hole: the same sweep in the
   sibling products found a complete English field table with a full UUID in it
   on one detail page, and an entirely English page on another.
 
   The identifiers are REAL-shaped UUIDs rather than friendly words, and that is
   the load-bearing part of these fixtures: a detail page that prints its own id
-  is precisely the violation being hunted, and a fixture keyed on „quelle-1"
+  is precisely the violation being hunted, and a fixture keyed on "quelle-1"
   would let it through.
 */
 const CONCEPT_SLUG = 'rueckgaberecht'
@@ -610,7 +569,7 @@ const DETAIL_READS = detailReads()
   A parameterised route is not an address until somebody says WHICH page:
   `DETAIL_SPECIMENS` names one specimen per collection, and the fixtures above
   serve it. A route whose parameters no fixture covers is NOT skipped — it is
-  carried into the report as „nicht geprüft" (§12). A gap has to look like a
+  carried into the report as "not checked" (§12). A gap has to look like a
   gap; silence reads as coverage, and that is the whole reason this hole went
   unnoticed for as long as it did.
 */
@@ -640,13 +599,13 @@ function sweepTargets() {
     }
     const specimen = DETAIL_SPECIMENS[path]
     if (!specimen) {
-      unchecked.push({ path, why: 'keine Fixture für die Parameter dieser Route' })
+      unchecked.push({ path, why: "no fixture for this route's parameters" })
       continue
     }
     const url = path.replace(/\$(\w+)/g, (whole, name) =>
       specimen[name] === undefined ? whole : encodeURIComponent(specimen[name]),
     )
-    if (url.includes('$')) unchecked.push({ path, why: 'die Fixture deckt nicht jeden Parameter der Route ab' })
+    if (url.includes('$')) unchecked.push({ path, why: 'the fixture does not cover every parameter of the route' })
     else visit.push({ path, url })
   }
   return { visit, unchecked }
@@ -682,7 +641,7 @@ function globalItems(items) {
   valid answer for a LIST and nonsense for everything else. Five of the
   console's own navigation targets — Wikis, Check, Guidelines, Model usage,
   System — read composed objects rather than lists, so that answer put them on
-  the router's bare English „Something went wrong!" screen. The old sweep never
+  the router's bare English "Something went wrong!" screen. The old sweep never
   noticed because it never opened them.
 
   So the fallback answers what the CONTRACT says instead: docs/openapi.json is
@@ -695,7 +654,7 @@ function globalItems(items) {
 */
 const OPENAPI = JSON.parse(readFileSync(new URL('../docs/openapi.json', import.meta.url), 'utf8'))
 
-/** Dates get a real instant: an empty string renders as „Invalid Date". */
+/** Dates get a real instant: an empty string renders as "Invalid Date". */
 const DATE_FIELD = /(?:_at|^ts|^from$|^to$|_time)$/
 
 function schemaRef(node) {
@@ -708,7 +667,7 @@ function schemaRef(node) {
 function emptyInstance(node, field = '', depth = 0) {
   const schema = schemaRef(node)
   if (!schema || typeof schema !== 'object' || depth > 12) return null
-  // A nullable union answers null: „measured, nothing there" is the state an
+  // A nullable union answers null: "measured, nothing there" is the state an
   // empty installation is actually in, and §4 asks for it to be said rather
   // than faked with a zero.
   if (Array.isArray(schema.anyOf)) {
@@ -847,22 +806,18 @@ const SHELL_PROBE = `(() => {
   }
   const wordmarkIcon = wordmark ? wordmark.querySelector('svg, img, [data-testid="cockpit-wordmark-icon"]') : null
   /*
-    Die Wortmarke, wie sie DASTEHT — aus der berechneten Schreibweise, nicht
-    aus innerText.
+    The wordmark AS IT STANDS — from the computed spelling, not from innerText.
 
-    innerText war eine zustandsabhängige Schranke und damit keine: er bildet
-    text-transform ab, ist aber leer, sobald das Element display:none trägt —
-    und eingeklappt trägt genau die Namenszeile das. Der Rückfall innerText
-    oder textContent landete dann auf textContent, wo „WikiKit" unabhängig von jeder
-    CSS-Transformation steht, und die Versalien-Schranke war blind. Dass der
-    Check heute immer mit ausgeklappter Leiste startet, macht sie nicht
-    tragfähig; es verschiebt nur den Tag, an dem sie schweigt.
+    innerText was a state-dependent guard and therefore none: it reflects
+    text-transform but is empty once the element carries display:none, which is
+    exactly what the name line carries when the sidebar is collapsed. The
+    fallback then landed on textContent, where "WikiKit" stands regardless of any
+    CSS transform, and the all-caps guard was blind.
 
-    Also: textContent als GESCHRIEBENE Fassung, getComputedStyle().textTransform
-    als angewandte Regel, die Anwendung hier in JavaScript. text-transform wird
-    vererbt, die Messung am Namenselement fängt also auch eine Klasse am
-    Container — und getComputedStyle liefert sie auch für ein Element, das
-    gerade nicht dargestellt wird.
+    So: textContent as the AUTHORED spelling, getComputedStyle().textTransform as
+    the applied rule, applied here in JavaScript. text-transform is inherited, so
+    measuring at the name element also catches a class on the container — and
+    getComputedStyle answers for an element that is not being displayed.
   */
   const nameEl = wordmark ? wordmark.querySelector('[data-testid="cockpit-wordmark-name"]') : null
   const authored = nameEl ? (nameEl.textContent || '').replace(/\\s+/g, ' ').trim() : null
@@ -878,15 +833,15 @@ const SHELL_PROBE = `(() => {
             ? authored.replace(/(^|\\s)(\\p{L})/gu, (whole, lead, letter) => lead + letter.toUpperCase())
             : authored
   /*
-    Der Favicon-Verweis, wie ihn der BROWSER aufgelöst hat — für checkFavicon(),
-    das die Adresse wirklich abruft.
+    The favicon reference as the BROWSER resolved it — for checkFavicon(), which
+    actually fetches the address.
 
-    Hier stand bis LOCAL-WI-KENNUNG-NICHT-GEPRUEFT auch die ROHE Fassung beider
-    Verweise, aus der classifyPruefstand() den Prüfstand ableitete. Die ist
-    weggefallen, nicht verloren gegangen: seit die Kennung vor dem Browserstart
-    geprüft wird, liegt das gelieferte Dokument dort schon als Text vor, und
-    marksIn() liest dieselben zwei Verweise daraus. Ein zweiter Weg zur selben
-    Zahl ist ein zweiter Weg, der auseinanderlaufen kann.
+    The RAW form of both references used to be reported here too, and
+    classifyTarget() derived the target from it. It is gone rather than lost:
+    since the identity is checked before the browser starts, the delivered
+    document is already available as text there and marksIn() reads the same two
+    references from it. A second route to the same number is a second route that
+    can drift.
   */
   const iconLink = document.querySelector('link[rel~="icon"]')
   return {
@@ -914,10 +869,10 @@ const SHELL_PROBE = `(() => {
   }
 })()`
 
-// In einem String und nicht als Pfeilfunktion, aus demselben Grund wie die
-// Proben darüber: die ESLint-Konfiguration gibt .mjs-Dateien absichtlich nur
-// Node-Globals, damit ein Skript, das neben einer `evaluate` nach `Image` oder
-// `document` greift, auffliegt statt durchzurutschen.
+// In a string rather than an arrow function, for the same reason as the probes
+// above: this repo's ESLint config deliberately gives .mjs files node globals
+// only, so a script reaching for `Image` or `document` outside an evaluated
+// probe trips the linter instead of slipping through.
 const PAINTS_PROBE = (href) => `(() => new Promise((done) => {
   const probe = new Image()
   probe.onload = () => done({ ok: probe.naturalWidth > 0 && probe.naturalHeight > 0, w: probe.naturalWidth })
@@ -1057,12 +1012,12 @@ const ROUTE_PROBE = `(() => {
   const surface = ${SURFACE_PROBE}
   const title = document.querySelector('[data-testid="page-title"]')
   /*
-    Der Favicon-Verweis, aufgelöst GEGEN DIESE ROUTE.
+    The favicon reference resolved AGAINST THIS ROUTE.
 
-    \`link.href\` ist die DOM-Eigenschaft, nicht das Attribut: sie liefert die
-    absolute Adresse, gegen die Basis dieses Dokuments aufgelöst. Genau darin
-    liegt der Unterschied zur Messung auf der Übersicht — ein dokumentrelativer
-    href zeigt hier woandershin als dort, und das ist die ganze Frage.
+    \`link.href\` is the DOM property, not the attribute: it yields the absolute
+    address resolved against this document's base. That is the whole difference
+    from the measurement on the overview — a document-relative href points
+    somewhere else here than it does there.
   */
   const iconLink = document.querySelector('link[rel~="icon"]')
   return {
@@ -1070,27 +1025,25 @@ const ROUTE_PROBE = `(() => {
     texts: surface.texts,
     buttons: surface.buttons,
     title: title ? (title.innerText || title.textContent || '').replace(/\\s+/g, ' ').trim() : null,
-    // Zwei verschiedene Titel, und sie werden hier auseinandergehalten:
-    // \`title\` ist die Überschrift der Seite, \`documentTitle\` die Beschriftung
-    // des Browser-Reiters. Nur der zweite steht unter der Familienregel.
+    // Two different titles, kept apart here: \`title\` is the page heading,
+    // \`documentTitle\` the browser tab label. Only the second is under the
+    // family rule.
     documentTitle: document.title,
     notFound: Boolean(document.querySelector('[data-testid="not-found-home"]')),
   }
 })()`
 
 /*
-  §6 — „Icon bleibt, Name geht", und das Bleibende bleibt auf der Achse.
+  §6 — "the icon stays, the name goes", and what stays stays on the axis.
 
-  Eingeklappt ist die Wortmarke das oberste Element einer Spalte aus Icons. Ein
-  Quadrat, das zwei Pixel neben dieser Spalte sitzt, liest sich als Fehler in
-  der Ausrichtung der ganzen Leiste — und zwei Pixel sind genau die Größe, die
-  niemand benennt und jeder sieht. Gemessen werden Mittelachsen, nicht Klassen:
-  eine Polsterung kann auf drei Wegen entstehen und muss auf allen dreien
-  auffallen.
+  Collapsed, the wordmark is the top element of a column of icons, and a square
+  sitting two pixels beside that column reads as a misaligned sidebar. Centre
+  axes are measured rather than classes: padding can arrive by three routes and
+  has to be caught on all three.
 
-  Der eingeklappte Zustand wird HERGESTELLT und nicht abgewartet. Lässt er sich
-  nicht herstellen, ist das ein Befund — eine Prüfung, die bei fehlender
-  Voraussetzung stumm zurückkehrt, meldet Erfüllung, wo sie nichts gemessen hat.
+  The collapsed state is PRODUCED, not waited for. If it cannot be produced that
+  is a finding — a check that returns silently on a missing precondition reports
+  compliance where it measured nothing.
 */
 const AXIS_PROBE = `(() => {
   const center = (element) => {
@@ -1140,126 +1093,111 @@ async function main() {
   const swept = []
   let unchecked = []
   /*
-    Was NICHT gemessen werden konnte, weil die Voraussetzung fehlte.
+    What could NOT be measured because a precondition was missing.
 
-    Getrennt von `violations`, weil es eine andere Aussage ist: ein Verstoß
-    sagt „hier stimmt etwas nicht", ein Eintrag hier sagt „hier weiss ich es
-    nicht". Beide sind rot — „nicht geprüft" als grün zu melden wäre die
-    Zusicherung, die dieser Check nie geben wollte —, aber sie dürfen im
-    Bericht nicht dieselbe Zeile bekommen.
+    Separate from `violations` because it is a different statement: a violation
+    says "something is wrong here", an entry here says "I do not know". Both are
+    red — reporting "not checked" as green would be the assurance this check
+    never meant to give — but they must not share a line in the report.
 
-    Muster von WatchKits konvention-check.mjs übernommen, kopiert und nicht
-    importiert (§7: kein Shared Code zwischen den Produkten).
+    Pattern taken from WatchKit's konvention-check.mjs, copied and not imported
+    (§7: no shared code between the products).
   */
   const notChecked = new Set()
-  // Wie viele Adressen die Favicon-Messung wirklich angefasst hat. Gezählt und
-  // nicht geschätzt, weil die grüne Zeile am Ende ihren eigenen Umfang nennt.
+  // How many addresses the favicon measurement actually touched. Counted rather
+  // than estimated, because the green line at the end names its own scope.
   let faviconChecked = 0
   /*
-    Welches Dokument liefert das Ziel? Am GELIEFERTEN Dokument gemessen, aus
-    demselben Abruf, der auch die Kennung trägt (siehe unten, vor dem
-    Browserstart).
+    Which document does the target deliver? Measured on the DELIVERED document,
+    from the same fetch that carries the identity (below, before the browser
+    starts).
 
-    Der Startwert bleibt „unbestimmbar", und über ihn ist hier schon zweimal
-    etwas Falsches behauptet worden — deshalb der genaue Stand: er ist heute
-    NICHT erreichbar. Antwortet das Ziel, wird er eine Zeile später überschrieben;
-    antwortet es nicht, wirft getWithin, und der Lauf endet über main().catch mit
-    „nicht gemessen" (2), ohne diesen Bericht zu drucken. Er steht trotzdem hier,
-    weil ein Feld, dessen Startwert eine Lüge wäre, schlechter ist als eines mit
-    einem unerreichbaren wahren Wert — und weil die Erreichbarkeit an einer
-    Reihenfolge hängt, die jemand wieder ändern kann.
+    The initial value stays "undetermined" and is today NOT reachable: if the
+    target answers it is overwritten one line later; if it does not, getWithin
+    throws and the run ends through main().catch with "not measured" (2) without
+    printing this report. It stands here anyway because a field whose initial
+    value would be a lie is worse than one with an unreachable true value — and
+    because the unreachability hangs on an ordering somebody can change again.
 
-    Was hier vorher stand und was daran belegt ist: report() lag einmal hinter
-    einem try/FINALLY ohne catch, eine Ausnahme aus open() propagierte daran
-    vorbei, und der ganze Bericht verschwand — nachgemessen gegen ein Ziel ohne
-    Server (Port 4999, 0,4 s): keine Kopfzeile, keine Schlusszeile, nur ein
-    Stacktrace, Ausgang 1 wie bei einem sauber berichteten Verstoß. Dieser Fall
-    ist doppelt zu: das catch weiter unten fängt ihn, und die Kennungsprüfung
-    kommt heute vor ihm zum Zug.
+    What made that ordering load-bearing: report() once sat behind a try/FINALLY
+    with no catch, an exception out of open() propagated past it, and the whole
+    report vanished. Measured against a target with no server (port 4999, 0.4s):
+    no header line, no closing line, only a stack trace, and exit 1 — the same
+    code as a cleanly reported violation. The case is shut twice now: the catch
+    below catches it, and the identity check runs before it.
   */
-  let pruefstand = { kind: 'unbestimmbar', why: 'die Übersicht wurde nie gelesen — der Lauf kam nicht so weit' }
+  let target = { kind: 'undetermined', why: 'the overview was never read — the run did not get that far' }
   const note = (rule, where, actual) => violations.push({ rule, where, actual })
 
   /*
-    §7 — die Konventions-Kopie im Repo und dieser Check nennen dieselbe Fassung.
+    §7 — the convention copy in the repo and this check name the same version.
 
-    Die einzige Regel hier, die weder Browser noch Server braucht, und die
-    einzige über den Check selbst. §7 macht die Kopie in jedem Repo zum
-    Mechanismus gegen Drift. Eine Kopie, die weitergezogen ist, während der
-    Check noch die alte Nummer meint — oder umgekehrt eine alte Kopie unter
-    einem Check, der weiter ist — macht aus dem Mechanismus Dekoration.
+    The only rule here that needs neither browser nor server, and the only one
+    about the check itself. §7 makes the per-repo copy the mechanism against
+    drift; a copy that moved on while the check still means the old number turns
+    that mechanism into decoration.
 
-    SIE SAMMELT WIE JEDE ANDERE REGEL und hält den Lauf nicht an. Das ist die
-    Hausregel ganz oben („Every violation is collected, never thrown at"), und
-    sie ist hier richtig: ein falscher Maßstab misst weiter, er misst nur gegen
-    das falsche Dokument — und dann will man den vollständigen Bericht sehen,
-    um zu beurteilen, was das bedeutet. Die beiden exit-2-Pfade am Etikett
-    dürfen anhalten, weil ohne lesbare Kopfzeile gar nicht gemessen werden
-    KANN; hier kann es das.
+    IT COLLECTS LIKE EVERY OTHER RULE and does not halt the run — the house rule
+    at the top. A wrong yardstick keeps measuring, it just measures against the
+    wrong document, and then the full report is what you want. The two exit-2
+    paths on the label may halt because without a readable header nothing CAN be
+    measured; here it can.
 
-    Was daraus folgt und hier stand, als wäre es anders: die Meldung erscheint
-    UNTEN, nach dem Sweep, weil report() die Ausgabereihenfolge bestimmt. Die
-    Position dieses Blocks im Quelltext kauft daran nichts. Selbst nachgemessen,
-    Zeitstempel je Ausgabezeile an der Pipe: der §7-Verstoß wird bei 26,95 s
-    gedruckt, gemeinsam mit der Kopfzeile des Berichts und der Schlusszeile —
-    alle drei tragen denselben Stempel, weil sie alle aus report() kommen. Er
-    steht hier oben, weil er thematisch vor die Messung gehört, nicht weil er
-    früher zu lesen wäre.
+    Consequence: the message appears at the BOTTOM, after the sweep, because
+    report() decides output order — this block's position in the source buys
+    nothing. Measured with per-line timestamps at the pipe: the §7 violation
+    prints at 26.95s, together with the report header and the closing line,
+    because all three come out of report().
   */
-  if (CONVENTION_VERSION !== `v${KONVENTION_VERSION}`) {
+  if (CONVENTION_VERSION !== `v${EXPECTED_CONVENTION_VERSION}`) {
     note(
       '§7',
-      `${CONVENTION_FILE} › Kopfzeile`,
-      `die Kopie im Repo sagt „${CONVENTION_VERSION}", dieser Check ist gegen „v${KONVENTION_VERSION}" geschrieben — ` +
-        'entweder ist die Kopie ausgetauscht worden, ohne dass jemand den Check nachgezogen hat, oder es ist die ' +
-        'falsche Datei hereinkopiert worden',
+      `${CONVENTION_FILE} › header line`,
+      `the copy in the repo says ${CONVENTION_VERSION}, this check is written against v${EXPECTED_CONVENTION_VERSION} — ` +
+        'either the copy was replaced without anybody updating the check, or the wrong file was copied in',
     )
   }
 
   /*
-    Alles, was messen kann, steht in diesem try — und das catch darunter ist
-    der Grund, warum es hier steht.
+    Everything that can measure sits in this try, and the catch below is why.
 
-    Vorher lief report() hinter einem try/FINALLY ohne catch. Jede Ausnahme aus
-    dem Rumpf — ein Ziel, das nicht antwortet, ein Selektor, der zwei Treffer
-    hat, ein Timeout — propagierte am Bericht vorbei und nahm alles mit, was
-    der Lauf bis dahin gesammelt hatte. Als Gate-Stufe ist das die schlimmste
-    Bauart überhaupt: ein Lauf, der nichts geprüft hat, endet mit demselben
-    Code wie einer, der etwas gefunden hat, und sagt nicht, welcher von beiden
-    er war.
+    report() used to run behind a try/FINALLY with no catch, so any exception
+    from the body — an unresponsive target, a selector with two hits, a timeout —
+    propagated past the report and took everything the run had collected with it.
+    As a gate stage that is the worst shape there is: a run that checked nothing
+    exits with the same code as one that found something, and never says which.
 
-    Die Ausnahme wird deshalb zu einem `notChecked`-Eintrag. Der Lauf bleibt
-    rot — `notChecked` ist tödlich —, aber er ist rot MIT Bericht.
+    The exception becomes a `notChecked` entry instead. The run stays red —
+    `notChecked` is fatal — but it is red WITH a report.
   */
   /*
-    WESSEN KONSOLE ANTWORTET — vor dem Browserstart, und mit genau einem Abruf.
+    WHOSE CONSOLE ANSWERS — before the browser starts, with exactly one fetch.
 
-    Die Reihenfolge ist die ganze Zusicherung: ein Browser, der schon läuft, hat
-    bereits Kosten verursacht und, schlimmer, eine fremde Oberfläche vor sich,
-    auf der jeder Selektor dieses Skripts etwas findet. Deshalb steht das hier
-    und nicht im try mit den Messungen — dort würde daraus ein `notChecked`-
-    Eintrag mit Ausgang 1, und 1 heißt in dieser Datei „gemessen und rot".
+    The ordering is the whole assurance: a browser already running has a foreign
+    surface in front of it on which every selector in this script finds
+    something. So this stands here and not in the try with the measurements —
+    there it would become a `notChecked` entry with exit 1, and 1 means
+    "measured and red" in this file.
 
-    DERSELBE Abruf trägt beides: die Kennung und die Verweise, an denen
-    classifyPruefstand() erkennt, welches Dokument das Ziel ausliefert. Vorher
-    kam der zweite Teil aus einem `page.evaluate` NACH dem Browserstart. Ein
-    zweiter Abruf wäre eine zweite Stelle mit eigener Frist gewesen, ohne etwas
-    zu gewinnen: nachgemessen liefert marksIn() über diesen Text in beiden
-    Ständen dieselbe Einordnung, die die DOM-Messung lieferte.
+    The SAME fetch carries both: the identity, and the references classifyTarget()
+    reads to tell which document the target delivers. A second fetch would be a
+    second place needing its own deadline, for nothing: measured, marksIn() over
+    this text yields the same classification in both modes that the DOM
+    measurement did.
   */
-  const wo = BASE ? base : `Port ${PORT}`
+  const location = BASE ? base : `port ${PORT}`
   try {
     const shellHtml = (await getWithin(`${base}/cockpit/`, 15_000)).body
-    assertPruefstandsKennung(shellHtml, wo)
-    pruefstand = classifyPruefstand(marksIn(shellHtml))
+    assertTargetIdentity(shellHtml, location)
+    target = classifyTarget(marksIn(shellHtml))
   } catch (error) {
-    // Der Server gehört diesem Lauf; ein Wurf darf ihn nicht auf dem Port
-    // zurücklassen, sonst ist der nächste Lauf der, der eine fremde Konsole
-    // vorfindet — genau der Zustand, gegen den diese Zeilen geschrieben sind.
+    // The server belongs to this run; a throw must not leave it on the port, or
+    // the next run is the one that finds a foreign console — the exact state
+    // these lines are written against.
     if (server) await stopCockpit(server)
-    // Der §7-Fund ist zu diesem Zeitpunkt vielleicht schon gesammelt und ginge
-    // mit dem Wurf verloren. Er ist ein Befund über Dateien auf der Platte und
-    // von der Frage, wer geantwortet hat, unberührt — also wird er gedruckt.
+    // The §7 finding may already be collected and would be lost with the throw.
+    // It is a finding about files on disk and untouched by who answered, so it
+    // gets printed.
     for (const violation of violations) {
       console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
     }
@@ -1296,123 +1234,119 @@ async function main() {
 
     // §5/§6 — the wordmark carries the canonical product name, and it comes
     // from the catalogue. Compared CHARACTER BY CHARACTER on purpose: a
-    // case-insensitive test lets „WIKIKIT" pass as a hit, which is precisely
+    // case-insensitive test lets "WIKIKIT" pass as a hit, which is precisely
     // the state this assert was written to end.
     if (!shell.wordmark) {
-      note('§5/§6', 'Sidebar › Wortmarke', 'kein [data-testid="cockpit-wordmark"] im DOM')
+      note('§5/§6', 'Sidebar › wordmark', 'no [data-testid="cockpit-wordmark"] in the DOM')
     } else if (!shell.wordmark.nameElement) {
-      // Keine stille Rückkehr: ohne die Namenszeile ist nichts geprüft, und
-      // „nicht geprüft" ist ein Befund (§12), kein bestandener Satz.
-      note('§5/§6', 'Sidebar › Wortmarke', 'keine Namenszeile [data-testid="cockpit-wordmark-name"] im DOM')
+      // No silent return: without the name line nothing was checked, and "not
+      // checked" is a finding (§12), not a passed assertion.
+      note('§5/§6', 'Sidebar › wordmark', 'no name line [data-testid="cockpit-wordmark-name"] in the DOM')
     } else {
       const seen = (where) =>
         shell.wordmark.transform && shell.wordmark.transform !== 'none'
-          ? `${where} (text-transform: ${shell.wordmark.transform}, geschrieben „${shell.wordmark.authored}")`
+          ? `${where} (text-transform: ${shell.wordmark.transform}, authored "${shell.wordmark.authored}")`
           : where
       if (shell.wordmark.name !== PRODUCT_NAME) {
         note(
           '§5/§6',
-          'Sidebar › Wortmarke',
-          `„${shell.wordmark.name || '(leer)'}" statt „${PRODUCT_NAME}" — ${seen('so steht es da')}`,
+          'Sidebar › wordmark',
+          `"${shell.wordmark.name || '(empty)'}" instead of "${PRODUCT_NAME}" — ${seen('as it stands')}`,
         )
       }
       // A SECOND assert, and not a redundant one: the first catches today's
-      // „WIKIKIT", this one catches a name that drifts to all-caps or
+      // "WIKIKIT", this one catches a name that drifts to all-caps or
       // all-lowercase by some other route — a CSS `text-transform`, say, which
       // the first assert cannot see because it reads the DOM text.
       const name = shell.wordmark.name ?? ''
       if (!name) {
-        note('§5/§6', 'Sidebar › Wortmarke', 'die Namenszeile trägt keinen Text — nicht geprüft')
+        note('§5/§6', 'Sidebar › wordmark', 'the name line carries no text — not checked')
       } else if (name === name.toUpperCase() || name === name.toLowerCase()) {
-        note(
-          '§5/§6',
-          'Sidebar › Wortmarke',
-          `„${name}" ist durchgehend groß- oder kleingeschrieben — ${seen('gemessen')}`,
-        )
+        note('§5/§6', 'Sidebar › wordmark', `"${name}" is entirely upper- or lowercase — ${seen('measured')}`)
       }
       // §6 — an icon stands NEXT TO the name, and it is actually painted.
       // Presence in the DOM is not the claim: a glyph in a collapsed container
       // or at zero size is markup that reads as an icon and shows nothing, so
       // this measures the box.
       if (!shell.wordmark.icon) {
-        note('§6', 'Sidebar › Wortmarke', 'kein Icon-Element neben dem Namen')
+        note('§6', 'Sidebar › wordmark', 'no icon element beside the name')
       } else if (!shell.wordmark.iconShown) {
-        note('§6', 'Sidebar › Wortmarke', 'Icon-Element ist im DOM, wird aber nicht dargestellt')
+        note('§6', 'Sidebar › wordmark', 'icon element is in the DOM but is not displayed')
       }
     }
 
-    // §6 — the browser tab says „<Produktname> Cockpit", exactly. The tab is
+    // §6 — the browser tab says "<product name> Cockpit", exactly. The tab is
     // the one part of the console an operator reads with six other tabs open,
     // so it is the place a lowercase product name is most visible and least
     // likely to be noticed by whoever wrote it.
     //
-    // §6 und nicht mehr §5: v1.5 hat den Browser-Titel benannt und ihn zu
-    // Wortmarke und App-Icon gestellt, wo er hingehört. Der Satz misst
-    // dasselbe wie vorher; nur der Paragraf, den ein roter Lauf nennt, zeigt
-    // jetzt auf die Regel, die es tatsächlich sagt.
+    // §6 rather than §5: v1.5 named the browser title and put it next to the
+    // wordmark and the app icon. The assertion measures the same thing as
+    // before; only the paragraph a red run cites now points at the rule that
+    // actually says it.
     if (shell.title !== `${PRODUCT_NAME} Cockpit`) {
-      note('§6', 'Browser-Titel <title>', `„${shell.title || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`)
+      note('§6', 'browser title <title>', `"${shell.title || '(empty)'}" instead of "${PRODUCT_NAME} Cockpit"`)
     }
 
-    // §6 — der Reiter-Verweis, auf der Übersicht. Die Messung selbst steht in
-    // checkFavicon(), weil sie im Routen-Sweep noch einmal gebraucht wird —
-    // dort gegen eine tiefe Adresse, wo ein dokumentrelativer href woandershin
-    // zeigt als hier.
+    // §6 — the tab reference, on the overview. The measurement itself lives in
+    // checkFavicon() because the route sweep needs it again — there against a
+    // deep address, where a document-relative href points somewhere else than
+    // it does here.
     await checkFavicon(page, note, 'Browser-Tab', shell.icon)
     faviconChecked += 1
 
     // §5/§6 — one spelling of the role, and it is "Administrator".
     if (shell.role !== 'Administrator') {
-      note('§5/§6', 'Sidebar › Account-Block [data-testid="operator-scopes"]', `„${shell.role ?? '(fehlt)'}"`)
+      note('§5/§6', 'Sidebar › account block [data-testid="operator-scopes"]', `"${shell.role ?? '(missing)'}"`)
     }
     for (const word of (shell.account ?? '').split(/\s+/)) {
       if (/^admin(istrator)?$/i.test(word) && word !== 'Administrator') {
-        note('§6', 'Sidebar › Account-Block', `Rollen-Variante „${word}" statt „Administrator"`)
+        note('§6', 'Sidebar › account block', `role spelling "${word}" instead of "Administrator"`)
       }
     }
 
     // §6 — the admin group is called "Installation", never "Administration".
     if (!shell.installationPresent) {
-      note('§6', 'Sidebar › Admin-Gruppe', 'keine Nav-Gruppe „installation" im DOM')
+      note('§6', 'Sidebar › admin group', 'no nav group "installation" in the DOM')
     } else if (shell.installationLabel !== 'Installation') {
-      note('§6', 'Sidebar › Admin-Gruppe', `„${shell.installationLabel ?? '(kein Label)'}"`)
+      note('§6', 'Sidebar › admin group', `"${shell.installationLabel ?? '(no label)'}"`)
     }
 
     // §8.1 — the decisions entry is ungrouped, sits directly under the
     // overview, and carries a live counter.
     if (shell.decisionsLabel !== 'Entscheidungen') {
-      note('§8.1', 'Sidebar › Entscheidungs-Eintrag', `„${shell.decisionsLabel ?? '(fehlt)'}"`)
+      note('§8.1', 'Sidebar › decisions entry', `"${shell.decisionsLabel ?? '(missing)'}"`)
     }
     if (shell.decisionsGroup !== shell.homeGroup) {
       note(
         '§8.1',
-        'Sidebar › Entscheidungs-Eintrag',
-        `gruppiert unter „${shell.decisionsGroup ?? '(keine Gruppe)'}", Übersicht steht in „${shell.homeGroup ?? '(keine Gruppe)'}"`,
+        'Sidebar › decisions entry',
+        `grouped under "${shell.decisionsGroup ?? '(no group)'}", the overview sits in "${shell.homeGroup ?? '(no group)'}"`,
       )
     }
     const homeIndex = shell.order.indexOf('nav-home')
     const decisionsIndex = shell.order.indexOf('nav-decisions')
     if (decisionsIndex !== homeIndex + 1) {
-      note('§8.1', 'Sidebar › Reihenfolge', `${shell.order.join(' → ')}`)
+      note('§8.1', 'Sidebar › order', `${shell.order.join(' → ')}`)
     }
     if (shell.badge === null) {
-      note('§8.1', 'Sidebar › Entscheidungs-Eintrag', 'kein Zähler-Badge [data-testid="nav-decisions-count"]')
+      note('§8.1', 'Sidebar › decisions entry', 'no counter badge [data-testid="nav-decisions-count"]')
     }
 
     // §8.7 — the overview shouts when a gate is open, above everything else,
     // with exactly one link and that link goes to the decisions page.
     if (!banner.page) {
-      note('§8.7', 'Übersicht', 'kein [data-testid="page"] — die Seite hat nicht gemountet')
+      note('§8.7', 'Overview', 'no [data-testid="page"] — the page did not mount')
     } else if (!banner.banner) {
-      note('§8.7', 'Übersicht (Fixture „gate-open", 5 offene Gates)', 'kein Incident-Banner im DOM')
+      note('§8.7', 'Overview (fixture gate-open, 5 open gates)', 'no incident banner in the DOM')
     } else {
       if (!banner.beforeBlocks) {
-        note('§8.7', 'Übersicht › Incident-Banner', `steht hinter „${banner.firstBlock ?? '(nichts)'}"`)
+        note('§8.7', 'Overview › incident banner', `stands behind "${banner.firstBlock ?? '(nothing)'}"`)
       }
       if (banner.links.length !== 1) {
-        note('§8.7', 'Übersicht › Incident-Banner', `${banner.links.length} Links: ${banner.links.join(', ') || '—'}`)
+        note('§8.7', 'Overview › incident banner', `${banner.links.length} links: ${banner.links.join(', ') || '—'}`)
       } else if (!/\/decisions(\/|$|\?)/.test(banner.links[0] ?? '')) {
-        note('§8.7', 'Übersicht › Incident-Banner', `Link zeigt auf „${banner.links[0]}" statt auf /decisions`)
+        note('§8.7', 'Overview › incident banner', `link points at "${banner.links[0]}" instead of /decisions`)
       }
     }
     // §1 — Zone A is a CARD: the count and the age in the head, one action per
@@ -1420,59 +1354,54 @@ async function main() {
     // place to decide. The count is a link, because §1 has no counter without
     // one.
     if (!zoneA.card) {
-      note('§1', 'Übersicht › Zone A', 'keine Karte [data-testid="zone-a"]')
+      note('§1', 'Overview › Zone A', 'no card [data-testid="zone-a"]')
     } else {
       if (zoneA.heading !== 'Wartet auf dich') {
-        note('§1', 'Übersicht › Zone A › Überschrift', `„${zoneA.heading ?? '(keine)'}"`)
+        note('§1', 'Overview › Zone A › heading', `"${zoneA.heading ?? '(none)'}"`)
       }
       if (!zoneA.countInHead) {
-        note('§1', 'Übersicht › Zone A › Kopf', 'kein Zähler [data-testid="zone-a-decisions-count"] im Kopf')
+        note('§1', 'Overview › Zone A › head', 'no counter [data-testid="zone-a-decisions-count"] in the head')
       } else if (!/\/decisions(\/|$|\?)/.test(zoneA.countHref ?? '')) {
-        note('§1', 'Übersicht › Zone A › Zähler', `„${zoneA.countHref ?? '(kein Link)'}" statt /decisions`)
+        note('§1', 'Overview › Zone A › counter', `"${zoneA.countHref ?? '(no link)'}" instead of /decisions`)
       }
-      // "Alter der ältesten Position" — either a measured age or the sentence
-      // that says there is none. A head with neither is a head that reports a
-      // number without saying how long it has been true.
+      // "Age of the oldest position" — either a measured age or the sentence
+      // saying there is none. A head with neither reports a number without
+      // saying how long it has been true.
       if (!/älteste \d+ Tage|keine datierte Aufgabe/.test(zoneA.head ?? '')) {
-        note('§1', 'Übersicht › Zone A › Kopf', `kein Alter der ältesten Position: „${zoneA.head ?? '(leer)'}"`)
+        note('§1', 'Overview › Zone A › head', `no age of the oldest position: "${zoneA.head ?? '(empty)'}"`)
       }
       if (zoneA.rows === 0) {
-        note('§1', 'Übersicht › Zone A', 'keine Positionen in der Karte (Fixture „gate-open")')
+        note('§1', 'Overview › Zone A', 'no positions in the card (fixture gate-open)')
       } else if (zoneA.linkedRows !== zoneA.rows) {
-        note('§1', 'Übersicht › Zone A › Zeilen', `${zoneA.linkedRows} von ${zoneA.rows} Zeilen verlinkt`)
+        note('§1', 'Overview › Zone A › rows', `${zoneA.linkedRows} of ${zoneA.rows} rows linked`)
       }
       /*
-        Die GERENDERTEN Zeilen, nicht nur die Zahl darüber (§8.1/§1).
+        The RENDERED rows, not just the number above them (§8.1/§1).
 
-        Der Vierweg-Vergleich weiter unten hält vier Zähler gegeneinander und
-        hat trotzdem übersehen, dass der Kopf „6 offen" sagte und die Tabelle
-        darunter sieben Zeilen zeigte: die Fixture liefert die erste Position
-        bewusst zweimal, die Entscheidungs-Seite faltet sie, die Zone-A-Karte
-        nicht. Vier gleiche Zahlen über einer falschen Liste sind genau die
-        Art Grün, für die eine Prüfung nicht da ist.
+        The four-way comparison below holds four counters against each other and
+        still missed a head saying "6 offen" over a table showing seven rows: the
+        fixture delivers the first position twice on purpose, the decisions page
+        folds it, the Zone-A card did not. Four equal numbers over a wrong list
+        are exactly the kind of green a check exists to prevent.
 
-        Zwei Sätze, weil es zwei Fehler sind: eine Dublette (gleiche
-        Schlüssel) und eine Liste, die nicht zu ihrem Kopf passt. Die Fixture
-        liefert die Liste vollständig — dieselbe Annahme, unter der die Queue
-        weiter unten `data-capped="false"` verlangt.
+        Two assertions because there are two faults: a duplicate (same keys), and
+        a list that does not match its head. The fixture delivers the list in
+        full — the same assumption under which the queue below demands
+        `data-capped="false"`.
       */
       if (new Set(zoneA.keys).size !== zoneA.keys.length) {
-        note(
-          '§1',
-          'Übersicht › Zone A › Dubletten',
-          `${zoneA.keys.length} Zeilen, ${new Set(zoneA.keys).size} Positionen`,
-        )
+        note('§1', 'Overview › Zone A › duplicates', `${zoneA.keys.length} rows, ${new Set(zoneA.keys).size} positions`)
       }
       if (zoneA.rows !== zoneA.total) {
         note(
           '§1',
-          'Übersicht › Zone A › Zeilen vs. Kopf',
-          `Kopf sagt ${zoneA.total ?? '(keine Zahl)'}, die Karte zeigt ${zoneA.rows} Zeilen`,
+          'Overview › Zone A › rows vs. head',
+          `the head says ${zoneA.total ?? '(no number)'}, the card shows ${zoneA.rows} rows`,
         )
       }
     }
 
-    collectSurface(note, 'Übersicht', overview)
+    collectSurface(note, 'Overview', overview)
 
     // §8.1/§8.7/§1 — the banner says how much of the queue has gone stale, and
     // it says it in a sentence rather than in a number an operator has to
@@ -1481,16 +1410,16 @@ async function main() {
     // same three days.
     const SENTENCE = /(?:mindestens \d+ von \d+|Alle \d+|\d+ von \d+) warten länger als drei Tage/
     if (numbers.bannerSubset === null) {
-      note('§8.7', 'Übersicht › Incident-Banner', 'keine Zahl [data-testid="incident-decisions-count"]')
+      note('§8.7', 'Overview › incident banner', 'no number [data-testid="incident-decisions-count"]')
     } else {
       if (numbers.bannerSubset !== 'aging') {
         note(
           '§8.7',
-          'Übersicht › Incident-Banner (Fixture: 2 von 5 älter als drei Tage)',
-          `Teilmenge „${numbers.bannerSubset}" statt „aging"`,
+          'Overview › incident banner (fixture: 2 of 5 older than three days)',
+          `subset "${numbers.bannerSubset}" instead of "aging"`,
         )
       } else if (!SENTENCE.test(numbers.bannerText ?? '')) {
-        note('§8.7', 'Übersicht › Incident-Banner › Satz', `„${(numbers.bannerText ?? '').slice(0, 90)}"`)
+        note('§8.7', 'Overview › incident banner › sentence', `"${(numbers.bannerText ?? '').slice(0, 90)}"`)
       }
       // A subset is a SUBSET: at least one, and never more than the whole
       // queue. "0 von 5" is a banner about nothing and "7 von 5" is a banner
@@ -1498,14 +1427,14 @@ async function main() {
       if (!(numbers.bannerCount > 0 && numbers.bannerCount < numbers.bannerTotal)) {
         note(
           '§8.7',
-          'Übersicht › Incident-Banner › Teilmenge',
-          `${numbers.bannerCount} von ${numbers.bannerTotal} — keine echte Teilmenge`,
+          'Overview › incident banner › subset',
+          `${numbers.bannerCount} of ${numbers.bannerTotal} — not a real subset`,
         )
       } else if (numbers.bannerCount !== AGED_ITEMS) {
         note(
           '§8.7',
-          'Übersicht › Incident-Banner › Teilmenge',
-          `${numbers.bannerCount} statt ${AGED_ITEMS} Positionen älter als drei Tage`,
+          'Overview › incident banner › subset',
+          `${numbers.bannerCount} instead of ${AGED_ITEMS} positions older than three days`,
         )
       }
     }
@@ -1517,15 +1446,15 @@ async function main() {
     const decisionsSurface = await page.evaluate(SURFACE_PROBE)
 
     if (!queue.list) {
-      note('§8.2', 'Entscheidungs-Seite', 'keine Queue [data-testid="attention-list"] im DOM')
+      note('§8.2', 'Decisions page', 'no queue [data-testid="attention-list"] in the DOM')
     } else if (!queue.headings.includes('Liegt schon länger')) {
       note(
         '§8.2',
-        'Entscheidungs-Queue › Aging-Rubrik',
-        `Überschriften: ${queue.headings.map((heading) => `„${heading}"`).join(', ') || '(keine)'}`,
+        'Decisions queue › aging rubric',
+        `headings: ${queue.headings.map((heading) => `"${heading}"`).join(', ') || '(none)'}`,
       )
     }
-    collectSurface(note, 'Entscheidungen', decisionsSurface)
+    collectSurface(note, 'Decisions', decisionsSurface)
 
     /*
       Four surfaces, ONE number (§8.1/§1).
@@ -1540,31 +1469,27 @@ async function main() {
     */
     const badgeCount = Number.parseInt(queueShell.badge ?? '', 10)
     const four = [
-      ['Nav-Badge', badgeCount],
-      ['Zone-A-Karte', numbers.zoneA],
-      ['Incident-Banner', numbers.bannerTotal],
-      ['Queue', queue.total],
+      ['nav badge', badgeCount],
+      ['Zone-A card', numbers.zoneA],
+      ['incident banner', numbers.bannerTotal],
+      ['queue', queue.total],
     ]
     const missing = four.filter(([, value]) => !Number.isFinite(value)).map(([name]) => name)
     if (missing.length) {
-      note('§8.1/§1', 'Vier Zahlen', `ohne lesbare Zahl: ${missing.join(', ')}`)
+      note('§8.1/§1', 'four numbers', `without a readable number: ${missing.join(', ')}`)
     } else if (new Set(four.map(([, value]) => value)).size !== 1) {
-      note('§8.1/§1', 'Vier Zahlen', four.map(([name, value]) => `${name} ${value}`).join(', '))
+      note('§8.1/§1', 'four numbers', four.map(([name, value]) => `${name} ${value}`).join(', '))
     }
     // The list is complete in this fixture, so it must not hedge — and the six
     // delivered rows must render as the five positions they are.
     if (queue.capped !== 'false') {
-      note('§8.1', 'Entscheidungs-Queue', `data-capped="${queue.capped}" bei vollständiger Liste`)
+      note('§8.1', 'Decisions queue', `data-capped="${queue.capped}" on a complete list`)
     }
     if (new Set(queue.keys).size !== queue.keys.length) {
-      note(
-        '§8.2',
-        'Entscheidungs-Queue › Dubletten',
-        `${queue.keys.length} Zeilen, ${new Set(queue.keys).size} Positionen`,
-      )
+      note('§8.2', 'Decisions queue › duplicates', `${queue.keys.length} rows, ${new Set(queue.keys).size} positions`)
     }
     if (queue.keys.length !== queue.cards) {
-      note('§8.2', 'Entscheidungs-Queue', `${queue.cards} Karten, aber ${queue.keys.length} mit data-decision-key`)
+      note('§8.2', 'Decisions queue', `${queue.cards} cards but ${queue.keys.length} with data-decision-key`)
     }
 
     /*
@@ -1579,20 +1504,20 @@ async function main() {
     */
     const chip = `decisions-space-${SPACES[1].slug}`
     if (!queue.chips.includes(chip)) {
-      note('§10', 'Entscheidungs-Queue › Wiki-Chips', `Chips: ${queue.chips.join(', ') || '(keine)'}`)
+      note('§10', 'Decisions queue › wiki chips', `chips: ${queue.chips.join(', ') || '(none)'}`)
     } else {
       await page.locator(`[data-testid="${chip}"]`).click()
       await page.waitForTimeout(250)
       const filtered = await page.evaluate(QUEUE_PROBE)
       const filteredShell = await page.evaluate(SHELL_PROBE)
       if (filtered.total !== queue.total) {
-        note('§10', 'Wiki-Chip vs. Gesamtzahl', `Queue ${queue.total} → ${filtered.total} nach Chip-Klick`)
+        note('§10', 'wiki chip vs. total', `queue ${queue.total} → ${filtered.total} after the chip click`)
       }
       if (filteredShell.badge !== queueShell.badge) {
-        note('§10', 'Wiki-Chip vs. Nav-Badge', `Badge „${queueShell.badge}" → „${filteredShell.badge}"`)
+        note('§10', 'wiki chip vs. nav badge', `badge "${queueShell.badge}" → "${filteredShell.badge}"`)
       }
       if (filtered.cards >= queue.cards) {
-        note('§10', 'Wiki-Chip', `filtert keine Zeilen weg: ${queue.cards} → ${filtered.cards}`)
+        note('§10', 'wiki chip', `filters no rows away: ${queue.cards} → ${filtered.cards}`)
       }
       await page.locator('[data-testid="decisions-space-all"]').click()
       await page.waitForTimeout(250)
@@ -1608,7 +1533,7 @@ async function main() {
       called it a sweep. Everything behind a row — a wiki page, its editor, an
       archived source, an answer, a proposal under review, a logged decision —
       was outside the world the check knew about, so the prohibitions on raw
-      identifiers, on English on the top level, on „Unbekannt" and on nameless
+      identifiers, on English on the top level, on "Unbekannt" and on nameless
       buttons simply did not reach them. Not a hypothetical: the same sweep in
       the sibling products walked straight into a full English field table with
       a UUID in it.
@@ -1623,49 +1548,43 @@ async function main() {
       try {
         await open(page, `${base}/cockpit${target.url}?space=${SPACE.slug}`)
       } catch (error) {
-        note('§12', where, `mountet nicht: ${String(error?.message ?? error).split('\n')[0]}`)
+        note('§12', where, `does not mount: ${String(error?.message ?? error).split('\n')[0]}`)
         continue
       }
       const surface = await page.evaluate(ROUTE_PROBE)
       if (surface.notFound) {
-        note(
-          '§12',
-          where,
-          'landet auf dem „nicht gefunden"-Schirm — die Route existiert nicht mehr oder ihre Fixture trifft sie nicht',
-        )
+        note('§12', where, 'lands on the not-found screen — the route is gone, or its fixture no longer matches it')
         continue
       }
       swept.push({ path: target.path, url: target.url, title: surface.title })
-      // §6 — der Browser-Reiter sagt „<Produktname> Cockpit", und zwar auf
-      // JEDER Route, nicht nur auf der Übersicht.
+      // §6 — the browser tab says "<product name> Cockpit" on EVERY route, not
+      // only on the overview.
       //
-      // Die Prüfung auf der Übersicht weiter oben ist genau so weit tragfähig,
-      // wie niemand den Titel je pro Route setzt. Heute tut das nichts — im
-      // ganzen Cockpit steht keine Zuweisung an `document.title` —, und genau
-      // deshalb ist die Stelle offen: ein `document.title = 'Seiten'` in einem
-      // Effekt ist in einer SPA die naheliegendste Ergänzung der Welt, sie
-      // lässt die Übersicht grün und macht die Beschriftung auf zweiundzwanzig
-      // anderen Routen still falsch. Der Sweep läuft ohnehin über alle Ziele;
-      // die Beschriftung mitzulesen kostet nichts und schließt den Zeitraum,
-      // in dem das unbemerkt bliebe.
+      // The overview check above holds exactly as long as nobody sets the title
+      // per route. Nothing does today — the whole cockpit contains no assignment
+      // to `document.title` — and that is why the spot is open: a
+      // `document.title = 'Seiten'` in an effect is the most natural addition in
+      // a SPA, it leaves the overview green and makes the label silently wrong
+      // on twenty-two other routes. The sweep opens every target anyway, so
+      // reading the label along costs nothing.
       if (surface.documentTitle !== `${PRODUCT_NAME} Cockpit`) {
         note(
           '§6',
-          `${where} › Browser-Titel <title>`,
-          `„${surface.documentTitle || '(leer)'}" statt „${PRODUCT_NAME} Cockpit"`,
+          `${where} › browser title <title>`,
+          `"${surface.documentTitle || '(empty)'}" instead of "${PRODUCT_NAME} Cockpit"`,
         )
       }
-      // §6 — und dieselbe Messung für den Reiter-Verweis, hier gegen eine TIEFE
-      // Adresse. Der Verweis ist dokumentweit, seine Auflösung ist es nicht:
-      // `./favicon.svg` ergibt auf /cockpit/ die richtige Datei und auf
-      // /cockpit/pages/<slug> die Adresse /cockpit/pages/favicon.svg, die der
-      // SPA-Rückfall mit 200 und text/html beantwortet. Die Messung auf der
-      // Übersicht kann das nicht sehen — nicht weil sie zu schwach ist, sondern
-      // weil die Übersicht die einzige Route ist, auf der es zufällig aufgeht.
+      // §6 — the same measurement for the tab reference, here against a DEEP
+      // address. The reference is document-wide, its resolution is not:
+      // `./favicon.svg` yields the right file on /cockpit/ and the address
+      // /cockpit/pages/favicon.svg on /cockpit/pages/<slug>, which the SPA
+      // fallback answers with 200 and text/html. The overview cannot see that —
+      // not because the assert is weak, but because the overview is the one
+      // route where it happens to work out.
       //
-      // Über den GANZEN Sweep und nicht über eine ausgewählte Detailroute: die
-      // beiden Anfragen je Route kosten gegen den lokalen Dev-Server so wenig,
-      // dass eine Auswahl nur eine Begründung wäre, die später niemand nachhält.
+      // Over the WHOLE sweep rather than one selected detail route: the two
+      // requests per route cost so little against the local dev server that a
+      // selection would only be a rationale nobody maintains later.
       await checkFavicon(page, note, where, surface.icon)
       faviconChecked += 1
       collectSurface(note, where, surface)
@@ -1678,55 +1597,50 @@ async function main() {
     const quiet = await page.evaluate(BANNER_PROBE)
     const quietNumbers = await page.evaluate(NUMBERS_PROBE)
     if (quiet.banner) {
-      note('§8.7', 'Übersicht (Fixture „gate-clear", 0 offene Gates)', `Banner trotzdem sichtbar: „${quiet.text}"`)
+      note('§8.7', 'Overview (fixture gate-clear, 0 open gates)', `banner visible anyway: "${quiet.text}"`)
     }
     // The other direction of the same rule: nothing open means no banner AND a
     // badge that says zero rather than one that has quietly disappeared —
     // §4's measured null is a number, not an absence.
     if (quietNumbers.nav !== 0) {
-      note('§8.1', 'Sidebar-Badge (Fixture „gate-clear")', `Badge liest ${quietNumbers.nav ?? '(fehlt)'} statt 0`)
+      note('§8.1', 'sidebar badge (fixture gate-clear)', `badge reads ${quietNumbers.nav ?? '(missing)'} instead of 0`)
     }
     if (quietNumbers.zoneA !== 0) {
-      note('§1', 'Zone-A-Karte (Fixture „gate-clear")', `Zähler liest ${quietNumbers.zoneA ?? '(fehlt)'} statt 0`)
+      note('§1', 'Zone-A card (fixture gate-clear)', `counter reads ${quietNumbers.zoneA ?? '(missing)'} instead of 0`)
     }
 
     /*
-      ---- Die eingeklappte Leiste, zuletzt --------------------------------
+      ---- The collapsed sidebar, last ------------------------------------
 
-      Zuletzt, weil das Einklappen ein Zustand ist, den kein Assert davor
-      sehen soll — und weil danach nichts mehr gemessen wird, muss er auch
-      nicht zurückgenommen werden.
+      Last, because collapsing is a state no assert before it should see — and
+      because nothing is measured afterwards, it need not be undone.
     */
     const trigger = page.locator('[data-testid="sidebar-trigger"]')
     if ((await trigger.count()) === 0) {
-      note('§6', 'Seitenleiste eingeklappt', 'kein [data-testid="sidebar-trigger"] — nicht geprüft')
+      note('§6', 'sidebar collapsed', 'no [data-testid="sidebar-trigger"] — not checked')
     } else {
       await trigger.first().click()
       await page.waitForTimeout(400)
       const axis = await page.evaluate(AXIS_PROBE)
       if (!axis.collapsed) {
-        note('§6', 'Seitenleiste eingeklappt', 'liess sich nicht einklappen — nicht geprüft')
+        note('§6', 'sidebar collapsed', 'could not be collapsed — not checked')
       } else if (axis.wordmark === null || axis.nav.length === 0) {
         note(
           '§6',
-          'Seitenleiste eingeklappt › Achse',
-          `nichts zu messen: Wortmarken-Quadrat ${axis.wordmark ?? '(keine Box)'}, ${axis.nav.length} Nav-Icons`,
+          'sidebar collapsed › axis',
+          `nothing to measure: wordmark square ${axis.wordmark ?? '(no box)'}, ${axis.nav.length} nav icons`,
         )
       } else {
-        // Alle Nav-Icons stehen auf einer Achse; weicht eines davon ab, ist
-        // schon das ein Befund, und der Vergleich unten hätte keinen Bezug.
+        // All nav icons stand on one axis; one that does not is already a
+        // finding, and the comparison below would have no reference.
         const spread = Math.max(...axis.nav) - Math.min(...axis.nav)
         if (spread > 1) {
-          note(
-            '§6',
-            'Seitenleiste eingeklappt › Nav-Icons',
-            `stehen selbst nicht auf einer Achse (${spread.toFixed(1)}px)`,
-          )
+          note('§6', 'sidebar collapsed › nav icons', `do not stand on one axis themselves (${spread.toFixed(1)}px)`)
         } else if (Math.abs(axis.wordmark - axis.nav[0]) > 1) {
           note(
             '§6',
-            'Seitenleiste eingeklappt › Wortmarke',
-            `Quadrat auf x=${axis.wordmark.toFixed(1)}, Nav-Icons auf x=${axis.nav[0].toFixed(1)}`,
+            'sidebar collapsed › wordmark',
+            `square at x=${axis.wordmark.toFixed(1)}, nav icons at x=${axis.nav[0].toFixed(1)}`,
           )
         }
       }
@@ -1734,83 +1648,69 @@ async function main() {
 
     await context.close()
   } catch (error) {
-    // Erste Zeile, nicht der ganze Stacktrace: die Meldung gehört in den
-    // Bericht, die Ablaufverfolgung nicht. Was danach gekommen wäre, ist
-    // ungeprüft — und genau das sagt der Eintrag.
+    // First line, not the whole stack trace: the message belongs in the report,
+    // the trace does not. Whatever would have come after is unchecked — which is
+    // exactly what the entry says.
     notChecked.add(
-      `Der Lauf brach ab, bevor er zu Ende messen konnte: ${String(error).split('\n')[0].trim()} — ` +
-        'alles, was nach dieser Stelle gemessen worden wäre, ist unbekannt',
+      `the run aborted before it could finish measuring: ${String(error).split('\n')[0].trim()} — ` +
+        'everything that would have been measured after this point is unknown',
     )
   } finally {
     if (browser) await browser.close()
     if (server) await stopCockpit(server)
   }
 
-  // Hier und nicht in classifyPruefstand(): der Fall „der Lauf kam nie bis zur
-  // Übersicht" hat dieselbe Folge wie „ich kann das Ziel nicht einordnen", und
-  // beide sollen dieselbe rote Zeile bekommen. Die Fehlerrichtung zeigt nach
-  // rot, nicht nach still — ein fehlender Hinweis läse sich wie ein scharfer
-  // Lauf.
-  if (pruefstand.kind === 'unbestimmbar') notChecked.add(`Prüfstand nicht bestimmbar — ${pruefstand.why}`)
+  // Here and not in classifyTarget(): "the run never reached the overview" has
+  // the same consequence as "I cannot classify the target", and both should get
+  // the same red line. The error direction points at red, not at silence — a
+  // missing caveat would read like a sharp run.
+  if (target.kind === 'undetermined') notChecked.add(`target undeterminable — ${target.why}`)
 
-  report(base, violations, unmocked, swept, unchecked, faviconChecked, pruefstand, notChecked)
+  report(base, violations, unmocked, swept, unchecked, faviconChecked, target, notChecked)
 }
 
 /**
- * §6 — der Reiter trägt ein Icon, und die Datei dahinter ist wirklich eines.
+ * §6 — the tab carries an icon, and the file behind it really is one.
  *
- * Gemessen wird DREIMAL hintereinander, und keine der drei Stufen ist Zierde:
+ * Measured in THREE steps, none of them decoration:
  *
- *  - Ein `<link rel="icon">` steht überhaupt da. Ein fehlender Verweis ist der
- *    ehrliche Fall.
- *  - Er antwortet mit 200 UND mit einem Bild-Content-Type. Der Statuscode
- *    allein wäre HIER besonders falsch-grün: src/cockpit.ts beantwortet alles,
- *    was keine Datei ist, mit der SPA-Hülle — 200, text/html —, weil tiefe
- *    Cockpit-Adressen Client-Routen sind. Ein href mit einem Tippfehler bekommt
- *    also ein fröhliches 200 und eine Seite HTML, und ein Assert, der bei der
- *    Zahl stehen bliebe, nickt das ab.
- *  - Die Datei lässt sich als BILD decodieren. Ein SVG mit doppeltem
- *    Bindestrich im XML-Kommentar ist unwohlgeformt und scheitert auf die
- *    teuflischste Art: als Dokument geöffnet zeigt Chromium es an, per fetch
- *    geholt kommt es mit 200 und image/svg+xml zurück — und im <img> bleibt es
- *    leer. Ein Browser lädt ein Favicon als Bild. Genau dieser Fehler stand
- *    hier im Baum und hat alle Prüfungen davor passiert.
+ *  - A `<link rel="icon">` is there at all.
+ *  - It answers 200 AND an image content type. The status code alone would be
+ *    especially false-green here: src/cockpit.ts answers anything that is not a
+ *    file with the SPA shell — 200, text/html — because deep cockpit addresses
+ *    are client routes. A typo in the href gets a cheerful 200 and a page of
+ *    HTML.
+ *  - The file DECODES as an image. An SVG with a double hyphen in an XML comment
+ *    is malformed and fails in the nastiest way: Chromium displays it when the
+ *    document is opened directly, fetch returns 200 and image/svg+xml, and in an
+ *    <img> it stays empty. A browser loads a favicon as an image. That exact bug
+ *    was in this tree and passed every check before this one.
  *
- * WARUM DIE FUNKTION UND NICHT EINE STELLE IM ABLAUF: der Verweis ist
- * dokumentweit, seine AUFLÖSUNG ist es nicht. Ein dokumentrelativer href
- * (`./favicon.svg`) ergibt auf /cockpit/ die richtige Adresse und auf
- * /cockpit/pages/<slug> die Adresse /cockpit/pages/favicon.svg — tot, und vom
- * SPA-Rückfall mit 200 und text/html beantwortet. Auf der Übersicht allein
- * gemessen wäre das grün: nicht weil der Assert zu schwach ist, sondern weil
- * die Übersicht die einzige Route ist, auf der es zufällig aufgeht. Deshalb
- * läuft dieselbe Messung im Routen-Sweep über jede Adresse, die er ohnehin
- * öffnet. Der fetch läuft IN der Seite, damit der href gegen die echte Basis
- * dieses Dokuments auflöst.
+ * WHY A FUNCTION AND NOT ONE SPOT IN THE FLOW: the reference is document-wide,
+ * its RESOLUTION is not. `./favicon.svg` yields the right address on /cockpit/
+ * and /cockpit/pages/favicon.svg on /cockpit/pages/<slug> — dead, and answered
+ * by the SPA fallback with 200 and text/html. Measured on the overview alone
+ * that would be green, so the same measurement runs over every address the route
+ * sweep opens anyway. The fetch runs IN the page so the href resolves against
+ * that document's real base.
  *
- * GEMESSENE GRENZE, und sie betrifft genau den Standardlauf. Der Vite-DEV-
- * SERVER, gegen den dieser Check normalerweise läuft, löst einen relativen href
- * beim Ausliefern SELBST auf: aus `./favicon.svg` wird schon im HTML
- * `/cockpit/favicon.svg`, auf jeder Route, und dasselbe gilt für `favicon.svg`
- * und `./bilder/favicon.svg`. Der BUILD tut das NICHT — in
- * assets/cockpit/index.html bleibt `./favicon.svg` wörtlich stehen. Der Fehler
- * ist gegen den Dev-Server also unsichtbar und in der Auslieferung echt.
- * Nachgemessen gegen den echten Handler (COCKPIT_BASE_URL=…:4060, gebaute
- * Fassung mit `./favicon.svg`): sieben Verstöße, auf genau den sieben Routen
- * mit Tiefe >= 2, und die Übersicht blieb dabei grün. Wer diesen Check scharf
- * stellen will, lässt ihn gegen einen laufenden Server mit der gebauten Fassung
- * laufen; dafür ist COCKPIT_BASE_URL da.
+ * MEASURED LIMIT, and it applies to the default run: the Vite DEV SERVER resolves
+ * a relative href while serving — `./favicon.svg` already leaves as
+ * `/cockpit/favicon.svg` on every route. The BUILD does not. So the bug is
+ * invisible against the dev server and real in delivery. Measured against the
+ * real handler (COCKPIT_BASE_URL=…:4060, built version carrying
+ * `./favicon.svg`): seven violations, on exactly the seven routes of depth >= 2,
+ * with the overview green throughout. COCKPIT_BASE_URL exists for that.
  *
- * Abgegrenzt gegen test/unit/cockpit-favicon.test.ts: der Satz dort liest den
- * href STATISCH aus Quelle und gebauter Fassung und rechnet ihn gegen `base`
- * aus vite.config.ts — ohne Browser, ohne Server, in `bun test`, und damit auch
- * dann, wenn der Dev-Server die Sache zudeckt. Er ist die Absicherung, die im
- * Standardlauf greift; diese hier ist die, die zeigt, was ein Browser auf einer
- * tiefen Adresse tatsächlich bekommt. Zwei verschiedene Aussagen über dieselbe
- * Zeile; keine ersetzt die andere.
+ * Distinct from test/unit/cockpit-favicon.test.ts, which reads the href
+ * STATICALLY from source and built version and computes it against `base` from
+ * vite.config.ts — no browser, no server, inside `bun test`, and therefore also
+ * when the dev server covers the problem up. Two different statements about the
+ * same line; neither replaces the other.
  */
 async function checkFavicon(page, note, where, icon) {
   if (!icon) {
-    note('§6', where, 'kein <link rel="icon"> im Dokument')
+    note('§6', where, 'no <link rel="icon"> in the document')
     return
   }
   const answer = await page.evaluate(
@@ -1822,14 +1722,14 @@ async function checkFavicon(page, note, where, icon) {
     icon.href,
   )
   if (answer.status !== 200) {
-    note('§6', `${where} › Favicon`, `${icon.href} antwortet mit ${answer.status}, nicht mit 200`)
+    note('§6', `${where} › favicon`, `${icon.href} answers ${answer.status}, not 200`)
     return
   }
   if (!/^image\//.test(answer.type)) {
     note(
       '§6',
-      `${where} › Favicon`,
-      `${icon.href} antwortet mit „${answer.type || '(kein Content-Type)'}" statt mit einem Bild — die SPA-Rückfalllinie hat geantwortet, nicht die Datei`,
+      `${where} › favicon`,
+      `${icon.href} answers "${answer.type || '(no content type)'}" instead of an image — the SPA fallback answered, not the file`,
     )
     return
   }
@@ -1837,8 +1737,8 @@ async function checkFavicon(page, note, where, icon) {
   if (!painted.ok) {
     note(
       '§6',
-      `${where} › Favicon`,
-      `${icon.href} wird ausgeliefert, lässt sich aber nicht als Bild decodieren (naturalWidth ${painted.w}) — im Reiter bliebe es leer`,
+      `${where} › favicon`,
+      `${icon.href} is served but does not decode as an image (naturalWidth ${painted.w}) — the tab would stay empty`,
     )
   }
 }
@@ -1846,18 +1746,18 @@ async function checkFavicon(page, note, where, icon) {
 /** The two DOM-wide prohibitions, applied to whatever page was just measured. */
 function collectSurface(note, where, surface) {
   for (const text of surface.texts) {
-    if (/\bUnbekannt\b/.test(text)) note('§2', `${where} › sichtbarer Text`, `„${text.slice(0, 80)}"`)
-    if (UUID.test(text)) note('§5/§8.3', `${where} › sichtbarer Text`, `„${text.slice(0, 80)}"`)
+    if (/\bUnbekannt\b/.test(text)) note('§2', `${where} › visible text`, `"${text.slice(0, 80)}"`)
+    if (UUID.test(text)) note('§5/§8.3', `${where} › visible text`, `"${text.slice(0, 80)}"`)
     for (const pattern of ENGLISH_PASSTHROUGH) {
       if (pattern.test(text)) {
-        note('§5', `${where} › sichtbarer Text (Backend-Passthrough)`, `„${text.slice(0, 80)}"`)
+        note('§5', `${where} › visible text (backend passthrough)`, `"${text.slice(0, 80)}"`)
         break
       }
     }
   }
   for (const label of surface.buttons) {
     if (FORBIDDEN_BUTTONS.includes(label.toLowerCase())) {
-      note('§8.3', `${where} › Button`, `beschriftet „${label}"`)
+      note('§8.3', `${where} › button`, `labelled "${label}"`)
     }
   }
 }
@@ -1879,21 +1779,18 @@ async function open(page, url) {
  * artefact and cannot go stale against one. The port is not 4061 on purpose:
  * running this must never fight with a dev server somebody has open.
  *
- * UND `--strictPort` SCHÜTZT HIER NICHT, was aussieht, als täte es das.
+ * AND `--strictPort` DOES NOT PROTECT what it looks like it protects. The idea
+ * would be: somebody else holds the port, vite exits, and the run cannot measure
+ * against a foreign target. Measured, it is the other way round. Started with a
+ * real sibling cockpit on 4173, this function returned after 0.44s with a DEAD
+ * child process: the loop asks `child.exitCode` BEFORE the fetch, on the first
+ * pass vite has not yet reported its port conflict, and the fetch is answered
+ * immediately by the foreign server. `return child` — and nobody noticed our own
+ * server never ran.
  *
- * Der Gedanke wäre: hält jemand anders den Port, beendet sich vite, und der
- * Lauf kann gar nicht gegen ein fremdes Gegenüber messen. Nachgemessen ist es
- * andersherum. Mit einem echten Schwester-Cockpit auf 4173 gestartet, kehrte
- * diese Funktion nach 0,44 s mit einem TOTEN Kindprozess zurück: die Schleife
- * fragt `child.exitCode` VOR dem Abruf, beim ersten Durchlauf hat vite seinen
- * Portkonflikt noch nicht gemeldet, und der Abruf wird sofort vom fremden
- * Server beantwortet. `return child` — und niemand hat je bemerkt, dass der
- * eigene Server nie lief.
- *
- * Die Reihenfolge zu drehen würde das Fenster verkleinern und nicht schließen;
- * gefangen wird der Fall eine Ebene höher, von der Kennungsprüfung, und die
- * gibt auch die bessere Meldung: nicht „vite hat sich beendet", sondern wer
- * stattdessen geantwortet hat.
+ * Swapping the order would shrink the window, not close it; the case is caught
+ * one level up by the identity check, which also gives the better message: not
+ * "vite exited" but who answered instead.
  */
 async function startCockpit() {
   const child = spawn(
@@ -1922,12 +1819,11 @@ async function startCockpit() {
       process.exit(2)
     }
     try {
-      // Über getWithin und nicht über ein nacktes `fetch`: ein Prozess, der den
-      // Port hält, die Verbindung annimmt und nie antwortet, lässt ein `fetch`
-      // ohne Signal hängen — die Zeile `Date.now() < deadline` wird dann nie
-      // wieder erreicht, und die 60-Sekunden-Frist ist Dekoration. Der Körper
-      // wird mitgelesen und weggeworfen, weil „die Kopfzeilen kamen" nicht
-      // dasselbe ist wie „der Server antwortet".
+      // Through getWithin rather than a bare `fetch`: a process that holds the
+      // port, accepts the connection and never answers leaves a signal-less
+      // `fetch` hanging, so `Date.now() < deadline` is never reached again and
+      // the 60-second deadline is decoration. The body is read and discarded
+      // because "the headers arrived" is not "the server answers".
       if ((await getWithin(`http://127.0.0.1:${PORT}/cockpit/`, 2_000)).ok) return child
     } catch {
       // Not listening yet. The deadline, not this catch, decides when to give up.
@@ -1948,195 +1844,182 @@ async function stopCockpit(child) {
 }
 
 /**
- * Der EINZIGE `fetch`-Aufrufplatz dieser Datei — mit einer Frist über den
- * ganzen Austausch.
+ * The ONLY node-side `fetch` call site in this file, with a deadline over the
+ * whole exchange.
  *
- * Warum genau einer: eine Frist ist eine Eigenschaft der Aufrufstelle, und
- * jede weitere Stelle ist eine, die man vergessen kann. WatchKit hat dieselbe
- * Zusammenlegung gemacht, nachdem dort zweimal hintereinander eine Frist
- * nachgetragen wurde und der Hänger danach nicht weg, sondern eine Zeile weiter
- * gewandert war. test/unit/konvention-check-kennung.test.ts hält die Zahl.
+ * Why exactly one: a deadline is a property of the call site, and every further
+ * site is one that can be forgotten. WatchKit merged its call sites the same way
+ * after a deadline was retrofitted twice and the hang moved one line rather than
+ * going away. test/unit/konvention-check-kennung.test.ts holds the count.
  *
- * Das Signal gilt weiter, WÄHREND der Körper gelesen wird: „die Kopfzeilen
- * kamen" ist nicht dasselbe wie „ich habe eine Antwort", und ein Server, der
- * den Kopf schickt und den Körper offen lässt, ist genau der Zustand, den ein
- * `fetch` ohne Signal an dieser Stelle überlebt.
+ * The signal stays in force WHILE the body is read: a server that sends headers
+ * and leaves the body open is exactly the state a signal-less `fetch` survives
+ * here.
  */
 async function getWithin(url, timeoutMs) {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
     return { ok: response.ok, body: await response.text() }
   } catch (error) {
-    // Die nackte Meldung eines abgelaufenen Signals lautet „The operation was
-    // aborted due to timeout" — wahr und ortlos. Wer das im Gate liest, muss
-    // die Adresse und die Frist sehen, sonst sucht er den Hänger im Browser
-    // statt im Server.
+    // The bare message of an expired signal is "The operation was aborted due to
+    // timeout" — true and placeless. Whoever reads that in the gate needs the
+    // address and the deadline, or they hunt the hang in the browser instead of
+    // in the server.
     throw new Error(
-      `${url} hat innerhalb von ${(timeoutMs / 1000).toFixed(0)} s nicht geantwortet: ` +
+      `${url} did not answer within ${(timeoutMs / 1000).toFixed(0)}s: ` +
         (error instanceof Error ? error.message : String(error)),
     )
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WESSEN KONSOLE ANTWORTET
+// WHOSE CONSOLE ANSWERS
 //
-// startCockpit() beantwortet „antwortet dort etwas?" und nicht „antwortet dort
-// WIKIKIT?". Das ist keine theoretische Lücke: bei CodeKit ist der Fall real
-// eingetreten — WorkKit hielt CodeKits Prüfstands-Port, und der Lauf erzeugte
-// in 156 s acht Verstöße mit CodeKits Namen über eine Oberfläche, die nie
-// CodeKit war. Kein Timeout, kein Absturz: ein vollständiger, überzeugender,
-// falscher Bericht. Ein Timeout wird untersucht; acht Verstöße werden repariert.
+// startCockpit() answers "does something answer there?", not "does WIKIKIT
+// answer there?". Not a theoretical gap: at CodeKit it happened — WorkKit held
+// CodeKit's check port, and the run produced eight violations under CodeKit's
+// name in 156s over a surface that was never CodeKit. No timeout, no crash: a
+// complete, convincing, wrong report. A timeout gets investigated; eight
+// violations get repaired.
 //
-// Die Familie ist dafür besonders anfällig, und zwar durch zwei Entscheidungen,
-// die einzeln richtig sind. Die Konvention macht die DOM-Verankerungen in allen
-// sechs Konsolen ABSICHTLICH gleich — `cockpit-wordmark`, `operator-role`,
-// `sidebar`, `page-title` —, also findet jede Zeile dieses Skripts in jeder
-// Schwesterkonsole etwas vor. Und die Prüfstände liegen dicht beieinander:
-// CodeKit 4081 · WikiKit 4173 · SubKit 4176 · WatchKit 4183 · WorkKit 4192,
-// dazu ein Fremdserver auf 4080 seit dem 7. August. Ein Tippfehler in
-// COCKPIT_CHECK_PORT reicht.
+// The family is especially exposed to this through two decisions that are each
+// right on their own. The convention makes the DOM anchors identical across all
+// six consoles ON PURPOSE — `cockpit-wordmark`, `operator-role`, `sidebar`,
+// `page-title` — so every line of this script finds something in every sibling
+// console. And the check ports sit close together: CodeKit 4081 · WikiKit 4173 ·
+// SubKit 4176 · WatchKit 4183 · WorkKit 4192, plus a foreign server on 4080
+// since 7 August. A typo in COCKPIT_CHECK_PORT is enough.
 //
-// WARUM DER SOLLWERT ABGELEITET UND NICHT ABGETIPPT IST
+// WHY THE EXPECTED VALUE IS DERIVED AND NOT TYPED OUT
 //
-// CodeKit hat es zuerst gelöst und die Schwäche der eigenen Lösung selbst
-// benannt: dort steht der Marker als LITERAL im Prüfskript, während ein
-// Contract-Test denselben Wert importiert. Benennt jemand ihn um, sagt der
-// Check „fremdes Dokument" über die EIGENE Konsole — die Meldung, die am
-// teuersten falsch ist, weil sie in die falsche Richtung zeigt.
+// CodeKit solved it first and named its own solution's weakness: there the
+// marker is a LITERAL in the check script while a contract test imports the same
+// value. Rename it and the check says "foreign document" about its OWN console —
+// the message that is most expensive when wrong, because it points the wrong way.
 //
-// Hier gibt es deshalb genau EINE Definitionsstelle, apps/cockpit/index.html,
-// und dieser Assert LIEST sie. Wer den Wert ändert, ändert beide Seiten in
-// einem Zug. Wer das ATTRIBUT umbenennt, bekommt nicht „fremdes Dokument",
-// sondern den Satz, der wahr ist: der Sollwert ist aus dieser Datei nicht mehr
-// ableitbar — ein Befund über DIESES Repository und keine Aussage über das
-// Gegenüber.
+// So there is exactly ONE place of definition here, apps/cockpit/index.html, and
+// this assert READS it. Change the value and both sides move together. Rename
+// the ATTRIBUTE and you do not get "foreign document" but the sentence that is
+// true: the expected value can no longer be derived from that file — a finding
+// about THIS repository and no statement about the other end.
 //
-// Und ausdrücklich NICHT über Titel oder Wortmarke: beides sind Regeln, die
-// dieser Lauf gebrochen finden können muss (§6 Browser-Titel, §6 Wortmarke).
-// Eine Kennung, die zugleich Prüfgegenstand ist, macht aus jedem echten Verstoß
-// ein „das ist gar nicht WikiKit" und misst danach nichts mehr. Aus demselben
-// Grund benutzt dieser Assert PRODUCT_NAME nicht.
+// And explicitly NOT the title or the wordmark: both are rules this run must be
+// able to find broken (§6 browser title, §6 wordmark). An identity that is also
+// under test turns every real violation into "that is not WikiKit at all" and
+// measures nothing afterwards. For the same reason this assert does not use
+// PRODUCT_NAME.
 //
-// WIKIKITS BESONDERHEIT: ZWEI PRÜFSTÄNDE, EIN ABRUF
+// WIKIKIT'S SPECIALITY: TWO TARGETS, ONE FETCH
 //
-// Dieser Check misst als einziger der Familie gegen zwei Stände — den
-// Dev-Server und (die Gate-Stufe) `vite preview` über die gebaute Fassung. Die
-// Kennung muss deshalb auch den Build überleben; test/unit/cockpit-embedded-
-// drift.test.ts hält sie im gebauten Bundle gegen den Namen aus package.json.
-// Und der Blindheits-Hinweis erkennt den Prüfstand am GELIEFERTEN Dokument —
-// also an demselben Dokument, das die Kennung trägt. Beide lesen jetzt EINEN
-// Abruf: nachgemessen liefert marksIn() über den Text dieses Abrufs in beiden
-// Ständen dieselbe Einordnung wie die frühere Messung im DOM.
+// This check is the only one in the family measuring against two targets — the
+// dev server and (the gate stage) `vite preview` over the built version. So the
+// identity has to survive the build too; test/unit/cockpit-embedded-drift.test.ts
+// holds it in the built bundle against the name from package.json. And the
+// sharpness caveat recognises the target from the DELIVERED document — the same
+// document that carries the identity. Both now read ONE fetch.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Das Attribut, das die Konsole ihrem Dokument mitgibt. */
+/** The attribute the console stamps on its document. */
 const IDENTITY_META = 'cockpit-product'
 
-/** Der Marker eines Dokuments, oder `null`, wenn es keinen trägt. */
+/** A document's marker, or `null` if it carries none. */
 function markerIn(html) {
   return new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+)"`).exec(html)?.[1] ?? null
 }
 
 /**
- * Prüft, WESSEN Konsole geantwortet hat — bevor eine einzige Regel gemessen
- * wird und bevor überhaupt ein Browser startet.
+ * Checks WHOSE console answered — before a single rule is measured and before a
+ * browser starts at all.
  *
- * Wirft, statt zu berichten, und zwar mit Absicht: ein fremdes Gegenüber ist
- * kein Konventionsverstoß, sondern ein Lauf, der nicht stattgefunden hat. Der
- * Wurf landet unten in `main().catch`, das „nicht gemessen" druckt und mit 2
- * endet — genau die Unterscheidung, die diese Datei zwischen „gemessen und
- * rot" (1) und „nicht gemessen" (2) sonst schon trifft.
+ * Throws instead of reporting, on purpose: a foreign target is not a convention
+ * violation but a run that did not happen. The throw lands in `main().catch`,
+ * which prints "not measured" and exits 2 — the distinction this file otherwise
+ * already makes between "measured and red" (1) and "not measured" (2).
  *
- * Drei Zweige, drei verschiedene Sätze, weil es drei verschiedene Lagen sind
- * und der Unterschied für den, der die Meldung liest, die ganze Arbeit ist.
+ * Three branches, three different sentences, because they are three different
+ * situations and the difference is the whole work for whoever reads the message.
  */
-function assertPruefstandsKennung(html, wo) {
-  const quelle = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)
-  const erwartet = markerIn(readFileSync(quelle, 'utf8'))
-  if (erwartet === null) {
+function assertTargetIdentity(html, location) {
+  const sourceUrl = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)
+  const expected = markerIn(readFileSync(sourceUrl, 'utf8'))
+  if (expected === null) {
     throw new Error(
-      `${COCKPIT_SOURCE_HTML} trägt kein <meta name="${IDENTITY_META}" content="…"> mehr. ` +
-        'Der Kennungs-Assert leitet seinen Sollwert aus dieser Datei ab und hat jetzt keinen — das ist ein ' +
-        `Befund über DIESES Repository und keine Aussage über das Gegenüber auf ${wo}.`,
+      `${COCKPIT_SOURCE_HTML} no longer carries a <meta name="${IDENTITY_META}" content="…">. ` +
+        'The identity assert derives its expected value from that file and now has none — this is a ' +
+        `finding about THIS repository and no statement about the target on ${location}.`,
     )
   }
-  const geliefert = markerIn(html)
-  if (geliefert === null) {
-    const titel = /<title>([^<]*)<\/title>/.exec(html)?.[1]?.trim() ?? '(kein <title>)'
+  const delivered = markerIn(html)
+  if (delivered === null) {
+    const title = /<title>([^<]*)<\/title>/.exec(html)?.[1]?.trim() ?? '(no <title>)'
     /*
-      Zwei Lesarten, und der Titel entscheidet zwischen ihnen — deshalb steht er
-      in der Meldung. Entweder hört dort eine Schwesterkonsole, die den Marker
-      noch nicht führt (fünf der sechs Produkte tun das gerade nicht), oder es
-      ist die eigene Hülle, die ihn auf dem Weg verloren hat. Der zweite Fall ist
-      nicht theoretisch: nachgemessen, indem die Zeile nur aus
-      assets/cockpit/index.html entfernt wurde — der preview-Lauf endete nach
-      1,4 s hier, mit dem Titel „WikiKit Cockpit" in der Meldung.
+      Two readings, and the title decides between them — which is why it is in
+      the message. Either a sibling console that does not carry the marker yet is
+      listening (five of the six products do not), or it is our own shell that
+      lost it on the way. The second case is not theoretical: measured by removing
+      the line from assets/cockpit/index.html only — the preview run ended here
+      after 1.4s, with the title "WikiKit Cockpit" in the message.
     */
     throw new Error(
-      `das ist nicht ${erwartet}: das Dokument auf ${wo} trägt kein <meta name="${IDENTITY_META}">. ` +
-        `Sein Titel lautet „${titel}" — hört dort eine Schwesterkonsole, oder ist es die eigene Hülle, ` +
-        `die den Marker im Build verloren hat? Die DOM-Verankerungen sind familienweit gleich, also hätte ` +
-        `dieser Lauf sie so oder so gemessen und jeden Verstoß ${erwartet} zugeschrieben.`,
+      `this is not ${expected}: the document on ${location} carries no <meta name="${IDENTITY_META}">. ` +
+        `Its title reads "${title}" — is a sibling console listening there, or is it our own shell that ` +
+        `lost the marker in the build? The DOM anchors are the same family-wide, so this run would have ` +
+        `measured them either way and attributed every violation to ${expected}.`,
     )
   }
-  if (geliefert !== erwartet) {
+  if (delivered !== expected) {
     throw new Error(
-      `das ist nicht ${erwartet}, sondern ${geliefert}: das Dokument auf ${wo} nennt sich „${geliefert}", ` +
-        `${COCKPIT_SOURCE_HTML} nennt „${erwartet}". Gemessen wurde nichts.`,
+      `this is not ${expected} but ${delivered}: the document on ${location} calls itself "${delivered}", ` +
+        `${COCKPIT_SOURCE_HTML} names "${expected}". Nothing was measured.`,
     )
   }
-  return erwartet
+  return expected
 }
 
 /**
- * Welches Dokument liefert das Ziel — die Quelle, bei jedem Aufruf übersetzt,
- * oder die gebaute Fassung, wörtlich?
+ * Which document does the target deliver — the source, compiled per request, or
+ * the built version, verbatim?
  *
- * DAS IST DIE FRAGE, AN DER DIE SCHÄRFE DIESES LAUFS HÄNGT, und sie hat hier
- * schon einmal eine falsche Form gehabt. Gefragt wurde: „steht `/@vite/client`
- * im gelieferten Dokument?". Das misst nicht die Eigenschaft, sondern eine
- * Spur davon — eine Zeichenkette aus Vites Innerem, die Vite umbenennen darf,
- * ohne irgendjemanden zu fragen. Und die Fehlerrichtung war nach unsicher:
- * fällt die Spur weg, verschwindet die Einschränkung STILL, und die Ausgabe
- * liest sich wie ein scharfer Lauf.
+ * THIS IS THE QUESTION THIS RUN'S SHARPNESS HANGS ON, and it has had a wrong
+ * shape here once. It used to ask "is `/@vite/client` in the delivered
+ * document?", which measures a trace of the property rather than the property —
+ * a string from Vite's internals that Vite may rename. And it failed unsafely:
+ * lose the trace and the caveat disappears SILENTLY, so the output reads like a
+ * sharp run.
  *
- * Gemessen wird jetzt der Modul-Verweis des gelieferten Dokuments gegen die
- * beiden Dokumente auf der Platte. Beide Vergleichszeichenketten stammen aus
- * diesem Repo und werden zur Laufzeit gelesen:
+ * What is measured now is the delivered document's module reference against the
+ * two documents on disk. Both comparison strings come from this repo and are
+ * read at runtime:
  *
- *   - trägt das Gelieferte den Verweis aus assets/cockpit/index.html, ist es
- *     die gebaute Fassung — sie wird wörtlich ausgeliefert, und was hier
- *     gemessen wird, ist das, was ausgeliefert wird;
- *   - endet einer der gelieferten Verweise auf den Verweis aus
- *     apps/cockpit/index.html (`/cockpit/src/main.tsx` auf `/src/main.tsx`),
- *     ist das Dokument bei diesem Aufruf aus der Quelle erzeugt worden — und
- *     dabei werden Verweise aufgelöst;
- *   - passt keines von beidem, ist das Ziel UNBESTIMMBAR, und das wird gesagt.
+ *   - carries the delivered document the reference from assets/cockpit/index.html,
+ *     it is the built version — served verbatim, so what is measured is what
+ *     ships;
+ *   - ends one of the delivered references on the reference from
+ *     apps/cockpit/index.html (`/cockpit/src/main.tsx` on `/src/main.tsx`), the
+ *     document was produced from source on this request, and references are
+ *     resolved in the process;
+ *   - matches neither, the target is UNDETERMINED, and that is said.
  *
- * WARUM NICHT DER FAVICON-HREF ALLEIN, obwohl er die Eigenschaft direkter
- * benennt: er unterscheidet die beiden Prüfstände heute nicht. Gemessen —
- * Quelle schreibt „/favicon.svg", der Vite-Dev-Server liefert
- * „/cockpit/favicon.svg", die gebaute Fassung trägt „/cockpit/favicon.svg" und
- * wird so ausgeliefert. Beide Ziele liefern denselben href, und beide weichen
- * von der Quelle ab. Der href ist deshalb der BELEG im Text — er zeigt
- * schwarz auf weiss, dass beim Ausliefern aufgelöst wurde —, aber nicht das
- * Unterscheidungsmerkmal. Das ist der Modul-Verweis, weil er als einziger in
- * den beiden Dokumenten verschieden ist.
+ * WHY NOT THE FAVICON HREF ALONE, though it names the property more directly: it
+ * does not separate the two targets today. Measured — the source writes
+ * `/favicon.svg`, the dev server delivers `/cockpit/favicon.svg`, the built
+ * version carries `/cockpit/favicon.svg` and ships it. Both targets deliver the
+ * same href and both differ from the source. The href is the EVIDENCE in the
+ * report, not the discriminator.
  */
-function classifyPruefstand(delivered) {
-  const unbestimmbar = (why) => ({ kind: 'unbestimmbar', why })
-  if (!delivered) return unbestimmbar('die Übersicht lieferte keine Verweise zurück')
-  if (!SOURCE_MARKS) return unbestimmbar(`${COCKPIT_SOURCE_HTML} ist nicht lesbar — es gibt nichts zu vergleichen`)
+function classifyTarget(delivered) {
+  const undetermined = (why) => ({ kind: 'undetermined', why })
+  if (!delivered) return undetermined('the overview returned no references')
+  if (!SOURCE_MARKS) return undetermined(`${COCKPIT_SOURCE_HTML} is unreadable — there is nothing to compare against`)
   if (!BUILT_MARKS) {
-    return unbestimmbar(`${COCKPIT_BUILT_HTML} ist nicht lesbar — die gebaute Fassung fehlt (bun run build:cockpit)`)
+    return undetermined(`${COCKPIT_BUILT_HTML} is unreadable — the built version is missing (bun run build:cockpit)`)
   }
   const source = SOURCE_MARKS.modules[0] ?? null
   const built = BUILT_MARKS.modules[0] ?? null
   if (!source || !built) {
-    return unbestimmbar(
-      `kein <script type="module" src=…> in ${source ? COCKPIT_BUILT_HTML : COCKPIT_SOURCE_HTML} — ` +
-        'das Merkmal, an dem die beiden Dokumente auseinandergehen, fehlt',
+    return undetermined(
+      `no <script type="module" src=…> in ${source ? COCKPIT_BUILT_HTML : COCKPIT_SOURCE_HTML} — ` +
+        'the mark the two documents differ on is missing',
     )
   }
   const evidence = {
@@ -2146,93 +2029,84 @@ function classifyPruefstand(delivered) {
     builtIcon: BUILT_MARKS.iconHref,
     deliveredIcon: delivered.iconHref,
   }
-  if (delivered.modules.includes(built)) return { kind: 'gebaut', ...evidence }
+  if (delivered.modules.includes(built)) return { kind: 'built', ...evidence }
   const fromSource = delivered.modules.find((src) => src === source || src.endsWith(source))
-  if (fromSource) return { kind: 'quelle', fromSource, ...evidence }
-  return unbestimmbar(
-    `das gelieferte Dokument trägt weder den Modul-Verweis der gebauten Fassung („${built}") noch einen, ` +
-      `der auf den Quell-Verweis („${source}") endet — geliefert wurde: ` +
-      (delivered.modules.length ? delivered.modules.map((src) => `„${src}"`).join(', ') : '(kein Modul-Verweis)'),
+  if (fromSource) return { kind: 'source', fromSource, ...evidence }
+  return undetermined(
+    `the delivered document carries neither the built version's module reference ("${built}") nor one ending ` +
+      `on the source reference ("${source}") — delivered was: ` +
+      (delivered.modules.length ? delivered.modules.map((src) => `"${src}"`).join(', ') : '(no module reference)'),
   )
 }
 
 /**
- * Der Prüfstand, auf JEDEM Weg durch den Bericht genannt.
+ * The target, named on EVERY path through the report.
  *
- * Vor der Schlusszeile und nicht darunter, und das ist gegen die frühere
- * Fassung entschieden: die Einschränkung stand im grünen Zweig, direkt unter
- * „✓ no convention violations". Sie qualifiziert aber den ganzen Lauf, nicht
- * nur ein grünes Ergebnis — ein Favicon-Verstoß aus einem eingeschränkten Lauf
- * ist genauso eingeschränkt. Und sie stand damit an der einen Stelle, die im
- * Gate nie zu sehen ist: eine bestandene Stufe druckt dort nichts.
+ * Before the closing line and not below it: the caveat used to sit in the green
+ * branch, right under "✓ no convention violations". It qualifies the whole run,
+ * not just a green result — a favicon violation from a limited run is just as
+ * limited. And it therefore sat in the one place the gate never shows: a passing
+ * stage prints nothing there.
  */
-function printPruefstand(pruefstand, faviconChecked) {
+function printTarget(target, faviconChecked) {
   const sweepAddresses = Math.max(faviconChecked - 1, 0)
-  if (pruefstand.kind === 'unbestimmbar') {
-    console.error(`\x1b[31m✗ Prüfstand unbestimmbar\x1b[0m — ${pruefstand.why}.`)
-    console.error('  Ob dieser Lauf scharf gemessen hat oder nur die Auflösung seines Ziels bestätigt, ist damit')
-    console.error('  unbekannt. Es steht hier, weil ein FEHLENDER Hinweis sich wie ein scharfer Lauf läse.')
+  if (target.kind === 'undetermined') {
+    console.error(`\x1b[31m✗ target undeterminable\x1b[0m — ${target.why}.`)
+    console.error('  Whether this run measured sharply or only confirmed how its target resolves is therefore')
+    console.error('  unknown. It is said because a MISSING caveat would read like a sharp run.')
     return
   }
-  if (pruefstand.kind === 'gebaut') {
-    console.log(`› Prüfstand: die GEBAUTE Fassung. Das gelieferte Dokument trägt den Modul-Verweis aus`)
-    console.log(`  ${COCKPIT_BUILT_HTML} („${pruefstand.built}") — es ist nicht bei diesem Aufruf aus`)
-    console.log(`  ${COCKPIT_SOURCE_HTML} erzeugt worden.`)
-    if (pruefstand.deliveredIcon === pruefstand.builtIcon) {
-      console.log(
-        `  Der Favicon-Verweis kam als „${pruefstand.deliveredIcon}" zurück, und genau so steht er in der gebauten`,
-      )
-      console.log(
-        `  Fassung: die ${faviconChecked} gemessenen Adressen sehen die Auflösung, die auch ausgeliefert wird.`,
-      )
+  if (target.kind === 'built') {
+    console.log('› target: the BUILT version. The delivered document carries the module reference from')
+    console.log(`  ${COCKPIT_BUILT_HTML} ("${target.built}") — it was not produced from`)
+    console.log(`  ${COCKPIT_SOURCE_HTML} on this request.`)
+    if (target.deliveredIcon === target.builtIcon) {
+      console.log(`  The favicon reference came back as "${target.deliveredIcon}", exactly as the built version`)
+      console.log(`  carries it: the ${faviconChecked} measured addresses see the resolution that also ships.`)
     } else {
-      console.log(
-        `  Der Favicon-Verweis kam als „${pruefstand.deliveredIcon ?? '(keiner)'}" zurück, in der gebauten Fassung`,
-      )
-      console.log(
-        `  steht „${pruefstand.builtIcon ?? '(keiner)'}" — das Ziel liefert das Dokument also nicht wörtlich.`,
-      )
+      console.log(`  The favicon reference came back as "${target.deliveredIcon ?? '(none)'}", the built version`)
+      console.log(`  carries "${target.builtIcon ?? '(none)'}" — so the target does not serve the document verbatim.`)
     }
     return
   }
-  console.log('\x1b[33m! eingeschränkt gemessen\x1b[0m — das Ziel erzeugt sein Dokument bei jedem Aufruf aus')
-  console.log(`  ${COCKPIT_SOURCE_HTML}: der gelieferte Modul-Verweis „${pruefstand.fromSource}" endet auf den`)
-  console.log(`  Quell-Verweis „${pruefstand.source}", während die gebaute Fassung „${pruefstand.built}" trägt.`)
-  if (pruefstand.authoredIcon && pruefstand.deliveredIcon && pruefstand.authoredIcon !== pruefstand.deliveredIcon) {
-    console.log(`  Am Favicon nachgemessen: die Quelle schreibt „${pruefstand.authoredIcon}", geliefert wurde`)
-    console.log(`  „${pruefstand.deliveredIcon}" — das Ziel löst den Quell-href beim Ausliefern also auf.`)
-  } else if (pruefstand.authoredIcon && pruefstand.authoredIcon === pruefstand.deliveredIcon) {
-    console.log(`  Am Favicon nachgemessen: die Quelle schreibt „${pruefstand.authoredIcon}", und genau so kam er`)
-    console.log('  zurück — dieser eine Verweis wurde beim Ausliefern nicht angefasst.')
+  console.log('\x1b[33m! measured with a caveat\x1b[0m — the target produces its document per request from')
+  console.log(`  ${COCKPIT_SOURCE_HTML}: the delivered module reference "${target.fromSource}" ends on the`)
+  console.log(`  source reference "${target.source}", while the built version carries "${target.built}".`)
+  if (target.authoredIcon && target.deliveredIcon && target.authoredIcon !== target.deliveredIcon) {
+    console.log(`  Measured at the favicon: the source writes "${target.authoredIcon}", delivered was`)
+    console.log(`  "${target.deliveredIcon}" — so the target resolves the source href while serving.`)
+  } else if (target.authoredIcon && target.authoredIcon === target.deliveredIcon) {
+    console.log(`  Measured at the favicon: the source writes "${target.authoredIcon}", and it came back`)
+    console.log('  unchanged — this one reference was not touched while serving.')
   } else {
     console.log(
-      `  Der Favicon-Verweis liess sich nicht gegenhalten (Quelle: ${pruefstand.authoredIcon ?? '(keiner)'}, ` +
-        `geliefert: ${pruefstand.deliveredIcon ?? '(keiner)'}).`,
+      `  The favicon reference could not be held against the source (source: ${target.authoredIcon ?? '(none)'}, ` +
+        `delivered: ${target.deliveredIcon ?? '(none)'}).`,
     )
   }
-  console.log(`  Für das Favicon heißt das: die ${sweepAddresses} Sweep-Adressen können hier kein anderes Urteil`)
-  console.log('  liefern als die Übersicht — ein dokumentrelativer href („./favicon.svg") wird beim Ausliefern')
-  console.log('  mit aufgelöst, bleibt in der GEBAUTEN Fassung aber wörtlich stehen und zeigt dort auf jeder')
-  console.log('  Route mit Tiefe ≥ 2 ins Leere. Scharf wird die Messung gegen die GEBAUTE Fassung — so, wie')
-  console.log('  die Gate-Stufe sie misst:')
+  console.log(`  For the favicon that means: the ${sweepAddresses} sweep addresses cannot return a different`)
+  console.log('  verdict here than the overview — a document-relative href ("./favicon.svg") is resolved while')
+  console.log('  serving, but survives verbatim in the BUILT version and points nowhere there on every route')
+  console.log('  of depth >= 2. The measurement gets sharp against the BUILT version, the way the gate stage')
+  console.log('  measures it:')
   console.log('    bun run build:cockpit && KONVENTION_CHECK_STAND=preview bun run konvention:check')
-  console.log('  oder gegen die echte Auslieferung durch src/cockpit.ts:')
+  console.log('  or against the real delivery through src/cockpit.ts:')
   console.log('    bun run build:cockpit && bun bin/wikikit.ts')
   console.log('    COCKPIT_BASE_URL=http://127.0.0.1:4060 bun run konvention:check')
-  console.log('  Im Standardlauf hält test/unit/cockpit-favicon.test.ts diese Stelle (ohne Server).')
+  console.log('  In the default run test/unit/cockpit-favicon.test.ts holds this spot (without a server).')
 }
 
-function report(base, violations, unmocked, swept, unchecked, faviconChecked, pruefstand, notChecked) {
+function report(base, violations, unmocked, swept, unchecked, faviconChecked, target, notChecked) {
   console.log(
     `› checked the cockpit at ${base} against ${CONVENTION_FILE} ${CONVENTION_VERSION} (fixtures, no database)`,
   )
-  console.log(`› Routen-Sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(keine)'}`)
+  console.log(`› route sweep (${swept.length}): ${swept.map((route) => route.path).join(', ') || '(none)'}`)
   // Said out loud, on EVERY path through this function, and before the verdict.
   // §12: a gap appears as a gap. A route the fixtures cannot reach is not a
   // route that passed — and a run that mentions it only when something else is
   // already red would announce the hole exactly when nobody is reading.
   if (unchecked.length) {
-    console.log('\x1b[33m! nicht geprüft\x1b[0m — diese Routen hat der Sweep NICHT geöffnet:')
+    console.log('\x1b[33m! not checked\x1b[0m — the sweep did NOT open these routes:')
     for (const route of unchecked) console.log(`  · ${route.path} — ${route.why}`)
   }
   if (unmocked.size) {
@@ -2241,15 +2115,15 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, pr
     )
   }
 
-  printPruefstand(pruefstand, faviconChecked)
+  printTarget(target, faviconChecked)
 
-  // „Ich weiss es nicht" vor „hier stimmt etwas nicht": eine Voraussetzung, die
-  // gefehlt hat, erklärt oft die Verstöße darunter — und sie erklärt vor allem,
-  // welche Aussagen dieser Lauf GAR NICHT gemacht hat.
+  // "I do not know" before "something is wrong here": a missing precondition
+  // often explains the violations below it, and above all it explains which
+  // statements this run did NOT make.
   if (notChecked.size) {
-    console.error('\x1b[31mnicht geprüft — die Voraussetzung fehlte, das Ergebnis ist unbekannt:\x1b[0m')
+    console.error('\x1b[31mnot checked — the precondition was missing, the result is unknown:\x1b[0m')
     for (const entry of [...notChecked].sort()) console.error(`  · ${entry}`)
-    console.error('  Nichts davon ist als sauber gemeldet worden. Eine Lücke erscheint als Lücke (§12).')
+    console.error('  None of it was reported as clean. A gap appears as a gap (§12).')
   }
   for (const violation of violations) {
     console.error(`\x1b[31m✗\x1b[0m ${violation.rule} · ${violation.where} · ${violation.actual}`)
@@ -2259,42 +2133,41 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, pr
     console.log('\x1b[32m✓ no convention violations\x1b[0m')
     // Said out loud rather than left implied: green means these rules held
     // against these fixtures, not that the console is conformant.
-    console.log('  (Rollen-Label, Installation-Gruppe, Entscheidungs-Eintrag, Zustandswort, Incident-Banner,')
-    console.log('   Banner-Satz, Aging-Rubrik, Button-Beschriftung, UUID-Freiheit, Vier-Zahlen-Kohärenz,')
-    console.log('   Dubletten-Freiheit, Wiki-Chips ohne Zähler-Wirkung, Zone-A-Anatomie,')
-    console.log('   Zone-A-Zeilen dublettenfrei und deckungsgleich mit dem Kopf,')
-    console.log('   deutsche Oberfläche ohne Backend-Passthrough, Wortmarke, Browser-Titel auf jeder Route,')
-    console.log('   Wortmarken-Icon (Schreibweise aus der berechneten text-transform, nicht aus innerText),')
+    console.log('  (role label, installation group, decisions entry, state word, incident banner,')
+    console.log('   banner sentence, aging rubric, button labels, freedom from UUIDs, four-number coherence,')
+    console.log('   freedom from duplicates, wiki chips without counter effect, Zone-A anatomy,')
+    console.log('   Zone-A rows duplicate-free and matching their head,')
+    console.log('   German surface without backend passthrough, wordmark, browser title on every route,')
+    console.log('   wordmark icon (spelling from the computed text-transform, not from innerText),')
     console.log(
-      `   Favicon das wirklich lädt und sich als Bild decodiert (auf ${faviconChecked} Adressen gemessen, Übersicht und Sweep-Routen),`,
+      `   favicon that really loads and decodes as an image (measured on ${faviconChecked} addresses, overview and sweep routes),`,
     )
-    console.log('   Wortmarken-Quadrat eingeklappt auf der Achse der Nav-Icons,')
-    console.log('   Routen-Sweep über alle Navigationsziele und je eine Detailroute pro Sammlung,')
+    console.log('   wordmark square collapsed on the axis of the nav icons,')
+    console.log('   route sweep over every navigation target and one detail route per collection,')
     console.log(
-      `   Fassung des Maßstabs: Kopfzeile der Kopie und die Konstante in diesem Skript nennen beide ${CONVENTION_VERSION})`,
+      `   yardstick version: the copy's header line and the constant in this script both name ${CONVENTION_VERSION})`,
     )
     return
   }
-  // BEIDE Zahlen, immer. „0 nicht geprüfte Stellen" ist eine Aussage, kein
-  // Rauschen: sie sagt, dass der Lauf zu Ende gekommen ist und der Befund
-  // darüber eine Messung ist und kein Abbruch.
+  // BOTH numbers, always. "0 not checked" is a statement, not noise: it says the
+  // run reached its end and the finding above it is a measurement rather than an
+  // abort.
   console.error(
-    `\n${violations.length} Verstöße, ${notChecked.size} nicht geprüfte Stellen — gemessen gegen ${CONVENTION_FILE} ${CONVENTION_VERSION}`,
+    `\n${violations.length} violations, ${notChecked.size} spots not checked — measured against ${CONVENTION_FILE} ${CONVENTION_VERSION}`,
   )
   process.exit(1)
 }
 
 /*
-  Die drei Ausgänge dieses Laufs, und warum es drei sind.
+  The three exits of this run.
 
-  0 ist „gemessen und grün", 1 ist „gemessen und rot" (report() setzt ihn), und
-  2 ist „NICHT gemessen". Ein Gate behandelt 1 und 2 gleich; ein Mensch nicht,
-  und deswegen stehen sie getrennt. Ohne dieses catch wäre der Wurf aus dem
-  Kennungs-Assert eine unbehandelte Rejection: ein Stacktrace statt einer
-  Aussage, und ein Ausgangscode, den niemand versprochen hat.
+  0 is "measured and green", 1 is "measured and red" (report() sets it), and 2 is
+  "NOT measured". A gate treats 1 and 2 alike; a human does not. Without this
+  catch the throw from the identity assert would be an unhandled rejection: a
+  stack trace instead of a statement, and an exit code nobody promised.
 */
 await main().catch((error) => {
-  console.error(`\n\x1b[31mnicht gemessen\x1b[0m — der Lauf kam nicht bis zu einer Aussage:`)
+  console.error(`\n\x1b[31mnot measured\x1b[0m — the run did not reach a statement:`)
   console.error(`  ${error instanceof Error ? error.message : String(error)}`)
   process.exit(2)
 })

@@ -65,45 +65,44 @@ describe('the embedded cockpit matches assets/cockpit', () => {
   })
 
   /*
-    WEM DIE AUSGELIEFERTEN BYTES GEHÖREN.
+    WHO THE SHIPPED BYTES BELONG TO.
 
-    Die Konvention macht die DOM-Verankerungen aller sechs Konsolen absichtlich
-    gleich, also findet ein Prüflauf, der auf den falschen Port zeigt, jeden
-    Selektor, den er sucht, und meldet die Oberfläche einer Schwester unter
-    diesem Produkt. Es ist passiert: bei CodeKit antwortete WorkKit auf dem
-    Prüfstands-Port, und der Lauf erzeugte in 156 s acht Verstöße über eine
-    Seite, die nie CodeKit war.
+    The convention makes the DOM anchors of all six consoles deliberately
+    identical, so a check run pointed at the wrong port finds every selector it
+    looks for and reports a sibling's surface under this product. It happened: at
+    CodeKit, WorkKit answered on the check port and the run produced eight
+    violations in 156s over a page that was never CodeKit.
 
-    scripts/konvention-check.mjs hält den Marker gegen das GELIEFERTE Dokument;
-    dieser Satz hält ihn gegen das GEBAUTE. Das ist nicht dieselbe Aussage, und
-    für WikiKit ist der Unterschied scharf: dieser Check misst als einziger der
-    Familie gegen zwei Stände, und die Gate-Stufe misst gegen `vite preview`
-    über assets/cockpit. Eine Kennung, die den Build nicht überlebt, wäre genau
-    dort weg, wo sie gebraucht wird.
+    scripts/konvention-check.mjs holds the marker against the DELIVERED document;
+    this test holds it against the BUILT one. Not the same statement, and for
+    WikiKit the difference is sharp: this check is the only one in the family
+    measuring against two targets, and the gate stage measures `vite preview`
+    over assets/cockpit. An identity that does not survive the build would be
+    missing exactly where it is needed.
 
-    Gehalten gegen den Namen aus package.json statt gegen ein Literal: der
-    Marker existiert, um zu sagen, WELCHES Produkt das ist — einer, der vom
-    eigenen Namen wegdriften kann, wäre schlechter als keiner.
+    Held against the name from package.json rather than a literal: the marker
+    exists to say WHICH product this is, and one that can drift away from its own
+    name would be worse than none.
   */
-  test('die gebaute Hülle sagt, welches Produkt sie ist — und sagt das richtige', () => {
+  test('the built shell says which product it is — and says the right one', () => {
     const html = readFileSync(join(BUNDLE, 'index.html'), 'utf8')
     const marker = /<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/.exec(html)?.[1]
-    expect(marker, 'die gebaute index.html erklärt <meta name="cockpit-product">').toBeTruthy()
+    expect(marker, 'the built index.html declares <meta name="cockpit-product">').toBeTruthy()
 
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as { name: string }
     expect(marker!.toLowerCase()).toBe(pkg.name.toLowerCase())
 
-    // Die Quelle ist die einzige Definitionsstelle; der Build darf sie nicht
-    // umgeschrieben, verloren oder verdoppelt haben. Vite fasst `<link>`- und
-    // `<script>`-Verweise an, `<meta content>` nicht — das ist es, was diese
-    // Zeile zu einer Behauptung macht statt zu einer Hoffnung.
+    // The source is the single place of definition; the build must not have
+    // rewritten, lost or doubled it. Vite touches `<link>` and `<script>`
+    // references, `<meta content>` not — which is what makes this an assertion
+    // rather than a hope.
     const source = readFileSync(join(process.cwd(), 'apps', 'cockpit', 'index.html'), 'utf8')
     const declared = /<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/.exec(source)?.[1]
     expect(marker).toBe(declared)
-    expect([...html.matchAll(/name="cockpit-product"/g)].length, 'genau ein Vorkommen').toBe(1)
+    expect([...html.matchAll(/name="cockpit-product"/g)].length, 'exactly one occurrence').toBe(1)
 
-    // Und in den Bytes, die das Binary wirklich ausliefert — assets/cockpit
-    // liegt im Checkout, src/cockpit-embedded.ts reist mit `bun build --compile`.
+    // And in the bytes the binary actually serves — assets/cockpit lives in the
+    // checkout, src/cockpit-embedded.ts travels with `bun build --compile`.
     const embedded = Buffer.from(EMBEDDED_COCKPIT['index.html']!, 'base64').toString('utf8')
     expect(/<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/.exec(embedded)?.[1]).toBe(marker)
   })
