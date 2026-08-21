@@ -126,8 +126,15 @@ auf die gefilterte Liste. Für **Erledigtes** gibt es keine. *(Mike, 21.08.2026.
 Hunderte Positionen vorlegt, hat ihre Aufgabe verfehlt, egal wie gut sie gegliedert ist.
 Gemessen am 21.08.2026: WatchKit legt **359 Positionen** vor, weil Doku- und Drift-Befunde als
 Entscheidungen zählen; WorkKit zeigt **15 gleichartige Budget-Sperren einzeln**; SubKit lässt
-**jede Korrektur-Karte einer Gruppe einzeln** entscheiden; bei SubKit sind **32 von 35**
-Positionen wartende Unterhaltungen. Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
+**jede Korrektur-Karte einer Gruppe einzeln** entscheiden; bei SubKit trugen die wartenden
+Unterhaltungen **weder Freigeben noch Ablehnen** — folgenlose Positionen in einer
+Entscheidungs-Queue.
+
+> **Korrektur, 21.08. 18:40.** Hier stand „bei SubKit sind 32 von 35 Positionen wartende
+> Unterhaltungen". Die 32 stammen aus dem **Prüfstand-Mock**, der den Statusfilter ignorierte;
+> auf PROD liefert derselbe Aufruf `total=1`. Gefunden vom SubKit-Verifier, nachdem der Satz
+> bereits byte-gleich in sechs Repos stand. **Eine Zahl, die niemand nachmisst, wird durch
+> Verteilung nicht wahrer.** Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
 **was gleichartig ist, wird zu einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
 
 **8.6 Leere.** Nie etwas offen: grüner Check, „Alles erledigt" + „Gerade wartet keine Entscheidung auf dich." Nur weggefiltert: eigene, kompaktere Meldung mit Hinweis auf die Filter. Beide getrennt testbar (§4 gilt).
