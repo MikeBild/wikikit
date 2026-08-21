@@ -130,12 +130,20 @@ Entscheidungen zählen; WorkKit zeigt **15 gleichartige Budget-Sperren einzeln**
 Unterhaltungen **weder Freigeben noch Ablehnen** — folgenlose Positionen in einer
 Entscheidungs-Queue.
 
-> **Korrektur, 21.08. 18:40.** Hier stand „bei SubKit sind 32 von 35 Positionen wartende
+Das ist kein Darstellungs-, sondern ein Zuschnittsproblem: **was gleichartig ist, wird zu
+einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
+
+> **Korrektur, 21.08. 18:40.** Oben stand „bei SubKit sind 32 von 35 Positionen wartende
 > Unterhaltungen". Die 32 stammen aus dem **Prüfstand-Mock**, der den Statusfilter ignorierte;
 > auf PROD liefert derselbe Aufruf `total=1`. Gefunden vom SubKit-Verifier, nachdem der Satz
 > bereits byte-gleich in sechs Repos stand. **Eine Zahl, die niemand nachmisst, wird durch
-> Verteilung nicht wahrer.** Das ist kein Darstellungs-, sondern ein Zuschnittsproblem:
-**was gleichartig ist, wird zu einer Entscheidung zusammengefasst; was folgenlos ist, ist keine.**
+> Verteilung nicht wahrer.**
+>
+> **Zweite Korrektur, 21.08. 19:20.** Der erste Korrekturblock stand *vor* dem Regelsatz, und
+> Markdowns lazy continuation zog ihn mit hinein — die Regel las sich in allen sechs Repos als
+> Teil einer historischen Fußnote. Gefunden vom Verifier der Konventionsrunde, der die Datei
+> durch einen Markdown-Renderer geschickt hat statt sie zu lesen. **Auch eine Korrektur kann
+> beschädigen, was sie korrigiert.**
 
 **8.6 Leere.** Nie etwas offen: grüner Check, „Alles erledigt" + „Gerade wartet keine Entscheidung auf dich." Nur weggefiltert: eigene, kompaktere Meldung mit Hinweis auf die Filter. Beide getrennt testbar (§4 gilt).
 
