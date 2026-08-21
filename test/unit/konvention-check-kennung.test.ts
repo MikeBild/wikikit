@@ -1,4 +1,5 @@
-// The convention check's identity assert, held against its own shape.
+// The convention check's identity reader, held against documents rather than
+// against its own source text.
 //
 // WHY THIS FILE EXISTS
 //
@@ -16,13 +17,22 @@
 // close together (CodeKit 4081 · WikiKit 4173 · SubKit 4176 · WatchKit 4183 ·
 // WorkKit 4192).
 //
-// WHAT IS CHECKED HERE AND WHAT IS NOT
+// WHY IT NO LONGER READS THE SCRIPT'S SOURCE
 //
-// Not THAT the assert exists — every run shows that. The three properties that
-// distinguish it from the family's first implementation and that a later rewrite
-// could remove silently: the expected value is DERIVED rather than typed out,
-// the check runs BEFORE the browser starts, and there is exactly one node-side
-// `fetch` — so exactly one place that needs a deadline.
+// The first version of this file spelled the reader out: `expect(body).toContain
+// ("const expected = markerIn(...)")` and eleven more of that kind. That is a
+// transcript, not a hold. Measured on d407949, with all six tests green: the
+// reader took the FIRST `<meta name="cockpit-product">` in the raw document, so
+// an EXAMPLE marker inside the comment above the real one won — `markerIn(prose
+// + example + real)` returned "OtherProduct" (LOCAL-WI-KENNUNG-BEISPIEL-GEWINNT).
+// Dropping the `g` from this file's own comment stripper changed its md5 and
+// left it 6 pass / 0 fail as well.
+//
+// So the reader now lives in scripts/kennung.ts and is IMPORTED here. The
+// fixtures below are built from the real apps/cockpit/index.html, including the
+// rejecting ones: a rejection fixture that is a minimal shell proves that the
+// reader rejects minimal shells. That is where SubKit's version passed while its
+// hole stood open.
 //
 // Pattern taken from WatchKit's test of the same name, COPIED and not imported
 // (§7: no shared code between the products).
@@ -30,76 +40,170 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { IDENTITY_META, markerIn } from '../../scripts/kennung.ts'
+
 const root = process.cwd()
 const source = readFileSync(join(root, 'scripts', 'konvention-check.mjs'), 'utf8')
+const shell = readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8')
+/*
+  The product's own spelling, taken from the marker itself rather than from
+  package.json: the package is called "wikikit" and the marker says "WikiKit",
+  and an identity is compared verbatim. That the two agree apart from case is a
+  separate assertion further down.
+*/
+const PRODUCT = new RegExp(`<meta name="${IDENTITY_META}" content="([^"]+)"`).exec(shell)![1]!
 
 /*
-  Line comments and block comment bodies out before counting.
+  The anchor for a marker planted OUTSIDE any comment. Not `<title>`: the real
+  document mentions `<title>` in its prose ("Ausdrücklich NICHT der <title>"),
+  30 lines up and inside the comment — measured, a fixture anchored there plants
+  its marker into the comment and proves the opposite of what it claims.
+*/
+const HEAD_ANCHOR = '<title>WikiKit Cockpit</title>'
 
-  Not cosmetics: that file explains its own broken predecessors in several places
-  ("it used to ask with a `fetch` without a deadline"), and a counter that counts
-  the explanation measures the prose instead of the program. The second replace
-  catches the continuation lines of that file's block comments, which are written
-  without a leading `*`.
+/** The one line that carries the identity in the real document. */
+const REAL = new RegExp(`^.*<meta name="${IDENTITY_META}" content="[^"]+" />.*$\\n`, 'm')
+
+/** The real document with its marker line taken out — prose and all. */
+const withoutMarker = () => {
+  expect(REAL.test(shell), 'the real marker line is findable').toBe(true)
+  return shell.replace(REAL, '')
+}
+
+/** An example marker, planted inside the real prose comment ABOVE the real one. */
+const withExample = (html: string) =>
+  html.replace(
+    'Die Konvention macht die DOM-Verankerungen',
+    `Zum Beispiel: <meta name="${IDENTITY_META}" content="OtherProduct" />\n      Die Konvention macht die DOM-Verankerungen`,
+  )
+
+describe('the identity reader, measured against documents', () => {
+  test('the real document names this product', () => {
+    expect(markerIn(shell)).toBe(PRODUCT)
+  })
+
+  test('prose + example + real: the real marker wins', () => {
+    const html = withExample(shell)
+    expect(html, 'the example was planted').not.toBe(shell)
+    expect(markerIn(html)).toBe(PRODUCT)
+  })
+
+  test('prose + example, no real marker: no identity', () => {
+    const html = withExample(withoutMarker())
+    expect(html.includes('OtherProduct'), 'the example was planted').toBe(true)
+    expect(html.includes('WELCHES PRODUKT DIESE KONSOLE IST'), 'the real prose is still there').toBe(true)
+    expect(markerIn(html)).toBeNull()
+  })
+
+  test('the real document without its marker: no identity', () => {
+    expect(markerIn(withoutMarker())).toBeNull()
+  })
+
+  /*
+    The shapes an HTML parser reads differently than a regex does. Every one of
+    them is measured on the REAL document, and every one must end in `null` or in
+    this product's name — never in a foreign name. `null` is the fail-safe
+    answer: the caller turns it into "not measured" (exit 2), not into a name.
+  */
+  const forms: [string, string][] = [
+    [
+      'a "-->" string inside the comment',
+      shell.replace('Die Konvention macht', 'Ein "-->" hier. Die Konvention macht'),
+    ],
+    ['an empty <!--> comment before it', shell.replace('<head>', '<head>\n    <!-->')],
+    ['a nested <!-- inside the comment', shell.replace('Die Konvention macht', 'Ein <!-- hier. Die Konvention macht')],
+    ['an example in UPPERCASE attributes', withExample(withoutMarker()).replace('name=', 'NAME=')],
+    [
+      'an example in single quotes',
+      withoutMarker().replace(
+        HEAD_ANCHOR,
+        `<meta name='${IDENTITY_META}' content='OtherProduct' />\n    ${HEAD_ANCHOR}`,
+      ),
+    ],
+    [
+      'content before name',
+      withoutMarker().replace(
+        HEAD_ANCHOR,
+        `<meta content="OtherProduct" name="${IDENTITY_META}" />\n    ${HEAD_ANCHOR}`,
+      ),
+    ],
+    [
+      'a comment closed with --!>',
+      shell.replace('<head>', `<head>\n    <!-- <meta name="${IDENTITY_META}" content="OtherProduct" /> --!>`),
+    ],
+    [
+      'an unclosed comment before the real marker',
+      shell.replace('<meta name="cockpit-product"', '<!-- unclosed\n    <meta name="cockpit-product"'),
+    ],
+  ]
+
+  for (const [name, html] of forms) {
+    test(`${name} never yields a foreign name`, () => {
+      // The fixture has to have LANDED. A `.replace()` whose anchor moved leaves
+      // the document untouched and the case passes without ever being posed.
+      expect(html, `${name}: the fixture differs from the real document`).not.toBe(shell)
+      const read = markerIn(html)
+      expect([PRODUCT, null], `${name} read as "${read}"`).toContain(read)
+    })
+  }
+
+  test('two real markers are an ambiguity, not an identity', () => {
+    const html = shell.replace(
+      HEAD_ANCHOR,
+      `<meta name="${IDENTITY_META}" content="OtherProduct" />\n    ${HEAD_ANCHOR}`,
+    )
+    expect(html, 'the second marker was planted').not.toBe(shell)
+    expect(markerIn(html)).toBeNull()
+  })
+})
+
+/*
+  What remains of the source reading: the WIRING and the ORDERING. Both are
+  properties of the script and not of the reader, so there is nothing to import
+  and nothing to run against a fixture — but each is a single, narrow question,
+  not a transcript of the file.
 */
 const code = source.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
 
-/** A top-level function's body, from its head to the `}` in column 0. */
-function bodyOf(head: string): string {
-  const start = code.indexOf(head)
-  expect(start, `${head} is findable`).toBeGreaterThan(0)
-  const end = code.indexOf('\n}\n', start)
-  expect(end, `${head} has an end`).toBeGreaterThan(start)
-  return code.slice(start, end)
-}
-
-describe('the identity assert derives instead of typing out', () => {
-  test('apps/cockpit/index.html is the single place of definition', () => {
-    const shell = readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8')
-    const matches = [...shell.matchAll(/<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/g)]
-    expect(matches.length, 'exactly one <meta name="cockpit-product"> in the source').toBe(1)
-
-    // And the value is the product name, not just any: a marker that can drift
-    // away from its own name would be worse than none.
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string }
-    expect(matches[0]![1]!.toLowerCase()).toBe(pkg.name.toLowerCase())
+describe('the check uses that reader, and uses it early', () => {
+  test('the script imports the reader instead of keeping a second one', () => {
+    expect(code).toContain("import { IDENTITY_META, markerIn } from './kennung.ts'")
+    expect(code, 'no second definition').not.toContain('function markerIn(')
+    expect(code, 'no second definition').not.toContain('const IDENTITY_META =')
   })
 
-  test('the expected value comes from the file and appears nowhere in the assert', () => {
-    const body = bodyOf('function assertTargetIdentity(html, location)')
+  test('apps/cockpit/index.html is the single place of definition', () => {
+    const matches = [...shell.matchAll(new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+)"`, 'g'))]
+    expect(matches.length, `exactly one <meta name="${IDENTITY_META}"> in the source`).toBe(1)
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { name: string }
+    expect(matches[0]![1]).toBe(PRODUCT)
+    // A marker that can drift away from its own name would be worse than none.
+    expect(PRODUCT.toLowerCase()).toBe(pkg.name.toLowerCase())
+  })
 
-    // Derived: read, not written — and from the same constant classifyTarget()
-    // compares against.
+  test('the expected value is derived, and typed out nowhere', () => {
+    const start = code.indexOf('function assertTargetIdentity(html, location)')
+    expect(start, 'the assert is findable').toBeGreaterThan(0)
+    const body = code.slice(start, code.indexOf('\n}\n', start))
+
     expect(code).toContain("const COCKPIT_SOURCE_HTML = 'apps/cockpit/index.html'")
-    expect(body).toContain('const sourceUrl = new URL(`../${COCKPIT_SOURCE_HTML}`, import.meta.url)')
     expect(body).toContain("const expected = markerIn(readFileSync(sourceUrl, 'utf8'))")
 
     /*
-      And typed out nowhere. The BODY is checked rather than the whole file:
-      "WikiKit" legitimately stands there as PRODUCT_NAME because §6 checks the
-      spelling in prose — and that is exactly why the identity assert must not USE
-      that constant. An identity that is also under test turns every real §6
-      violation into "that is not WikiKit at all" and measures nothing afterwards.
-      For the same reason, not the <title> either.
+      Typed out nowhere, and the BODY is read rather than the whole file:
+      "WikiKit" legitimately stands elsewhere as PRODUCT_NAME because §6 checks
+      the spelling in prose — which is exactly why the identity must not USE that
+      constant. An identity that is also under test turns every real §6 violation
+      into "that is not WikiKit at all" and measures nothing afterwards. For the
+      same reason, not the <title> either.
     */
-    const marker = /<meta[^>]+name="cockpit-product"[^>]+content="([^"]+)"/.exec(
-      readFileSync(join(root, 'apps', 'cockpit', 'index.html'), 'utf8'),
-    )?.[1]
-    expect(marker, 'the source carries the marker').toBeTruthy()
-    expect(body.includes(`'${marker}'`) || body.includes(`"${marker}"`), 'no literal of the marker').toBe(false)
+    expect(body.includes(`'${PRODUCT}'`) || body.includes(`"${PRODUCT}"`), 'no literal of the marker').toBe(false)
     expect(body).not.toContain('PRODUCT_NAME')
     expect(body).not.toContain('<title>WikiKit')
-  })
 
-  test('the three branches say three different sentences', () => {
-    const body = bodyOf('function assertTargetIdentity(html, location)')
-    // A foreign console is NAMED, not merely rejected. That is the progress over
-    // the first implementation: "something foreign" sends the reader searching,
-    // "its title reads …" does not.
+    // A foreign console is NAMED, not merely rejected.
     expect(body).toContain('Its title reads')
     expect(body).toContain('this is not ${expected} but ${delivered}')
-    // A renamed ATTRIBUTE is a finding about THIS repository and no statement
-    // about the target — the message that otherwise points the wrong way.
     expect(body).toContain('finding about THIS repository and no statement about the target')
   })
 
@@ -114,9 +218,7 @@ describe('the identity assert derives instead of typing out', () => {
     expect(identity, 'the identity is checked before the browser starts').toBeLessThan(browser)
 
     // The same fetch carries the target classification. A second fetch would be a
-    // second place with its own deadline for nothing: measured, marksIn() over
-    // this text yields the same two references in both modes (dev and preview)
-    // that the earlier DOM measurement did.
+    // second place with its own deadline for nothing.
     expect(code).toContain('target = classifyTarget(marksIn(shellHtml))')
     expect(code).not.toContain('classifyTarget(shell.delivered)')
   })
@@ -126,8 +228,7 @@ describe('the identity assert derives instead of typing out', () => {
     // foreign cockpit is not a convention violation but a run that did not
     // happen — the difference is the whole lesson from CodeKit's eight
     // violations.
-    const body = bodyOf('function assertTargetIdentity(html, location)')
-    expect(body).toContain('throw new Error(')
+    expect(code).toContain('throw new Error(')
     expect(code).toContain('await main().catch((error) => {')
     expect(code).toContain('not measured')
     expect(code).toContain('process.exit(2)')
@@ -149,13 +250,12 @@ describe('the identity assert derives instead of typing out', () => {
     const nodeSide = sites.filter((at) => at !== browserSide)
     expect(nodeSide.length, `node-side fetch calls: ${nodeSide.length}, expected 1`).toBe(1)
 
-    const getWithin = bodyOf('async function getWithin(url, timeoutMs)')
+    const start = code.indexOf('async function getWithin(url, timeoutMs)')
+    const getWithin = code.slice(start, code.indexOf('\n}\n', start))
     expect(getWithin).toContain('await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })')
     // The body is read UNDER the same signal: "the headers arrived" is not "the
     // server answers", and the gap between the two is the second hang.
     expect(getWithin).toContain('return { ok: response.ok, body: await response.text() }')
-
-    const start = code.indexOf('async function getWithin(url, timeoutMs)')
     expect(nodeSide[0]).toBeGreaterThan(start)
     expect(nodeSide[0]).toBeLessThan(start + getWithin.length)
   })

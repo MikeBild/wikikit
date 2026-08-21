@@ -68,6 +68,10 @@ import { fileURLToPath } from 'node:url'
 // detail route in the first place.
 import { NAV } from '../apps/cockpit/src/app/nav.ts'
 
+// The identity reader, so this run and the test that holds it read the SAME
+// function rather than two that look alike.
+import { IDENTITY_META, markerIn } from './kennung.ts'
+
 /*
   The version of the yardstick, READ rather than asserted.
 
@@ -1919,13 +1923,10 @@ async function getWithin(url, timeoutMs) {
 // document that carries the identity. Both now read ONE fetch.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The attribute the console stamps on its document. */
-const IDENTITY_META = 'cockpit-product'
-
-/** A document's marker, or `null` if it carries none. */
-function markerIn(html) {
-  return new RegExp(`<meta[^>]+name="${IDENTITY_META}"[^>]+content="([^"]+)"`).exec(html)?.[1] ?? null
-}
+// The reader itself lives in scripts/kennung.ts, and not for tidiness: this
+// file runs on import, so a test can only hold the reader against fixtures once
+// it can be imported alone. It could not, and the hole that hid behind that is
+// LOCAL-WI-KENNUNG-BEISPIEL-GEWINNT.
 
 /**
  * Checks WHOSE console answered — before a single rule is measured and before a
@@ -1944,9 +1945,9 @@ function assertTargetIdentity(html, location) {
   const expected = markerIn(readFileSync(sourceUrl, 'utf8'))
   if (expected === null) {
     throw new Error(
-      `${COCKPIT_SOURCE_HTML} no longer carries a <meta name="${IDENTITY_META}" content="…">. ` +
-        'The identity assert derives its expected value from that file and now has none — this is a ' +
-        `finding about THIS repository and no statement about the target on ${location}.`,
+      `${COCKPIT_SOURCE_HTML} carries no single <meta name="${IDENTITY_META}" content="…"> outside a ` +
+        'comment — none, or more than one. The identity assert derives its expected value from that file ' +
+        `and now has none — this is a finding about THIS repository and no statement about the target on ${location}.`,
     )
   }
   const delivered = markerIn(html)
@@ -1961,7 +1962,8 @@ function assertTargetIdentity(html, location) {
       after 1.4s, with the title "WikiKit Cockpit" in the message.
     */
     throw new Error(
-      `this is not ${expected}: the document on ${location} carries no <meta name="${IDENTITY_META}">. ` +
+      `this is not ${expected}: the document on ${location} carries no single <meta name="${IDENTITY_META}"> ` +
+        'outside a comment. ' +
         `Its title reads "${title}" — is a sibling console listening there, or is it our own shell that ` +
         `lost the marker in the build? The DOM anchors are the same family-wide, so this run would have ` +
         `measured them either way and attributed every violation to ${expected}.`,
