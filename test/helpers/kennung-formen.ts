@@ -337,3 +337,176 @@ export const forms: Form[] = [
     known: 'LOCAL-WI-KENNUNG-NAMENSREFERENZ',
   },
 ]
+
+/*
+  THE GENERATOR.
+
+  The table above poses what its author thought of. This poses the cross product
+  of the axes the PARSER actually has, and the difference is not academic: 15
+  shapes nobody had written down found a live regression in half a minute
+  (LOCAL-WI-KENNUNG-SCHRAEGSTRICH-IM-WERT — the tag's `/` eaten by an unquoted
+  value). Without it the suite certifies the reader to the width of whoever
+  wrote it, and in six products that happens six times.
+
+  NOTHING HERE IS TRANSCRIBED. A generated form carries no recorded `browser`
+  and no recorded `reads`; the browser suite holds only the PROPERTY against a
+  live Chromium — a name may come back only when the parser reads exactly that
+  one marker, and `null` is always allowed. So there is no number to keep up to
+  date and nothing that can quietly go stale.
+
+  DETERMINISTIC ON PURPOSE. A random fuzzer that goes red once is a bug report
+  nobody can reproduce, and in a gate stage that is indistinguishable from flaky.
+*/
+export type Generated = { name: string; html: string }
+
+const QUOTINGS = [
+  { id: 'double', around: (value: string) => `"${value}"` },
+  { id: 'single', around: (value: string) => `'${value}'` },
+  { id: 'bare', around: (value: string) => value },
+]
+
+/** How the tag ends. `/>` and ` />` differ once a value is unquoted. */
+const CLOSERS = [
+  { id: 'space-slash', text: ' />' },
+  { id: 'slash', text: '/>' },
+  { id: 'plain', text: '>' },
+  { id: 'space', text: ' >' },
+]
+
+const ORDERS = [
+  { id: 'name-first', flip: false },
+  { id: 'content-first', flip: true },
+]
+
+/** Spellings of the attribute NAME the parser resolves to the same name. */
+const NAME_SPELLINGS = [
+  IDENTITY_META,
+  'cockpit&#45;product',
+  'cockpit&#45product',
+  'cockpit&#x2D;product',
+  'cockpit&#x2dproduct',
+]
+
+/** Spellings of the VALUE — every escape hatch, with its `;` and without. */
+const VALUE_SPELLINGS = [
+  'OtherProduct',
+  'Other&#80;roduct',
+  'Other&#80roduct',
+  'Other&#x50;roduct',
+  'Other&#x50roduct',
+  'Other&amp;Product',
+  'Other&AMP;Product',
+  'Other&copy;Product',
+  'Other&amp Product',
+  'Other&ampProduct',
+  'Other&#0;Product',
+  'Other&#1114112;Product',
+  'Other&#xD800;Product',
+  'Other&#128;Product',
+]
+
+const CASINGS = [
+  { id: 'lower', of: (text: string) => text },
+  { id: 'upper', of: (text: string) => text.toUpperCase() },
+  { id: 'mixed', of: (text: string) => text[0]!.toUpperCase() + text.slice(1) },
+]
+
+/** What stands around the tag. A comment is an example; an ABORTED one is not. */
+const WRAPPINGS = [
+  { id: 'plain', around: (tag: string) => tag },
+  { id: 'commented', around: (tag: string) => `<!-- ${tag} --!>` },
+  { id: 'commented-plain-end', around: (tag: string) => `<!-- ${tag} -->` },
+  { id: 'empty-comment', around: (tag: string) => `<!-->${tag}` },
+  { id: 'empty-comment-three', around: (tag: string) => `<!--->${tag}` },
+  { id: 'unclosed-comment', around: (tag: string) => `<!-- unclosed\n    ${tag}` },
+  { id: 'nested-open', around: (tag: string) => `<!-- an <!-- inside -->${tag}` },
+]
+
+/*
+  Beside the real marker the foreign tag has to be COUNTED, or the reader names
+  this product for a document that names two. Alone it may be named, because a
+  name that is true stops the run at the assert. Both halves, always.
+*/
+const PLACINGS = [
+  { id: 'beside', into: beside },
+  { id: 'alone', into: alone },
+]
+
+function element(parts: {
+  tagCase: (text: string) => string
+  attributeCase: (text: string) => string
+  quoting: (typeof QUOTINGS)[number]
+  name: string
+  value: string
+  closer: string
+  flip: boolean
+}): string {
+  const attributes = [
+    `${parts.attributeCase('name')}=${parts.quoting.around(parts.name)}`,
+    `${parts.attributeCase('content')}=${parts.quoting.around(parts.value)}`,
+  ]
+  if (parts.flip) attributes.reverse()
+  return `<${parts.tagCase('meta')} ${attributes.join(' ')}${parts.closer}`
+}
+
+const BASE = {
+  tagCase: CASINGS[0]!.of,
+  attributeCase: CASINGS[0]!.of,
+  quoting: QUOTINGS[0]!,
+  name: IDENTITY_META,
+  value: 'OtherProduct',
+  closer: CLOSERS[0]!.text,
+  flip: false,
+}
+
+/**
+ * Every generated form, in a fixed order. Five crosses rather than one, so the
+ * count stays in the low hundreds and each axis is crossed with the ones it can
+ * actually interact with.
+ */
+export function fuzzForms(): Generated[] {
+  const out: Generated[] = []
+  const add = (name: string, tag: string, placing: (typeof PLACINGS)[number]) =>
+    out.push({ name: `fuzz/${name}/${placing.id}`, html: placing.into(tag) })
+
+  // The tokenizer cross: quoting decides whether the closer's `/` is the tag's
+  // or the value's, and the order decides which attribute it lands on.
+  for (const quoting of QUOTINGS)
+    for (const closer of CLOSERS)
+      for (const order of ORDERS)
+        for (const placing of PLACINGS)
+          add(
+            `tokens/${quoting.id}/${closer.id}/${order.id}`,
+            element({ ...BASE, quoting, closer: closer.text, flip: order.flip }),
+            placing,
+          )
+
+  // The NAME cross: an undecoded name is an UNCOUNTED element, which is the
+  // dangerous direction of this whole class.
+  for (const name of NAME_SPELLINGS)
+    for (const quoting of QUOTINGS)
+      for (const placing of PLACINGS) add(`name/${name}/${quoting.id}`, element({ ...BASE, name, quoting }), placing)
+
+  // The VALUE cross: quoting fixed, so the axis stays the reference alone.
+  for (const value of VALUE_SPELLINGS)
+    for (const placing of PLACINGS) add(`value/${value}`, element({ ...BASE, value }), placing)
+
+  // The case cross: element name and attribute names are case-insensitive, the
+  // value is not.
+  for (const tagCase of CASINGS)
+    for (const attributeCase of CASINGS)
+      for (const quoting of QUOTINGS)
+        for (const placing of PLACINGS)
+          add(
+            `case/${tagCase.id}/${attributeCase.id}/${quoting.id}`,
+            element({ ...BASE, tagCase: tagCase.of, attributeCase: attributeCase.of, quoting }),
+            placing,
+          )
+
+  // The comment cross: what a reader must treat as an example, and what only
+  // LOOKS like one.
+  for (const wrapping of WRAPPINGS)
+    for (const placing of PLACINGS) add(`comment/${wrapping.id}`, wrapping.around(element({ ...BASE })), placing)
+
+  return out
+}
