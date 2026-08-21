@@ -92,6 +92,28 @@ describe('the identity reader, measured against documents', () => {
     })
   }
 
+  /*
+    THE COUNT IS PART OF THE SUITE. This table IS the tree both holders walk, so
+    a form deleted from it is a question that stops being asked — and a suite
+    that finds fewer violations than yesterday is green either way. Measured:
+    one form removed left this file at 28/0 and the browser suite at 17/0, both
+    silently green (BEFUND-SONDE-SIEHT-IHRE-VERENGUNG-NICHT).
+
+    Three numbers, because the total alone can stand still while the corpus
+    narrows. A form is WEAKENED, not removed, by posing it alone instead of
+    beside the real marker — and alone every one of these spellings is
+    fail-safe and asks nothing. And a duplicated name would let one form shadow
+    another with the total intact.
+  */
+  test('the table still poses every case it did: 26 forms, 9 of them beside the real marker', () => {
+    expect(forms.length, 'a form was added or removed — change this number deliberately').toBe(26)
+    expect(
+      forms.filter((form) => form.browser.length > 1).length,
+      'a form that posed a SECOND live marker no longer does',
+    ).toBe(9)
+    expect(new Set(forms.map((form) => form.name)).size, 'two forms share a name').toBe(forms.length)
+  })
+
   test('two real markers are an ambiguity, not an identity', () => {
     const html = shell.replace(
       HEAD_ANCHOR,

@@ -50,6 +50,28 @@ afterAll(async () => {
 type Page = { querySelectorAll: (selector: string) => Iterable<{ getAttribute: (name: string) => string | null }> }
 
 describe('the identity reader agrees with the browser', () => {
+  /*
+    THE COUNT IS PART OF THE SUITE. This table IS the tree both holders walk, so
+    a form deleted from it is a question that stops being asked — and a suite
+    that finds fewer violations than yesterday is green either way. Measured:
+    one form removed left this file at 28/0 and the browser suite at 17/0, both
+    silently green (BEFUND-SONDE-SIEHT-IHRE-VERENGUNG-NICHT).
+
+    Three numbers, because the total alone can stand still while the corpus
+    narrows. A form is WEAKENED, not removed, by posing it alone instead of
+    beside the real marker — and alone every one of these spellings is
+    fail-safe and asks nothing. And a duplicated name would let one form shadow
+    another with the total intact.
+  */
+  test('every form in the table is posed here: 26, 9 of them beside the real marker', () => {
+    expect(forms.length, 'a form was added or removed — change this number deliberately').toBe(26)
+    expect(
+      forms.filter((form) => form.browser.length > 1).length,
+      'a form that posed a SECOND live marker no longer does',
+    ).toBe(9)
+    expect(new Set(forms.map((form) => form.name)).size, 'two forms share a name').toBe(forms.length)
+  })
+
   for (const form of forms) {
     test(`${form.name}: the browser reads ${JSON.stringify(form.browser)}`, async () => {
       const page = await browser.newPage()
