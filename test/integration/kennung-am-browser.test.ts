@@ -42,10 +42,36 @@ import { chromium, type Browser } from 'playwright'
 
 import { IDENTITY_META, markerIn } from '../../scripts/kennung.ts'
 import { PRODUCT, forms, fuzzForms } from '../helpers/kennung-formen.ts'
+import { characterEntities } from 'character-entities'
+import { characterEntitiesLegacy } from 'character-entities-legacy'
 
 const generated = fuzzForms()
 
-const documents = new Map([...forms, ...generated].map((form) => [form.name, form.html]))
+/*
+  ONE further document, which poses the parser's ENTIRE named-reference table —
+  so the bound stated in scripts/kennung.ts is a sentence that can go red rather
+  than a sentence that was once true.
+
+  Both tables are pinned EXACTLY in package.json, without a caret: here the
+  dependency is not a tool but the oracle itself, and a silent bump would move
+  the measurement this test reports.
+*/
+const NAMES = Object.keys(characterEntities)
+/** With its `;`, then the legacy subset without one — the parser accepts both. */
+const REFERENCES = [...NAMES.map((name) => `&${name};`), ...characterEntitiesLegacy.map((name) => `&${name}`)]
+const REFERENCE_PROBE = "the parser's whole named-reference table"
+const documents = new Map<string, string>([
+  ...[...forms, ...generated].map((form) => [form.name, form.html] as [string, string]),
+  [
+    REFERENCE_PROBE,
+    // One attribute per reference. A separator inside one attribute would not
+    // do: `&verbar;`, `&vert;` and `&VerticalLine;` all decode to `|`, and a
+    // reference that decodes to the separator would silently split the list.
+    `<!doctype html><html><head><title>t</title></head><body><div id="probe" ${REFERENCES.map(
+      (reference, index) => `data-r${index}="${reference}"`,
+    ).join(' ')}></div></body></html>`,
+  ],
+])
 
 const server = Bun.serve({
   port: 0,
@@ -93,6 +119,53 @@ async function parserReads(name: string): Promise<(string | null)[]> {
  */
 const agreesWith = (parser: (string | null)[], reads: string | null) =>
   reads === null || (parser.length === 1 && parser[0] === reads)
+
+/*
+  THE BOUND ON LOCAL-WI-KENNUNG-NAMENSREFERENZ, measured against the parser
+  itself rather than against a package's table.
+
+  The reader decodes six named references and only with their `;`. That gap is
+  harmless in an attribute VALUE (it answers a value the DOM does not carry, and
+  the run ends at exit 2) and would be DANGEROUS in the attribute NAME, where an
+  undecoded name leaves a second live marker uncounted. The bound is that the
+  dangerous half is unreachable: no named reference decodes to a character
+  `cockpit-product` is made of, so no named reference can spell a marker.
+
+  Nine samples proved that once. This poses all of them, in one page load.
+*/
+describe('no named reference can spell a marker', () => {
+  test(`all ${REFERENCES.length} of the parser's named references stay out of '${IDENTITY_META}'`, async () => {
+    const page = await browser.newPage()
+    try {
+      const response = await page.goto(`http://127.0.0.1:${server.port}/${encodeURIComponent(REFERENCE_PROBE)}`)
+      expect(response?.status(), 'the reference probe was served').toBe(200)
+      const decoded = await page.evaluate((count: number) => {
+        const doc = (globalThis as unknown as { document: Page }).document
+        const probe = [...doc.querySelectorAll('#probe')][0]!
+        return Array.from({ length: count }, (_unused, index) => probe.getAttribute(`data-r${index}`))
+      }, REFERENCES.length)
+
+      // Every reference came back — a dropped attribute would make the bound
+      // below true for the wrong reason.
+      expect(decoded.filter((value) => value === null).length, 'a reference did not survive the round trip').toBe(0)
+
+      const alphabet = new Set(IDENTITY_META)
+      const reaching = decoded
+        .map((value, index) => [REFERENCES[index]!, value!] as const)
+        .filter(([, value]) => [...value].some((character) => alphabet.has(character)))
+      expect(
+        reaching,
+        `a named reference now decodes into '${IDENTITY_META}' — the dangerous half is no longer empty`,
+      ).toEqual([])
+
+      // And the near misses are near, which is why this is measured and not
+      // assumed: `&hyphen;` is U+2010, not the U+002D in the marker's name.
+      expect(decoded[REFERENCES.indexOf('&hyphen;')], '&hyphen; is not a hyphen-minus').toBe('\u2010')
+    } finally {
+      await page.close()
+    }
+  }, 60_000)
+})
 
 describe('the identity reader agrees with the browser', () => {
   /*

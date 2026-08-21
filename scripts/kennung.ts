@@ -127,13 +127,21 @@ export function markerIn(html: string): string | null {
     content="A&copy;B"   parser -> "A©B"   reader -> "A&copy;B"
     content="A&amp B"    parser -> "A& B"  reader -> "A&amp B"
 
-  In an attribute NAME the same gap would be in the DANGEROUS direction: an
+  In an attribute NAME the same gap WOULD be in the dangerous direction — an
   undecoded name is not counted, and an uncounted second marker is the whole
-  point of this class. Whether any name in the parser's table decodes to a
-  character `cockpit-product` is made of is NOT measured here — the limit is
-  named, not bounded (LOCAL-WI-KENNUNG-NAMENSREFERENZ, open). Both shapes above
-  stand in the form table as known holes, so the gap cannot close unnoticed and
-  the marker cannot outlive it.
+  point of this class. THAT HALF IS MEASURED, AND IT IS EMPTY: no named
+  reference decodes to any character `cockpit-product` is made of, so no named
+  reference can spell a marker, so none can hide one from this reader. All 2231
+  of them — 2125 names with their `;`, the 106 of the legacy subset without one
+  — are posed at a live Chromium in test/integration/kennung-am-browser.test.ts,
+  which is a sentence that can go red rather than a sentence that was once true.
+  The near misses are why it is measured and not reasoned: `&hyphen;` and
+  `&dash;` are U+2010, not the U+002D in this name, and `&minus;` is U+2212.
+
+  So the limit is BOUNDED and not merely named: it is confined to attribute
+  VALUES, where it is fail-safe (LOCAL-WI-KENNUNG-NAMENSREFERENZ, open in the
+  safe direction only). Both value shapes above stand in the form table as known
+  holes, so the gap cannot close unnoticed and the marker cannot outlive it.
 */
 function identitiesIn(html: string): (string | null)[] {
   const found: (string | null)[] = []

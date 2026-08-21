@@ -314,9 +314,14 @@ export const forms: Form[] = [
     strong. The reader decodes six names, all of them only WITH their `;`; the
     parser's table is far larger and accepts a legacy subset without one.
 
-    Both shapes are in the SAFE direction — the reader answers a value the DOM
-    does not carry, the assert sees a mismatch and the run ends at exit 2 rather
-    than under this product's name — so they stand here as KNOWN holes. The
+    The gap is bounded, and the bound is held by a test rather than by this
+    sentence: none of the parser's 2231 named references decodes to any
+    character `cockpit-product` is made of, so none can reach the attribute NAME
+    where this gap would be dangerous (see scripts/kennung.ts, and the probe in
+    the integration suite that poses the whole table). Both shapes below are
+    therefore in the SAFE direction — the reader answers a value the DOM does
+    not carry, the assert sees a mismatch and the run ends at exit 2 rather than
+    under this product's name — so they stand here as KNOWN holes. The
     integration test requires them to keep disagreeing, so the marker cannot
     outlive the finding (LOCAL-WI-KENNUNG-NAMENSREFERENZ).
   */
