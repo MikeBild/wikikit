@@ -1497,6 +1497,33 @@ async function main() {
     }
 
     /*
+      §8.1 — RENDERED positions against the number, and this is the only place
+      that crosses that line.
+
+      Everything above holds counters against counters, or rendering against
+      rendering. `data-total` and the three other numbers come from
+      countOpenDecisions(); `queue.cards` and `queue.keys` both come out of the
+      DOM. Neither pair can notice a card that never got rendered.
+
+      Measured at SubKit, in this file's own shape: cutting the render list with
+      `groupDecisions(…).slice(0, 1)` produced NOT ONE §8.1 violation, because
+      `data-total` did not move and the four numbers still agreed with each
+      other. The queue renders in two groups here (`waitingLonger` and
+      `currentItems`, decisions.tsx), so a group lost is a group nothing counts.
+
+      Only valid on the UNFILTERED page, and only while the list does not hedge:
+      a chip pressed and `data-capped="true"` are both legitimate reasons for
+      fewer positions than the number. Both are ruled out above.
+    */
+    if (queue.capped === 'false' && Number.isFinite(queue.total) && queue.keys.length !== queue.total) {
+      note(
+        '§8.1',
+        'Decisions queue › rendered vs. number',
+        `${queue.keys.length} positions rendered, ungrouped there are ${queue.total}`,
+      )
+    }
+
+    /*
       §10 — the wiki chips filter ROWS and nothing else.
 
       The fixture holds two wikis on purpose: with one, a chip has nothing to
@@ -2139,6 +2166,7 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ta
     console.log('   banner sentence, aging rubric, button labels, freedom from UUIDs, four-number coherence,')
     console.log('   freedom from duplicates, wiki chips without counter effect, Zone-A anatomy,')
     console.log('   Zone-A rows duplicate-free and matching their head,')
+    console.log('   queue positions rendered held against the number, not against each other,')
     console.log('   German surface without backend passthrough, wordmark, browser title on every route,')
     console.log('   wordmark icon (spelling from the computed text-transform, not from innerText),')
     console.log(
