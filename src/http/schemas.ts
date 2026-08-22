@@ -1877,6 +1877,66 @@ export const zAttentionResponse = z.object({
   recent_activity: z.array(zAttentionItem),
 })
 
+// --- Audit trail (audit.v1, convention §15) ---------------------------------
+//
+// The wire shape is the one the convention pins, not the one the rest of this
+// API happens to use: a `page` block with next_cursor/has_more/total/
+// total_exact, because §15 requires the reader to be able to tell a full page
+// from a last page and an exact count from a capped one. The older list
+// endpoints here return a bare `next_before` and cannot say either.
+export const zAuditListQuery = z.object({
+  space: z.string().max(128).optional(),
+  action: z.string().max(80).optional(),
+  resource_type: z.string().max(64).optional(),
+  resource_id: z.string().max(200).optional(),
+  actor_id: z.string().max(200).optional(),
+  actor_kind: z.enum(['identity', 'api_key', 'operator_session', 'system', 'anonymous']).optional(),
+  result: z.enum(['success', 'denied', 'error', 'cancelled']).optional(),
+  transport: z
+    .enum(['http', 'mcp', 'a2a', 'cockpit', 'cli', 'worker', 'webhook', 'channel', 'tick', 'system'])
+    .optional(),
+  request_id: z.string().max(128).optional(),
+  trace_id: z.string().max(128).optional(),
+  from: z.string().max(64).optional(),
+  to: z.string().max(64).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().max(500).optional(),
+})
+
+export const zAuditEvent = z.object({
+  id: z.string(),
+  seq: z.number().int().positive(),
+  schema_version: z.string(),
+  occurred_at: z.string(),
+  space_id: z.string().nullable(),
+  actor_kind: z.enum(['identity', 'api_key', 'operator_session', 'system', 'anonymous']),
+  actor_id: z.string().nullable(),
+  actor_label: z.string().nullable(),
+  action: z.string(),
+  resource_type: z.string(),
+  resource_id: z.string().nullable(),
+  resource_revision: z.string().nullable(),
+  result: z.enum(['success', 'denied', 'error', 'cancelled']),
+  transport: z.enum(['http', 'mcp', 'a2a', 'cockpit', 'cli', 'worker', 'webhook', 'channel', 'tick', 'system']),
+  request_id: z.string().nullable(),
+  trace_id: z.string().nullable(),
+  before: z.unknown().nullable(),
+  after: z.unknown().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  prev_sha256: z.string(),
+  sha256: z.string(),
+})
+
+export const zAuditListResponse = z.object({
+  items: z.array(zAuditEvent),
+  page: z.object({
+    next_cursor: z.string().nullable(),
+    has_more: z.boolean(),
+    total: z.number().int().nonnegative(),
+    total_exact: z.boolean(),
+  }),
+})
+
 export const zGlobalAttentionQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().max(500).optional(),
@@ -1997,6 +2057,9 @@ export const SCHEMAS: Record<string, z.ZodType> = {
   zAttentionQuery,
   zAttentionResponse,
   zGlobalAttentionQuery,
+  zAuditListQuery,
+  zAuditEvent,
+  zAuditListResponse,
   zGlobalAttentionResponse,
   zAttentionStateRequest,
   zScheduleSetRequest,

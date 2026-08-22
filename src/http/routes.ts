@@ -27,6 +27,14 @@ import {
   listConcepts,
   toConceptResponse,
 } from '../domain/concepts.ts'
+import {
+  actorFromPrincipal,
+  appendAuditFailure,
+  auditedTx,
+  listAuditEvents,
+  transportForPrincipal,
+  type AuditEventInput,
+} from '../domain/audit.ts'
 import { listDeletedConcepts, stageConceptLifecycle } from '../domain/concept-lifecycle.ts'
 import {
   deleteCharter,
@@ -220,6 +228,16 @@ export const ROUTES: RouteDef[] = [
     handler: 'globalSearchHandler',
     request: { query: 'zSearchQuery' },
     responses: { 200: { schema: 'zSearchResponse', type: 'application/json', desc: 'Globally ranked hits' } },
+  },
+  {
+    method: 'get',
+    path: '/v1/audit',
+    scope: 'knowledge:read',
+    summary:
+      'Read the append-only audit trail (audit.v1) newest-first — filter by wiki, action, resource, actor, result, transport, request/trace id or time range; page with ?limit=&cursor=. Rows carry prev_sha256/sha256.',
+    handler: 'listAuditHandler',
+    request: { query: 'zAuditListQuery' },
+    responses: { 200: { schema: 'zAuditListResponse', type: 'application/json', desc: 'Audit trail page' } },
   },
   {
     method: 'get',
@@ -1254,6 +1272,60 @@ export type Handler = (deps: HttpDeps, input: HandlerInput) => Promise<HandlerRe
  * step — every space-scoped handler starts here, so a query that forgets the
  * space filter cannot even be written.
  */
+/**
+ * Review decisions, recorded (§15.5). Everything the wrapper does is one rule:
+ * the decision and its audit entry share one transaction, so a chain that
+ * refuses the entry also refuses the decision.
+ *
+ * The permission check runs INSIDE `run` on purpose. A refusal is an event —
+ * "somebody without approve rights tried to approve this" is exactly the line
+ * an audit trail exists to carry — and it can only be recorded if the wrapper
+ * is already around it. The refusal's own entry is written afterwards, on its
+ * own transaction, because the transaction that carried the refusal has by
+ * then rolled back.
+ */
+async function auditedReview<T>(
+  deps: HttpDeps,
+  input: HandlerInput,
+  event: Pick<AuditEventInput, 'action' | 'spaceId' | 'resourceId' | 'before' | 'metadata'>,
+  run: (tx: Db) => Promise<T>,
+): Promise<T> {
+  const base: AuditEventInput = {
+    ...event,
+    resourceType: 'change_proposal',
+    result: 'success',
+    actor: actorFromPrincipal(input.principal),
+    transport: transportForPrincipal(input.principal),
+    requestId: input.requestId,
+  }
+  try {
+    return await auditedTx(deps.db, async (tx) => {
+      const value = await run(tx)
+      return { value, event: { ...base, after: value as unknown } }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      await appendAuditFailure(deps.db, {
+        ...base,
+        result: error instanceof ForbiddenError ? 'denied' : 'error',
+        metadata: { ...(event.metadata ?? {}), error: message },
+      })
+    } catch (auditError) {
+      // Never replace the caller's error with the recorder's: the operator
+      // needs the original cause. But an unrecorded refusal is a hole in the
+      // trail, so it is logged loudly rather than swallowed.
+      deps.logger.error('audit entry for a failed review could not be written', {
+        action: event.action,
+        proposal: event.resourceId,
+        cause: message,
+        audit_error: auditError instanceof Error ? auditError.message : String(auditError),
+      })
+    }
+    throw error
+  }
+}
+
 async function resolveSpace(deps: HttpDeps, input: HandlerInput, scope: Scope | readonly Scope[]): Promise<Space> {
   const space = await getSpaceBySlug(deps.db, input.params.space!)
   deps.auth.requireScope(input.principal!, scope, space.id)
@@ -1391,6 +1463,44 @@ export const HANDLERS: Record<string, Handler> = {
         llm: deps.llm,
         vector: deps.vector,
         scaffoldingKinds: deps.config.scaffoldingKinds,
+      }),
+    }
+  },
+
+  /**
+   * The trail is deployment-wide, so visibility is narrowed the same way
+   * /v1/attention narrows it: a space-locked key sees its own wiki plus the
+   * rows that belong to no wiki (installation-level events). A ?space= slug is
+   * resolved to an id and checked against that same ceiling — an unauthorized
+   * slug is a 403 from requireScope, never a silently empty page.
+   */
+  async listAuditHandler(deps, input) {
+    const query = input.query as Record<string, string | number | undefined>
+    let spaceId: string | null = null
+    if (query.space) {
+      const space = await getSpaceBySlug(deps.db, String(query.space))
+      deps.auth.requireScope(input.principal!, 'knowledge:read', space.id)
+      spaceId = space.id
+    }
+    const visible = input.principal!.spaceId ? [input.principal!.spaceId] : null
+    return {
+      status: 200,
+      body: await listAuditEvents(deps.db, {
+        spaceId,
+        visibleSpaceIds: visible,
+        action: query.action as string | undefined,
+        resourceType: query.resource_type as string | undefined,
+        resourceId: query.resource_id as string | undefined,
+        actorId: query.actor_id as string | undefined,
+        actorKind: query.actor_kind as never,
+        result: query.result as never,
+        transport: query.transport as never,
+        requestId: query.request_id as string | undefined,
+        traceId: query.trace_id as string | undefined,
+        from: query.from as string | undefined,
+        to: query.to as string | undefined,
+        limit: query.limit as number | undefined,
+        cursor: query.cursor as string | undefined,
       }),
     }
   },
@@ -2041,29 +2151,56 @@ export const HANDLERS: Record<string, Handler> = {
 
   async splitProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
-    // Review scope, not approve: splitting reorganizes the review unit, it
-    // publishes nothing (approve implies review, so approvers keep it).
-    requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
     const body = input.body as { concepts?: string[] } | undefined
-    const result = await splitProposal(deps.db, {
-      id: detail.id,
-      reviewer: input.principal!.name,
-      concepts: body?.concepts,
-      reviewChannel: 'rest',
-    })
+    const result = await auditedReview(
+      deps,
+      input,
+      {
+        action: 'proposal.split',
+        spaceId: detail.space_id,
+        resourceId: detail.id,
+        before: { status: detail.status },
+        metadata: { review_channel: 'rest', concepts: body?.concepts ?? null },
+      },
+      async (tx) => {
+        // Review scope, not approve: splitting reorganizes the review unit, it
+        // publishes nothing (approve implies review, so approvers keep it).
+        requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
+        return await splitProposal(tx, {
+          id: detail.id,
+          reviewer: input.principal!.name,
+          concepts: body?.concepts,
+          reviewChannel: 'rest',
+        })
+      },
+    )
     return { status: 200, body: result }
   },
 
   async requestChangesHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
-    requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
     const body = input.body as { note: string; via?: 'url_elicitation' }
-    const result = await requestChanges(deps.db, {
-      id: detail.id,
-      reviewer: input.principal!.name,
-      note: body.note,
-      reviewChannel: body.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
-    })
+    const channel = body.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
+    const result = await auditedReview(
+      deps,
+      input,
+      {
+        action: 'proposal.changes_requested',
+        spaceId: detail.space_id,
+        resourceId: detail.id,
+        before: { status: detail.status },
+        metadata: { review_channel: channel },
+      },
+      async (tx) => {
+        requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
+        return await requestChanges(tx, {
+          id: detail.id,
+          reviewer: input.principal!.name,
+          note: body.note,
+          reviewChannel: channel,
+        })
+      },
+    )
     void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },
@@ -2076,30 +2213,59 @@ export const HANDLERS: Record<string, Handler> = {
 
   async approveProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
-    requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
     const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
-    // Reviewer identity = the key's name: the audit trail names WHO approved,
-    // and the key name is the only identity a headless system has.
-    const result = await approveProposal(deps.db, {
-      id: detail.id,
-      reviewer: input.principal!.name,
-      note: body?.note,
-      reviewChannel: body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
-    })
+    const channel = body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
+    const result = await auditedReview(
+      deps,
+      input,
+      {
+        action: 'proposal.approved',
+        spaceId: detail.space_id,
+        resourceId: detail.id,
+        before: { status: detail.status },
+        metadata: { review_channel: channel },
+      },
+      async (tx) => {
+        requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
+        // Reviewer identity = the key's name: the audit trail names WHO
+        // approved, and the key name is the only identity a headless system
+        // has. The trail additionally carries the credential id beside it.
+        return await approveProposal(tx, {
+          id: detail.id,
+          reviewer: input.principal!.name,
+          note: body?.note,
+          reviewChannel: channel,
+        })
+      },
+    )
     void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },
 
   async rejectProposalHandler(deps, input) {
     const detail = await getProposal(deps.db, { id: input.params.id! })
-    requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
     const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
-    const result = await rejectProposal(deps.db, {
-      id: detail.id,
-      reviewer: input.principal!.name,
-      note: body?.note,
-      reviewChannel: body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest',
-    })
+    const channel = body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
+    const result = await auditedReview(
+      deps,
+      input,
+      {
+        action: 'proposal.rejected',
+        spaceId: detail.space_id,
+        resourceId: detail.id,
+        before: { status: detail.status },
+        metadata: { review_channel: channel },
+      },
+      async (tx) => {
+        requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
+        return await rejectProposal(tx, {
+          id: detail.id,
+          reviewer: input.principal!.name,
+          note: body?.note,
+          reviewChannel: channel,
+        })
+      },
+    )
     void deps.reviewElicitations?.complete(detail.id)
     return { status: 200, body: result }
   },

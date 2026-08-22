@@ -18,6 +18,7 @@ const CONTRACT_TABLE: [string, string, string | null][] = [
   ['post', '/v1/spaces', 'admin'],
   ['delete', '/v1/spaces/{space}', 'admin'],
   ['get', '/v1/search', 'knowledge:read'],
+  ['get', '/v1/audit', 'knowledge:read'],
   ['get', '/v1/attention', 'knowledge:read'],
   ['get', '/v1/agent/briefing', 'knowledge:read'],
   ['post', '/v1/agent/context', 'knowledge:read'],

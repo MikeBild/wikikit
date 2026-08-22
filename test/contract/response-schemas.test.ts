@@ -46,6 +46,7 @@ const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const KEY_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const DELIVERY_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const OUTPUT_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const AUDIT_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 const BOOTSTRAP = 'wk_response-schema-contract-bootstrap-key'
 const NOW = new Date('2026-07-15T12:00:00Z')
@@ -413,6 +414,36 @@ function stubDb(): Db {
           ]
         }
 
+        // audit trail ---------------------------------------------------------
+        if (text.includes('FROM wk_audit_events')) {
+          if (text.includes('count(*)::text AS n')) return [{ n: '1' }]
+          return [
+            {
+              id: AUDIT_ID,
+              seq: '7',
+              schema_version: 'audit.v1',
+              occurred_at: NOW,
+              space_id: SPACE_ID,
+              actor_kind: 'api_key',
+              actor_id: KEY_ID,
+              actor_label: 'ci',
+              action: 'proposal.approved',
+              resource_type: 'change_proposal',
+              resource_id: PROPOSAL_ID,
+              resource_revision: null,
+              result: 'success',
+              transport: 'http',
+              request_id: 'abc123',
+              trace_id: null,
+              before: { status: 'pending' },
+              after: { status: 'approved' },
+              metadata: { review_channel: 'rest' },
+              prev_sha256: 'b'.repeat(64),
+              sha256: 'a'.repeat(64),
+            },
+          ]
+        }
+
         // source streams (sync contract) -------------------------------------
         if (text.includes('FROM wk_source_streams')) return [STREAM_ROW]
 
@@ -489,6 +520,12 @@ function stubDb(): Db {
         return [
           { proposal_id: PROPOSAL_ID, status: 'rejected', review_channel: 'rest', changes_requested: true },
         ] as R[]
+      }
+      if (fn === 'wk_append_audit_event') {
+        // The audit engine, stubbed: the review handlers now write their entry
+        // in the same transaction as the decision, so a stub that cannot
+        // append cannot answer 200 either — which is the coupling, working.
+        return [{ id: AUDIT_ID, seq: 42, sha256: 'a'.repeat(64), prev_sha256: 'b'.repeat(64) }] as R[]
       }
       throw new Error(`unexpected db.call(${fn})`)
     },
@@ -795,6 +832,7 @@ interface RouteCase {
 
 const CASES: RouteCase[] = [
   { template: '/v1/spaces', method: 'get', url: '/v1/spaces', status: 200 },
+  { template: '/v1/audit', method: 'get', url: '/v1/audit?limit=5', status: 200 },
   { template: '/v1/spaces', method: 'post', url: '/v1/spaces', status: 201, body: { slug: 'fresh', name: 'Fresh' } },
   {
     template: '/v1/agent/briefing',
