@@ -34,29 +34,40 @@ const page = readFileSync(join(root, 'apps/cockpit/src/pages/audit.tsx'), 'utf8'
 /**
  * Every action string this installation can write into the chain.
  *
- * Read out of `src/http/routes.ts`: `auditedReview` is the only writer, and its
- * call sites name their action as a literal on an `action:` property. Reading
- * the property rather than the file keeps a second writer from slipping past
- * this on the day somebody adds one.
+ * TWO WRITERS, AND THE SECOND ONE IS WHY THIS FUNCTION HAS A SECOND HALF.
+ *
+ * `auditedReview` in src/http/routes.ts names its action as a literal on an
+ * `action:` property; reading the property rather than the file keeps another
+ * TypeScript writer from slipping past this on the day somebody adds one.
+ *
+ * Migration 0046 seeds the marker the chain opens with, in SQL, and no reading
+ * of `src/**\/*.ts` can see it. It was missing from the Cockpit's vocabulary
+ * for exactly that reason, and this test was green: the first run against a
+ * real installation put `audit.trail.opened` in front of a reader as a machine
+ * value. A derivation that cannot see a writer does not report a gap — it
+ * reports nothing, which is the failure this file exists to prevent.
  */
 function actionsTheServerWrites(): Set<string> {
-  const source = readFileSync(join(root, 'src/http/routes.ts'), 'utf8')
   const actions = new Set<string>()
-  for (const line of source.split('\n')) {
+  const routes = readFileSync(join(root, 'src/http/routes.ts'), 'utf8')
+  for (const line of routes.split('\n')) {
     if (!/^\s*action:/.test(line)) continue
     for (const match of line.matchAll(/'([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)'/g)) actions.add(match[1]!)
   }
+  const migration = readFileSync(join(root, 'src/db/migrations/0046_wk_audit_trail.sql'), 'utf8')
+  for (const match of migration.matchAll(/'(audit\.trail(?:\.[a-z_]+)+)'/g)) actions.add(match[1]!)
   return actions
 }
 
 describe('the audit trail is read in words the server actually writes — §15.2', () => {
-  test('the derivation reaches the writer', () => {
+  test('the derivation reaches both writers', () => {
     // A guard on the guard. Every assertion below loops over this set, so a
     // derivation that silently found nothing would pass every one of them —
     // which is the exact shape of the failure this file exists for.
     const actions = actionsTheServerWrites()
     expect(actions.has('proposal.approved')).toBe(true)
-    expect(actions.size).toBeGreaterThanOrEqual(4)
+    expect(actions.has('audit.trail.opened')).toBe(true)
+    expect(actions.size).toBeGreaterThanOrEqual(5)
   })
 
   test('every action the server writes has a German name', () => {

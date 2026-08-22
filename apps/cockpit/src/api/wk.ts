@@ -366,10 +366,14 @@ export const keys = {
    *
    * One read of `/v1/audit`, with the filter and the window in the key: every
    * narrowing is a different question to the server, and a shared key would let
-   * one answer stand for another. The wiki stays in the key too — the trail is
-   * asked for one wiki at a time.
+   * one answer stand for another.
+   *
+   * NO WIKI IN THE KEY, because there is none in the query. The chain is one
+   * append-only log for the whole installation — its own cutover marker carries
+   * no space at all — so switching wiki must not invalidate an answer that was
+   * never about one.
    */
-  audit: (space: string, query?: unknown) => ['spaces', space, 'audit', query ?? null] as const,
+  audit: (query?: unknown) => ['audit', query ?? null] as const,
   lint: (space: string) => ['spaces', space, 'lint'] as const,
   webhooks: (space: string) => ['spaces', space, 'webhooks'] as const,
   webhookDeliveries: (space: string, id: string) => ['spaces', space, 'webhooks', id, 'deliveries'] as const,

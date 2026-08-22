@@ -24,7 +24,6 @@ import {
   auditOperationKey,
 } from '@/lib/audit-vocabulary'
 import { useI18n } from '@/lib/i18n-context'
-import { useSpace } from '@/lib/space'
 import type { TranslationKey } from '@/lib/i18n'
 
 /**
@@ -155,7 +154,6 @@ function Raw({ value }: { value: unknown }) {
 }
 
 export function AuditPage() {
-  const space = useSpace()
   const { t, number } = useI18n()
   const [action, setAction] = useState('')
   const [result, setResult] = useState('')
@@ -167,12 +165,20 @@ export function AuditPage() {
   const [pages, setPages] = useState(1)
 
   const query: AuditQuery = {
-    space,
+    // NO `space` FILTER, and that is a decision the running app forced.
+    //
+    // The chain is ONE append-only log for the whole installation, and its
+    // first row — the cutover marker migration 0046 seeds — carries no
+    // space_id at all. Scoped to the selected wiki, the server dropped it: the
+    // page said „3 von 3 Ereignissen" over a chain of four, which is exactly
+    // the shape §15.4 exists to prevent — a narrow record read as a complete
+    // one. Filtering by wiki belongs in the filter row beside Vorgang and
+    // Ergebnis, as a choice somebody makes, not as a silent default.
     ...(action ? { action } : {}),
     ...(result ? { result: result as 'success' | 'denied' | 'error' | 'cancelled' } : {}),
     limit: Math.min(PAGE_SIZE * pages, 200),
   }
-  const trail = useQuery({ queryKey: keys.audit(space, query), queryFn: () => wk.audit.list(query) })
+  const trail = useQuery({ queryKey: keys.audit(query), queryFn: () => wk.audit.list(query) })
 
   const narrow = (apply: () => void) => {
     apply()
@@ -219,15 +225,31 @@ export function AuditPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      {/* §15.2 — these five, in this order, by these names. */}
-                      <TableHead className="w-52 min-w-40">{t('audit.column.when')}</TableHead>
+                      {/*
+                        §15.2 — these five, in this order, by these names.
+
+                        Vorgang carries no width, and the others carry only what
+                        they need: `Table` is `table-fixed`, so a width on every
+                        column leaves the one without one whatever is left over.
+                        Measured against the running app at 1280, that was about
+                        60 px and „Änderung freigegeben" came out one syllable
+                        per line. Vorgang is the column with the longest German
+                        in it, so it gets the remainder.
+
+                        Art, Verursacher and the Kanal column fold away between
+                        `md` and `xl`, and Ergebnis moves under the operation
+                        below `sm`: five columns plus a button do not fit in
+                        390 px, and the container clips rather than scrolls, so
+                        a column left in would be invisible AND unreachable.
+                      */}
+                      <TableHead className="w-28 sm:w-40">{t('audit.column.when')}</TableHead>
                       <TableHead>{t('audit.column.subject')}</TableHead>
-                      <TableHead className="hidden w-44 md:table-cell">{t('audit.column.kind')}</TableHead>
-                      <TableHead className="w-36">{t('audit.column.outcome')}</TableHead>
-                      <TableHead className="hidden w-44 lg:table-cell">{t('audit.column.actor')}</TableHead>
+                      <TableHead className="hidden w-40 md:table-cell">{t('audit.column.kind')}</TableHead>
+                      <TableHead className="hidden w-32 sm:table-cell">{t('audit.column.outcome')}</TableHead>
+                      <TableHead className="hidden w-40 lg:table-cell">{t('audit.column.actor')}</TableHead>
                       {/* A product-specific column, and to the RIGHT of the five (§15.2). */}
-                      <TableHead className="hidden w-28 xl:table-cell">{t('audit.column.transport')}</TableHead>
-                      <TableHead className="w-24" />
+                      <TableHead className="hidden w-24 xl:table-cell">{t('audit.column.transport')}</TableHead>
+                      <TableHead className="w-16 sm:w-20" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -309,7 +331,7 @@ function TrailRow({
           */}
           <time
             dateTime={event.occurred_at}
-            className="whitespace-nowrap tabular-nums"
+            className="text-xs whitespace-nowrap tabular-nums sm:text-sm"
             data-testid={`audit-row-${position}-when`}
           >
             {dateTime(event.occurred_at)}
@@ -317,13 +339,19 @@ function TrailRow({
         </TableCell>
         <TableCell className="min-w-0 align-top whitespace-normal">
           <Operation action={event.action} />
-          <span className="mt-0.5 block text-xs text-muted-foreground md:hidden">{kindKey ? t(kindKey) : '—'}</span>
+          {/* What folds out of the row on a narrow screen comes back here. */}
+          <span className="text-muted-foreground mt-0.5 block text-xs md:hidden">{kindKey ? t(kindKey) : '—'}</span>
+          <span className="mt-1 block sm:hidden">
+            <Badge tone={event.result === 'success' ? 'success' : 'danger'}>
+              {t(resultKey ?? 'audit.result.error')}
+            </Badge>
+          </span>
         </TableCell>
         <TableCell className="hidden align-top md:table-cell">
           {/* §15.2 forbids inventing „Unbekannt"; a kind nothing names gets a dash. */}
           {kindKey ? <Badge tone="neutral">{t(kindKey)}</Badge> : <span className="text-muted-foreground">—</span>}
         </TableCell>
-        <TableCell className="align-top">
+        <TableCell className="hidden align-top sm:table-cell">
           <Badge tone={event.result === 'success' ? 'success' : 'danger'}>{t(resultKey ?? 'audit.result.error')}</Badge>
         </TableCell>
         <TableCell className="hidden align-top text-sm break-all text-muted-foreground lg:table-cell">

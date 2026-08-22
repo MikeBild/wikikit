@@ -15,16 +15,23 @@ import type { TranslationKey } from './i18n'
  * That guard is the one this repository was missing. A derived list SHRINKS
  * SILENTLY: fewer entries is fewer things checked, which looks exactly like
  * fewer things wrong. So the two readings are independent on purpose — the
- * labels are written down here, the actions are read out of `src/http/routes.ts`
- * — and the test is where they have to agree.
+ * labels are written down here, the actions are read out of the writers — the
+ * `action:` literals in `src/http/routes.ts` AND the marker migration 0046
+ * seeds in SQL — and the test is where the two have to agree.
  */
 
 /**
  * The German name for one action, keyed by the action the server wrote.
  *
  * WikiKit's trail is narrow and its action vocabulary is closed: `auditedReview`
- * in src/http/routes.ts is the only writer, and it writes four. An action
- * nobody has named here is absent, and the caller prints the machine value
+ * in src/http/routes.ts writes four, and migration 0046 seeds the marker the
+ * chain opens with. That last one is here because it was MISSING and the page
+ * printed it as a machine value the first time it ran against a real
+ * installation — the unit test derived its actions from `action:` literals in
+ * `src/` and could not see an action written in SQL. It reads the migration
+ * too now.
+ *
+ * An action nobody has named here is absent, and the caller prints the machine value
  * MARKED AS ONE — which §15.2 permits („als solcher erkennbar") and which is
  * neither an invented German sentence nor the word „Unbekannt".
  */
@@ -33,6 +40,7 @@ export const AUDIT_OPERATION_KEYS = {
   'proposal.rejected': 'audit.op.proposalRejected',
   'proposal.changes_requested': 'audit.op.proposalChangesRequested',
   'proposal.split': 'audit.op.proposalSplit',
+  'audit.trail.opened': 'audit.op.trailOpened',
 } as const satisfies Record<string, TranslationKey>
 
 /**
@@ -43,6 +51,7 @@ export const AUDIT_OPERATION_KEYS = {
  */
 export const AUDIT_KIND_KEYS = {
   change_proposal: 'audit.kind.changeProposal',
+  audit_trail: 'audit.kind.auditTrail',
 } as const satisfies Record<string, TranslationKey>
 
 /** §15.2's „Ergebnis" — the four outcomes audit.v1 stores. */

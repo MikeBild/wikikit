@@ -112,7 +112,8 @@ const EN = {
   // „Audit-Protokoll" and „Verlauf" for it. Identical in both catalogues: it is
   // the family's name for the thing, not a translation.
   'page.audit.title': 'Audit-Trail',
-  'page.audit.description': 'Every decision this wiki recorded, in one append-only, hash-chained trail.',
+  'page.audit.description':
+    'Every decision this installation recorded, across all wikis, in one append-only, hash-chained trail.',
   'root.listError': 'Could not list wikis',
   'root.listErrorDescription': 'The wikis endpoint did not answer.',
   'root.emptyTitle': 'No wikis yet',
@@ -209,9 +210,11 @@ const EN = {
   'audit.op.proposalRejected': 'Change rejected',
   'audit.op.proposalChangesRequested': 'Rework requested',
   'audit.op.proposalSplit': 'Change split up',
+  'audit.op.trailOpened': 'Audit trail opened',
   'audit.machineValue': 'machine value',
   // §15.2's „Art" — keyed by resource_type, which is what a row is ABOUT.
   'audit.kind.changeProposal': 'Change',
+  'audit.kind.auditTrail': 'Audit trail',
   // §15.2's „Ergebnis" — the four outcomes audit.v1 stores. A refusal and an
   // error are events in their own right; the merged trail this page replaced
   // could not show either.
@@ -518,7 +521,7 @@ const DE: Record<TranslationKey, string> = {
   'page.system.description': 'Ausgelieferter Build, Bereitschaft und Endpunktaktivität.',
   'page.audit.title': 'Audit-Trail',
   'page.audit.description':
-    'Alles, was dieses Wiki entschieden hat, in einer fortgeschriebenen, hash-verketteten Spur.',
+    'Alles, was diese Installation entschieden hat, über alle Wikis hinweg, in einer fortgeschriebenen, hash-verketteten Spur.',
   'root.listError': 'Wikis konnten nicht geladen werden',
   'root.listErrorDescription': 'Der Wikis-Endpunkt hat nicht geantwortet.',
   'root.emptyTitle': 'Noch keine Wikis',
@@ -607,9 +610,11 @@ const DE: Record<TranslationKey, string> = {
   'audit.op.proposalRejected': 'Änderung abgelehnt',
   'audit.op.proposalChangesRequested': 'Nachbesserung verlangt',
   'audit.op.proposalSplit': 'Änderung aufgeteilt',
+  'audit.op.trailOpened': 'Audit-Spur eröffnet',
   'audit.machineValue': 'Maschinenwert',
   // §15.2 „Art" — nach resource_type, also danach, WORUM es in der Zeile geht.
   'audit.kind.changeProposal': 'Änderungsvorschlag',
+  'audit.kind.auditTrail': 'Audit-Spur',
   // §15.2 „Ergebnis" — die vier Ausgänge, die audit.v1 speichert. Verweigerung
   // und Fehler sind eigene Ereignisse; das zusammengesetzte Protokoll, das
   // diese Seite ersetzt hat, konnte keins von beiden zeigen.
