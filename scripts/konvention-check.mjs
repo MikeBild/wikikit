@@ -132,6 +132,14 @@ const SETTLED = (() => {
     states,
     words,
     speechless: named.filter((entry) => !entry.word).map((entry) => entry.state),
+    // WHAT THE DERIVATION FOUND, so the run can say whether it found anything.
+    //
+    // Every §8.5 assertion loops over `words`. A rename that empties this map —
+    // `audit.outcome.` becoming `audit.op.` in a refactor, say — makes all of
+    // them pass without looking, and the report reads exactly like a clean one.
+    // A derived list shrinks silently; the size is reported below, and a
+    // derivation that collapsed is a violation before any page is opened.
+    outcomeKeys: outcomes.length,
   }
 })()
 
@@ -610,16 +618,12 @@ const PROPOSAL_LINT = { findings: [], counts: { error: 0, warn: 0, info: 0 } }
   have answered four empty lists, the trail would have rendered its "nothing
   recorded yet" branch, and the sweep would have been measuring a placeholder.
 
-  This paragraph used to open with "WikiKit has no audit endpoint". That stopped
-  being true with 8e52c9a, which added GET /v1/audit over wk_audit_events — a
-  chained, append-only trail carrying result, transport, actor and refusals,
-  which the four fachhistorien below carry none of. The page has not been moved
-  onto it yet; when it is, these four fixtures become one and this comment goes
-  with them (WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN).
-
-  They serve /inbox, /pages and /charter as well, which until now also read the
-  fallback's empty lists. That widening is deliberate: three more surfaces are
-  measured against §5, §2 and §8.3 with rows in them rather than without.
+  THE /audit PAGE NO LONGER READS THEM. It did until 22.08.2026 — that was
+  WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN, and §15.5 closed it: the page reads
+  `GET /v1/audit`, whose fixture is AUDIT_EVENTS below. These four stay because
+  /inbox, /pages and /charter read them, which is why they were widened in the
+  first place: three more surfaces measured against §5, §2 and §8.3 with rows in
+  them rather than without.
 
   Every visible string is German and free of identifiers, because a fixture that
   smuggled English or a UUID in here would be testing itself. The `id` fields
@@ -749,6 +753,104 @@ const AUDIT_CHARTER = {
     { rev: 2, status: 'current', created_by: 'mike@mikebild.com', created_at: daysAgo(30) },
     { rev: 1, status: 'superseded', created_by: null, created_at: daysAgo(120) },
   ],
+}
+
+/*
+  ── The audit trail, as GET /v1/audit answers it ─────────────────────────────
+
+  ONE fixture, and that is the whole point. Until 22.08.2026 the /audit page
+  merged the four fachhistorien above into something shaped like an audit trail,
+  while `GET /v1/audit` — chained, append-only, carrying result, transport,
+  actor and REFUSALS, which none of the four carry — sat unused beside it
+  (WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN). §15.5 is the paragraph that closed it;
+  this is the fixture that replaced them.
+
+  The four above stay, because /inbox, /pages and /charter read them too.
+
+  Three rows on purpose: an approval, a REFUSAL and an ERROR. The merged trail
+  could show none of the last two — a record that only holds what succeeded
+  answers "was that refused?" with silence and looks like it answered.
+
+  The hashes are fixture hashes and are never painted: they live in the row
+  detail, which the sweep does not open. They are here because the SHAPE is the
+  contract — a client that tolerated a missing `sha256` could not show the chain
+  §15.3 asks it to show.
+*/
+const AUDIT_EVENTS = {
+  items: [
+    {
+      id: '66666666-6666-4666-8666-000000000001',
+      seq: 3,
+      schema_version: 'audit.v1',
+      occurred_at: daysAgo(2),
+      space_id: '11111111-1111-4111-8111-000000000001',
+      actor_kind: 'identity',
+      actor_id: '77777777-7777-4777-8777-000000000001',
+      actor_label: 'mike@mikebild.com',
+      action: 'proposal.approved',
+      resource_type: 'change_proposal',
+      resource_id: '44444444-4444-4444-8444-000000000001',
+      resource_revision: null,
+      result: 'success',
+      transport: 'cockpit',
+      request_id: null,
+      trace_id: null,
+      before: null,
+      after: { status: 'approved' },
+      metadata: {},
+      prev_sha256: 'b'.repeat(64),
+      sha256: 'c'.repeat(64),
+    },
+    {
+      id: '66666666-6666-4666-8666-000000000002',
+      seq: 2,
+      schema_version: 'audit.v1',
+      occurred_at: daysAgo(9),
+      space_id: '11111111-1111-4111-8111-000000000001',
+      actor_kind: 'api_key',
+      actor_id: '77777777-7777-4777-8777-000000000002',
+      // No label: §15.2 wants the actor KIND where the row carries no name,
+      // and never a plausible one invented for the gap.
+      actor_label: null,
+      action: 'proposal.rejected',
+      resource_type: 'change_proposal',
+      resource_id: '44444444-4444-4444-8444-000000000002',
+      resource_revision: null,
+      result: 'denied',
+      transport: 'mcp',
+      request_id: null,
+      trace_id: null,
+      before: null,
+      after: null,
+      metadata: { error: 'Der Schlüssel darf in diesem Wiki nicht freigeben.' },
+      prev_sha256: 'a'.repeat(64),
+      sha256: 'b'.repeat(64),
+    },
+    {
+      id: '66666666-6666-4666-8666-000000000003',
+      seq: 1,
+      schema_version: 'audit.v1',
+      occurred_at: daysAgo(30),
+      space_id: '11111111-1111-4111-8111-000000000001',
+      actor_kind: 'identity',
+      actor_id: '77777777-7777-4777-8777-000000000001',
+      actor_label: 'mike@mikebild.com',
+      action: 'proposal.split',
+      resource_type: 'change_proposal',
+      resource_id: '44444444-4444-4444-8444-000000000003',
+      resource_revision: null,
+      result: 'error',
+      transport: 'rest',
+      request_id: null,
+      trace_id: null,
+      before: null,
+      after: null,
+      metadata: { error: 'Die Aufteilung ergab keinen Abschnitt.' },
+      prev_sha256: '0'.repeat(64),
+      sha256: 'a'.repeat(64),
+    },
+  ],
+  page: { next_cursor: null, has_more: false, total: 3, total_exact: true },
 }
 
 /** Every detail read this run models, keyed by the exact pathname. */
@@ -933,10 +1035,17 @@ function contractSchema(pathname) {
  * by hand. A 404 here would paint the page with error alerts that the banner
  * and empty-state assertions would then be measuring instead of the product.
  */
-function mockApi(world, unmocked) {
+function mockApi(world, unmocked, seen = null) {
   const state = WORLDS[world]
   return async (route) => {
     const path = new URL(route.request().url()).pathname
+    // WHY THE MOCK COUNTS. §15.5 asks whether the audit page USES the audit
+    // surface or rebuilds it out of something else, and that is not a question
+    // the painted DOM can answer: a table assembled from four foreign histories
+    // looks exactly like one read from the trail — it looked like one here for
+    // as long as this page existed. What tells them apart is which request went
+    // out, so the one place every request already passes through records it.
+    if (seen && path.startsWith('/v1/')) seen.add(path)
     const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
 
     if (path === '/v1/session') {
@@ -993,6 +1102,20 @@ function mockApi(world, unmocked) {
     // source, an answer, a proposal, a logged decision. Without them the detail
     // routes below would render the empty-list fallback and the sweep would be
     // measuring a skeleton instead of a page.
+    // §15.5 — the trail the audit page reads. Filters are honoured here because
+    // they are honoured by the server: a mock that ignored `?result=` would let
+    // a page claim to be narrowed while showing everything, which is the defect
+    // this fixture exists to be able to see.
+    if (path === '/v1/audit') {
+      const params = new URL(route.request().url()).searchParams
+      const action = params.get('action')
+      const result = params.get('result')
+      const items = AUDIT_EVENTS.items.filter(
+        (event) => (!action || event.action === action) && (!result || event.result === result),
+      )
+      return json({ items, page: { ...AUDIT_EVENTS.page, total: items.length } })
+    }
+
     const detail = DETAIL_READS.get(path)
     if (detail) return json(detail)
 
@@ -1474,8 +1597,25 @@ async function main() {
       localStorage.setItem('wikikit-cockpit-theme', 'light')
     })
 
-    const openWorld = mockApi('gate-open', unmocked)
-    const clearWorld = mockApi('gate-clear', unmocked)
+    // Every `/v1` path the run asks for, recorded. Cleared immediately before
+    // the audit page opens, so §15.5 reads what THAT page requested and not
+    // what the overview happened to fetch on the way there.
+    const requested = new Set()
+    const openWorld = mockApi('gate-open', unmocked, requested)
+    const clearWorld = mockApi('gate-clear', unmocked, requested)
+
+    // §15's expectation, read out of the convention BEFORE a browser exists, so
+    // a run that never reaches a page still says whether this repository can
+    // satisfy §15 at all.
+    const audit15 = checkAuditVocabulary(note)
+    // And the §8.5 vocabulary's own size. Two derived lists, one guard each.
+    if (SETTLED.outcomeKeys < 4) {
+      note(
+        '§8.5',
+        'scripts/konvention-check.mjs › SETTLED, derived from CATALOGS.de audit.outcome.*',
+        `${SETTLED.outcomeKeys} outcome word(s) derived — the vocabulary collapsed, every §8.5 assertion below passes without looking`,
+      )
+    }
 
     const page = await context.newPage()
     page.on('pageerror', (error) => note('§0', 'browser', `uncaught error: ${error.message}`))
@@ -2010,6 +2150,18 @@ async function main() {
       collectSurface(note, where, surface)
     }
 
+    // ---- §15, on its own surface -----------------------------------------
+    //
+    // The sweep opened /audit like every other route, but the sweep grades a
+    // page's language and identifiers; it has no opinion about the heading, the
+    // columns or where the rows came from. `requested` is cleared here so §15.5
+    // reads what THIS page asked for.
+    requested.clear()
+    await open(page, `${base}/cockpit/audit?space=${SPACE.slug}`)
+    await checkAuditHeading(page, note, audit15)
+    await checkAuditColumns(page, note, audit15)
+    checkAuditEndpoint(note, requested)
+
     // ---- Overview again, with nothing open -------------------------------
     await page.unroute('**/v1/**')
     await page.route('**/v1/**', (route) => clearWorld(route))
@@ -2161,6 +2313,197 @@ async function checkFavicon(page, note, where, icon) {
       `${icon.href} is served but does not decode as an image (naturalWidth ${painted.w}) — the tab would stay empty`,
     )
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §15 — THE AUDIT TRAIL
+//
+// WHY THIS PARAGRAPH GOT ITS OWN SECTION, AND WHY IT IS THE SHARPEST ONE HERE.
+//
+// §15 was written on 22.08.2026 because six products had built six audit pages:
+// four different column sets, „Aktion" against „Vorgang", „Akteur" against
+// „Verursacher", one heading „Audit-Protokoll" against five „Audit", and one
+// product with no table at all. The reason the convention gives is that there
+// was no paragraph — a task carried a description, and a description cannot
+// fail.
+//
+// Adding the paragraph did not fix that by itself. All four `konvention-check`
+// scripts in the family went GREEN the day §15 landed, because none of them
+// looked: they check the version line in the document's header, and the header
+// already said 1.6. A convention body with §15 cut out of it would have been
+// green everywhere. That is the same defect one level up — prose beside code.
+//
+// WHERE THE EXPECTATION COMES FROM.
+//
+// Out of `COCKPIT-KONVENTION.md` itself, not out of a list typed here. This
+// file already reads the document for its version line; §15.1 and §15.2 name
+// their words in the document, in bold and in a code block, and reading them is
+// the difference between measuring the console against the convention and
+// measuring it against whatever somebody typed into the check.
+//
+// AND WHY THE DERIVATION IS ITSELF ASSERTED.
+//
+// Because a derived list SHRINKS SILENTLY. If the code block moves or is
+// reworded, `conventionAuditColumns()` returns fewer than five words, every
+// loop below runs fewer times, and the run goes green having checked less. The
+// size is therefore a violation before the columns are — the same guard SETTLED
+// now carries, for the same reason.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The convention's own §15 text — the paragraph, not a paraphrase of it. */
+function conventionSection15() {
+  const document = readFileSync(new URL(`../${CONVENTION_FILE}`, import.meta.url), 'utf8')
+  const start = document.indexOf('## 15. Audit-Trail')
+  if (start === -1) return null
+  const next = document.indexOf('\n## ', start + 1)
+  return document.slice(start, next === -1 ? undefined : next)
+}
+
+/**
+ * §15.1's two names: the MENU entry and the page HEADING.
+ *
+ * They differ on purpose — the sidebar is a place, the heading is the thing —
+ * and the paragraph spells both in bold quotes, in that order.
+ */
+function conventionAuditNames(section) {
+  const paragraph = /\*\*15\.1[\s\S]*?(?=\n\*\*15\.2)/.exec(section ?? '')?.[0]
+  if (!paragraph) return null
+  const quoted = [...paragraph.matchAll(/\*\*„([^"„]+)"\*\*/g)].map((match) => match[1])
+  return quoted.length === 2 ? { menu: quoted[0], heading: quoted[1] } : null
+}
+
+/**
+ * §15.2's five column names, in the order the paragraph writes them.
+ *
+ * They stand in an indented code block — the one place in the document where
+ * the order is unambiguous. Split on the separator and never on whitespace:
+ * two of the words would survive a wrong split, and the check would look like
+ * it worked.
+ */
+function conventionAuditColumns(section) {
+  const line = /\n {4}(Zeitpunkt[^\n]*·[^\n]*)\n/.exec(section ?? '')?.[1]
+  if (!line) return []
+  return line
+    .split('·')
+    .map((word) => word.trim())
+    .filter(Boolean)
+}
+
+/**
+ * §15.1 and §15.2 as one reading of the repository, before any browser opens.
+ *
+ * Reported through the same `note` channel as everything measured in a page,
+ * because a rule half-enforced is worse than one enforced nowhere: it produces
+ * a green run that means less than it says.
+ */
+function checkAuditVocabulary(note) {
+  const section = conventionSection15()
+  if (!section) {
+    note('§15', CONVENTION_FILE, 'no „## 15. Audit-Trail" section in this copy of the convention')
+    return null
+  }
+  const names = conventionAuditNames(section)
+  const columns = conventionAuditColumns(section)
+  // THE GUARD ON THE DERIVATION. Everything below loops over `columns`, so a
+  // derivation that found four words — or none — would quietly check less and
+  // report the same green.
+  if (columns.length !== 5) {
+    note('§15.2', `${CONVENTION_FILE} › §15.2 column line`, `${columns.length} column name(s) derived, expected 5`)
+  }
+  if (!names) {
+    note('§15.1', `${CONVENTION_FILE} › §15.1`, 'menu entry and page heading are not both quoted in bold')
+  }
+
+  // THE GUARD OVER THE VOCABULARY. The console must be able to SAY each of the
+  // five out of its catalog. A word painted from a JSX literal renders
+  // identically and is invisible to every catalog reading in this file — and a
+  // catalog entry renamed out from under one is exactly the silent shrink this
+  // section exists to make loud.
+  const carried = new Map(Object.entries(CATALOGS.de).filter(([key]) => key.startsWith('audit.column.')))
+  for (const word of columns) {
+    if (![...carried.values()].includes(word)) {
+      note(
+        '§15.2',
+        `apps/cockpit/src/lib/i18n.ts › CATALOGS.de, no audit.column.* entry says „${word}"`,
+        `present: ${[...carried.keys()].join(', ') || 'none'}`,
+      )
+    }
+  }
+  return names && columns.length === 5 ? { ...names, columns } : null
+}
+
+/**
+ * §15.1 — the page's own heading, character for character.
+ *
+ * The heading AND the navigation entry, because a product that fixed the
+ * heading by renaming the menu entry would have traded one violation for the
+ * other. WikiKit's heading said „Audit" — correct for the menu, wrong for the
+ * page — because both read the same catalog key.
+ */
+async function checkAuditHeading(page, note, expected) {
+  if (!expected) return
+  const heading = (await page.locator('[data-testid="page-title"]').innerText()).trim()
+  if (heading !== expected.heading) {
+    note('§15.1', `/audit › <h1>, expected „${expected.heading}"`, `"${heading}"`)
+  }
+  const entry = page.locator('[data-testid="nav-audit"]')
+  if ((await entry.count()) === 0) {
+    note('§15.1', 'sidebar › [data-testid="nav-audit"]', 'no audit entry in the navigation')
+    return
+  }
+  const label = (await entry.first().innerText()).replace(/\s+/g, ' ').trim()
+  if (label !== expected.menu) {
+    note('§15.1', `sidebar › audit entry, expected „${expected.menu}"`, `"${label}"`)
+  }
+}
+
+/**
+ * §15.2 — the five column names, in order, on the painted table.
+ *
+ * Positional and per column, so the report names the column that is wrong
+ * rather than the table. Product-specific columns are allowed and stand to the
+ * RIGHT of the five, so only the first five headings are compared — an extra
+ * column in position three is a violation of position three, which is what the
+ * message then says.
+ */
+async function checkAuditColumns(page, note, expected) {
+  if (!expected) return
+  const table = page.locator('[data-testid="audit-table"] thead th')
+  const count = await table.count()
+  if (count === 0) {
+    note('§15.2', '/audit', 'the audit page paints no table head under [data-testid="audit-table"]')
+    return
+  }
+  const headings = (await table.allInnerTexts()).map((value) => value.replace(/\s+/g, ' ').trim())
+  if (headings.length < expected.columns.length) {
+    note(
+      '§15.2',
+      `/audit › table head, expected at least ${expected.columns.length} columns`,
+      `${headings.length}: ${headings.join(' · ') || 'none'}`,
+    )
+    return
+  }
+  expected.columns.forEach((word, index) => {
+    if (headings[index] !== word) {
+      note('§15.2', `/audit › table head, column ${index + 1} must be „${word}"`, `"${headings[index] || '(empty)'}"`)
+    }
+  })
+}
+
+/**
+ * §15.5 — the page reads the audit surface rather than rebuilding it.
+ *
+ * Measured through the requests that actually went out, not through the source:
+ * a table assembled out of four foreign histories paints exactly like one read
+ * from the trail, and that is precisely what this page did. `/v1/audit` present
+ * is the claim; the paths that WERE asked for are what the report carries when
+ * it is absent — "it does not call the trail" and "it calls these four other
+ * things instead" are two different findings, and only the second can be acted
+ * on.
+ */
+function checkAuditEndpoint(note, seen) {
+  if (seen.has('/v1/audit')) return
+  note('§15.5', '/audit did not request /v1/audit', [...seen].sort().join(', ') || 'no /v1 request')
 }
 
 /** The two DOM-wide prohibitions, applied to whatever page was just measured. */
@@ -2674,6 +3017,17 @@ function report(base, violations, unmocked, swept, unchecked, faviconChecked, ta
     )
     console.log('   wordmark square collapsed on the axis of the nav icons,')
     console.log('   route sweep over every navigation target and one detail route per collection,')
+    // §15 SAID OUT LOUD. A green report has to name what it looked at: this
+    // paragraph went green in four repositories on the day it was written
+    // because every check read the version line and nothing else, and a list
+    // that does not mention §15 is how that stays invisible the next time.
+    console.log(
+      '   §15 audit trail: the page heading and the menu entry against the words §15.1 writes,\n' +
+        '     the first five column headings of the painted table against §15.2, positionally,\n' +
+        `     and the requests /audit actually sent — /v1/audit among them (§15.5);\n` +
+        '     both expectations DERIVED from this repo\u2019s copy of the convention, and the derivation\n' +
+        '     itself asserted, because a derived list shrinks silently,',
+    )
     console.log(
       `   yardstick version: the copy's header line and the constant in this script both name ${CONVENTION_VERSION})`,
     )

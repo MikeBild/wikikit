@@ -1,267 +1,175 @@
-// The audit trail's merge, and the two refusals that make it a trail.
-//
-// The page itself is a table; the rule worth holding is what gets into it.
-// WikiKit keeps no single audit record — the trail is assembled from four
-// existing ones — so every question a reader could ask of it ("is this
-// everything?", "who did that?", "in what order?") is answered by this file and
-// nowhere else.
-//
-// Two of the assertions below are about what does NOT happen: no row is filed
-// under an instant nobody wrote down, and no actor is filled in for a record
-// that names none. Both are the difference between a log and a story.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { AUDIT_ACTOR_KINDS, AUDIT_RESULTS } from '../../../src/domain/audit.ts'
 import {
-  KIND_LABELS,
-  auditEntries,
-  type AuditSources,
-  type CharterRecord,
-  type ConceptRecord,
-  type IngestRecord,
-  type ProposalRecord,
-} from '../../../apps/cockpit/src/pages/audit.logic.ts'
+  AUDIT_ACTOR_KEYS,
+  AUDIT_KIND_KEYS,
+  AUDIT_OPERATION_KEYS,
+  AUDIT_RESULT_KEYS,
+} from '../../../apps/cockpit/src/lib/audit-vocabulary.ts'
 import { CATALOGS, type TranslationKey } from '../../../apps/cockpit/src/lib/i18n.ts'
 
-const at = (iso: string) => `${iso}.000Z`
+const root = join(import.meta.dir, '../../..')
+const page = readFileSync(join(root, 'apps/cockpit/src/pages/audit.tsx'), 'utf8')
 
-function proposal(overrides: Partial<ProposalRecord> & { id: string }): ProposalRecord {
-  return {
-    status: 'approved',
-    title: 'Rückgaberecht schärfen',
-    reviewer: 'mike@mikebild.com',
-    reviewed_at: at('2026-08-18T10:00:00'),
-    changes_requested: false,
-    ...overrides,
+/**
+ * A GUARD OVER THE VOCABULARY — the one this repository did not have.
+ *
+ * The audit page's words used to be checked against the page's own tables, and
+ * a reading derived from the thing it checks can only ever agree with itself. A
+ * derived list also SHRINKS SILENTLY: fewer entries is fewer things checked,
+ * which looks exactly like fewer things wrong.
+ *
+ * So the two readings here are independent on purpose. The Cockpit's labels are
+ * WRITTEN DOWN in `lib/audit-vocabulary.ts`; the actions are READ OUT of the
+ * one writer in `src/http/routes.ts`. Neither can move without the other, and a
+ * rename on either side is red, by name.
+ *
+ * scripts/konvention-check.mjs reads the painted table and can only ever see
+ * what the fixture put in front of it. This reads the whole vocabulary, and the
+ * two together are what make §15.2 an assertion rather than a description.
+ */
+
+/**
+ * Every action string this installation can write into the chain.
+ *
+ * Read out of `src/http/routes.ts`: `auditedReview` is the only writer, and its
+ * call sites name their action as a literal on an `action:` property. Reading
+ * the property rather than the file keeps a second writer from slipping past
+ * this on the day somebody adds one.
+ */
+function actionsTheServerWrites(): Set<string> {
+  const source = readFileSync(join(root, 'src/http/routes.ts'), 'utf8')
+  const actions = new Set<string>()
+  for (const line of source.split('\n')) {
+    if (!/^\s*action:/.test(line)) continue
+    for (const match of line.matchAll(/'([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)'/g)) actions.add(match[1]!)
   }
+  return actions
 }
 
-function ingest(overrides: Partial<IngestRecord> & { ingest_id: string }): IngestRecord {
-  return {
-    status: 'done',
-    title: 'Support-Handbuch 2026',
-    created_at: at('2026-08-17T08:00:00'),
-    started_at: at('2026-08-17T08:01:00'),
-    finished_at: at('2026-08-17T08:05:00'),
-    ...overrides,
-  }
-}
-
-function sources(overrides: Partial<AuditSources> = {}): AuditSources {
-  return { proposals: [], ingests: [], concepts: [], charter: [], ...overrides }
-}
-
-describe('only what is finished reaches the trail', () => {
-  test('a proposal still waiting is the queue’s row, not the trail’s', () => {
-    const entries = auditEntries(
-      sources({
-        proposals: [proposal({ id: 'a', status: 'pending', reviewed_at: null, reviewer: null })],
-      }),
-    )
-    expect(entries).toEqual([])
+describe('the audit trail is read in words the server actually writes — §15.2', () => {
+  test('the derivation reaches the writer', () => {
+    // A guard on the guard. Every assertion below loops over this set, so a
+    // derivation that silently found nothing would pass every one of them —
+    // which is the exact shape of the failure this file exists for.
+    const actions = actionsTheServerWrites()
+    expect(actions.has('proposal.approved')).toBe(true)
+    expect(actions.size).toBeGreaterThanOrEqual(4)
   })
 
-  test('every terminal review status is carried, with its own outcome', () => {
-    const entries = auditEntries(
-      sources({
-        proposals: [
-          proposal({ id: 'a', status: 'approved' }),
-          proposal({ id: 'b', status: 'rejected' }),
-          proposal({ id: 'c', status: 'split' }),
-          proposal({ id: 'd', status: 'failed' }),
-        ],
-      }),
-    )
-    expect(entries.map((entry) => entry.outcome.key).sort()).toEqual([
-      'audit.outcome.approved',
-      'audit.outcome.failed',
-      'audit.outcome.rejected',
-      'audit.outcome.split',
-    ])
+  test('every action the server writes has a German name', () => {
+    const unnamed = [...actionsTheServerWrites()].filter((action) => !(action in AUDIT_OPERATION_KEYS)).sort()
+    expect(unnamed).toEqual([])
   })
 
-  test('“changes requested” outranks the status word, which the server leaves at pending', () => {
-    // The trap this guards: a proposal sent back for rework stays `pending` and
-    // carries a flag. Reading the status alone would file the one review a
-    // reader most wants to find under nothing at all.
-    const entries = auditEntries(
-      sources({ proposals: [proposal({ id: 'a', status: 'pending', changes_requested: true })] }),
-    )
-    expect(entries).toHaveLength(1)
-    expect(entries[0]!.outcome.key).toBe('audit.outcome.changesRequested')
+  test('no name stands for an action nothing writes any more', () => {
+    const written = actionsTheServerWrites()
+    expect(
+      Object.keys(AUDIT_OPERATION_KEYS)
+        .filter((action) => !written.has(action))
+        .sort(),
+    ).toEqual([])
   })
 
-  test('a run that is still in flight or still waiting for a person stays out', () => {
-    const entries = auditEntries(
-      sources({
-        ingests: (['queued', 'running', 'quota_blocked', 'captured'] as const).map((status, index) =>
-          ingest({ ingest_id: `run-${index}`, status, finished_at: null }),
-        ),
-      }),
-    )
-    expect(entries).toEqual([])
+  /**
+   * The closed enums the chain stores, held against the words that read them.
+   *
+   * `AUDIT_RESULTS` and `AUDIT_ACTOR_KINDS` are the database's own CHECK
+   * constraints, exported. A fifth result added there and not here is a value
+   * that reaches an operator raw — the defect §15.2 names for „Vorgang", and it
+   * means just as much for „Ergebnis".
+   */
+  test('every stored result and actor kind is named', () => {
+    expect(AUDIT_RESULTS.filter((value) => !(value in AUDIT_RESULT_KEYS))).toEqual([])
+    expect(AUDIT_ACTOR_KINDS.filter((value) => !(value in AUDIT_ACTOR_KEYS))).toEqual([])
   })
 
-  test('a run that ended is carried, whichever way it ended', () => {
-    const entries = auditEntries(
-      sources({
-        ingests: [
-          ingest({ ingest_id: 'a', status: 'done' }),
-          ingest({ ingest_id: 'b', status: 'failed' }),
-          ingest({ ingest_id: 'c', status: 'discarded' }),
-        ],
-      }),
-    )
-    expect(entries.map((entry) => entry.outcome.key).sort()).toEqual([
-      'audit.outcome.discarded',
-      'audit.outcome.done',
-      'audit.outcome.failed',
-    ])
-  })
-})
-
-describe('the instant a row is filed under is one somebody wrote down', () => {
-  test('a decision is filed under its REVIEW, never under the day the change arrived', () => {
-    const entries = auditEntries(
-      sources({ proposals: [proposal({ id: 'a', reviewed_at: at('2026-08-19T09:30:00') })] }),
-    )
-    expect(entries[0]!.at).toBe(at('2026-08-19T09:30:00'))
-  })
-
-  test('a run falls back finished → started → submitted, and no further', () => {
-    const finished = auditEntries(sources({ ingests: [ingest({ ingest_id: 'a' })] }))
-    expect(finished[0]!.at).toBe(at('2026-08-17T08:05:00'))
-
-    const started = auditEntries(sources({ ingests: [ingest({ ingest_id: 'a', finished_at: null })] }))
-    expect(started[0]!.at).toBe(at('2026-08-17T08:01:00'))
-
-    const submitted = auditEntries(
-      sources({ ingests: [ingest({ ingest_id: 'a', finished_at: null, started_at: null })] }),
-    )
-    expect(submitted[0]!.at).toBe(at('2026-08-17T08:00:00'))
-  })
-
-  test('a record with no usable instant is DROPPED, never stamped with now', () => {
-    // The alternative — filing it under the moment the page was opened — is
-    // indistinguishable from a reading once it is on screen, and it puts the
-    // row at the top of a list sorted by time.
-    const entries = auditEntries(
-      sources({
-        proposals: [proposal({ id: 'a', reviewed_at: 'not a date' })],
-        concepts: [{ slug: 'x', title: 'X', rev: 1, updated_at: '' } as ConceptRecord],
-      }),
-    )
-    expect(entries).toEqual([])
-  })
-
-  test('newest first, and ties break on a stable key rather than on render order', () => {
-    const same = at('2026-08-18T10:00:00')
-    const entries = auditEntries(
-      sources({
-        concepts: [
-          { slug: 'zebra', title: 'Zebra', rev: 2, updated_at: same },
-          { slug: 'alpha', title: 'Alpha', rev: 2, updated_at: same },
-        ],
-        proposals: [proposal({ id: 'a', reviewed_at: at('2026-08-19T10:00:00') })],
-      }),
-    )
-    expect(entries.map((entry) => entry.id)).toEqual(['decision:a', 'revision:alpha:2', 'revision:zebra:2'])
-  })
-})
-
-describe('an actor is read, never inferred', () => {
-  test('the two records that name one hand it over verbatim', () => {
-    const charter: CharterRecord = {
-      rev: 4,
-      status: 'current',
-      created_by: 'mike@mikebild.com',
-      created_at: at('2026-08-16T12:00:00'),
+  test('every name resolves in both catalogs', () => {
+    const names: TranslationKey[] = [
+      ...Object.values(AUDIT_OPERATION_KEYS),
+      ...Object.values(AUDIT_KIND_KEYS),
+      ...Object.values(AUDIT_RESULT_KEYS),
+      ...Object.values(AUDIT_ACTOR_KEYS),
+      // The five column names §15.2 legislates, in the order it legislates them.
+      'audit.column.when',
+      'audit.column.subject',
+      'audit.column.kind',
+      'audit.column.outcome',
+      'audit.column.actor',
+      'page.audit.title',
+    ]
+    const missing: string[] = []
+    for (const locale of ['en', 'de'] as const) {
+      for (const key of names) {
+        const value = CATALOGS[locale][key]
+        if (!value || value.trim() === '') missing.push(`${locale}: ${key}`)
+      }
     }
-    const entries = auditEntries(sources({ proposals: [proposal({ id: 'a' })], charter: [charter] }))
-    expect(entries.map((entry) => entry.actor)).toEqual(['mike@mikebild.com', 'mike@mikebild.com'])
+    expect(missing.sort()).toEqual([])
   })
 
-  test('the two records that name none answer null, not a plausible stand-in', () => {
-    const entries = auditEntries(
-      sources({
-        ingests: [ingest({ ingest_id: 'a' })],
-        concepts: [{ slug: 'x', title: 'X', rev: 3, updated_at: at('2026-08-15T12:00:00') }],
-      }),
-    )
-    expect(entries.map((entry) => entry.actor)).toEqual([null, null])
-  })
-
-  test('a blank name is an unnamed actor, not a name made of spaces', () => {
-    const entries = auditEntries(sources({ proposals: [proposal({ id: 'a', reviewer: '   ' })] }))
-    expect(entries[0]!.actor).toBeNull()
-  })
-})
-
-describe('the words it hands the table are catalog keys', () => {
-  test('every kind and every outcome resolves in both catalogs', () => {
-    const charter: CharterRecord = {
-      rev: 2,
-      status: 'superseded',
-      created_by: null,
-      created_at: at('2026-08-10T12:00:00'),
-    }
-    const entries = auditEntries(
-      sources({
-        proposals: [
-          proposal({ id: 'a', status: 'approved' }),
-          proposal({ id: 'b', status: 'rejected' }),
-          proposal({ id: 'c', status: 'split' }),
-          proposal({ id: 'd', status: 'failed' }),
-          proposal({ id: 'e', status: 'pending', changes_requested: true }),
-        ],
-        ingests: [
-          ingest({ ingest_id: 'a', status: 'done' }),
-          ingest({ ingest_id: 'b', status: 'failed' }),
-          ingest({ ingest_id: 'c', status: 'discarded' }),
-        ],
-        concepts: [{ slug: 'x', title: 'X', rev: 3, updated_at: at('2026-08-15T12:00:00') }],
-        charter: [charter, { ...charter, rev: 3, status: 'current' }],
-      }),
-    )
-    const keys: TranslationKey[] = [...entries.map((entry) => entry.outcome.key), ...Object.values(KIND_LABELS)]
-    for (const key of keys) {
-      expect(CATALOGS.en[key], `en ${key}`).toBeDefined()
-      expect(CATALOGS.de[key], `de ${key}`).toBeDefined()
-    }
-  })
-
-  test('a revision names its number, so the outcome is not the same word on every row', () => {
-    const entries = auditEntries(
-      sources({ concepts: [{ slug: 'x', title: 'X', rev: 7, updated_at: at('2026-08-15T12:00:00') }] }),
-    )
-    expect(entries[0]!.outcome.values).toEqual({ rev: 7 })
+  /**
+   * §15.1 and §15.2 name their words. This is where the words themselves are
+   * pinned — the browser probe reads them off the PAINTED table, and a
+   * paragraph only one of the two enforces is one refactor away from prose.
+   */
+  test('the heading and the five column names are the ones §15 writes', () => {
+    expect(CATALOGS.de['page.audit.title']).toBe('Audit-Trail')
+    expect(CATALOGS.de['nav.audit']).toBe('Audit')
+    expect([
+      CATALOGS.de['audit.column.when'],
+      CATALOGS.de['audit.column.subject'],
+      CATALOGS.de['audit.column.kind'],
+      CATALOGS.de['audit.column.outcome'],
+      CATALOGS.de['audit.column.actor'],
+    ]).toEqual(['Zeitpunkt', 'Vorgang', 'Art', 'Ergebnis', 'Verursacher'])
   })
 })
 
-describe('the page says what it is not', () => {
-  /*
-    The footnote is the reason a narrow record can be published at all, so it is
-    held here rather than left to a reviewer's eye: a trail without it reads as
-    complete, and "did that happen?" is then answered by silence.
-  */
-  const page = readFileSync(join(import.meta.dir, '../../../apps/cockpit/src/pages/audit.tsx'), 'utf8')
+describe('the page reads the trail rather than rebuilding it — §15.5', () => {
+  /**
+   * The registered defect, as a test.
+   *
+   * WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN: this page merged proposals, ingests,
+   * concepts and charter versions into something shaped like an audit trail
+   * while `GET /v1/audit` sat unused beside it. The browser probe measures the
+   * requests that actually go out; this holds the source, so the two disagree
+   * loudly if either is edited alone.
+   */
+  test('it calls wk.audit and nothing else', () => {
+    expect(page).toContain('wk.audit.list(query)')
+    for (const rebuilt of ['wk.proposals.list', 'wk.ingest.list', 'wk.concepts.list', 'wk.charter.versions']) {
+      expect(page, `${rebuilt} is a foreign history, not the trail`).not.toContain(rebuilt)
+    }
+    expect(page, 'Promise.allSettled over several records is the merge this page stopped being').not.toContain(
+      'Promise.allSettled',
+    )
+  })
 
-  test('the footnote is rendered, and it is the catalog’s', () => {
+  /**
+   * §15.3 — the hashes are on the page, and §15.2 — the instant is absolute.
+   *
+   * Source assertions, because both are about what the page CAN show rather
+   * than about what a fixture happened to contain.
+   */
+  test('the row detail shows the chain, and the timestamp is an instant', () => {
+    expect(page).toContain('event.prev_sha256')
+    expect(page).toContain('event.sha256')
+    expect(page).toContain('dateTime(event.occurred_at)')
+    expect(page, 'a span cannot be cited, and its German puts a preposition on the quantity').not.toContain(
+      'RelativeTime',
+    )
+    expect(page).not.toContain('relative-time')
+  })
+
+  /** §15.4 — the page says what the chain does not hold. */
+  test('the page says what it is not', () => {
     expect(page).toContain('data-testid="audit-footnote"')
     expect(page).toContain("t('audit.footnote')")
     for (const locale of ['en', 'de'] as const) {
       expect(CATALOGS[locale]['audit.footnote'].length).toBeGreaterThan(80)
     }
-  })
-
-  test('the timestamp is absolute — no relative prose on this page', () => {
-    // §5: every German relative span puts a preposition on the quantity, and a
-    // trail exists to be cited rather than skimmed.
-    expect(page).toContain('dateTime(entry.at)')
-    // The name at all, in a file whose prose therefore avoids it: a page that
-    // may not render a relative timestamp may not import one either, and the
-    // narrower probe would pass on an unused import that a later edit uses.
-    expect(page).not.toContain('RelativeTime')
-    expect(page).not.toContain('relative-time')
   })
 })
