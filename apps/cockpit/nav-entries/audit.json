@@ -4,7 +4,5 @@
   "icon": "History",
   "scope": "knowledge:read",
   "group": "installation",
-  "api": [
-    "/v1/audit"
-  ]
+  "api": ["/v1/audit"]
 }
