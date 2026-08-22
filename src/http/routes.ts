@@ -1540,8 +1540,10 @@ export const HANDLERS: Record<string, Handler> = {
 
   /**
    * The trail is deployment-wide, so visibility is narrowed the same way
-   * /v1/attention narrows it: a space-locked key sees its own wiki plus the
-   * rows that belong to no wiki (installation-level events). A ?space= slug is
+   * /v1/attention narrows it: a space-locked key sees its own wiki, plus the
+   * wiki-less rows that RECORD the installation — never the wiki-less rows
+   * that record a refusal, which name another tenant's actor and carry a
+   * caller-supplied resource id (see `auditFilters`). A ?space= slug is
    * resolved to an id and checked against that same ceiling — an unauthorized
    * slug is a 403 from requireScope, never a silently empty page.
    */

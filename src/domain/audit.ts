@@ -260,7 +260,13 @@ export interface AuditPage {
 
 export interface ListAuditArgs {
   spaceId?: string | null
-  /** Restricts to these wikis. Empty array means "nothing is visible". */
+  /**
+   * Restricts to these wikis. Empty array means "nothing is visible", null
+   * means the reader is not narrowed to any wiki at all (the deployment
+   * operator) and sees the whole trail. A narrowed reader additionally sees
+   * the wiki-less rows that RECORD the installation, but not the wiki-less
+   * rows that record a REFUSAL — see `auditFilters`.
+   */
   visibleSpaceIds?: readonly string[] | null
   action?: string
   resourceType?: string
@@ -323,11 +329,24 @@ function auditFilters(args: ListAuditArgs, values: unknown[]): string {
   if (args.visibleSpaceIds) {
     if (!args.visibleSpaceIds.length) clauses.push('FALSE')
     else {
-      // Deployment-wide events (space_id IS NULL) belong to whoever may read
-      // the trail at all — dropping them would hide exactly the rows that
-      // describe the installation rather than one wiki.
+      // A row with space_id IS NULL is wiki-less, and "wiki-less" used to mean
+      // "readable by whoever may read the trail at all". That sentence was
+      // written for the rows that RECORD THE INSTALLATION — the trail opening,
+      // a space created, a key minted — and it silently also handed out
+      // REFUSALS. A refusal is recorded before the wiki is known (that is the
+      // point: the answer must not double as an existence oracle), so it
+      // carries no wiki, and its resource_id is the RAW path parameter of a
+      // caller that was turned away. Measured on a fresh database: a key bound
+      // to wiki B read wiki A's refusal — actor label, the foreign proposal id
+      // and the reason verbatim — plus every id a refused caller chose to
+      // write into this never-expiring table.
+      //
+      // So the rule is now narrower than the column: a reader narrowed to
+      // wikis sees a wiki-less row only when it records something that
+      // HAPPENED. A refused attempt names no wiki and therefore belongs to
+      // nobody but a reader who is not narrowed at all.
       values.push(args.visibleSpaceIds as unknown)
-      clauses.push(`(space_id IS NULL OR space_id = ANY($${values.length}::uuid[]))`)
+      clauses.push(`(space_id = ANY($${values.length}::uuid[]) OR (space_id IS NULL AND result = 'success'))`)
     }
   }
   return clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''

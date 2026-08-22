@@ -441,11 +441,67 @@ describe('audit trail (integration)', () => {
     // total is the size of the filtered set, not of the remainder.
     expect(second.page.total).toBe(5)
 
-    // A space-scoped reader still sees deployment-wide rows (space_id IS NULL).
+    // A space-scoped reader still sees the wiki-less rows that RECORD the
+    // installation (the trail opening is one).
     const scoped = await listAuditEvents(db, { visibleSpaceIds: [spaceId], action: 'audit.trail.opened' })
     expect(scoped.items).toHaveLength(1)
     const blind = await listAuditEvents(db, { visibleSpaceIds: [] })
     expect(blind.items).toHaveLength(0)
+  })
+
+  it('keeps a wiki-less REFUSAL out of every narrowed reader (WK-AUDIT-VERWEIGERUNG-DEPLOYMENTWEIT-LESBAR)', async () => {
+    // The two tenants of the measured leak. A refusal is recorded before the
+    // wiki is known, so it carries space_id NULL and a resource_id that is the
+    // caller's raw path parameter. Under the old rule ("wiki-less belongs to
+    // whoever may read the trail at all") tenant B read it.
+    const tenantA = await seedSpace('audit-tenant-a')
+    const tenantB = await seedSpace('audit-tenant-b')
+    const fabricated = randomUUID()
+    await appendAuditEvent(db, {
+      action: 'proposal.approved',
+      resourceType: 'change_proposal',
+      resourceId: fabricated,
+      result: 'denied',
+      transport: 'http',
+      actor: { kind: 'api_key', id: 'key-a', label: 'tenant-a-reader' },
+      spaceId: null,
+      metadata: { error: 'this key lacks the knowledge:approve scope' },
+    })
+
+    const seesRefusal = async (visibleSpaceIds: readonly string[] | null) =>
+      (await listAuditEvents(db, { visibleSpaceIds, resourceId: fabricated, limit: 200 })).items.length
+
+    // Tenant B is the leak. Tenant A is not a loophole either: the row names
+    // no wiki, so no narrowed reader gets it — only an un-narrowed one.
+    expect(await seesRefusal([tenantB])).toBe(0)
+    expect(await seesRefusal([tenantA])).toBe(0)
+    expect(await seesRefusal([tenantA, tenantB])).toBe(0)
+    expect(await seesRefusal(null)).toBe(1)
+
+    // The half that must NOT change: a refusal that names a wiki stays
+    // readable by that wiki, and only by it.
+    const named = randomUUID()
+    await appendAuditEvent(db, {
+      action: 'proposal.approved',
+      resourceType: 'change_proposal',
+      resourceId: named,
+      result: 'denied',
+      transport: 'http',
+      actor: { kind: 'api_key', id: 'key-b', label: 'tenant-b-approver' },
+      spaceId: tenantA,
+      metadata: { error: 'this key is not scoped to that wiki' },
+    })
+    const seesNamed = async (visibleSpaceIds: readonly string[] | null) =>
+      (await listAuditEvents(db, { visibleSpaceIds, resourceId: named, limit: 200 })).items.length
+    expect(await seesNamed([tenantA])).toBe(1)
+    expect(await seesNamed([tenantB])).toBe(0)
+    expect(await seesNamed(null)).toBe(1)
+
+    // `total` is computed from the same filter, so the count cannot leak what
+    // the page withholds.
+    const page = await listAuditEvents(db, { visibleSpaceIds: [tenantB], result: 'denied', limit: 200 })
+    expect(page.items).toHaveLength(0)
+    expect(page.page.total).toBe(0)
   })
 
   it('redacts credential-shaped keys before they reach a row that never expires', async () => {

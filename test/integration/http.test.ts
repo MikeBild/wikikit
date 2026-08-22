@@ -314,6 +314,99 @@ describe('http surface (integration)', () => {
     expect(((await again.json()) as { code: string }).code).toBe('proposal_not_pending')
   })
 
+  it("a refusal is not deployment-wide: the wiki-less one is operator-only, the wiki-named one is that wiki's (WK-AUDIT-VERWEIGERUNG-DEPLOYMENTWEIT-LESBAR)", async () => {
+    // Two tenants over the real surface. `readerKey` above already produced the
+    // wiki-less refusal; this measures WHO MAY READ IT — and pins the second
+    // half of the distinction, which nothing asserted before: a refusal that
+    // happens AFTER the proposal is loaded names its wiki.
+    const created = await fetch(`${base}/v1/spaces`, {
+      method: 'POST',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({ slug: 'other-wiki', name: 'Other Wiki' }),
+    })
+    expect(created.status).toBe(201)
+
+    const mint = async (name: string, scopes: string[], space: string) => {
+      const res = await fetch(`${base}/v1/api-keys`, {
+        method: 'POST',
+        headers: json(BOOTSTRAP),
+        body: JSON.stringify({ name, scopes, space }),
+      })
+      expect(res.status).toBe(201)
+      return ((await res.json()) as { key: string }).key
+    }
+    const demoReader = await mint('demo-bound-reader', ['knowledge:read'], 'demo')
+    const otherReader = await mint('other-bound-reader', ['knowledge:read'], 'other-wiki')
+    const demoApprover = await mint('demo-bound-approver', ['knowledge:read', 'knowledge:approve'], 'demo')
+
+    // LEG 2 — an approve key aimed at a wiki it is not bound to. The scope
+    // question passes, the proposal is loaded, the wiki-specific half refuses.
+    const staged = await fetch(`${base}/v1/spaces/other-wiki/proposals`, {
+      method: 'POST',
+      headers: json(BOOTSTRAP),
+      body: JSON.stringify({
+        title: 'Foreign knowledge',
+        input_hash: 'b'.repeat(64),
+        concepts: [
+          { slug: 'foreign', title: 'Foreign', summary: '', markdown: '# Foreign', claims: [], relations: [] },
+        ],
+      }),
+    })
+    expect(staged.status).toBe(201)
+    const foreignId = ((await staged.json()) as { proposal_id: string }).proposal_id
+
+    const crossTenant = await fetch(`${base}/v1/proposals/${foreignId}/approve`, {
+      method: 'POST',
+      headers: json(demoApprover),
+      body: JSON.stringify({ note: 'not mine' }),
+    })
+    expect(crossTenant.status).toBe(403)
+
+    const rows = await auditRows()
+    const wikiLess = rows.find((row) => row.result === 'denied' && row.resource_id === proposalId)!
+    const wikiNamed = rows.find((row) => row.result === 'denied' && row.resource_id === foreignId)!
+    // The distinction, asserted from BOTH sides for the first time.
+    expect(wikiLess.space_id).toBeNull()
+    expect(wikiNamed.space_id).not.toBeNull()
+    expect(wikiNamed.actor_label).toBe('demo-bound-approver')
+
+    const trail = async (key: string) => {
+      const res = await fetch(`${base}/v1/audit?limit=200`, { headers: bearer(key) })
+      expect(res.status).toBe(200)
+      return ((await res.json()) as { items: { action: string; result: string; resource_id: string | null }[] }).items
+    }
+    const seenByDemo = await trail(demoReader)
+    const seenByOther = await trail(otherReader)
+    const seenByOperator = await trail(readerKey) // no space binding = the deployment operator
+
+    // The leak: a key bound to `demo` read another tenant's wiki-less refusal,
+    // actor, foreign proposal id and reason. It reads none of it now.
+    expect(seenByDemo.some((row) => row.resource_id === proposalId && row.result === 'denied')).toBe(false)
+    expect(seenByOther.some((row) => row.resource_id === proposalId && row.result === 'denied')).toBe(false)
+    expect(seenByOperator.some((row) => row.resource_id === proposalId && row.result === 'denied')).toBe(true)
+
+    // The wiki-named refusal belongs to the wiki it names, and to nobody else.
+    expect(seenByOther.some((row) => row.resource_id === foreignId && row.result === 'denied')).toBe(true)
+    expect(seenByDemo.some((row) => row.resource_id === foreignId)).toBe(false)
+
+    // Not narrowed into blindness: the rows that RECORD the installation stay
+    // readable by a bound key.
+    expect(seenByDemo.some((row) => row.action === 'audit.trail.opened')).toBe(true)
+
+    // The append itself is still unverified input — a refused caller writes an
+    // id nobody checked. It is now operator-only, which is the containment.
+    const fabricated = crypto.randomUUID()
+    const probe = await fetch(`${base}/v1/proposals/${fabricated}/approve`, {
+      method: 'POST',
+      headers: json(readerKey),
+      body: JSON.stringify({ note: 'no such proposal' }),
+    })
+    expect(probe.status).toBe(403)
+    expect((await auditRows()).some((row) => row.resource_id === fabricated)).toBe(true)
+    expect((await trail(demoReader)).some((row) => row.resource_id === fabricated)).toBe(false)
+    expect((await trail(readerKey)).some((row) => row.resource_id === fabricated)).toBe(true)
+  })
+
   it('concept read serves markdown + verified claims + citations', async () => {
     const res = await fetch(`${base}/v1/spaces/demo/concepts/okf-notes`, { headers: bearer(readerKey) })
     expect(res.status).toBe(200)
