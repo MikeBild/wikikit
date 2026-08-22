@@ -49,15 +49,25 @@ const AUDIT_MIGRATION = readFileSync(
 )
 
 /**
- * The same migration with its two REVOKE statements deleted — the build the
- * counter-proof runs. If the wording ever changes this throws instead of
- * silently removing nothing and "proving" the same thing twice.
+ * The same migration with REVOKE lines deleted — the builds the counter-proof
+ * runs. Removing BOTH lines proves only that "some REVOKE" bites; the two are
+ * not equal and must be measured apart. `FROM PUBLIC` strips a grant Postgres
+ * never made to a TABLE, so it is a no-op; `FROM CURRENT_USER` is the one that
+ * takes the owner's own implicit rights away. If the wording ever changes this
+ * throws instead of silently removing nothing and "proving" the same thing.
  */
-function withoutTheRevokes(sql: string): string {
+type RevokeTarget = 'public' | 'current_user' | 'both'
+
+function withoutRevoke(sql: string, target: RevokeTarget): string {
+  const pattern =
+    target === 'both'
+      ? /^revoke\s+update,\s*delete,\s*truncate\b/i
+      : new RegExp(`^revoke\\s+update,\\s*delete,\\s*truncate\\b.*from\\s+${target};`, 'i')
   const lines = sql.split('\n')
-  const kept = lines.filter((line) => !/^revoke\s+update,\s*delete,\s*truncate\b/i.test(line))
+  const kept = lines.filter((line) => !pattern.test(line))
   const removed = lines.length - kept.length
-  if (removed !== 2) throw new Error(`expected 2 REVOKE lines in 0046, removed ${removed}`)
+  const expected = target === 'both' ? 2 : 1
+  if (removed !== expected) throw new Error(`expected ${expected} REVOKE line(s) for ${target}, removed ${removed}`)
   return kept.join('\n')
 }
 
@@ -285,29 +295,41 @@ describe('audit trail (integration)', () => {
     }
   })
 
-  // GEGENPROBE to the test above — the check the old one could not pass.
-  // Identical setup, identical statements, with only the two REVOKE lines
-  // removed from the migration text. If those lines were decoration, this
-  // would still be refused; it is not.
-  it('A3 · counter-proof: delete the two REVOKE lines and the same owner rewrites the genesis row', async () => {
-    const owned = await provisionOwnedDatabase(withoutTheRevokes(AUDIT_MIGRATION))
-    try {
-      const client = new pg.Client({ connectionString: owned.ownerUrl })
-      await client.connect()
+  // GEGENPROBE to the test above — the check the old one could not pass, and
+  // now one line at a time. Deleting BOTH revokes only shows that some revoke
+  // bites; it does not show WHICH, and the family measurement says the two are
+  // not equal: `FROM PUBLIC` strips a grant a TABLE never carries (no-op),
+  // `FROM CURRENT_USER` is the one that takes the owner's own rights.
+  it('A3 · counter-proof, line by line: only the FROM CURRENT_USER revoke refuses the owner', async () => {
+    const attemptUpdate = async (target: RevokeTarget) => {
+      const owned = await provisionOwnedDatabase(withoutRevoke(AUDIT_MIGRATION, target))
       try {
-        await dropImmutabilityTriggers(client)
-        const updated = await client.query(`UPDATE public.wk_audit_events SET action = 'tampered' WHERE seq = 1`)
-        expect(updated.rowCount, 'the REVOKE lines are what refuse — remove them and the UPDATE lands').toBe(1)
-        const { rows } = await client.query<{ action: string }>(
-          `SELECT action FROM public.wk_audit_events WHERE seq = 1`,
-        )
-        expect(rows[0]!.action).toBe('tampered')
+        const client = new pg.Client({ connectionString: owned.ownerUrl })
+        await client.connect()
+        try {
+          await dropImmutabilityTriggers(client)
+          const refused = await attempt(client, `UPDATE public.wk_audit_events SET action = 'tampered' WHERE seq = 1`)
+          if (refused) return { code: refused.code, rows: 0 }
+          const { rows } = await client.query<{ action: string }>(
+            `SELECT action FROM public.wk_audit_events WHERE seq = 1`,
+          )
+          return { code: null, rows: rows.filter((row) => row.action === 'tampered').length }
+        } finally {
+          await client.end()
+        }
       } finally {
-        await client.end()
+        await owned.drop()
       }
-    } finally {
-      await owned.drop()
     }
+
+    // Without the PUBLIC line the owner is STILL refused — that line alone
+    // revokes nothing it holds.
+    expect(await attemptUpdate('public')).toEqual({ code: '42501', rows: 0 })
+    // Without the CURRENT_USER line the UPDATE lands. This is the line that bites.
+    expect(await attemptUpdate('current_user')).toEqual({ code: null, rows: 1 })
+    // And with neither, unchanged — so the second line adds nothing the first
+    // did not already give away.
+    expect(await attemptUpdate('both')).toEqual({ code: null, rows: 1 })
   })
 
   // The NAMED LIMIT, measured rather than claimed. 0046 says an owner "can
