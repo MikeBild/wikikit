@@ -57,6 +57,10 @@ export const TABLES: ReadonlySet<string> = new Set([
   // and not evidence (0036, 0037).
   'wk_outputs',
   'wk_schedules',
+  // The audit trail (0046). Listed so raw SELECTs pass the identifier scan;
+  // wk_audit_chain_head is deliberately NOT listed, because nothing outside
+  // wk_append_audit_event has any business touching the chain pointer.
+  'wk_audit_events',
 ])
 
 /** Whitelisted SQL function names — the ONLY write path for review decisions. */
@@ -76,6 +80,7 @@ export type WhitelistedFn =
   | 'wk_split_proposal'
   | 'wk_request_changes'
   | 'wk_retire_superseded_proposals'
+  | 'wk_append_audit_event'
 
 /** Outbox event names (CONTRACTS §6.1) — the payload `type` field and wk_outbox_events.event_type. */
 export type WebhookEventType =
@@ -202,6 +207,17 @@ const FUNCTIONS: Record<WhitelistedFn, FnSpec> = {
         throw new Error(`wk_retire_superseded_proposals expects [space_id, source_id, note?] — got ${args.length} args`)
       }
       return [args[0], args[1], args[2] ?? null]
+    },
+    result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
+  },
+  // The ONLY write path into the audit trail (0046). It locks the chain head,
+  // derives seq and sha256 from the predecessor and advances the head — all in
+  // the caller's transaction, which is what couples an entry to its change.
+  wk_append_audit_event: {
+    sql: 'SELECT public.wk_append_audit_event($1::jsonb) AS result',
+    normalize: (args) => {
+      if (args.length !== 1) throw new Error(`wk_append_audit_event expects [event_json] — got ${args.length} args`)
+      return [args[0]]
     },
     result: (response) => response.rows.map((row) => row.result as Record<string, unknown>),
   },

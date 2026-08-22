@@ -226,10 +226,18 @@ describe('migrations (integration)', () => {
       `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_type = 'BASE TABLE' AND table_name LIKE 'wk\\_%'`,
     )
-    // wk_migrations is absent from TABLES by design — migrate.ts owns the
-    // journal on its own client, before the app layer exists — so it is the one
-    // name this comparison drops rather than a hole in it.
-    const inSchema = rows.rows.map((row) => row.table_name).filter((name) => name !== 'wk_migrations')
+    // Two names are absent from TABLES by design, and both are dropped here
+    // rather than left as holes in the comparison:
+    //   - wk_migrations — migrate.ts owns the journal on its own client, before
+    //     the app layer exists.
+    //   - wk_audit_chain_head (0046) — the audit chain pointer. Admitting it to
+    //     TABLES would hand every raw query() and every builder call the right
+    //     to move the head, which is the one write in this schema that must
+    //     stay inside wk_append_audit_event's lock. Unreachable from the query
+    //     layer IS the intended state, so it is asserted, not merely tolerated.
+    const notInQueryLayer = new Set(['wk_migrations', 'wk_audit_chain_head'])
+    const inSchema = rows.rows.map((row) => row.table_name).filter((name) => !notInQueryLayer.has(name))
+    for (const name of notInQueryLayer) expect(TABLES.has(name), `${name} must stay out of TABLES`).toBe(false)
     expect(inSchema.length).toBeGreaterThan(0)
 
     const missing = inSchema.filter((name) => !TABLES.has(name)).sort()
