@@ -111,8 +111,35 @@ const RESOURCE_TYPE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/
 // Key names that must never reach a row that is retained forever. Matched on
 // the key, not the value: a value-based scanner produces false negatives on
 // every credential format nobody thought of.
+//
+// `prompt`, `messages` and `instructions` are in here for the same reason a
+// key is: a system prompt is what an attacker wants in order to steer the
+// synthesis, and it is the one value in an LLM payload that is neither a
+// measurement nor an identifier. Today no review handler carries prompt
+// surface, so this is latent — but §15.5 wants ingest and MCP recorded next,
+// and those carry nothing else. WatchKit had a real leak at exactly this
+// substring; this is its pattern, not a guess.
 const SECRET_KEY_PATTERN =
-  /(secret|token|password|passwd|api[-_]?key|authorization|credential|cookie|private[-_]?key|signature|bearer|salt|nonce)/i
+  /(secret|token|password|passwd|api[-_]?key|authorization|credential|cookie|private[-_]?key|signature|bearer|salt|nonce|prompt|messages|instructions)/i
+
+/**
+ * Exact key names a SECRET_KEY_PATTERN substring would swallow but which carry
+ * no secret. Exact and case-insensitive, never a substring — an exemption that
+ * matched by substring would hand the next `prompt_secret` the door it was cut
+ * for.
+ *
+ * `prompt_version` is PROVENANCE (§1.14): it is the pinned template id that
+ * makes a synthesis reproducible, and it travels in every `agent_meta`.
+ * Redacting it would keep no secret and would cost the trail the thing it
+ * exists to carry.
+ */
+const PROVENANCE_KEYS = ['prompt_version'] as const
+
+function isSecretKey(key: string): boolean {
+  const lower = key.toLowerCase()
+  if (PROVENANCE_KEYS.some((exempt) => lower === exempt)) return false
+  return SECRET_KEY_PATTERN.test(lower)
+}
 const REDACTED = '[redacted]'
 const MAX_STRING = 2_000
 const MAX_DEPTH = 6
@@ -128,7 +155,7 @@ function sanitizeValue(value: unknown, depth: number): unknown {
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = SECRET_KEY_PATTERN.test(key) ? REDACTED : sanitizeValue(entry, depth + 1)
+      out[key] = isSecretKey(key) ? REDACTED : sanitizeValue(entry, depth + 1)
     }
     return out
   }

@@ -526,6 +526,49 @@ describe('audit trail (integration)', () => {
     expect(sanitizeAuditPayload({ token: 'x' })).toEqual({ token: '[redacted]' })
   })
 
+  it('redacts prompt surface too, and keeps the provenance that identifies it (E10)', async () => {
+    // Nachweis 10 measured at the READ surface, not at the schema. Before this
+    // rule, `prompt`, `system_prompt`, `prompt_text`, `messages` and
+    // `instructions` all went through verbatim up to 2000 characters. No
+    // review handler carries prompt surface today, so the hole was latent —
+    // ingest and MCP are the next writers, and they carry nothing else.
+    const spaceId = await seedSpace('audit-prompt-redaction')
+    const SECRET = 'SYSTEM-PROMPT-MUST-NOT-BE-RETAINED'
+    await appendAuditEvent(db, {
+      action: 'ingest.synthesized',
+      resourceType: 'ingest_job',
+      resourceId: 'j1',
+      result: 'success',
+      transport: 'mcp',
+      actor: SYSTEM_ACTOR,
+      spaceId,
+      after: {
+        prompt: SECRET,
+        system_prompt: SECRET,
+        prompt_text: SECRET,
+        promptText: SECRET,
+        messages: [SECRET],
+        instructions: SECRET,
+        // Provenance, and the whole point of keeping it: §1.14 identifies the
+        // template so a synthesis stays reproducible.
+        agent_meta: { model: 'claude-sonnet-5', prompt_version: 'synthesize.v4' },
+      },
+    })
+    const { items } = await listAuditEvents(db, { spaceId, action: 'ingest.synthesized' })
+    const row = items[0]!
+    expect(JSON.stringify(row)).not.toContain(SECRET)
+    const after = row.after as Record<string, unknown>
+    for (const key of ['prompt', 'system_prompt', 'prompt_text', 'promptText', 'messages', 'instructions']) {
+      expect(after[key]).toBe('[redacted]')
+    }
+    const meta = after.agent_meta as Record<string, unknown>
+    expect(meta.prompt_version).toBe('synthesize.v4')
+    expect(meta.model).toBe('claude-sonnet-5')
+    // The exemption is EXACT, never a substring: the next `prompt_version_key`
+    // does not inherit the door cut for provenance.
+    expect(sanitizeAuditPayload({ prompt_version_secret: 'x' })).toEqual({ prompt_version_secret: '[redacted]' })
+  })
+
   it('derives the actor from the credential class, never from a caller-supplied name', () => {
     expect(actorFromPrincipal({ keyId: 'session:op-1', name: 'Mike', scopes: [], spaceId: null })).toEqual({
       kind: 'operator_session',
