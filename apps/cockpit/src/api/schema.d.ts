@@ -108,6 +108,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the append-only audit trail (audit.v1) newest-first — filter by wiki, action, resource, actor, result, transport, request/trace id or time range; page with ?limit=&cursor=. Rows carry prev_sha256/sha256. */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/attention": {
         parameters: {
             query?: never;
@@ -1792,6 +1809,42 @@ export interface components {
                 space: string;
             }[];
             searched_spaces: string[];
+        };
+        zAuditListResponse: {
+            items: {
+                id: string;
+                seq: number;
+                schema_version: string;
+                occurred_at: string;
+                space_id: string | null;
+                /** @enum {string} */
+                actor_kind: "identity" | "api_key" | "operator_session" | "system" | "anonymous";
+                actor_id: string | null;
+                actor_label: string | null;
+                action: string;
+                resource_type: string;
+                resource_id: string | null;
+                resource_revision: string | null;
+                /** @enum {string} */
+                result: "success" | "denied" | "error" | "cancelled";
+                /** @enum {string} */
+                transport: "http" | "mcp" | "a2a" | "cockpit" | "cli" | "worker" | "webhook" | "channel" | "tick" | "system";
+                request_id: string | null;
+                trace_id: string | null;
+                before: unknown | null;
+                after: unknown | null;
+                metadata: {
+                    [key: string]: unknown;
+                };
+                prev_sha256: string;
+                sha256: string;
+            }[];
+            page: {
+                next_cursor: string | null;
+                has_more: boolean;
+                total: number;
+                total_exact: boolean;
+            };
         };
         zGlobalAttentionResponse: {
             generated_at: string;
@@ -4335,6 +4388,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["zSearchResponse"];
+                };
+            };
+            /** @description bad_request — request failed schema validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description unauthorized — missing, unknown or revoked API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description insufficient_scope — key lacks the required scope or is scoped to another space */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description not_found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+            /** @description internal_error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listAudit: {
+        parameters: {
+            query?: {
+                space?: string;
+                action?: string;
+                resource_type?: string;
+                resource_id?: string;
+                actor_id?: string;
+                actor_kind?: "identity" | "api_key" | "operator_session" | "system" | "anonymous";
+                result?: "success" | "denied" | "error" | "cancelled";
+                transport?: "http" | "mcp" | "a2a" | "cockpit" | "cli" | "worker" | "webhook" | "channel" | "tick" | "system";
+                request_id?: string;
+                trace_id?: string;
+                from?: string;
+                to?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit trail page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["zAuditListResponse"];
                 };
             };
             /** @description bad_request — request failed schema validation */
