@@ -7,7 +7,7 @@ import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createApp, type App } from '../../src/app.ts'
 import { ROUTES } from '../../src/http/routes.ts'
-import { hashApiKey } from '../../src/http/auth.ts'
+import { hashApiKey, holdsScope } from '../../src/http/auth.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { createLogger } from '../../src/logger.ts'
 
@@ -53,6 +53,34 @@ const KEYS = [
     revoked_at: null,
   },
 ]
+
+/**
+ * One "near-miss" credential per scope a deferring route declares: it holds
+ * every OTHER knowledge scope and nothing that implies the declared one. It is
+ * the key that gets through if leg 1 asks a WEAKER question than the route
+ * advertises — `knowledge:review` where the table says `knowledge:approve`.
+ * READER_KEY above cannot catch that: it is refused either way.
+ */
+const KNOWLEDGE_SCOPES = ['knowledge:read', 'knowledge:propose', 'knowledge:review', 'knowledge:approve'] as const
+
+const NEAR_MISS = [...new Set(ROUTES.filter((route) => route.deferScope).map((route) => route.scope!))].map(
+  (declared, index) => ({
+    declared,
+    key: `wk_test-near-miss-${index}-00000000000000000000000`,
+    scopes: KNOWLEDGE_SCOPES.filter((scope) => !holdsScope([scope], declared)),
+  }),
+)
+
+KEYS.push(
+  ...NEAR_MISS.map((probe, index) => ({
+    id: `00000000-0000-0000-0000-00000000n00${index}`,
+    name: `near-miss-${index}`,
+    key_hash: hashApiKey(probe.key, PEPPER),
+    scopes: [...probe.scopes],
+    space_id: null,
+    revoked_at: null,
+  })),
+)
 
 function stubDb(): Db {
   const db: Db = {
@@ -228,6 +256,32 @@ describe('http server', () => {
       })
       expect(scopeless.status, `${method} ${route.path} with a scopeless key`).toBe(403)
       expect(((await scopeless.json()) as { code: string }).code).toBe('insufficient_scope')
+    }
+  })
+
+  // The other half of the flag: leg 1 must ask THE SCOPE THE ROUTE DECLARES.
+  // Nothing held that today — a weakened leg 1 (`knowledge:review` where the
+  // table says `knowledge:approve`) still ends in 403 because
+  // `requireSpaceAccess` asks the right question afterwards, so the product
+  // carries by accident. It matters because the two refusals are not the same
+  // refusal: the second one happens AFTER the proposal is loaded, which is
+  // precisely the existence oracle leg 1 exists to prevent — and it lands in
+  // the audit trail naming a wiki the caller was never allowed to learn about.
+  test('every deferScope route refuses a near-miss key at the scope it declares', async () => {
+    for (const route of ROUTES.filter((entry) => entry.deferScope)) {
+      const probe = NEAR_MISS.find((entry) => entry.declared === route.scope)!
+      expect(probe.scopes.length, `${route.path}: no near-miss scope set`).toBeGreaterThan(0)
+      const url = `${base}${route.path.replace('{id}', '11111111-2222-4333-8444-555555555555')}`
+      const res = await fetch(url, {
+        method: route.method.toUpperCase(),
+        body: JSON.stringify({ note: 'probe' }),
+        headers: { ...auth(probe.key), 'content-type': 'application/json' },
+      })
+      // A weakened leg 1 lets this key past and the stubbed lookup answers
+      // instead — anything but 403 here is the oracle re-opening.
+      const body = (await res.json()) as { code: string; error: string }
+      expect(`${route.path} ${res.status} ${body.code}`).toBe(`${route.path} 403 insufficient_scope`)
+      expect(body.error, `${route.path} refuses by a different scope than it declares`).toContain(route.scope!)
     }
   })
 
