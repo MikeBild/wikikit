@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.49.0 - 2026-08-22
+
+### Added
+
+- The `audit.v1` engine: a chained, append-only trail coupled to the
+  transaction that causes the event. `wk_audit_events` and
+  `wk_audit_chain_head` arrive with migration `0046_wk_audit_trail`, together
+  with the append function, the append-only trigger and the REVOKEs.
+- `GET /v1/audit` reads the chain, and review decisions are recorded in their
+  own transaction so a recorded decision and an applied decision cannot come
+  apart.
+- The cockpit gained an audit page (§15 of the shared convention) that reads
+  four histories rather than paraphrasing one.
+
+### Why this is a minor version, not a patch
+
+This is a new surface and a new endpoint — functionality, not a correction.
+Prod has been reporting 0.48.0 with no audit tables at all, because the work
+was never in a released binary: the running binary predates the migration.
+A version that does not move cannot be told apart from the one already
+deployed, and the deploy health gate matches on exactly that number.
+
+### Note for operators
+
+The chain begins on the day this installation switched to it. Everything
+before that is sealed as `legacy_partial` on the genesis event and is
+deliberately not backfilled.
+
 ## 0.48.0 - 2026-08-20
 
 ### Added
