@@ -1,4 +1,16 @@
 import { api, postRaw, unwrap, unwrapAs } from './client'
+import type { components, operations } from './schema'
+
+/**
+ * The filters `/v1/audit` accepts, taken FROM the route rather than restated.
+ *
+ * A hand-written interface here is a second declaration of the same contract,
+ * and the two only have to disagree once: a filter the console sends and the
+ * server drops is a page that says it is narrowed and is not.
+ */
+export type AuditQuery = NonNullable<operations['listAudit']['parameters']['query']>
+export type AuditListResponse = components['schemas']['zAuditListResponse']
+export type AuditEvent = AuditListResponse['items'][number]
 
 /**
  * The whole API surface the console reaches, in one object.
@@ -222,6 +234,18 @@ export const wk = {
       unwrapAs<unknown>(api.DELETE('/v1/spaces/{space}/charter', { params: { path: { space } } })),
   },
 
+  /**
+   * The append-only, hash-chained trail — audit.v1, §15.5 of the convention.
+   *
+   * Every filter goes to the SERVER. Narrowing a page the server has already
+   * truncated answers a different question than the one being asked, and the
+   * events somebody is hunting for on a trail that never expires are the rare
+   * ones — which are exactly the ones outside the first page.
+   */
+  audit: {
+    list: (query: AuditQuery = {}) => unwrap(api.GET('/v1/audit', { params: { query: query as never } })),
+  },
+
   lint: {
     space: (space: string) => unwrap(api.GET('/v1/spaces/{space}/lint', { params: { path: { space } } })),
   },
@@ -340,13 +364,12 @@ export const keys = {
   /**
    * The audit trail's one cache entry.
    *
-   * The trail is composed from four reads this console already makes elsewhere,
-   * and it deliberately does NOT reuse their keys: the page asks for a ceiling
-   * of rows on each of them, which is a different question from the windows the
-   * inbox, the pages index and the review queue ask, and sharing a key would let
-   * one of them answer the other's question.
+   * One read of `/v1/audit`, with the filter and the window in the key: every
+   * narrowing is a different question to the server, and a shared key would let
+   * one answer stand for another. The wiki stays in the key too — the trail is
+   * asked for one wiki at a time.
    */
-  audit: (space: string) => ['spaces', space, 'audit'] as const,
+  audit: (space: string, query?: unknown) => ['spaces', space, 'audit', query ?? null] as const,
   lint: (space: string) => ['spaces', space, 'lint'] as const,
   webhooks: (space: string) => ['spaces', space, 'webhooks'] as const,
   webhookDeliveries: (space: string, id: string) => ['spaces', space, 'webhooks', id, 'deliveries'] as const,

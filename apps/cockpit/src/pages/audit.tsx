@@ -1,105 +1,209 @@
 import { useQuery } from '@tanstack/react-query'
-import { History } from 'lucide-react'
-import { keys, wk } from '@/api/wk'
+import { ChevronDown, History } from 'lucide-react'
+import { Fragment, useState } from 'react'
+import { keys, wk, type AuditEvent, type AuditQuery } from '@/api/wk'
 import { Page } from '@/app/shell'
 import { DataState } from '@/components/data-state'
 import { EmptyState } from '@/components/empty-state'
-import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  AUDIT_ACTOR_KEYS,
+  AUDIT_OPERATION_KEYS,
+  AUDIT_RESULT_KEYS,
+  auditKindKey,
+  auditOperationKey,
+} from '@/lib/audit-vocabulary'
 import { useI18n } from '@/lib/i18n-context'
-import { readableTitle } from '@/lib/presentation'
 import { useSpace } from '@/lib/space'
 import type { TranslationKey } from '@/lib/i18n'
-import { KIND_LABELS, auditEntries, type AuditEntry, type AuditKind, type AuditSources } from '@/pages/audit.logic'
 
 /**
- * What happened, in the order it happened.
+ * WHAT HAPPENED, OUT OF THE CHAIN THAT RECORDED IT — §15.
  *
- * WikiKit had no such page and no audit endpoint behind one, and this did not
- * build either. It reads four records the installation already keeps — reviewed
- * change proposals, finished ingest runs, page revisions and the guidelines'
- * version history — and lays them on one time axis. `audit.logic.ts` owns the
- * merge; this file owns the table.
+ * WHAT THIS PAGE USED TO BE. Four foreign reads on one time axis: reviewed
+ * change proposals, finished ingest runs, page revisions, guideline versions,
+ * merged in `audit.logic.ts` and presented as the audit trail. It was written
+ * when this product had no audit endpoint. It has had one since `GET /v1/audit`
+ * shipped — append-only, hash-chained, filterable, cursor-paged — and the page
+ * went on assembling its own. That is the defect §15.5 names, and it stood in
+ * the register as WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN.
+ *
+ * WHAT THE MOVE COSTS, SAID OUT LOUD. The chain carries decisions about
+ * knowledge changes and nothing else, because `auditedReview` is its only
+ * writer. So the agent runs, the page revisions and the guideline versions are
+ * no longer on this page — they are in the inbox, in each page's own history
+ * and with the guidelines, and the footnote says exactly that. What the move
+ * BUYS is the other half: refusals and errors are events in this record, which
+ * the merged view could not show at all, and every row now carries the link of
+ * a chain a reader can check.
  *
  * THE TIMESTAMP IS ABSOLUTE, and that is the one thing this page will not
- * trade. Everywhere else in this console an elapsed span is right: "waiting
+ * trade. Everywhere else in this console an elapsed span is right: „waiting
  * 5 days" is the fact a queue is about. Here it is wrong twice over. A trail
- * exists so two events can be put in order and cited, and "vor 5 Tagen" cannot
+ * exists so two events can be put in order and cited, and „vor 5 Tagen" cannot
  * be cited; and the German for a relative span puts a preposition on the
- * quantity — the exact defect §5 keeps finding elsewhere. So the cell prints
- * the instant, in a real `<time>` so a machine reading this page gets the same
- * precision a person does.
+ * quantity — the exact defect §5 keeps finding elsewhere.
  *
- * THE FOOTNOTE IS NOT DECORATION. This trail is narrow: four records, no reads,
- * no sign-ins, no key or permission changes, and — for pages — only the current
- * revision of each. A narrow record read as a complete one is worse than no
- * record, because it answers "did that happen?" with silence and looks like it
- * answered. So the page says what it does not carry, immediately under the
- * table, and it names any source that could not be read at all (§12: a gap
- * appears as a gap, never as quiet).
+ * THE FOOTNOTE IS NOT DECORATION (§15.4). A narrow record read as a complete
+ * one is worse than no record, because it answers „did that happen?" with
+ * silence and looks like it answered.
  */
 
-/** The ceiling on each read. A trail is not a sample, so it asks for the ceiling. */
-const LIMIT = 200
-const LIST_QUERY = { limit: LIMIT } as const
+/** How many events one request asks for. The trail is paged, never truncated. */
+const PAGE_SIZE = 50
 
-/** The four records, and what the footnote calls one that could not be read. */
-type SourceName = 'proposals' | 'ingests' | 'concepts' | 'charter'
-
-interface Trail {
-  sources: AuditSources
-  /** Sources the server refused or could not answer — named, never swallowed. */
-  unreadable: SourceName[]
+interface FilterChoice {
+  value: string
+  label: TranslationKey
 }
 
 /**
- * All four reads, settled rather than raced.
+ * The operations offered as a filter — every one the chain can hold.
  *
- * `Promise.all` would make one refusal — a wiki with no guidelines yet, a key
- * without a scope on one endpoint — into an empty page that says nothing about
- * why. Settling keeps the three that answered AND names the one that did not,
- * which is the honest shape for a record: partial and labelled beats complete
- * and imaginary.
+ * Derived from the vocabulary and NOT from the loaded page: a filter that can
+ * only offer what the last fifty rows happened to contain is missing exactly
+ * the rare action somebody is hunting for. A derived list shrinks silently, so
+ * the table it derives from is held against the server's own action literals by
+ * test/unit/cockpit-pages/audit.test.ts.
  */
-async function readTrail(space: string): Promise<Trail> {
-  const [proposals, ingests, concepts, charter] = await Promise.allSettled([
-    wk.proposals.list(space, LIST_QUERY),
-    wk.ingest.list(space, LIST_QUERY),
-    wk.concepts.list(space, LIST_QUERY),
-    wk.charter.versions(space),
-  ])
-  const unreadable: SourceName[] = []
-  const took = <T,>(name: SourceName, settled: PromiseSettledResult<{ items: T[] }>): T[] => {
-    if (settled.status === 'fulfilled') return settled.value.items
-    unreadable.push(name)
-    return []
-  }
-  return {
-    sources: {
-      proposals: took('proposals', proposals),
-      ingests: took('ingests', ingests),
-      concepts: took('concepts', concepts),
-      charter: took('charter', charter),
-    },
-    unreadable,
-  }
+const OPERATION_CHOICES: FilterChoice[] = Object.entries(AUDIT_OPERATION_KEYS).map(([value, label]) => ({
+  value,
+  label,
+}))
+
+const RESULT_CHOICES: FilterChoice[] = Object.entries(AUDIT_RESULT_KEYS).map(([value, label]) => ({ value, label }))
+
+/** "No filter", as a value the radio group can carry. Outside every real alphabet. */
+const ANY = '__any'
+
+function FilterMenu({
+  testId,
+  // `labelKey` and not `label`: test/unit/cockpit-i18n.test.ts reads every
+  // `label` attribute in a page as English copy that owes a German sentence,
+  // which is right for a label and wrong for a catalog key.
+  labelKey,
+  choices,
+  value,
+  onChange,
+}: {
+  testId: string
+  labelKey: TranslationKey
+  choices: FilterChoice[]
+  value: string
+  onChange: (next: string) => void
+}) {
+  const { t } = useI18n()
+  const chosen = choices.find((choice) => choice.value === value)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" data-testid={testId} aria-label={t(labelKey)}>
+          {t(labelKey)}: {chosen ? t(chosen.label) : t('audit.all')}
+          <ChevronDown data-icon="inline-end" className="size-3.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-80 overflow-y-auto">
+        <DropdownMenuRadioGroup value={value || ANY} onValueChange={(next) => onChange(next === ANY ? '' : next)}>
+          <DropdownMenuRadioItem value={ANY} data-testid={`${testId}-any`}>
+            {t('audit.all')}
+          </DropdownMenuRadioItem>
+          {choices.map((choice) => (
+            <DropdownMenuRadioItem key={choice.value} value={choice.value} data-testid={`${testId}-${choice.value}`}>
+              {t(choice.label)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** The operation as one cell: a German name, or the machine value shown as one. */
+function Operation({ action }: { action: string }) {
+  const { t } = useI18n()
+  const key = auditOperationKey(action)
+  if (key) return <span className="font-medium">{t(key)}</span>
+  // Named as a machine value ON THE SURFACE and not in a `title`: a tooltip is
+  // invisible to touch and to the keyboard, and the whole point is that nobody
+  // reads this as German.
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+      <code className="font-mono text-xs break-all">{action}</code>
+      <span className="text-xs text-muted-foreground">{t('audit.machineValue')}</span>
+    </span>
+  )
+}
+
+/** A raw payload, printed as what it is. §15.3 asks for the raw data, not a summary. */
+function Raw({ value }: { value: unknown }) {
+  if (value === null || value === undefined) return <span className="text-muted-foreground">—</span>
+  return (
+    <pre className="max-h-64 overflow-auto rounded-md bg-muted/50 p-2 font-mono text-[11px] break-all whitespace-pre-wrap">
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  )
 }
 
 export function AuditPage() {
   const space = useSpace()
-  const { t } = useI18n()
-  const query = useQuery({ queryKey: keys.audit(space), queryFn: () => readTrail(space) })
+  const { t, number } = useI18n()
+  const [action, setAction] = useState('')
+  const [result, setResult] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
+  // How many pages deep the operator has gone. The window is one server-side
+  // request that grows, never a client-side concatenation — two responses taken
+  // apart can both carry the same event, and a trail that double-counts is a
+  // trail nobody can cite.
+  const [pages, setPages] = useState(1)
+
+  const query: AuditQuery = {
+    space,
+    ...(action ? { action } : {}),
+    ...(result ? { result: result as 'success' | 'denied' | 'error' | 'cancelled' } : {}),
+    limit: Math.min(PAGE_SIZE * pages, 200),
+  }
+  const trail = useQuery({ queryKey: keys.audit(space, query), queryFn: () => wk.audit.list(query) })
+
+  const narrow = (apply: () => void) => {
+    apply()
+    setPages(1)
+    setExpanded(null)
+  }
 
   return (
     <Page title="Audit" description={t('page.audit.description')}>
       <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterMenu
+            testId="audit-filter-operation"
+            labelKey="audit.filter.operation"
+            choices={OPERATION_CHOICES}
+            value={action}
+            onChange={(next) => narrow(() => setAction(next))}
+          />
+          <FilterMenu
+            testId="audit-filter-result"
+            labelKey="audit.filter.result"
+            choices={RESULT_CHOICES}
+            value={result}
+            onChange={(next) => narrow(() => setResult(next))}
+          />
+        </div>
         <DataState
           testId="audit"
-          query={query}
+          query={trail}
           skeleton={<TrailSkeleton />}
-          isEmpty={(trail) => auditEntries(trail.sources).length === 0}
+          isEmpty={(page) => page.items.length === 0}
           empty={
             <EmptyState
               icon={History}
@@ -109,7 +213,61 @@ export function AuditPage() {
             />
           }
         >
-          {(trail) => <TrailTable trail={trail} />}
+          {(page) => (
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="overflow-hidden rounded-lg border" data-testid="audit-table">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {/* §15.2 — these five, in this order, by these names. */}
+                      <TableHead className="w-52 min-w-40">{t('audit.column.when')}</TableHead>
+                      <TableHead>{t('audit.column.subject')}</TableHead>
+                      <TableHead className="hidden w-44 md:table-cell">{t('audit.column.kind')}</TableHead>
+                      <TableHead className="w-36">{t('audit.column.outcome')}</TableHead>
+                      <TableHead className="hidden w-44 lg:table-cell">{t('audit.column.actor')}</TableHead>
+                      {/* A product-specific column, and to the RIGHT of the five (§15.2). */}
+                      <TableHead className="hidden w-28 xl:table-cell">{t('audit.column.transport')}</TableHead>
+                      <TableHead className="w-24" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {page.items.map((event, index) => (
+                      <TrailRow
+                        key={event.id}
+                        event={event}
+                        position={index + 1}
+                        open={expanded === event.id}
+                        onToggle={() => setExpanded(expanded === event.id ? null : event.id)}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-muted-foreground" data-testid="audit-scope">
+                  {t(page.page.total_exact ? 'audit.count' : 'audit.countCapped', {
+                    count: number(page.items.length),
+                    total: number(page.page.total),
+                  })}
+                </span>
+                {/*
+                  §15.3 asks for complete paging, and complete means the button
+                  is offered exactly while the SERVER says there is more.
+                  Comparing row counts here would be the console deciding where
+                  a trail ends.
+                */}
+                {page.page.has_more ? (
+                  <Button size="sm" variant="outline" data-testid="audit-more" onClick={() => setPages(pages + 1)}>
+                    {t('audit.loadMore')}
+                  </Button>
+                ) : null}
+              </div>
+              {/* §15.4 — what the chain does not hold, said out loud. */}
+              <p className="text-xs text-muted-foreground" data-testid="audit-footnote">
+                {t('audit.footnote')}
+              </p>
+            </div>
+          )}
         </DataState>
       </div>
     </Page>
@@ -126,110 +284,110 @@ function TrailSkeleton() {
   )
 }
 
-function TrailTable({ trail }: { trail: Trail }) {
-  const { t } = useI18n()
-  const entries = auditEntries(trail.sources)
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      {/*
-        What could NOT be read, above the table rather than under it. A reader
-        who has already read the rows has drawn their conclusion; the caveat has
-        to arrive before them.
-      */}
-      {trail.unreadable.length ? (
-        <Alert tone="warning" title={t('audit.unreadableTitle')} data-testid="audit-unreadable">
-          {t('audit.unreadableDescription', {
-            sources: trail.unreadable.map((name) => t(SOURCE_LABELS[name])).join(', '),
-          })}
-        </Alert>
-      ) : null}
-      <div className="overflow-hidden rounded-lg border" data-testid="audit-table">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-52 min-w-40">{t('audit.column.when')}</TableHead>
-              <TableHead>{t('audit.column.subject')}</TableHead>
-              <TableHead className="hidden w-40 md:table-cell">{t('audit.column.kind')}</TableHead>
-              <TableHead className="w-44">{t('audit.column.outcome')}</TableHead>
-              <TableHead className="hidden w-44 lg:table-cell">{t('audit.column.actor')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {entries.map((entry, index) => (
-              <TrailRow key={entry.id} entry={entry} position={index + 1} />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      {/*
-        §12 — the report names its own scope, and then names what it left out.
-        Both sentences, because either one alone reads as a complete record.
-      */}
-      <p className="text-xs text-muted-foreground" data-testid="audit-scope">
-        {t('audit.scope', { count: entries.length, limit: LIMIT })}
-      </p>
-      <p className="text-xs text-muted-foreground" data-testid="audit-footnote">
-        {t('audit.footnote')}
-      </p>
-    </div>
-  )
-}
-
-const SOURCE_LABELS: Record<SourceName, TranslationKey> = {
-  proposals: 'audit.source.proposals',
-  ingests: 'audit.source.ingests',
-  concepts: 'audit.source.concepts',
-  charter: 'audit.source.charter',
-}
-
-/**
- * What a row is called when its record carries no name of its own — a charter
- * revision never has one, an ingest job often does not.
- */
-const SUBJECT_FALLBACKS: Record<AuditKind, TranslationKey> = {
-  decision: 'audit.subject.decision',
-  run: 'audit.subject.run',
-  revision: 'audit.subject.revision',
-  guideline: 'audit.subject.guideline',
-}
-
-function TrailRow({ entry, position }: { entry: AuditEntry; position: number }) {
+function TrailRow({
+  event,
+  position,
+  open,
+  onToggle,
+}: {
+  event: AuditEvent
+  position: number
+  open: boolean
+  onToggle: () => void
+}) {
   const { t, dateTime } = useI18n()
-  // §5/§8.3 — a subject is a name, never the identifier a machine wrote. An
-  // ingested coding session arrives titled "Codex session <uuid>"; the trail
-  // keeps the words and drops the reference.
-  const subject = readableTitle(entry.subject, t(SUBJECT_FALLBACKS[entry.kind]))
+  const kindKey = auditKindKey(event.resource_type)
+  const resultKey = AUDIT_RESULT_KEYS[event.result as keyof typeof AUDIT_RESULT_KEYS]
+  const actorKey = AUDIT_ACTOR_KEYS[event.actor_kind as keyof typeof AUDIT_ACTOR_KEYS]
   return (
-    <TableRow data-testid={`audit-row-${position}`} data-kind={entry.kind}>
-      <TableCell className="align-top">
-        {/*
-          The instant, spelled out. `dateTime` formats in the console's locale
-          and answers an em dash for anything it cannot parse — but nothing
-          unparseable reaches here, because audit.logic.ts drops such a row
-          rather than filing it under a guess.
-        */}
-        <time dateTime={entry.at} className="whitespace-nowrap tabular-nums" data-testid={`audit-row-${position}-when`}>
-          {dateTime(entry.at)}
-        </time>
-      </TableCell>
-      <TableCell className="min-w-0 align-top whitespace-normal">
-        <span className="block font-medium">{subject.text}</span>
-        <span className="mt-0.5 block text-xs text-muted-foreground md:hidden">{t(KIND_LABELS[entry.kind])}</span>
-      </TableCell>
-      <TableCell className="hidden align-top md:table-cell">
-        <Badge tone="neutral">{t(KIND_LABELS[entry.kind])}</Badge>
-      </TableCell>
-      <TableCell className="align-top">
-        <Badge tone={entry.outcome.tone}>{t(entry.outcome.key, entry.outcome.values)}</Badge>
-      </TableCell>
-      <TableCell className="hidden align-top text-sm text-muted-foreground lg:table-cell">
-        {/*
-          A record that names nobody gets a dash, never a plausible name
-          (CUI-SEV-2). Three of the four sources carry no actor at all; the
-          footnote says so, and this cell must not paper over it.
-        */}
-        {entry.actor ?? '—'}
-      </TableCell>
-    </TableRow>
+    <Fragment>
+      <TableRow data-testid={`audit-row-${position}`} data-action={event.action}>
+        <TableCell className="align-top">
+          {/*
+            The instant, spelled out, in a real `<time>` so a machine reading
+            this page gets the precision a person does.
+          */}
+          <time
+            dateTime={event.occurred_at}
+            className="whitespace-nowrap tabular-nums"
+            data-testid={`audit-row-${position}-when`}
+          >
+            {dateTime(event.occurred_at)}
+          </time>
+        </TableCell>
+        <TableCell className="min-w-0 align-top whitespace-normal">
+          <Operation action={event.action} />
+          <span className="mt-0.5 block text-xs text-muted-foreground md:hidden">{kindKey ? t(kindKey) : '—'}</span>
+        </TableCell>
+        <TableCell className="hidden align-top md:table-cell">
+          {/* §15.2 forbids inventing „Unbekannt"; a kind nothing names gets a dash. */}
+          {kindKey ? <Badge tone="neutral">{t(kindKey)}</Badge> : <span className="text-muted-foreground">—</span>}
+        </TableCell>
+        <TableCell className="align-top">
+          <Badge tone={event.result === 'success' ? 'success' : 'danger'}>{t(resultKey ?? 'audit.result.error')}</Badge>
+        </TableCell>
+        <TableCell className="hidden align-top text-sm break-all text-muted-foreground lg:table-cell">
+          {/*
+            §15.2: the label the row carries, else the actor KIND it carries,
+            else a dash. Every step is READING; nothing here fills the gap with
+            a plausible name (CUI-SEV-2).
+
+            The `actor_id` is deliberately NOT a step in that ladder. It is a
+            machine identifier — measured against this page's own fixture, a
+            key-authenticated row put a bare UUID in front of a reader and
+            scripts/konvention-check.mjs reported it under §5/§8.3. §15.2 asks
+            for a name here, and a name is what a row either carries or does
+            not. The id is one click away, in the detail below.
+          */}
+          {event.actor_label || (actorKey ? t(actorKey) : '—')}
+        </TableCell>
+        <TableCell className="hidden align-top text-sm text-muted-foreground xl:table-cell">
+          {event.transport}
+        </TableCell>
+        <TableCell className="align-top">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-expanded={open}
+            data-testid={`audit-row-${position}-expand`}
+            onClick={onToggle}
+          >
+            {open ? t('audit.fold') : t('audit.details')}
+          </Button>
+        </TableCell>
+      </TableRow>
+      {open ? (
+        <TableRow data-testid={`audit-row-${position}-detail`}>
+          <TableCell colSpan={7}>
+            {/*
+              §15.3 — the hashes are VISIBLE, not implied. A chain whose links a
+              reader cannot see is a chain they have to take on trust.
+            */}
+            <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-[14rem_1fr]">
+              <dt className="text-muted-foreground">{t('audit.detail.sequence')}</dt>
+              <dd className="font-mono">{event.seq}</dd>
+              <dt className="text-muted-foreground">{t('audit.column.actor')}</dt>
+              <dd className="font-mono break-all">{event.actor_id ?? '—'}</dd>
+              <dt className="text-muted-foreground">{t('audit.detail.prevHash')}</dt>
+              <dd className="font-mono break-all">{event.prev_sha256}</dd>
+              <dt className="text-muted-foreground">{t('audit.detail.hash')}</dt>
+              <dd className="font-mono break-all">{event.sha256}</dd>
+              <dt className="text-muted-foreground">{t('audit.detail.before')}</dt>
+              <dd>
+                <Raw value={event.before} />
+              </dd>
+              <dt className="text-muted-foreground">{t('audit.detail.after')}</dt>
+              <dd>
+                <Raw value={event.after} />
+              </dd>
+              <dt className="text-muted-foreground">{t('audit.detail.metadata')}</dt>
+              <dd>
+                <Raw value={event.metadata} />
+              </dd>
+            </dl>
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </Fragment>
   )
 }

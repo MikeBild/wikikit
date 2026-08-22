@@ -501,7 +501,11 @@ const PAGE_KEYS: Record<string, { title: TranslationKey; description: Translatio
   Webhooks: { title: 'nav.webhooks', description: 'page.webhooks.description' },
   'Model usage': { title: 'nav.modelUsage', description: 'page.modelUsage.description' },
   System: { title: 'nav.system', description: 'page.system.description' },
-  Audit: { title: 'nav.audit', description: 'page.audit.description' },
+  // §15.1 — the ONLY entry whose heading is not its menu entry, and deliberately
+  // so: the sidebar says „Audit" (a place), the page says „Audit-Trail" (the
+  // thing). Both spellings are the convention's, and the paragraph forbids
+  // „Protokoll", „Audit-Protokoll" and „Verlauf" for the heading.
+  Audit: { title: 'page.audit.title', description: 'page.audit.description' },
 }
 
 /**
