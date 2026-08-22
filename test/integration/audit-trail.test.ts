@@ -9,7 +9,8 @@ import pg from 'pg'
 import type { Config } from '../../src/config.ts'
 import { createPostgres, type Database, type Db } from '../../src/db/postgres.ts'
 import { runMigrations } from '../../src/db/migrate.ts'
-import { provisionIntegrationDatabase } from '../../scripts/start-local.ts'
+import { readFileSync } from 'node:fs'
+import { LOCAL_DATABASE_URL, provisionIntegrationDatabase } from '../../scripts/start-local.ts'
 import {
   actorFromPrincipal,
   appendAuditEvent,
@@ -31,6 +32,114 @@ let url: string
 async function seedSpace(slug: string): Promise<string> {
   const [row] = await db.insert<{ id: string }>('wk_spaces', { slug, name: `Space ${slug}`, settings: {} })
   return row!.id
+}
+
+// ---------------------------------------------------------------------------
+// The ACL leg needs a shape the local container does not have: an owner that
+// is NOT a superuser. `postgres` bypasses every ACL, so against it the trigger
+// is the only thing that can bite and the REVOKE lines are unmeasured — which
+// is how the first version of this test came to pass identically with those
+// lines deleted. Every helper below exists to build the PROD shape instead: a
+// database whose owner is an ordinary role, with 0046 applied AS that role, so
+// `revoke ... from current_user` names it.
+
+const AUDIT_MIGRATION = readFileSync(
+  new URL('../../src/db/migrations/0046_wk_audit_trail.sql', import.meta.url),
+  'utf8',
+)
+
+/**
+ * The same migration with its two REVOKE statements deleted — the build the
+ * counter-proof runs. If the wording ever changes this throws instead of
+ * silently removing nothing and "proving" the same thing twice.
+ */
+function withoutTheRevokes(sql: string): string {
+  const lines = sql.split('\n')
+  const kept = lines.filter((line) => !/^revoke\s+update,\s*delete,\s*truncate\b/i.test(line))
+  const removed = lines.length - kept.length
+  if (removed !== 2) throw new Error(`expected 2 REVOKE lines in 0046, removed ${removed}`)
+  return kept.join('\n')
+}
+
+interface OwnedDatabase {
+  /** Connection string for the non-superuser owner. */
+  ownerUrl: string
+  role: string
+  drop(): Promise<void>
+}
+
+/** A throwaway database owned by a fresh non-superuser role, with `sql` applied AS that role. */
+async function provisionOwnedDatabase(sql: string): Promise<OwnedDatabase> {
+  const suffix = randomUUID().replace(/-/g, '').slice(0, 10)
+  const role = `wk_audit_owner_${suffix}`
+  const name = `wikikit_test_audit_owner_${suffix}`
+  const admin = new pg.Client({ connectionString: LOCAL_DATABASE_URL })
+  await admin.connect()
+  try {
+    await admin.query(`CREATE ROLE "${role}" LOGIN PASSWORD 'probe' NOSUPERUSER NOCREATEDB NOCREATEROLE`)
+    await admin.query(`CREATE DATABASE "${name}" OWNER "${role}"`)
+  } finally {
+    await admin.end()
+  }
+  const adminUrl = LOCAL_DATABASE_URL.replace(/\/wikikit$/, `/${name}`)
+  // pgcrypto and the schema hand-over are the DEPLOYMENT's job, not the
+  // migration's: 0046 needs digest(), and since PostgreSQL 15 an ordinary role
+  // cannot create in `public` unless it owns it. Doing both here as the
+  // superuser keeps the migration itself running with ordinary privileges.
+  const seed = new pg.Client({ connectionString: adminUrl })
+  await seed.connect()
+  try {
+    await seed.query('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+    await seed.query(`ALTER SCHEMA public OWNER TO "${role}"`)
+  } finally {
+    await seed.end()
+  }
+  const ownerUrl = adminUrl.replace('postgres:wikikit-local@', `${role}:probe@`)
+  const owner = new pg.Client({ connectionString: ownerUrl })
+  await owner.connect()
+  try {
+    await owner.query(sql)
+  } finally {
+    await owner.end()
+  }
+  return {
+    ownerUrl,
+    role,
+    async drop() {
+      const cleanup = new pg.Client({ connectionString: LOCAL_DATABASE_URL })
+      await cleanup.connect()
+      try {
+        await cleanup.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+        await cleanup.query(`DROP ROLE IF EXISTS "${role}"`)
+      } finally {
+        await cleanup.end()
+      }
+    },
+  }
+}
+
+/**
+ * Take the triggers off, as the owner is entitled to, so that ONLY the
+ * privilege can answer. This is the step that separates the two mechanisms
+ * §15.5 insists on measuring separately.
+ */
+async function dropImmutabilityTriggers(client: pg.Client): Promise<void> {
+  for (const trigger of ['no_update', 'no_delete', 'no_truncate']) {
+    await client.query(`DROP TRIGGER wk_audit_events_${trigger} ON public.wk_audit_events`)
+  }
+}
+
+const MUTATIONS = [
+  `UPDATE public.wk_audit_events SET action = 'tampered' WHERE seq = 1`,
+  `DELETE FROM public.wk_audit_events WHERE seq = 1`,
+  `TRUNCATE public.wk_audit_events`,
+]
+
+async function attempt(client: pg.Client, sql: string): Promise<{ code?: string; message: string } | null> {
+  return await client.query(sql).then(
+    () => null,
+    (error: { code?: string; message: string }) => error,
+  )
 }
 
 describe('audit trail (integration)', () => {
@@ -134,49 +243,94 @@ describe('audit trail (integration)', () => {
     await expect(db.update('wk_audit_events', { seq: 'eq.1' }, { action: 'tampered' })).rejects.toThrow()
   })
 
-  // The privilege half of the same rule, provable only with a role that is not
-  // a superuser: the local container runs as `postgres`, which bypasses every
-  // ACL, so above it is the trigger that bites. A deployment whose runtime role
-  // is not the owner gets the refusal from the grant itself.
-  it('refuses UPDATE by ACL for a non-superuser runtime role, with the triggers gone', async () => {
-    const role = `wk_audit_runtime_${randomUUID().slice(0, 8)}`
-    const client = new pg.Client({ connectionString: url })
-    await client.connect()
+  // The privilege half of the same rule (Nachweis A3), against the shape that
+  // can actually measure it.
+  //
+  // The previous version of this test granted a fresh role SELECT, INSERT and
+  // then showed it could not UPDATE. That is a property of PostgreSQL, not of
+  // this migration: a role never granted UPDATE cannot UPDATE whether or not
+  // 0046 revokes anything, and the test passed unchanged with both REVOKE
+  // lines deleted. It stood on a check that did not measure it.
+  //
+  // What 0046 actually revokes is the OWNER's own implicit rights
+  // (`revoke ... from current_user`), and that only bites where the owner is
+  // not a superuser — which is every real deployment and not the local
+  // container. So the database below is owned by an ordinary role and the
+  // migration is applied AS that role.
+  it('A3 · a non-superuser OWNER is refused UPDATE, DELETE and TRUNCATE by the migration alone', async () => {
+    const owned = await provisionOwnedDatabase(AUDIT_MIGRATION)
     try {
-      await client.query(`CREATE ROLE "${role}" LOGIN PASSWORD 'probe'`)
-      await client.query(`GRANT CONNECT ON DATABASE "wikikit_test_audit" TO "${role}"`)
-      await client.query(`GRANT USAGE ON SCHEMA public TO "${role}"`)
-      await client.query(`GRANT SELECT, INSERT ON public.wk_audit_events TO "${role}"`)
-      // Drop the triggers so ONLY the privilege can refuse; restored below.
-      await client.query('DROP TRIGGER wk_audit_events_no_update ON public.wk_audit_events')
-
-      const runtimeUrl = url.replace('postgres:wikikit-local@', `${role}:probe@`)
-      const runtime = new pg.Client({ connectionString: runtimeUrl })
-      await runtime.connect()
+      const client = new pg.Client({ connectionString: owned.ownerUrl })
+      await client.connect()
       try {
-        const refused = await runtime.query(`UPDATE public.wk_audit_events SET action = 'x' WHERE seq = 1`).then(
-          () => null,
-          (error: { code?: string; message: string }) => error,
+        await dropImmutabilityTriggers(client)
+        for (const sql of MUTATIONS) {
+          const refused = await attempt(client, sql)
+          expect(refused, `${sql} was NOT refused`).not.toBeNull()
+          expect(refused!.code, sql).toBe('42501')
+          expect(refused!.message, sql).toMatch(/permission denied/i)
+        }
+        // Append-only, not read-only: the same owner still reads and appends,
+        // and the genesis row it wrote during the migration is untouched.
+        const { rows } = await client.query<{ n: number; action: string }>(
+          `SELECT count(*)::int AS n, min(action) AS action FROM public.wk_audit_events`,
         )
-        expect(refused, 'ACL did not refuse the UPDATE').not.toBeNull()
-        expect(refused!.code).toBe('42501')
-        expect(refused!.message).toMatch(/permission denied/i)
-        // The same role may still read and append — append-only, not read-only.
-        await runtime.query('SELECT count(*) FROM public.wk_audit_events')
+        expect(rows[0]!.n).toBe(1)
+        expect(rows[0]!.action).toBe('audit.trail.opened')
       } finally {
-        await runtime.end()
+        await client.end()
       }
     } finally {
-      await client.query(`
-        CREATE TRIGGER wk_audit_events_no_update
-          BEFORE UPDATE ON public.wk_audit_events
-          FOR EACH ROW EXECUTE FUNCTION public.wk_audit_events_append_only()
-      `)
-      await client.query(`REVOKE ALL ON public.wk_audit_events FROM "${role}"`).catch(() => {})
-      await client.query(`REVOKE ALL ON SCHEMA public FROM "${role}"`).catch(() => {})
-      await client.query(`REVOKE ALL ON DATABASE "wikikit_test_audit" FROM "${role}"`).catch(() => {})
-      await client.query(`DROP ROLE IF EXISTS "${role}"`).catch(() => {})
-      await client.end()
+      await owned.drop()
+    }
+  })
+
+  // GEGENPROBE to the test above — the check the old one could not pass.
+  // Identical setup, identical statements, with only the two REVOKE lines
+  // removed from the migration text. If those lines were decoration, this
+  // would still be refused; it is not.
+  it('A3 · counter-proof: delete the two REVOKE lines and the same owner rewrites the genesis row', async () => {
+    const owned = await provisionOwnedDatabase(withoutTheRevokes(AUDIT_MIGRATION))
+    try {
+      const client = new pg.Client({ connectionString: owned.ownerUrl })
+      await client.connect()
+      try {
+        await dropImmutabilityTriggers(client)
+        const updated = await client.query(`UPDATE public.wk_audit_events SET action = 'tampered' WHERE seq = 1`)
+        expect(updated.rowCount, 'the REVOKE lines are what refuse — remove them and the UPDATE lands').toBe(1)
+        const { rows } = await client.query<{ action: string }>(
+          `SELECT action FROM public.wk_audit_events WHERE seq = 1`,
+        )
+        expect(rows[0]!.action).toBe('tampered')
+      } finally {
+        await client.end()
+      }
+    } finally {
+      await owned.drop()
+    }
+  })
+
+  // The NAMED LIMIT, measured rather than claimed. 0046 says an owner "can
+  // grant them back, which is why the triggers above exist" — so the ACL and
+  // the triggers cover each other, and nothing covers an owner that removes
+  // both. This test pins that: it is the boundary of the guarantee, and if it
+  // ever starts failing the sentence in the migration needs rewriting, not the
+  // test.
+  it('A3 · named limit: an owner that re-grants to itself AND drops the triggers can still rewrite the past', async () => {
+    const owned = await provisionOwnedDatabase(AUDIT_MIGRATION)
+    try {
+      const client = new pg.Client({ connectionString: owned.ownerUrl })
+      await client.connect()
+      try {
+        await dropImmutabilityTriggers(client)
+        await client.query(`GRANT UPDATE, DELETE, TRUNCATE ON public.wk_audit_events TO CURRENT_USER`)
+        const updated = await client.query(`UPDATE public.wk_audit_events SET action = 'tampered' WHERE seq = 1`)
+        expect(updated.rowCount).toBe(1)
+      } finally {
+        await client.end()
+      }
+    } finally {
+      await owned.drop()
     }
   })
 
