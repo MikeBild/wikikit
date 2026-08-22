@@ -603,13 +603,19 @@ const PROPOSAL_LINT = { findings: [], counts: { error: 0, warn: 0, info: 0 } }
 /*
   ── The four records the audit trail is assembled from ───────────────────────
 
-  WikiKit has no audit endpoint, and the trail does not pretend otherwise: it
-  reads reviewed proposals, finished ingest runs, page revisions and the
-  guidelines' version history, and lays them on one axis. So there are four
-  fixtures rather than one, and they are the reason this route is measured as a
-  PAGE rather than as an empty state — the contract fallback would have answered
-  four empty lists, the trail would have rendered its "nothing recorded yet"
-  branch, and the sweep would have been measuring a placeholder.
+  The cockpit's /audit page reads reviewed proposals, finished ingest runs, page
+  revisions and the guidelines' version history, and lays them on one axis. So
+  there are four fixtures rather than one, and they are the reason this route is
+  measured as a PAGE rather than as an empty state — the contract fallback would
+  have answered four empty lists, the trail would have rendered its "nothing
+  recorded yet" branch, and the sweep would have been measuring a placeholder.
+
+  This paragraph used to open with "WikiKit has no audit endpoint". That stopped
+  being true with 8e52c9a, which added GET /v1/audit over wk_audit_events — a
+  chained, append-only trail carrying result, transport, actor and refusals,
+  which the four fachhistorien below carry none of. The page has not been moved
+  onto it yet; when it is, these four fixtures become one and this comment goes
+  with them (WK-AUDIT-SEITE-LIEST-VIER-HISTORIEN).
 
   They serve /inbox, /pages and /charter as well, which until now also read the
   fallback's empty lists. That widening is deliberate: three more surfaces are
