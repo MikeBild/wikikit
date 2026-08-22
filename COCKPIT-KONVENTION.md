@@ -182,3 +182,76 @@ Wo ein Produkt automatisch pflegt, heilt oder aufräumt, sind Prüfen und Repari
 ## 14. Modus & Schranken
 
 Jeder Freigabe-/Autonomie-Modus zeigt am Wähler seine **Gate-Matrix**: welche Gates bleiben, welche entfallen — der Name allein sagt nichts über die Schranke, und zwei Modi mit gleicher Matrix sind eine Lesefalle. Regel- und Policy-Listen kennzeichnen jede Zeile als **Leitplanke** (Anweisungstext an das Modell — eine Bitte) oder **Grenze** (erzwungen durch Rechteprüfung, Abschottung oder nutzlastgebundene Freigabe). Wer beides gleich darstellt, verkauft Ordnung als Sicherheit.
+
+## 15. Audit-Trail
+
+**Entscheidung Mike, 22.08.2026.** §0 schickt die Vergangenheit hierher — also muss diese
+Fläche in allen sechs Produkten **dieselbe** sein. Gemessen am 22.08. war sie es nicht:
+vier verschiedene Spaltensätze (5 bis 8 Spalten), „Aktion" gegen „Vorgang" gegen `subject`,
+„Akteur" gegen „Verursacher" gegen `origin`, eine Überschrift „Audit-Protokoll" gegen fünfmal
+„Audit", und ein Produkt ohne Tabelle. **Der Grund: es gab keinen Paragrafen.** Die Aufträge
+trugen eine Beschreibung, und eine Beschreibung kann nicht fehlschlagen.
+
+**15.1 Name und Ort.** Der Menüeintrag heißt **„Audit"**, in der Gruppe Installation (§6).
+Die Seitenüberschrift heißt **„Audit-Trail"**. Nicht „Protokoll", nicht „Audit-Protokoll",
+nicht „Verlauf".
+
+**15.2 Die fünf Spalten.** In dieser Reihenfolge, mit diesen Namen:
+
+    Zeitpunkt · Vorgang · Art · Ergebnis · Verursacher
+
+- **Zeitpunkt** ist **absolut** („19.08.2026, 14:11"), nie eine Spanne. Jede relative Angabe
+  hier ist eine deutsche Präposition am Quantum — genau der Defekt, den §5 laufend findet.
+- **Vorgang** ist ein deutscher Name, nie ein Maschinenwert. Wo keiner existiert, steht der
+  Maschinenwert **als solcher erkennbar**, nicht „Unbekannt" (§2).
+- **Verursacher** steht als Gedankenstrich, wo die Quelle keinen führt — **nie erschlossen**.
+
+**Produktspezifische Zusatzspalten sind erlaubt** und stehen **rechts** der fünf (WorkKit:
+Transport, Details; ContentKit: Website). Eine Zusatzspalte ist nie ein anderer Name für eine
+der fünf.
+
+**15.3 Was die Seite können muss.** Serverseitige Suche und Filter, vollständiges Blättern,
+Ereignisdetail mit sichtbaren Hashes und Rohdaten, Kettenstatus, Export der aktuellen Auswahl.
+
+**15.4 Die Fußnote ist Pflicht.** Die Seite nennt, **was das Protokoll nicht umfasst** —
+damit ein schmales nicht als vollständiges gelesen wird. Eine Quelle, die nicht antwortet,
+wird **über der Tabelle benannt**, nicht verschluckt.
+
+**15.5 Der Motor.** Verbindlich ist der Standard **audit.v1** aus Mikes Plan: append-only,
+`prev_sha256`/`sha256`-Kette, Sequenz und Hash atomar unter Sperre, Ereignis und Änderung in
+**einer** Transaktion, Fehler und Verweigerungen ebenfalls aufgezeichnet, tägliche
+Kettenkopf-Manifeste außerhalb der Produktdatenbank. Flächen: `GET /v1/audit`,
+`/v1/audit/{id}`, `/v1/audit/verify`, `/v1/audit/export.ndjson`.
+
+**Gemessen am 22.08.2026** — der Ausgangspunkt, an dem sich der Fortschritt messen lässt:
+
+| | Tabelle | Kette | `/v1/audit` | verify | export |
+|---|---|---|---|---|---|
+| WorkKit | ja | **ja** | ja | ja | — |
+| SubKit | ja | — | ja | — | **ja** |
+| ContentKit | ja | — | ja | — | — |
+| WikiKit · CodeKit · WatchKit | — | — | — | — | — |
+
+**15.6 Die elf Nachweise.** Ein Audit-Trail ist erst fertig, wenn jeder davon **gefahren**
+ist — nicht beschrieben, nicht zugesichert. Vollständig in `AUDIT-NACHWEISE.md`:
+
+1. Jede Mutation erzeugt **genau einen** passenden Erfolgs- oder Fehlernachweis.
+2. Eine künstlich fehlschlagende Audit-Speicherung **rollt die fachliche Änderung zurück**.
+3. `UPDATE`, `DELETE`, `TRUNCATE` auf Audit-Tabellen sind für den Laufzeitbenutzer **verboten**.
+4. Manipulation oder Entfernung eines Eintrags wird in einer **wiederhergestellten
+   PROD-Kopie** erkannt und meldet die **erste defekte Sequenz**.
+5. Vollständiges Cursor-Durchlaufen entspricht dem **Datenbanksnapshot**.
+6. **HTTP und MCP** liefern dieselben Ereignisse und Filterergebnisse.
+7. Der Export endet am festgehaltenen **Cutoff** und enthält alle Ereignisse dieses Snapshots.
+8. **Jeder** persistierte KI-Output besitzt Ergebnis-ID, Hash, Lauf, Provider und Modell.
+9. Text- und Bildbytes ergeben beim **erneuten Hashen** denselben SHA-256.
+10. Audit und Export enthalten **keine** Test-Tokens, Prompts, Passwörter oder Geheimnisse.
+11. **C2PA**-signierte Bilder bestehen die **unabhängige** Validierung; Bearbeitungen behalten
+    die Zutatenkette.
+
+Geführt wird der Stand als Tabelle Produkt × Nachweis, drei Ausgänge je Zelle: **gefahren ·
+gefallen · nicht gebaut (mit Messwert)**. **Eine Zelle ohne Lauf ist nie grün.**
+
+**Historische Lücken werden nicht schöngerechnet:** Altdaten werden als `legacy_partial`
+versiegelt, der lückenlose Nachweis beginnt am dokumentierten Umstellungszeitpunkt.
+
