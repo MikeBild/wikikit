@@ -318,7 +318,15 @@ export function createHttpServer(deps: HttpDeps): HttpServer {
       const safeMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
       const session = header ? null : await deps.sessionAuth?.authenticateSession(req, !safeMethod)
       principal = session ?? (await deps.auth.authenticate(header))
-      deps.auth.requireScope(principal, def.altScopes ? [def.scope, ...def.altScopes] : def.scope)
+      // `deferScope` routes are authenticated here and answered by their
+      // handler. The router refusing them would be a refusal nobody records:
+      // it happens before the audited transaction exists, so "a key without
+      // knowledge:approve tried to approve this" left a 403 in the access log
+      // and nothing in the trail. Establishing WHO is the router's job;
+      // deciding stays with the handler that can write the decision down.
+      if (!def.deferScope) {
+        deps.auth.requireScope(principal, def.altScopes ? [def.scope, ...def.altScopes] : def.scope)
+      }
       markUsagePrincipal(req, principal)
     }
 

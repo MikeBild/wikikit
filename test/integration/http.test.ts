@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import pg from 'pg'
 import type { Config } from '../../src/config.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import { createApp, type App } from '../../src/app.ts'
@@ -66,6 +67,7 @@ function integrationConfig(databaseUrl: string): Config {
 
 let app: App
 let base: string
+let databaseUrl = ''
 let readerKey = ''
 let writerKey = ''
 let approverKey = ''
@@ -78,11 +80,40 @@ const json = (key: string) => ({ ...bearer(key), 'content-type': 'application/js
 
 const NOTE_MD = '# OKF is a draft\n\nThe Open Knowledge Format is currently a v0.1 draft.\n'
 
+interface AuditRow {
+  seq: string
+  action: string
+  result: string
+  actor_kind: string
+  actor_id: string | null
+  actor_label: string | null
+  space_id: string | null
+  resource_type: string
+  resource_id: string | null
+  metadata: Record<string, unknown>
+}
+
+/** The whole trail, oldest first — read straight from the table, not the API. */
+async function auditRows(): Promise<AuditRow[]> {
+  const client = new pg.Client({ connectionString: databaseUrl })
+  await client.connect()
+  try {
+    const { rows } = await client.query<AuditRow>(
+      `SELECT seq::text AS seq, action, result, actor_kind, actor_id, actor_label,
+              space_id::text AS space_id, resource_type, resource_id, metadata
+         FROM wk_audit_events ORDER BY seq ASC`,
+    )
+    return rows
+  } finally {
+    await client.end()
+  }
+}
+
 describe('http surface (integration)', () => {
   beforeAll(async () => {
     if (!integration) return
-    const url = await provisionIntegrationDatabase('wikikit_test_http')
-    const config = integrationConfig(url)
+    databaseUrl = await provisionIntegrationDatabase('wikikit_test_http')
+    const config = integrationConfig(databaseUrl)
     await runMigrations(config)
     app = createApp(config, {
       llm: createFakeProvider(),
@@ -231,12 +262,37 @@ describe('http surface (integration)', () => {
   })
 
   it('approve: reader is 403, approver flips the proposal atomically', async () => {
+    // The textbook refusal: a credential that holds no approve right at all.
+    // It used to be answered by the router, before the audited transaction
+    // existed, and left the trail unchanged — the one line §15.5 names as the
+    // reason an audit trail exists went unrecorded while the unnamed
+    // foreign-wiki refusal was recorded. Counted here, not asserted loosely.
+    const trailBefore = await auditRows()
     const forbidden = await fetch(`${base}/v1/proposals/${proposalId}/approve`, {
       method: 'POST',
       headers: json(readerKey),
       body: JSON.stringify({ note: 'nope' }),
     })
     expect(forbidden.status).toBe(403)
+    expect(((await forbidden.json()) as { code: string }).code).toBe('insufficient_scope')
+
+    const trailAfter = await auditRows()
+    expect(trailAfter.length).toBe(trailBefore.length + 1)
+    const denial = trailAfter.at(-1)!
+    expect(denial.action).toBe('proposal.approved')
+    expect(denial.result).toBe('denied')
+    expect(denial.resource_type).toBe('change_proposal')
+    expect(denial.resource_id).toBe(proposalId)
+    // WHO: the credential, derived from the authenticated principal.
+    expect(denial.actor_kind).toBe('api_key')
+    expect(denial.actor_label).toBe('reader')
+    expect(denial.actor_id).toBeTruthy()
+    // WHY: the refusal's own reason, verbatim.
+    expect(String(denial.metadata.error)).toContain('knowledge:approve')
+    // No wiki is named: the scope refusal precedes the proposal lookup on
+    // purpose, so a key that may not approve anywhere cannot use the answer to
+    // learn which proposal ids exist.
+    expect(denial.space_id).toBeNull()
 
     const res = await fetch(`${base}/v1/proposals/${proposalId}/approve`, {
       method: 'POST',

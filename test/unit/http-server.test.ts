@@ -6,6 +6,7 @@ import type { Config } from '../../src/config.ts'
 import { BUILT_IN_SCAFFOLDING_KINDS } from '../../src/domain/concepts.ts'
 import type { Db } from '../../src/db/postgres.ts'
 import { createApp, type App } from '../../src/app.ts'
+import { ROUTES } from '../../src/http/routes.ts'
 import { hashApiKey } from '../../src/http/auth.ts'
 import { createFakeProvider } from '../helpers/fake-provider.ts'
 import { createLogger } from '../../src/logger.ts'
@@ -200,6 +201,34 @@ describe('http server', () => {
     const body = (await res.json()) as { code: string; request_id: string }
     expect(body.code).toBe('not_found')
     expect(body.request_id).toBe(res.headers.get('x-request-id') ?? '(missing)')
+  })
+
+  // `deferScope` moves the scope check off the router and into the handler so
+  // the refusal lands in the audit trail. That is only safe while the handler
+  // actually still refuses — a flag set on a route whose handler forgot its
+  // check would silently open a review route to every authenticated key. This
+  // walks the flag itself: whatever carries it must answer 401 without a
+  // credential and 403 for a credential that lacks the scope.
+  test('every deferScope route is still 401 without a key and 403 without the scope', async () => {
+    const deferred = ROUTES.filter((route) => route.deferScope)
+    expect(deferred.length).toBeGreaterThan(0)
+    for (const route of deferred) {
+      expect(route.scope, `${route.path} defers a scope it does not declare`).not.toBeNull()
+      const url = `${base}${route.path.replace('{id}', '11111111-2222-4333-8444-555555555555')}`
+      const method = route.method.toUpperCase()
+      const body = JSON.stringify({ note: 'probe' })
+      const anonymous = await fetch(url, { method, body, headers: { 'content-type': 'application/json' } })
+      expect(anonymous.status, `${method} ${route.path} without a key`).toBe(401)
+      // READER_KEY holds knowledge:read, which implies neither review nor
+      // approve — the two scopes the deferring routes ask for.
+      const scopeless = await fetch(url, {
+        method,
+        body,
+        headers: { ...auth(READER_KEY), 'content-type': 'application/json' },
+      })
+      expect(scopeless.status, `${method} ${route.path} with a scopeless key`).toBe(403)
+      expect(((await scopeless.json()) as { code: string }).code).toBe('insufficient_scope')
+    }
   })
 
   test('missing key → 401 unauthorized; X-API-Key is accepted as an alternative', async () => {

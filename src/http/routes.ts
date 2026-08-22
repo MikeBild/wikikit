@@ -138,6 +138,23 @@ export interface RouteDef {
    * to load the diff it is deciding on without also holding knowledge:read.
    */
   altScopes?: readonly Scope[]
+  /**
+   * The scope is enforced by the HANDLER, not by the router. Only the review
+   * routes set it, and only for one reason: a refusal is an event — "somebody
+   * without approve rights tried to approve this" is the line an audit trail
+   * exists to carry — and the router refuses before any recorder exists, so a
+   * router-enforced review route produced a 403 and no entry at all.
+   *
+   * The router still AUTHENTICATES (`scope` stays non-null, so a request
+   * without a credential is 401 as before, and the spec still advertises the
+   * scope). It just stops answering; `auditedReview` in this file answers
+   * instead, inside the transaction that records the answer.
+   *
+   * Anything carrying this flag owes a scope check inside its audited block.
+   * `test/unit/http-server.test.ts` refuses the flag on any route whose
+   * handler does not still answer 403 for a key that lacks the scope.
+   */
+  deferScope?: true
   summary: string
   /** Exported handler name in HANDLERS — drift-tested against the registry. */
   handler: string
@@ -749,6 +766,7 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/proposals/{id}/approve',
     scope: 'knowledge:approve',
+    deferScope: true,
     summary: 'Approve a pending proposal (atomic wk_apply_proposal)',
     handler: 'approveProposalHandler',
     request: { params: 'zIdParams', body: 'zReviewRequest' },
@@ -761,6 +779,7 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/proposals/{id}/reject',
     scope: 'knowledge:approve',
+    deferScope: true,
     summary: 'Reject a pending proposal (staged rows kept for audit, marked rejected)',
     handler: 'rejectProposalHandler',
     request: { params: 'zIdParams', body: 'zReviewRequest' },
@@ -773,6 +792,7 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/proposals/{id}/split',
     scope: 'knowledge:review',
+    deferScope: true,
     summary: 'Split a pending proposal: full per-concept split, or defer a subset into one child',
     handler: 'splitProposalHandler',
     request: { params: 'zIdParams', body: 'zSplitProposalRequest' },
@@ -785,6 +805,7 @@ export const ROUTES: RouteDef[] = [
     method: 'post',
     path: '/v1/proposals/{id}/request-changes',
     scope: 'knowledge:review',
+    deferScope: true,
     summary: 'Terminal reject with a mandatory revision note — agents re-propose against the feedback',
     handler: 'requestChangesHandler',
     request: { params: 'zIdParams', body: 'zRequestChangesRequest' },
@@ -1273,6 +1294,19 @@ export type Handler = (deps: HttpDeps, input: HandlerInput) => Promise<HandlerRe
  * space filter cannot even be written.
  */
 /**
+ * What the wrapper knows about the proposal being decided on. It starts EMPTY
+ * and `run` fills it in as it learns, because the first thing `run` does is
+ * refuse credentials that may not review anything at all — and that refusal
+ * must be recordable before any proposal has been loaded.
+ */
+interface ReviewSubject {
+  /** The wiki, once the proposal is loaded. NULL = the refusal names no wiki. */
+  spaceId: string | null
+  /** The proposal's state before the decision, once it is known. */
+  before: unknown
+}
+
+/**
  * Review decisions, recorded (§15.5). Everything the wrapper does is one rule:
  * the decision and its audit entry share one transaction, so a chain that
  * refuses the entry also refuses the decision.
@@ -1283,31 +1317,43 @@ export type Handler = (deps: HttpDeps, input: HandlerInput) => Promise<HandlerRe
  * is already around it. The refusal's own entry is written afterwards, on its
  * own transaction, because the transaction that carried the refusal has by
  * then rolled back.
+ *
+ * That sentence was true of the wrapper and false of the product until the
+ * route table stopped enforcing these scopes itself (`deferScope`): the router
+ * answered 403 before this function was ever entered, so the exact case the
+ * paragraph names — a key without knowledge:approve — produced no entry, while
+ * the case it does not name — an approve key aimed at a foreign wiki, refused
+ * inside `run` — produced one. The named leg was the missing one.
  */
 async function auditedReview<T>(
   deps: HttpDeps,
   input: HandlerInput,
-  event: Pick<AuditEventInput, 'action' | 'spaceId' | 'resourceId' | 'before' | 'metadata'>,
-  run: (tx: Db) => Promise<T>,
+  event: Pick<AuditEventInput, 'action' | 'resourceId' | 'metadata'>,
+  run: (tx: Db, subject: ReviewSubject) => Promise<T>,
 ): Promise<T> {
-  const base: AuditEventInput = {
+  const subject: ReviewSubject = { spaceId: null, before: null }
+  // Built at WRITE time, not at entry: whatever `run` managed to learn before
+  // it threw belongs in the entry that describes the throw.
+  const base = (): AuditEventInput => ({
     ...event,
+    spaceId: subject.spaceId,
+    before: subject.before,
     resourceType: 'change_proposal',
     result: 'success',
     actor: actorFromPrincipal(input.principal),
     transport: transportForPrincipal(input.principal),
     requestId: input.requestId,
-  }
+  })
   try {
     return await auditedTx(deps.db, async (tx) => {
-      const value = await run(tx)
-      return { value, event: { ...base, after: value as unknown } }
+      const value = await run(tx, subject)
+      return { value, event: { ...base(), after: value as unknown } }
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     try {
       await appendAuditFailure(deps.db, {
-        ...base,
+        ...base(),
         result: error instanceof ForbiddenError ? 'denied' : 'error',
         metadata: { ...(event.metadata ?? {}), error: message },
       })
@@ -1345,6 +1391,31 @@ function requireSpaceAccess(
 ): void {
   deps.auth.requireScope(input.principal!, scope, spaceId)
   markUsageContext(input.req, { spaceId })
+}
+
+/**
+ * The wiki-less half of the review check, and the FIRST statement of every
+ * audited review block. It asks only "may this credential review at all",
+ * which is the one question that can be answered before the proposal is
+ * loaded — and it has to be answered there, because a key that may not review
+ * anywhere must not be able to use a 403-versus-404 difference to learn which
+ * proposal ids exist. The wiki-specific half follows the load, as
+ * `requireSpaceAccess`.
+ */
+function requireReviewScope(deps: HttpDeps, input: HandlerInput, scope: Scope): void {
+  deps.auth.requireScope(input.principal!, scope)
+}
+
+/** Load the proposal and tell the audit wrapper what it is looking at. */
+async function loadReviewSubject(
+  tx: Db,
+  id: string,
+  subject: ReviewSubject,
+): Promise<Awaited<ReturnType<typeof getProposal>>> {
+  const detail = await getProposal(tx, { id })
+  subject.spaceId = detail.space_id
+  subject.before = { status: detail.status }
+  return detail
 }
 
 /** The §1.14 stamp for human/agent-authored proposals. */
@@ -2150,21 +2221,21 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   async splitProposalHandler(deps, input) {
-    const detail = await getProposal(deps.db, { id: input.params.id! })
+    const id = input.params.id!
     const body = input.body as { concepts?: string[] } | undefined
     const result = await auditedReview(
       deps,
       input,
       {
         action: 'proposal.split',
-        spaceId: detail.space_id,
-        resourceId: detail.id,
-        before: { status: detail.status },
+        resourceId: id,
         metadata: { review_channel: 'rest', concepts: body?.concepts ?? null },
       },
-      async (tx) => {
+      async (tx, subject) => {
         // Review scope, not approve: splitting reorganizes the review unit, it
         // publishes nothing (approve implies review, so approvers keep it).
+        requireReviewScope(deps, input, 'knowledge:review')
+        const detail = await loadReviewSubject(tx, id, subject)
         requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
         return await splitProposal(tx, {
           id: detail.id,
@@ -2178,7 +2249,7 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   async requestChangesHandler(deps, input) {
-    const detail = await getProposal(deps.db, { id: input.params.id! })
+    const id = input.params.id!
     const body = input.body as { note: string; via?: 'url_elicitation' }
     const channel = body.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
     const result = await auditedReview(
@@ -2186,12 +2257,12 @@ export const HANDLERS: Record<string, Handler> = {
       input,
       {
         action: 'proposal.changes_requested',
-        spaceId: detail.space_id,
-        resourceId: detail.id,
-        before: { status: detail.status },
+        resourceId: id,
         metadata: { review_channel: channel },
       },
-      async (tx) => {
+      async (tx, subject) => {
+        requireReviewScope(deps, input, 'knowledge:review')
+        const detail = await loadReviewSubject(tx, id, subject)
         requireSpaceAccess(deps, input, 'knowledge:review', detail.space_id)
         return await requestChanges(tx, {
           id: detail.id,
@@ -2201,7 +2272,7 @@ export const HANDLERS: Record<string, Handler> = {
         })
       },
     )
-    void deps.reviewElicitations?.complete(detail.id)
+    void deps.reviewElicitations?.complete(id)
     return { status: 200, body: result }
   },
 
@@ -2212,7 +2283,7 @@ export const HANDLERS: Record<string, Handler> = {
   },
 
   async approveProposalHandler(deps, input) {
-    const detail = await getProposal(deps.db, { id: input.params.id! })
+    const id = input.params.id!
     const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
     const channel = body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
     const result = await auditedReview(
@@ -2220,12 +2291,12 @@ export const HANDLERS: Record<string, Handler> = {
       input,
       {
         action: 'proposal.approved',
-        spaceId: detail.space_id,
-        resourceId: detail.id,
-        before: { status: detail.status },
+        resourceId: id,
         metadata: { review_channel: channel },
       },
-      async (tx) => {
+      async (tx, subject) => {
+        requireReviewScope(deps, input, 'knowledge:approve')
+        const detail = await loadReviewSubject(tx, id, subject)
         requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
         // Reviewer identity = the key's name: the audit trail names WHO
         // approved, and the key name is the only identity a headless system
@@ -2238,12 +2309,12 @@ export const HANDLERS: Record<string, Handler> = {
         })
       },
     )
-    void deps.reviewElicitations?.complete(detail.id)
+    void deps.reviewElicitations?.complete(id)
     return { status: 200, body: result }
   },
 
   async rejectProposalHandler(deps, input) {
-    const detail = await getProposal(deps.db, { id: input.params.id! })
+    const id = input.params.id!
     const body = input.body as { note?: string; via?: 'url_elicitation' } | undefined
     const channel = body?.via === 'url_elicitation' ? 'url_elicitation' : 'rest'
     const result = await auditedReview(
@@ -2251,12 +2322,12 @@ export const HANDLERS: Record<string, Handler> = {
       input,
       {
         action: 'proposal.rejected',
-        spaceId: detail.space_id,
-        resourceId: detail.id,
-        before: { status: detail.status },
+        resourceId: id,
         metadata: { review_channel: channel },
       },
-      async (tx) => {
+      async (tx, subject) => {
+        requireReviewScope(deps, input, 'knowledge:approve')
+        const detail = await loadReviewSubject(tx, id, subject)
         requireSpaceAccess(deps, input, 'knowledge:approve', detail.space_id)
         return await rejectProposal(tx, {
           id: detail.id,
@@ -2266,7 +2337,7 @@ export const HANDLERS: Record<string, Handler> = {
         })
       },
     )
-    void deps.reviewElicitations?.complete(detail.id)
+    void deps.reviewElicitations?.complete(id)
     return { status: 200, body: result }
   },
 
